@@ -342,6 +342,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Receivers verify with off-the-shelf libraries. Delivery is at-least-once and unordered; receivers de-duplicate on `webhook-id`.
 
+**Built (step 4, 2026-09-23).** No new dependencies. Signing checked against the Standard Webhooks reference test vector. SSRF guard in `internal/safehttp`: any refused address refuses the whole name; loopback, metadata, multicast and the container's own networks can't be allowlisted; allowlist entries must lie inside one private range. `outbound_allowlist:write` became a sensitive scope.
+
 ## ADR-029 — Admin alerts (owner chose the channels, 2026-09-23)
 
 **Options.** Shoutrrr (MIT; covers most services, but maintenance has moved between forks and it has its own HTTP client, bypassing our SSRF guard) vs built-in senders.

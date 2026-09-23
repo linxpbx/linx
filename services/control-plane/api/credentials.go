@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -91,30 +90,10 @@ func (s *Server) listCredentials(ctx context.Context, kind string, limit *Limit,
 	if !ok {
 		return nil, nil, errNoPrincipal
 	}
-	page := apihttp.ParsePagination(limit, cursor)
-	var before *uuid.UUID
-	if page.Cursor != "" {
-		b, err := base64.RawURLEncoding.DecodeString(page.Cursor)
-		if err != nil {
-			return nil, nil, errCursorInvalid
-		}
-		id, err := uuid.ParseBytes(b)
-		if err != nil {
-			return nil, nil, errCursorInvalid
-		}
-		before = &id
-	}
-	items, err := s.store.ListCredentials(ctx, kind, p.TenantID, before, page.Limit+1)
-	if err != nil {
-		return nil, nil, err
-	}
-	var next *string
-	if len(items) > page.Limit {
-		items = items[:page.Limit]
-		c := base64.RawURLEncoding.EncodeToString([]byte(items[len(items)-1].ID.String()))
-		next = &c
-	}
-	return items, next, nil
+	return page(limit, cursor, func(c auth.Credential) uuid.UUID { return c.ID },
+		func(before *uuid.UUID, limit int) ([]auth.Credential, error) {
+			return s.store.ListCredentials(ctx, kind, p.TenantID, before, limit)
+		})
 }
 
 func (s *Server) revokeCredential(ctx context.Context, kind string, id uuid.UUID) error {

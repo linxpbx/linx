@@ -17,7 +17,8 @@ Detail lives in `docs/`: read only the part you need.
   - Step 1 done: database (Postgres, control plane, migrations, encryption).
   - Step 2 done: API skeleton — `api/openapi.yaml`, `make api` codegen (oapi-codegen strict server, `services/control-plane/api/gen.go`), kin-openapi request validation, problem+json, cursor pagination, `/me`, `/openapi.json`, `/event-types`.
   - Step 3 done: authentication — `internal/auth` (keys, scopes/roles, EdDSA tokens, rate limits, middleware, `/oauth/token`), `internal/store` (Postgres), migration 0002, `/api-keys` + `/oauth-clients` endpoints, `linx api-key create|list|revoke`, `linx_jwt_signing_key` secret. Scopes are declared per operation in `openapi.yaml` (`security: [bearer: [...]]`) and enforced by the validator.
-  - Next: step 4, webhooks (outbox, SSRF guard, signer, retries, delivery log, replay) — Opus, security-sensitive.
+  - Step 4 done: webhooks — `internal/safehttp` (SSRF guard, shared by alert senders), `internal/webhook` (Standard Webhooks signer, sender, outbox worker, service), `internal/store/webhooks.go`, migration 0003, `/webhooks*`, `/webhook-deliveries/*`, `/outbound-allowlist`. Emit events with `webhook.NewEvent` + `store.InsertEvent` in the change's transaction. Worker's `OnDisabled` hook is where step 5 raises the "webhook disabled" alert.
+  - Next: step 5, admin alerts (engine, six channels via `safehttp`, first sources) — Sonnet.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)

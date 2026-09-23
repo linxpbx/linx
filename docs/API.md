@@ -34,7 +34,7 @@ Three kinds of caller, all ending in the same **principal** (tenant, role ceilin
 2. **OAuth 2.0 client credentials** — `POST /oauth/token` (form-encoded) with `client_id` (12 chars) + `client_secret` (`linxcs_<secret>`, stored like an API key), sent by HTTP Basic or in the form, not both. Returns a JWT access token: EdDSA only (alg pinned), 15 min, `iss=linx`, `aud=linx-api`, `jti` checked against the revocation list (ADR-012). The client is looked up on every call, so revoking it stops its tokens at once. Optional `scope` narrows the token. No refresh tokens. Errors use the OAuth format (RFC 6749 §5.2), not problem+json. Signed with `linx_jwt_signing_key`, a Docker secret the installer generates.
 3. **Signed-in people** (admin portal, web client) — session cookie from OIDC/local login + MFA (built later in Phase 1): `HttpOnly`, `Secure`, `SameSite=Strict`, plus a CSRF header on writes. Specified now so the API doesn't change later.
 
-**Scopes** are `resource:read` / `resource:write` (e.g. `extensions:write`, `webhooks:write`, `alerts:write`, `audit:read`); the full list is `auth.Scopes` in `internal/auth/scopes.go`. Sensitive scopes are never included in "all": `recordings:read`, `transcripts:read`, `calls:control`, `api_keys:write`, `oauth_clients:write` (making credentials is as strong as holding every scope).
+**Scopes** are `resource:read` / `resource:write` (e.g. `extensions:write`, `webhooks:write`, `alerts:write`, `audit:read`); the full list is `auth.Scopes` in `internal/auth/scopes.go`. Sensitive scopes are never included in "all": `recordings:read`, `transcripts:read`, `calls:control`, `api_keys:write`, `oauth_clients:write` (making credentials is as strong as holding every scope), `outbound_allowlist:write` (opens the server's LAN to outbound requests; added in step 4).
 
 Each operation lists the scopes it needs in `api/openapi.yaml` (`security: [bearer: [scope]]`); the request validator enforces them before the handler runs. `security: []` marks the few public operations (`/openapi.json`, `/oauth/token`); `/me` and `/event-types` need any valid credential. A test fails if any other operation lists no scope.
 
@@ -73,14 +73,22 @@ Endpoints subscribe to a list of event types (or all). Recording and transcript 
 - Timeout 10 s, success = any 2xx. No redirects followed. `410 Gone` disables the endpoint.
 - Retries: immediately, 5 s, 5 min, 30 min, 2 h, 5 h, 10 h, 10 h (≈ 27 h total), with jitter. Then marked failed.
 - An endpoint failing every delivery for 5 days is disabled and an admin alert fires.
-- Order is not guaranteed; receivers de-duplicate on `webhook-id` (documented).
+- Order is not guaranteed; receivers de-duplicate on `webhook-id` (documented). `webhook-id` is the event id, the same on retries and replays.
 - **Delivery log**: each attempt (status, duration, first 4 KB of response, error) kept 30 days. **Replay** one delivery, or all failed deliveries for an endpoint since a time.
+
+**As built (step 4)** — code: `internal/webhook` (signer, sender, worker, service), `internal/safehttp` (SSRF guard), `internal/store/webhooks.go`, migration `0003_webhooks.sql`.
+- Code that changes something emits its event with `webhook.NewEvent` + `store.InsertEvent(ctx, tx, ev)` inside its own transaction. A worker in each control plane fans events out to enabled, subscribed endpoints (empty `event_types` = every event), then sends them, 8 at a time, each leased for 2 minutes.
+- Endpoints are off for one of three reasons (`disabled_reason`): `gone` (410), `failing` (5 days of failures), `admin`. Turning one off cancels its queued deliveries; turning it on clears the reason and the failure run. "Replay failed since" also re-sends those cancelled ones, once per event.
+- **Test** (`POST /webhooks/{id}/test`) sends `webhook.test` now and returns the attempt; it works on a turned-off endpoint, is tried once and never counts towards turning it off.
+- `PATCH /webhooks/{id}` is JSON Merge Patch (`application/merge-patch+json`); send the `etag` as `If-Match` to avoid overwriting someone else's change.
+- Rotating again within 24 h ends the earlier overlap (only the newest previous secret keeps signing).
+- Until admin alerts exist (step 5), an endpoint turned off by Linx is recorded in the log and audit log only.
 
 **Safe outbound connections (SSRF guard)** — shared by webhooks, alert senders and later CRM/storage:
 - HTTPS only, with normal certificate checks. This includes allowlisted LAN targets: there is no `http://` exception (owner decision). Home tools need HTTPS, e.g. via their own reverse proxy.
 - The host is resolved once, every address is checked, and the connection goes to the checked address (stops DNS-rebinding tricks). Blocked unless allowlisted: loopback, private (RFC 1918, `fc00::/7`), link-local and cloud metadata (`169.254.0.0/16`, `fe80::/10`), CGNAT `100.64.0.0/10`, multicast, `0.0.0.0/8`, and Linx's own Docker networks.
-- Admin allowlist entries are exact CIDRs or host names for LAN targets (NAS, Home Assistant).
-- Senders run on `linx-egress`; they never reach `linx-private`.
+- Admin allowlist entries are exact CIDRs or host names for LAN targets (NAS, Home Assistant). A range must lie inside one private range (a single address becomes a /32 or /128); loopback, `0.0.0.0/8`, multicast, cloud metadata addresses and Linx's own networks can never be allowed. Server-wide; needs `outbound_allowlist:write`.
+- The control plane reaches the internet through `linx-egress`. The guard refuses every range the container itself sits on (`linx-private`, `linx-public`, `linx-egress`), read from its network interfaces at start, so a webhook can't reach Postgres or the CA even if allowlisted.
 
 ## 5. Admin alerts (ADR-029)
 **Channels now**: ntfy, Gotify, Slack (incoming webhook), Microsoft Teams (Workflows webhook with an Adaptive Card), Telegram (bot token + chat id), generic webhook (Standard Webhooks signed). **Email** is added when email sending is built later in Phase 1. Each is a small built-in sender (one HTTPS POST each), all through the SSRF guard. Uptime Kuma connects via generic webhook or ntfy.
@@ -109,11 +117,12 @@ GET/POST          /api/v1/api-keys          GET/DELETE /api/v1/api-keys/{id}   (
 GET/POST          /api/v1/oauth-clients     GET/DELETE /api/v1/oauth-clients/{id}
 GET/POST          /api/v1/webhooks          GET/PATCH/DELETE /api/v1/webhooks/{id}
 POST   /api/v1/webhooks/{id}/rotate-secret | /test | /replay
-GET    /api/v1/webhooks/{id}/deliveries     POST /api/v1/webhook-deliveries/{id}/replay
+GET    /api/v1/webhooks/{id}/deliveries     GET /api/v1/webhook-deliveries/{id}   (with attempts)
+POST   /api/v1/webhook-deliveries/{id}/replay
 GET/POST          /api/v1/alert-channels    GET/PATCH/DELETE /api/v1/alert-channels/{id}
 POST   /api/v1/alert-channels/{id}/test
 GET    /api/v1/alerts                       open and recent alerts
-GET/POST/DELETE   /api/v1/outbound-allowlist
+GET/POST          /api/v1/outbound-allowlist  DELETE /api/v1/outbound-allowlist/{id}
 GET    /api/v1/audit-log
 ```
 
@@ -121,6 +130,6 @@ GET    /api/v1/audit-log
 1. **Database**: Postgres + control plane in compose, installer secrets, migration runner, `tenant` + `audit_log`, encryption helper. *(Sonnet)*
 2. **API skeleton**: `api/openapi.yaml`, `make api` codegen + stale check, validation middleware, problem+json, pagination, `/me`, `/openapi.json`, `/event-types`. *(Sonnet)*
 3. **Authentication**: API keys, scopes/roles, rate limits, `linx api-key create`, OAuth client credentials. *(Opus: security)* **Done 2026-09-23.**
-4. **Webhooks**: outbox, SSRF guard, signer, retries, delivery log, replay, `webhook.test`. *(Opus: security)*
+4. **Webhooks**: outbox, SSRF guard, signer, retries, delivery log, replay, `webhook.test`. *(Opus: security)* **Done 2026-09-23.**
 5. **Admin alerts**: engine, six channels, first sources (certificate renewal, disk, DDNS, webhook disabled). *(Sonnet)*
 6. **Review + docs**: security review, threat model, `linx doctor` checks, `docs/DEMO_PHASE1A.md`. *(Opus)*

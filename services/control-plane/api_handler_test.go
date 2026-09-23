@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -18,15 +19,28 @@ import (
 	"time"
 
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/dbsecret"
+	"linxpbx.com/linx/internal/safehttp"
+	"linxpbx.com/linx/internal/webhook"
 	controlplaneapi "linxpbx.com/linx/services/control-plane/api"
 )
 
 type testEnv struct {
-	t      *testing.T
-	srv    *httptest.Server
-	store  *fakeStore
-	authn  *auth.Authenticator
-	tokens *auth.Tokens
+	t        *testing.T
+	srv      *httptest.Server
+	store    *fakeStore
+	authn    *auth.Authenticator
+	tokens   *auth.Tokens
+	webhooks *webhook.Service
+	whStore  *fakeWebhookStore
+}
+
+// testResolver answers the host names the webhook tests use, so no test
+// depends on real DNS.
+type testResolver map[string][]netip.Addr
+
+func (r testResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Addr, error) {
+	return r[host], nil
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -43,7 +57,25 @@ func newTestEnv(t *testing.T) *testEnv {
 	ips, _ := auth.NewClientIPResolver("")
 	st := newFakeStore()
 	authn := auth.NewAuthenticator(st, tokens, ips, log)
-	handler, err := newAPIHandler(log, st, authn)
+
+	var encKey [32]byte
+	if _, err := rand.Read(encKey[:]); err != nil {
+		t.Fatal(err)
+	}
+	wh := newFakeWebhookStore()
+	resolver := testResolver{
+		"hooks.example.com": {netip.MustParseAddr("93.184.215.14")},
+		"nas.home.arpa":     {netip.MustParseAddr("192.168.1.10")},
+	}
+	policy := safehttp.Policy{Allowlist: webhook.Allowlist(wh)}
+	sender := &webhook.Sender{
+		Client: safehttp.NewClient(policy, safehttp.Options{Resolver: resolver}),
+		Sealer: dbsecret.NewSealer(encKey),
+		Now:    time.Now,
+	}
+	webhooks := &webhook.Service{Store: wh, Sealer: sender.Sealer, Sender: sender, Policy: policy, Resolver: resolver, Now: time.Now}
+
+	handler, err := newAPIHandler(log, st, authn, webhooks)
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}
@@ -52,7 +84,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &testEnv{t: t, srv: srv, store: st, authn: authn, tokens: tokens}
+	return &testEnv{t: t, srv: srv, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh}
 }
 
 // newCredential stores a key or client made by the server-side CLI and

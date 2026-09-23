@@ -11,3 +11,6 @@ output-options:
   # /oauth/token speaks OAuth's own error format (RFC 6749), so it's a
   # hand-written handler (internal/auth/oauth.go), documented in the spec only.
   exclude-operation-ids: [oauthToken]
+  # WebhookMessage is only referenced from the spec's `webhooks:` section,
+  # which pruning doesn't follow.
+  skip-prune: true

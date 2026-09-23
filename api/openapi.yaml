@@ -2,7 +2,8 @@
 # server (services/control-plane/api/gen.go) and, later, the web TypeScript
 # client from this file. Endpoints are added to this spec one build-order
 # step at a time (docs/API.md §8): step 2, the skeleton; step 3,
-# authentication (API keys, OAuth clients, /oauth/token).
+# authentication (API keys, OAuth clients, /oauth/token); step 4, webhooks
+# and the outbound allowlist.
 #
 # Security: every operation needs a bearer credential unless it says
 # `security: []`. The scopes listed under `bearer` are enforced by the
@@ -226,6 +227,328 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/webhooks:
+    get:
+      operationId: listWebhooks
+      summary: List webhook endpoints
+      description: Newest first. Signing secrets are never returned.
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of webhook endpoints.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createWebhook
+      summary: Register a webhook endpoint
+      description: >-
+        Linx will POST events to this HTTPS URL, signed in the Standard
+        Webhooks format (docs/API.md §4). The signing secret is in the
+        response once. A URL whose host resolves to a private address is
+        refused unless that address or host is on the outbound allowlist.
+        Not idempotent: retrying registers a second endpoint.
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookCreate"
+      responses:
+        "201":
+          description: The new endpoint, with its signing secret shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookWithSecret"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/webhooks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getWebhook
+      summary: Get a webhook endpoint
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:read]
+      responses:
+        "200":
+          description: The endpoint.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateWebhook
+      summary: Change a webhook endpoint
+      description: >-
+        JSON Merge Patch: only the fields sent change. Send `If-Match` with
+        the endpoint's `etag` to refuse the change (412) if someone else
+        changed it first. Turning an endpoint off cancels deliveries still
+        waiting to be retried; turning it on clears why it was off.
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/WebhookPatch"
+      responses:
+        "200":
+          description: The endpoint as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Webhook"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteWebhook
+      summary: Delete a webhook endpoint
+      description: Deletes the endpoint and its delivery log.
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:write]
+      responses:
+        "204":
+          description: Deleted.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/webhooks/{id}/rotate-secret:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: rotateWebhookSecret
+      summary: Issue a new signing secret
+      description: >-
+        The new secret is in the response once. For 24 hours messages carry
+        two signatures, one with the new and one with the old secret, so
+        the receiver can switch over without missing any.
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:write]
+      responses:
+        "200":
+          description: The endpoint and its new secret, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookWithSecret"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/webhooks/{id}/test:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: testWebhook
+      summary: Send a test message now
+      description: >-
+        Sends a `webhook.test` event to this endpoint only and waits for the
+        answer (up to 10 seconds). Works while the endpoint is turned off,
+        to check it before turning it back on. Tried once; a failed test
+        never turns the endpoint off.
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:write]
+      responses:
+        "200":
+          description: The delivery with its attempt (succeeded or failed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/webhooks/{id}/replay:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: replayWebhook
+      summary: Re-send failed deliveries
+      description: >-
+        Queues again every event that failed, or was cancelled when the
+        endpoint was turned off, since `since` — unless it has been
+        delivered or queued again already. Each gets the full retry
+        schedule. At most 10,000 per call.
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookReplay"
+      responses:
+        "202":
+          description: How many deliveries were queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookReplayResult"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/webhooks/{id}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listWebhookDeliveries
+      summary: The endpoint's delivery log
+      description: Newest first, kept 30 days. GET /webhook-deliveries/{id} shows each attempt.
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:read]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/DeliveryStatus"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of deliveries (without their attempts).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/webhook-deliveries/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getWebhookDelivery
+      summary: Get a delivery with its attempts
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:read]
+      responses:
+        "200":
+          description: The delivery.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/webhook-deliveries/{id}/replay:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: replayWebhookDelivery
+      summary: Re-send one delivery
+      description: >-
+        Queues the same event (same `webhook-id`) to the same endpoint again,
+        with the full retry schedule. Not for deliveries still being tried or
+        for test messages.
+      tags: [webhooks]
+      security:
+        - bearer: [webhooks:write]
+      responses:
+        "202":
+          description: The new delivery.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/outbound-allowlist:
+    get:
+      operationId: listOutboundAllowlist
+      summary: List the outbound allowlist
+      description: >-
+        Private addresses and host names that webhooks and alert senders may
+        reach (a NAS, Home Assistant). Server-wide.
+      tags: [outbound-allowlist]
+      security:
+        - bearer: [outbound_allowlist:read]
+      responses:
+        "200":
+          description: Every entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllowlistEntryList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createOutboundAllowlistEntry
+      summary: Allow a private range or host
+      description: >-
+        `value` is a CIDR range or address inside one private range
+        (192.168.1.0/24, 10.0.0.5, fd00::/64), or an exact host name
+        (nas.home.arpa) whose addresses may then be private. Loopback, Linx's
+        own networks and cloud metadata addresses can never be allowed. The
+        receiver still needs HTTPS with a trusted certificate.
+      tags: [outbound-allowlist]
+      security:
+        - bearer: [outbound_allowlist:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllowlistEntryCreate"
+      responses:
+        "201":
+          description: The new entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllowlistEntry"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/outbound-allowlist/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    delete:
+      operationId: deleteOutboundAllowlistEntry
+      summary: Remove an allowlist entry
+      description: New connections stop using it at once.
+      tags: [outbound-allowlist]
+      security:
+        - bearer: [outbound_allowlist:write]
+      responses:
+        "204":
+          description: Removed.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /oauth/token:
     post:
       operationId: oauthToken
@@ -275,6 +598,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/OAuthError"
 
+webhooks:
+  webhook.test:
+    post:
+      summary: A test message (POST /webhooks/{id}/test)
+      description: >-
+        `data` is `{"webhook_id": "<uuid>", "message": "..."}`. Other events
+        are added here with the features that send them.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookMessage"
+      responses:
+        "200":
+          description: Any 2xx means received. 410 Gone turns the endpoint off; anything else is retried.
+
 components:
   securitySchemes:
     bearer:
@@ -305,6 +644,18 @@ components:
       name: cursor
       in: query
       description: Opaque pagination cursor from a previous page's `next_cursor`.
+      schema:
+        type: string
+    IfMatch:
+      name: If-Match
+      in: header
+      description: The resource's `etag`; the change is refused with 412 if it no longer matches.
+      schema:
+        type: string
+
+  headers:
+    ETag:
+      description: The resource's version, for If-Match.
       schema:
         type: string
 
@@ -526,6 +877,278 @@ components:
             $ref: "#/components/schemas/OAuthClient"
         next_cursor:
           type: string
+
+    Webhook:
+      description: A webhook endpoint (docs/API.md §4).
+      type: object
+      required: [id, url, description, event_types, enabled, created_by, created_at, updated_at, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        description:
+          type: string
+        event_types:
+          type: array
+          items:
+            type: string
+          description: Events sent to it; empty means every event.
+        enabled:
+          type: boolean
+        disabled_reason:
+          type: string
+          enum: [gone, failing, admin]
+          description: >-
+            Why it's off: `gone` (the receiver answered 410), `failing`
+            (every delivery failed for 5 days) or `admin` (turned off).
+        disabled_at:
+          type: string
+          format: date-time
+        failing_since:
+          type: string
+          format: date-time
+          description: When the current run of failed deliveries started; absent while healthy.
+        last_success_at:
+          type: string
+          format: date-time
+        previous_secret_expires_at:
+          type: string
+          format: date-time
+          description: After a rotation, when the old secret stops signing.
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: Send as If-Match when changing it.
+
+    WebhookCreate:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          maxLength: 2048
+          description: An https:// URL, without a user name or password in it.
+        description:
+          type: string
+          maxLength: 200
+        event_types:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+          description: Event types to send (GET /event-types). Empty or absent means every event.
+        enabled:
+          type: boolean
+          description: Defaults to true.
+
+    WebhookPatch:
+      description: JSON Merge Patch; fields not sent stay as they are.
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          maxLength: 2048
+        description:
+          type: string
+          maxLength: 200
+        event_types:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+        enabled:
+          type: boolean
+
+    WebhookWithSecret:
+      type: object
+      required: [webhook, secret]
+      properties:
+        webhook:
+          $ref: "#/components/schemas/Webhook"
+        secret:
+          type: string
+          description: >-
+            The signing secret (`whsec_...`) for your Standard Webhooks
+            library. Shown once; store it somewhere safe.
+
+    WebhookList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Webhook"
+        next_cursor:
+          type: string
+
+    DeliveryStatus:
+      type: string
+      enum: [pending, succeeded, failed, cancelled]
+
+    WebhookDelivery:
+      description: One event on its way to one endpoint.
+      type: object
+      required: [id, webhook_id, event_id, event_type, status, attempts, max_attempts, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        webhook_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+          description: The `webhook-id` header receivers de-duplicate on.
+        event_type:
+          type: string
+        status:
+          $ref: "#/components/schemas/DeliveryStatus"
+        attempts:
+          type: integer
+        max_attempts:
+          type: integer
+        next_attempt_at:
+          type: string
+          format: date-time
+          description: When a pending delivery is tried next.
+        replay_of:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        log:
+          type: array
+          description: Each attempt, oldest first (only on GET /webhook-deliveries/{id} and /test).
+          items:
+            $ref: "#/components/schemas/DeliveryAttempt"
+
+    DeliveryAttempt:
+      type: object
+      required: [at, duration_ms]
+      properties:
+        at:
+          type: string
+          format: date-time
+        status_code:
+          type: integer
+          description: The receiver's HTTP status; absent if there was no answer.
+        duration_ms:
+          type: integer
+        response_excerpt:
+          type: string
+          description: The first 4 KB of the receiver's answer.
+        error:
+          type: string
+          description: Why the attempt failed, in plain language.
+
+    WebhookDeliveryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDelivery"
+        next_cursor:
+          type: string
+
+    WebhookReplay:
+      type: object
+      additionalProperties: false
+      required: [since]
+      properties:
+        since:
+          type: string
+          format: date-time
+
+    WebhookReplayResult:
+      type: object
+      required: [queued]
+      properties:
+        queued:
+          type: integer
+
+    AllowlistEntry:
+      type: object
+      required: [id, value, kind, description, created_by, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        value:
+          type: string
+          description: The CIDR range or host name.
+        kind:
+          type: string
+          enum: [cidr, host]
+        description:
+          type: string
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AllowlistEntryCreate:
+      type: object
+      additionalProperties: false
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          maxLength: 253
+        description:
+          type: string
+          maxLength: 200
+
+    AllowlistEntryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllowlistEntry"
+
+    WebhookMessage:
+      description: >-
+        The body of every webhook (Standard Webhooks). Headers:
+        `webhook-id` (the event id; the same on retries and replays, so
+        de-duplicate on it), `webhook-timestamp` (Unix seconds of this
+        attempt) and `webhook-signature` (`v1,<base64 HMAC-SHA256>` of
+        `id.timestamp.body`, one per active secret, space-separated).
+        Order isn't guaranteed.
+      type: object
+      required: [type, timestamp, data]
+      properties:
+        type:
+          type: string
+          description: The event type, e.g. `call.missed`.
+        timestamp:
+          type: string
+          format: date-time
+          description: When the event happened.
+        data:
+          type: object
+          description: Event-specific; documented per event.
 
     TokenRequest:
       type: object

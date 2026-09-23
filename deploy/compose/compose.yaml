@@ -60,7 +60,8 @@ services:
   # REST API, webhooks, ARI app, provisioning, push gateway (docs/API.md).
   # Reaches Postgres on linx-private; reached by the edge on linx-public
   # (nothing routes to it yet: the SNI router/edge templates arrive with the
-  # deployment profiles).
+  # deployment profiles); sends webhooks out through linx-egress. Webhook
+  # requests never reach any of these three networks (internal/safehttp).
   control-plane:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-control-plane:${LINX_VERSION:?set by linx setup}
     container_name: linx-control-plane
@@ -80,7 +81,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [linx-private, linx-public]
+    networks: [linx-private, linx-public, linx-egress]
     mem_limit: 256m
     pids_limit: 128
 
@@ -143,7 +144,8 @@ networks:
   linx-private:
     name: linx-private
     internal: true
-  # Outbound-only access for services that call external APIs (ACME, DNS).
+  # Outbound-only access for services that call external APIs (ACME, DNS,
+  # webhooks).
   linx-egress:
     name: linx-egress
   # Services the edge (SNI router or existing proxy) reaches. Nothing
