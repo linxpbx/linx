@@ -1,7 +1,9 @@
 package installer
 
 import (
+	"crypto/rand"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -16,6 +18,13 @@ const (
 	stackEnv  = StackDir + "/.env"
 	// DNSTokenPath is the DNS provider API token (Docker secret linx_dns_token).
 	DNSTokenPath = SecretsDir + "/linx_dns_token"
+	// DBPasswordPath is the Postgres password (Docker secret linx_db_password).
+	DBPasswordPath = SecretsDir + "/linx_db_password"
+	// DBEncryptionKeyPath is the AES-256-GCM key (ADR-030) that encrypts
+	// secrets stored in the database (Docker secret linx_db_encryption_key).
+	DBEncryptionKeyPath = SecretsDir + "/linx_db_encryption_key"
+	// dbEncryptionKeySize is the AES-256 key length in bytes.
+	dbEncryptionKeySize = 32
 	// nonrootGID is the distroless "nonroot" group that Linx service images
 	// run as. The DNS token is root-owned and readable by this group only.
 	nonrootGID = 65532
@@ -48,6 +57,12 @@ func StackPlan(c Config, dnsToken, imageTag string) StackSetup {
 	tokenStep := fileStep("Save the DNS token (readable by root and the certificate service only)",
 		DNSTokenPath, []byte(strings.TrimSpace(dnsToken)), 0o440, 0o700)
 	tokenStep.File.Gid = nonrootGID
+	dbPasswordStep := fileStep("Save the database password (readable by root and the Linx services only)",
+		DBPasswordPath, []byte(existingOrNewPassword(DBPasswordPath)), 0o440, 0o700)
+	dbPasswordStep.File.Gid = nonrootGID
+	dbKeyStep := fileStep("Save the database encryption key (readable by root and the Linx services only)",
+		DBEncryptionKeyPath, existingOrNewKeyBytes(DBEncryptionKeyPath, dbEncryptionKeySize), 0o440, 0o700)
+	dbKeyStep.File.Gid = nonrootGID
 	kind := "trusted certificate"
 	if c.Certificates.Staging {
 		kind = "test certificate"
@@ -56,6 +71,8 @@ func StackPlan(c Config, dnsToken, imageTag string) StackSetup {
 		Names: certNames(c),
 		Plan: Plan{
 			tokenStep,
+			dbPasswordStep,
+			dbKeyStep,
 			fileStep("Write the Linx services configuration", stackFile, compose.File, 0o644, 0o755),
 			fileStep("Write the Linx settings for "+c.Domain.Name, stackEnv, stackDotEnv(c, imageTag), 0o644, 0o755),
 			cmdStep("Download the Linx service images", "docker", append(dc, "pull", "--quiet")...),
@@ -101,4 +118,18 @@ func ValidateDNSToken(t string) error {
 		return fmt.Errorf("that doesn't look like a DNS provider token (%d characters)", len(t))
 	}
 	return nil
+}
+
+// existingOrNewKeyBytes returns n random bytes, or the ones already saved at
+// path so re-running setup doesn't rotate a key still encrypting rows in the
+// database.
+func existingOrNewKeyBytes(path string, n int) []byte {
+	if b, err := os.ReadFile(path); err == nil && len(b) == n {
+		return b
+	}
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // crypto/rand.Read only fails if the OS can't provide randomness
+	}
+	return b
 }

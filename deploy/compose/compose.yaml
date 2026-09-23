@@ -27,6 +27,60 @@ services:
     mem_limit: 64m
     pids_limit: 64
 
+  # Application data (ADR-026), never reachable from outside linx-private.
+  postgres:
+    image: postgres:18@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae
+    container_name: linx-postgres
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    # The image's entrypoint starts as root to set ownership of a fresh data
+    # volume, then drops to the postgres user; these are what that needs.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    environment:
+      POSTGRES_USER: linx
+      POSTGRES_DB: linx
+      POSTGRES_PASSWORD_FILE: /run/secrets/linx_db_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets: [linx_db_password]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    tmpfs: [/tmp, /var/run/postgresql]
+    networks: [linx-private]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready --username linx --dbname linx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 512m
+    pids_limit: 128
+
+  # REST API, webhooks, ARI app, provisioning, push gateway (docs/API.md).
+  # Reaches Postgres on linx-private; reached by the edge on linx-public
+  # (nothing routes to it yet: the SNI router/edge templates arrive with the
+  # deployment profiles).
+  control-plane:
+    image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-control-plane:${LINX_VERSION:?set by linx setup}
+    container_name: linx-control-plane
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      LINX_DB_HOST: postgres
+      LINX_DB_PORT: "5432"
+      LINX_DB_NAME: linx
+      LINX_DB_USER: linx
+    secrets: [linx_db_password, linx_db_encryption_key]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [linx-private, linx-public]
+    mem_limit: 256m
+    pids_limit: 128
+
   # Internal certificate authority (ADR-011, docs/ops/INTERNAL_CA.md). linx
   # setup creates it in the linx-step-ca volume; the root key isn't on the server.
   step-ca:
@@ -60,10 +114,19 @@ secrets:
   # Root-owned, group 1000 (the image's step user), mode 0440.
   linx_step_ca_password:
     file: ./secrets/linx_step_ca_password
+  # Root-owned, group 65532 (the services' nonroot user), mode 0440.
+  # Postgres reads it as root, before it drops to its own user.
+  linx_db_password:
+    file: ./secrets/linx_db_password
+  # AES-256-GCM key that encrypts secrets stored in the database (ADR-030).
+  # Root-owned, group 65532, mode 0440.
+  linx_db_encryption_key:
+    file: ./secrets/linx_db_encryption_key
 
 volumes:
   certd-state:
   certs:
+  postgres-data:
   step-ca:
     name: linx-step-ca
     external: true # created by linx setup
@@ -76,3 +139,7 @@ networks:
   # Outbound-only access for services that call external APIs (ACME, DNS).
   linx-egress:
     name: linx-egress
+  # Services the edge (SNI router or existing proxy) reaches. Nothing
+  # publishes a port here yet; that arrives with the deployment profiles.
+  linx-public:
+    name: linx-public

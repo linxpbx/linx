@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -27,6 +28,14 @@ func TestStackPlan(t *testing.T) {
 	tok := files[DNSTokenPath]
 	if tok == nil || string(tok.Data) != "test-token-xxxxxxxxxxxxxxxx" || tok.Mode != 0o440 || tok.Gid != 65532 || tok.DirMode != 0o700 {
 		t.Errorf("token file = %+v", tok)
+	}
+	pw := files[DBPasswordPath]
+	if pw == nil || len(pw.Data) == 0 || pw.Mode != 0o440 || pw.Gid != 65532 || pw.DirMode != 0o700 {
+		t.Errorf("database password file = %+v", pw)
+	}
+	key := files[DBEncryptionKeyPath]
+	if key == nil || len(key.Data) != 32 || key.Mode != 0o440 || key.Gid != 65532 || key.DirMode != 0o700 {
+		t.Errorf("database encryption key file = %+v", key)
 	}
 	if f := files["/etc/linx/compose.yaml"]; f == nil || string(f.Data) != string(compose.File) {
 		t.Error("compose.yaml not installed from the embedded copy")
@@ -59,11 +68,31 @@ func TestStackPlan(t *testing.T) {
 // TestComposeSecretsMatchInstaller keeps compose.yaml's secret files where
 // setup writes them.
 func TestComposeSecretsMatchInstaller(t *testing.T) {
-	for _, p := range []string{DNSTokenPath, SecretsDir + "/" + secretStepCAPassword} {
+	for _, p := range []string{DNSTokenPath, SecretsDir + "/" + secretStepCAPassword, DBPasswordPath, DBEncryptionKeyPath} {
 		rel := "./" + strings.TrimPrefix(p, StackDir+"/")
 		if !strings.Contains(string(compose.File), "file: "+rel+"\n") {
 			t.Errorf("compose.yaml doesn't read %s from %s", p, rel)
 		}
+	}
+}
+
+func TestExistingOrNewKeyBytes(t *testing.T) {
+	path := t.TempDir() + "/key"
+	a := existingOrNewKeyBytes(path, 32)
+	if len(a) != 32 {
+		t.Fatalf("len = %d, want 32", len(a))
+	}
+	// Not saved by existingOrNewKeyBytes itself (that's fileStep's job), so
+	// asking again without saving first gives a different key.
+	b := existingOrNewKeyBytes(path, 32)
+	if string(a) == string(b) {
+		t.Error("two unsaved calls returned the same key")
+	}
+	if err := os.WriteFile(path, a, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := existingOrNewKeyBytes(path, 32); string(got) != string(a) {
+		t.Error("existing key not reused")
 	}
 }
 
