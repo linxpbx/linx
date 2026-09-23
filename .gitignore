@@ -10,6 +10,9 @@ node_modules/
 !.env.example
 secrets/
 *.pem
+# Public Let's Encrypt staging root certificates (no keys), embedded in linx doctor.
+!internal/doctor/le-staging-root-x1.pem
+!internal/doctor/le-staging-root-x2.pem
 *.key
 setup.yaml
 
