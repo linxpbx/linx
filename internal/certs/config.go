@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"linxpbx.com/linx/internal/dnsname"
 )
 
 // DNS providers supported for DNS-01. More arrive with the Domain & DNS page.
@@ -82,14 +84,13 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 }
 
 var (
-	labelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 	emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 )
 
 // Validate checks every field.
 func (c Config) Validate() error {
 	var errs []error
-	if err := validDomain(c.Domain); err != nil {
+	if err := dnsname.ValidDomain(c.Domain); err != nil {
 		errs = append(errs, fmt.Errorf("LINX_DOMAIN: %w", err))
 	}
 	if !slices.Contains(Providers, c.Provider) {
@@ -114,22 +115,6 @@ func (c Config) Validate() error {
 		errs = append(errs, errors.New("LINX_CERTS_DIR and LINX_STATE_DIR: required"))
 	}
 	return errors.Join(errs...)
-}
-
-func validDomain(d string) error {
-	if len(d) > 253-len("provision.") {
-		return errors.New("too long")
-	}
-	labels := strings.Split(d, ".")
-	if len(labels) < 2 {
-		return fmt.Errorf("%q is not a domain name", d)
-	}
-	for _, l := range labels {
-		if !labelRE.MatchString(l) {
-			return fmt.Errorf("%q is not a valid domain name (letters, digits and hyphens only; no wildcard)", d)
-		}
-	}
-	return nil
 }
 
 // Names are the DNS names the certificate covers.

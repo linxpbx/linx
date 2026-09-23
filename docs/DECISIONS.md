@@ -249,3 +249,13 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** The `linx` CLI, the web/admin UI and the iOS app ship in English only. The brief's Arabic translation and right-to-left layout requirement is dropped.
 
 **Consequences.** No i18n string catalogues or RTL layout work in this scope. User-facing copy still stays plain-language and in one place per client, so adding languages later is a refactor, not a rewrite.
+
+## ADR-022 — Hidden terminal input: golang.org/x/term
+
+**Context.** `linx setup` asks for the DNS provider's API token. It must not appear on screen or in terminal scrollback.
+
+**Options.** `golang.org/x/term` (BSD-3-Clause, maintained by the Go team); calling `stty -echo` from Go (fragile, leaves the terminal broken if setup is killed).
+
+**Decision.** `golang.org/x/term`, pinned. It restores the terminal on return.
+
+**Consequences.** The token never touches `setup.yaml` or `.env`; in `--config` mode it must already be saved in `/etc/linx/secrets/linx_dns_token`.

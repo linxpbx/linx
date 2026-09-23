@@ -1,5 +1,6 @@
-# Linx base stack. linx setup writes .env (non-secret settings) and the files
-# under secrets/ (mode 0600, never committed); you shouldn't need to edit this.
+# Linx base stack. linx setup installs it as /etc/linx/compose.yaml, next to
+# .env (non-secret settings) and secrets/ (root-owned, readable only by the
+# service that needs it, never committed); you shouldn't need to edit this.
 name: linx
 
 services:
@@ -53,6 +54,7 @@ services:
     pids_limit: 64
 
 secrets:
+  # Root-owned, group 65532 (the services' nonroot user), mode 0440.
   linx_dns_token:
     file: ./secrets/linx_dns_token
   # Root-owned, group 1000 (the image's step user), mode 0440.

@@ -8,3 +8,18 @@ docker:
 container_ui: none
 # Resource profile: auto (chosen from the hardware), lite, standard or performance.
 resource_profile: auto
+domain:
+  # Base domain. Linx uses admin., api., meet., provision., sip. and turn. under it.
+  name: pbx.example.com
+  # Where the domain's DNS is managed: cloudflare or duckdns (name.duckdns.org).
+  # The API token is never put here. Before running setup with this file, save it
+  # as /etc/linx/secrets/linx_dns_token (one line). Setup fixes its permissions.
+  dns_provider: cloudflare
+certificates:
+  # true: Let's Encrypt test certificates (browsers warn). Set to false once
+  # everything works to get trusted certificates.
+  staging: true
+  # true: one certificate for *.<domain>, which keeps the host names private.
+  wildcard: true
+  # Contact for certificate expiry notices. Required when staging is false.
+  email: ""

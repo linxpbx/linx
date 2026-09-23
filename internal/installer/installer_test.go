@@ -315,7 +315,9 @@ func TestLANOrLoopback(t *testing.T) {
 }
 
 func TestConfigRoundTrip(t *testing.T) {
-	c := Config{Version: 1, Docker: DockerConfig{Install: true}, ContainerUI: ContainerUIPortainer, ResourceProfile: ProfileLite}
+	c := Config{Version: 1, Docker: DockerConfig{Install: true}, ContainerUI: ContainerUIPortainer, ResourceProfile: ProfileLite,
+		Domain:       DomainConfig{Name: "lab.linxpbx.com", DNSProvider: DNSCloudflare},
+		Certificates: CertificateConfig{Staging: false, Wildcard: false, Email: "ops+pbx@example.com"}}
 	got, err := ParseConfig(bytes.NewReader(c.Marshal()))
 	if err != nil {
 		t.Fatal(err)
@@ -331,6 +333,13 @@ func TestParseConfigErrors(t *testing.T) {
 		"version: 1\ncontainer_ui: dockge\n",
 		"version: 1\nresource_profile: huge\n",
 		"version: 1\ncontainer-ui: none\n", // typo'd key
+		"version: 1\ndomain:\n  name: '*.example.com'\n",
+		"version: 1\ndomain:\n  name: example.com\n  dns_provider: route53\n",
+		"version: 1\ndomain:\n  name: example.com\n  dns_provider: duckdns\n",
+		"version: 1\ndomain:\n  name: a.b.duckdns.org\n  dns_provider: duckdns\n",
+		"version: 1\ncertificates:\n  staging: false\n",                  // production needs an email
+		"version: 1\ncertificates:\n  email: \"a'b@example.com\"\n",      // unsafe in .env
+		"version: 1\ncertificates:\n  email: \"ops@example.com$HOME\"\n", // unsafe in .env
 	} {
 		if _, err := ParseConfig(strings.NewReader(in)); err == nil {
 			t.Errorf("ParseConfig(%q) succeeded, want error", in)
@@ -339,6 +348,10 @@ func TestParseConfigErrors(t *testing.T) {
 	c, err := ParseConfig(strings.NewReader("version: 1\n"))
 	if err != nil || c != DefaultConfig() {
 		t.Errorf("defaults: %+v, %v", c, err)
+	}
+	c, err = ParseConfig(strings.NewReader("version: 1\ndomain:\n  name: Me.DuckDNS.org\n  dns_provider: duckdns\n"))
+	if err != nil || c.Domain.Name != "me.duckdns.org" {
+		t.Errorf("duckdns: %+v, %v", c.Domain, err)
 	}
 }
 

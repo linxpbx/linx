@@ -12,8 +12,11 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/term"
+
 	"linxpbx.com/linx/internal/hostinfo"
 	"linxpbx.com/linx/internal/installer"
+	"linxpbx.com/linx/internal/version"
 )
 
 // setupEnv is everything setup touches on the host, so tests can fake it.
@@ -26,6 +29,9 @@ type setupEnv struct {
 	lanAddress  func() netip.Addr
 	savedConfig func() ([]byte, error) // reads installer.ConfigPath
 	readFile    func(string) ([]byte, error)
+	// readSecret reads a line from the terminal without echoing it.
+	readSecret func() (string, error)
+	commit     string // build commit; picks the service image tag
 }
 
 func realSetupEnv() setupEnv {
@@ -39,13 +45,20 @@ func realSetupEnv() setupEnv {
 		lanAddress:  installer.LANAddress,
 		savedConfig: func() ([]byte, error) { return os.ReadFile(installer.ConfigPath) },
 		readFile:    os.ReadFile,
+		readSecret: func() (string, error) {
+			b, err := term.ReadPassword(int(os.Stdin.Fd()))
+			return string(b), err
+		},
+		commit: version.Commit,
 	}
 }
 
 const setupUsage = `Usage: sudo linx setup [--config FILE] [--dry-run]
 
-Checks this server, installs Docker if needed, and saves your answers to
-` + installer.ConfigPath + `.
+Checks this server, installs Docker if needed, sets up your domain and its
+certificate, starts Linx, and saves your answers to ` + installer.ConfigPath + `.
+The DNS provider token is kept in ` + installer.DNSTokenPath + `; with
+--config, put it there first if setup hasn't saved one yet.
 
   --config FILE  use answers from FILE instead of asking questions
   --dry-run      show what setup would do without changing anything
@@ -161,16 +174,31 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		plan = append(plan, portainer.Plan...)
 	}
 
-	// 5. Internal certificate authority (ADR-011). If Docker is being
+	// 5. Domain, DNS provider token and certificate settings.
+	token, err := askDomain(p, &cfg, ask, env)
+	if err != nil {
+		return inputError(stderr, err)
+	}
+	imageTag, err := installer.ImageTag(env.commit)
+	if err != nil && !*dryRun {
+		fmt.Fprintln(stderr, "\nCan't set up the Linx services:", err)
+		return 1
+	}
+
+	// 6. Internal certificate authority (ADR-011). If Docker is being
 	// installed now there can't be an existing CA to detect.
 	pki := installer.PKIPlan(action != installer.DockerInstall && installer.CAExists(ctx, env.runner))
 	plan = append(plan, pki.Plan...)
+
+	// 7. The Linx services: first certificate, then start everything.
+	stack := installer.StackPlan(cfg, token, imageTag)
+	plan = append(plan, stack.Plan...)
 
 	plan = append(plan, installer.Step{Title: "Save your answers to " + installer.ConfigPath, File: &installer.File{
 		Path: installer.ConfigPath, Data: cfg.Marshal(), Mode: 0o600, DirMode: 0o755,
 	}})
 
-	// 6. Confirm and apply.
+	// 8. Confirm and apply.
 	fmt.Fprintln(stdout, "\nSetup will:")
 	for i, s := range plan {
 		fmt.Fprintf(stdout, "  %2d. %s\n", i+1, s.Title)
@@ -204,8 +232,9 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		return 1
 	}
 
-	// 7. Summary.
-	fmt.Fprintf(stdout, "\nPrerequisites are ready. Resource profile: %s.\n", profile)
+	// 9. Summary.
+	fmt.Fprintf(stdout, "\nLinx is running. Resource profile: %s.\n", profile)
+	printCertificate(stdout, cfg, stack)
 	if cfg.ContainerUI == installer.ContainerUIPortainer {
 		printPortainer(stdout, portainer)
 	}
@@ -213,6 +242,118 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		printCABackup(stdout, pki.Passphrase)
 	}
 	return 0
+}
+
+// askDomain asks for the domain, DNS provider, token and certificate settings
+// (or checks them in --config mode) and returns the DNS token. The token is
+// never stored in setup.yaml; a saved one is reused.
+func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (string, error) {
+	saved := ""
+	if b, err := env.readFile(installer.DNSTokenPath); err == nil {
+		saved = strings.TrimSpace(string(b))
+	}
+	if !ask {
+		if cfg.Domain.Name == "" {
+			return "", errors.New("setup.yaml: domain.name: required, e.g. pbx.example.com")
+		}
+		if saved == "" {
+			return "", fmt.Errorf("no DNS provider token saved yet. Put it in %s (one line, root only) and run setup again", installer.DNSTokenPath)
+		}
+		return saved, nil
+	}
+
+	fmt.Fprint(p.out, "\nLinx needs a domain name. It creates addresses under it, like admin.<domain> and meet.<domain>,\n"+
+		"and gets a certificate for them so browsers and apps connect securely.\n")
+	oldDomain := cfg.Domain.Name
+	for {
+		d, err := p.text("Domain (e.g. pbx.example.com or yourname.duckdns.org)", cfg.Domain.Name)
+		if err != nil {
+			return "", err
+		}
+		d = strings.ToLower(d)
+		provider := cfg.Domain.DNSProvider
+		if strings.HasSuffix(d, ".duckdns.org") {
+			provider = installer.DNSDuckDNS
+		} else if provider == installer.DNSDuckDNS {
+			provider = installer.DNSCloudflare
+		}
+		if err := installer.ValidateDomain(d, provider); err != nil {
+			fmt.Fprintln(p.out, "  "+err.Error())
+			continue
+		}
+		cfg.Domain.Name, cfg.Domain.DNSProvider = d, provider
+		break
+	}
+	if cfg.Domain.DNSProvider == installer.DNSCloudflare {
+		fmt.Fprintln(p.out, "Linx proves you own the domain by adding a temporary DNS record, so your DNS must be managed at Cloudflare.")
+	}
+
+	if saved != "" && cfg.Domain.Name == oldDomain {
+		keep, err := p.confirm("Keep the saved DNS token?", true)
+		if err != nil {
+			return "", err
+		}
+		if keep {
+			return saved, p.askCertificates(cfg)
+		}
+	}
+	fmt.Fprintln(p.out, dnsTokenHelp[cfg.Domain.DNSProvider])
+	for {
+		fmt.Fprint(p.out, "Paste the token (it won't be shown): ")
+		t, err := env.readSecret()
+		fmt.Fprintln(p.out)
+		if err != nil {
+			return "", err
+		}
+		if err := installer.ValidateDNSToken(t); err != nil {
+			fmt.Fprintln(p.out, "  "+err.Error())
+			continue
+		}
+		return strings.TrimSpace(t), p.askCertificates(cfg)
+	}
+}
+
+var dnsTokenHelp = map[string]string{
+	installer.DNSCloudflare: "Create a Cloudflare API token: dash.cloudflare.com → My Profile → API Tokens → Create Token →\n" +
+		"\"Edit zone DNS\" template. Permissions: Zone · DNS · Edit and Zone · Zone · Read.\n" +
+		"Zone Resources: Include · Specific zone · your domain. Only this token is needed.",
+	installer.DNSDuckDNS: "Your DuckDNS token is shown at the top of duckdns.org after you sign in.",
+}
+
+// askCertificates asks whether to use test certificates and for a contact email.
+func (p *prompter) askCertificates(cfg *installer.Config) error {
+	var err error
+	fmt.Fprint(p.out, "\nTest certificates come from Let's Encrypt's test service. Browsers warn about them, but they\n"+
+		"let you check everything works without hitting Let's Encrypt's limits. Switch to trusted ones later.\n")
+	if cfg.Certificates.Staging, err = p.confirm("Use test certificates for now?", cfg.Certificates.Staging); err != nil {
+		return err
+	}
+	q := "Email for certificate expiry notices (optional while testing, Enter to skip)"
+	if !cfg.Certificates.Staging {
+		q = "Email for certificate expiry notices (required for trusted certificates)"
+	}
+	for {
+		e, err := p.text(q, cfg.Certificates.Email)
+		if err != nil {
+			return err
+		}
+		if err := installer.ValidateEmail(e, cfg.Certificates.Staging); err != nil {
+			fmt.Fprintln(p.out, "  "+err.Error())
+			continue
+		}
+		cfg.Certificates.Email = e
+		return nil
+	}
+}
+
+func printCertificate(w io.Writer, cfg installer.Config, s installer.StackSetup) {
+	if cfg.Certificates.Staging {
+		fmt.Fprintf(w, "\nTest certificate issued for %s. Browsers will warn about it; that's expected.\n", s.Names)
+		fmt.Fprintln(w, "When everything works, set certificates.staging: false and an email in "+installer.ConfigPath)
+		fmt.Fprintln(w, "and run: sudo linx setup --config "+installer.ConfigPath)
+		return
+	}
+	fmt.Fprintf(w, "\nTrusted certificate issued for %s. It renews automatically.\n", s.Names)
 }
 
 func printCABackup(w io.Writer, passphrase string) {
@@ -282,6 +423,20 @@ func (p *prompter) line() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(s), nil
+}
+
+// text asks for a line of text. Enter keeps def.
+func (p *prompter) text(q, def string) (string, error) {
+	if def != "" {
+		fmt.Fprintf(p.out, "%s [Enter = %s]: ", q, def)
+	} else {
+		fmt.Fprintf(p.out, "%s: ", q)
+	}
+	s, err := p.line()
+	if s == "" {
+		s = def
+	}
+	return s, err
 }
 
 func (p *prompter) confirm(q string, def bool) (bool, error) {

@@ -13,6 +13,12 @@ import (
 	"testing"
 
 	"linxpbx.com/linx/internal/hostinfo"
+	"linxpbx.com/linx/internal/installer"
+)
+
+const (
+	testCommit = "0123456789abcdef0123456789abcdef01234567"
+	testToken  = "test-token-xxxxxxxxxxxxxxxxxxxx"
 )
 
 // hostRunner fakes a host where only the listed commands exist.
@@ -43,12 +49,15 @@ func testEnv(stdin string, files map[string]string) setupEnv {
 			}
 			return nil, fs.ErrNotExist
 		},
+		readSecret: func() (string, error) { return testToken, nil },
+		commit:     testCommit,
 	}
 }
 
 func TestSetupInteractiveDryRun(t *testing.T) {
-	// Answers: accept profile, install Docker, choose Portainer.
-	env := testEnv("\ny\n2\n", nil)
+	// Answers: accept profile, install Docker, choose Portainer, a bad then a
+	// good domain, (token), keep test certificates, skip the email.
+	env := testEnv("\ny\n2\n*.bad\nlab.linxpbx.com\n\n\n", nil)
 	var out, errOut bytes.Buffer
 	code := runSetup(context.Background(), []string{"--dry-run"}, &out, &errOut, env)
 	if code != 0 {
@@ -61,6 +70,11 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 		"Start Portainer",
 		"Create the internal certificate authority",
 		"-c <script>",
+		"is not a valid domain name",
+		"Edit zone DNS",
+		"Save the DNS token",
+		"Get a test certificate for *.lab.linxpbx.com",
+		"Start the Linx services",
 		"Save your answers",
 		"Dry run: nothing was changed.",
 	} {
@@ -71,6 +85,7 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 }
 
 func TestSetupConfigFile(t *testing.T) {
+	const domain = "domain:\n  name: lab.linxpbx.com\n"
 	tests := []struct {
 		name     string
 		yaml     string
@@ -78,12 +93,18 @@ func TestSetupConfigFile(t *testing.T) {
 		wantErr  string
 	}{
 		{"docker not allowed", "version: 1\n", 1, "Linx needs Docker"},
-		{"docker allowed", "version: 1\ndocker:\n  install: true\n", 0, ""},
+		{"docker allowed", "version: 1\ndocker:\n  install: true\n" + domain, 0, ""},
 		{"invalid", "version: 1\ncontainer_ui: dockge\n", 1, "container_ui"},
+		{"no domain", "version: 1\ndocker:\n  install: true\n", 1, "domain.name: required"},
+		{"no token", "version: 1\ndocker:\n  install: true\ndomain:\n  name: x.duckdns.org\n  dns_provider: duckdns\n", 1, "no DNS provider token"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := testEnv("", map[string]string{"s.yaml": tt.yaml})
+			files := map[string]string{"s.yaml": tt.yaml}
+			if tt.name != "no token" {
+				files[installer.DNSTokenPath] = testToken + "\n"
+			}
+			env := testEnv("", files)
 			env.interactive = false
 			var out, errOut bytes.Buffer
 			code := runSetup(context.Background(), []string{"--dry-run", "--config", "s.yaml"}, &out, &errOut, env)
@@ -91,6 +112,30 @@ func TestSetupConfigFile(t *testing.T) {
 				t.Errorf("exit %d stderr %q, want %d containing %q", code, errOut.String(), tt.wantCode, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestSetupKeepsSavedToken(t *testing.T) {
+	// Saved answers and token; the owner accepts every default.
+	env := testEnv(strings.Repeat("\n", 8), map[string]string{installer.DNSTokenPath: "saved-token-xxxxxxxxxxxxxxxxxxx\n"})
+	env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
+	env.readSecret = func() (string, error) { t.Error("asked for a token although one is saved"); return "", io.EOF }
+	var out, errOut bytes.Buffer
+	if code := runSetup(context.Background(), []string{"--dry-run"}, &out, &errOut, env); code != 0 {
+		t.Fatalf("exit %d, stderr: %s\nstdout: %s", code, errOut.String(), out.String())
+	}
+	if !strings.Contains(out.String(), "Keep the saved DNS token?") {
+		t.Errorf("didn't offer the saved token:\n%s", out.String())
+	}
+}
+
+func TestSetupRefusesUnknownBuild(t *testing.T) {
+	env := testEnv("", map[string]string{"s.yaml": "version: 1\ndocker:\n  install: true\ndomain:\n  name: lab.linxpbx.com\n",
+		installer.DNSTokenPath: testToken})
+	env.interactive, env.isRoot, env.commit = false, true, "unknown"
+	var out, errOut bytes.Buffer
+	if code := runSetup(context.Background(), []string{"--config", "s.yaml"}, &out, &errOut, env); code != 1 || !strings.Contains(errOut.String(), "make build") {
+		t.Errorf("exit %d, stderr %q", code, errOut.String())
 	}
 }
 
