@@ -17,7 +17,7 @@ func testServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("loading test spec: %v", err)
 	}
-	return NewServer(spec, nil, nil)
+	return NewServer(spec, nil, nil, nil)
 }
 
 func TestGetOpenapiSpec(t *testing.T) {

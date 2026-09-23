@@ -352,6 +352,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** No new dependency; each sender is small and tested against a fake server. New channels are a small file each.
 
+**Built (step 5, 2026-09-23).** No new dependencies. Channel settings sealed as one JSON object per channel (ADR-030), same as a webhook secret; a `webhook` channel's signing secret is Linx-generated, like a webhook endpoint's. `alert.fired`/`alert.resolved` also emitted as webhook events, in the transaction that marks the alert notified. Certificate renewal failure wired up by polling `linx-certd`'s existing `/metrics` over `linx-private` (not the SSRF-guarded client: that guard is for admin-supplied URLs, not Linx's own services, and would in fact refuse `linx-private`). Disk/storage and DDNS update failure deferred: the control plane has no filesystem of its own to check and no DDNS-updater feature exists yet (`docs/THREAT_MODEL.md`).
+
 ## ADR-030 — Secrets stored in the database
 
 **Context.** Some secrets must be usable again, not just checked: webhook signing secrets, Telegram bot tokens, Slack/Teams URLs with tokens inside, later SMTP and OAuth tokens.

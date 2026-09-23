@@ -35,6 +35,11 @@ type Service struct {
 	Policy   safehttp.Policy
 	Resolver safehttp.Resolver
 	Now      func() time.Time
+	// OnEnabledChanged, if set, is called after an admin turns an endpoint
+	// on or off (not when the worker disables it — Worker.OnDisabled
+	// covers that). Admin alerts hook in here to resolve the "webhook
+	// disabled" alert once it's turned back on.
+	OnEnabledChanged func(ctx context.Context, tenant, endpoint uuid.UUID, enabled bool)
 }
 
 var errNoPrincipal = errors.New("no principal on the request: authentication middleware is missing")
@@ -226,7 +231,8 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch, ifMatch
 		changes["event_types"] = e.EventTypes
 	}
 	now := s.Now().UTC()
-	if patch.Enabled != nil && *patch.Enabled != e.Enabled {
+	enabledChanged := patch.Enabled != nil && *patch.Enabled != e.Enabled
+	if enabledChanged {
 		e.Enabled = *patch.Enabled
 		if e.Enabled {
 			e.DisabledReason, e.DisabledAt, e.FailingSince = nil, nil, nil
@@ -244,6 +250,9 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, patch Patch, ifMatch
 	}
 	if errors.Is(err, ErrNotFound) {
 		return Endpoint{}, notFound("webhook")
+	}
+	if err == nil && enabledChanged && s.OnEnabledChanged != nil {
+		s.OnEnabledChanged(ctx, updated.TenantID, updated.ID, updated.Enabled)
 	}
 	return updated, err
 }

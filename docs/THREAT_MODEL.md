@@ -78,7 +78,10 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 | Webhooks | **I** personal data in payloads | Only what each event needs; never recording/transcript contents; delivery log kept 30 days | 1 |
 | Webhook secrets | **I** secret leaks from the API or logs | Shown once (create, rotate); stored sealed (AES-256-GCM bound to the endpoint row); never in list/get responses, audit details or log lines; URLs with a user name or password refused | 1 |
 | Stored integration secrets | **I** database dump leaks tokens | AES-256-GCM with a key held as a Docker secret, bound to the row (ADR-030) | 1 |
-| Admin alerts | **D** alert flood hides real problems | De-duplication by key, flap hold-back, reminders at most every 24 h, one summary after quiet hours | 1 |
+| Admin alerts | **D** alert flood hides real problems | De-duplication by key, flap hold-back (5 min stable before the first send), reminders at most every 24 h, one digest after quiet hours (built: `internal/alert`) | 1 |
+| Alert channel settings | **I** channel URLs/tokens leak (Slack/Teams URLs, Telegram bot tokens, ntfy access tokens) | Sealed as one JSON object per channel (AES-256-GCM, ADR-030), same as a webhook secret; never returned by the API once saved, only usable through Test | 1 |
+| Alert channel URLs (ntfy/Gotify server, Slack/Teams/webhook URL) | **I**/**E** SSRF via an alert channel | Same `internal/safehttp` guard as webhooks: checked at save time and every send | 1 |
+| Certificate renewal alert source | **T** control plane trusts a spoofed `/metrics` response | Fixed hostname (`certd`, compose service DNS) on `linx-private` only, not admin-configurable; if wrong, the worst case is a missed or spurious alert, not a security bypass | 1 |
 | AI/MCP (later) | **E** prompt injection via untrusted content | Untrusted-data marking; write tools require human confirmation | 6 |
 
 ## Residual risks and open items
@@ -95,6 +98,9 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 - An endpoint turned off for failing only writes a log line and an audit entry until admin alerts arrive (step 5).
 - Standard Webhooks receivers reject messages whose timestamp is more than ~5 minutes off, so the server's clock must be right (NTP).
 - `Idempotency-Key` isn't implemented yet; no step-4 endpoint needs it (creating a webhook returns its secret, like API keys, so it isn't idempotent by design).
+- Disk/storage-nearly-full and DDNS-update-failure alert sources (docs/API.md §5) are not wired up: the control plane container has no filesystem of its own to check (`read_only: true`, no volumes) and no host-disk or DDNS-updater signal reaches it without either a Docker socket mount (against the "no Docker socket mounts" rule) or a new host mount / DDNS-updater feature. Revisit when either is designed.
+- The certificate renewal alert only reads `linx-certd`'s expiry and failure-count metrics; it can't tell a slow ACME provider from a broken DNS provider apart. The message points the admin at `linx doctor` and the certd logs rather than guessing further.
+- Alert channels are server-wide, like the outbound allowlist; with multi-tenancy they'll need a tenant scope.
 - Asterisk and coturn can't see real client IPs on passthrough profiles. This is mitigated by pushing clients through WSS (where the control plane sees the IP) and by credential quotas on TURN.
 - Server-decrypted call types (PBX-anchored calls, recordings, trunks) are documented honestly in the user guide.
 - Dynamic IP with IP-auth trunks is unsupported (the wizard warns about this).

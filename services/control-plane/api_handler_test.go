@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/safehttp"
@@ -33,6 +34,8 @@ type testEnv struct {
 	tokens   *auth.Tokens
 	webhooks *webhook.Service
 	whStore  *fakeWebhookStore
+	alerts   *alert.Service
+	alStore  *fakeAlertStore
 }
 
 // testResolver answers the host names the webhook tests use, so no test
@@ -75,7 +78,15 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 	webhooks := &webhook.Service{Store: wh, Sealer: sender.Sealer, Sender: sender, Policy: policy, Resolver: resolver, Now: time.Now}
 
-	handler, err := newAPIHandler(log, st, authn, webhooks)
+	al := newFakeAlertStore()
+	alertSender := &alert.Sender{
+		Client: safehttp.NewClient(policy, safehttp.Options{Resolver: resolver}),
+		Sealer: dbsecret.NewSealer(encKey),
+		Now:    time.Now,
+	}
+	alerts := &alert.Service{Store: al, Sealer: alertSender.Sealer, Sender: alertSender, Policy: policy, Resolver: resolver, Now: time.Now}
+
+	handler, err := newAPIHandler(log, st, authn, webhooks, alerts)
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}
@@ -84,7 +95,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &testEnv{t: t, srv: srv, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh}
+	return &testEnv{t: t, srv: srv, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al}
 }
 
 // newCredential stores a key or client made by the server-side CLI and

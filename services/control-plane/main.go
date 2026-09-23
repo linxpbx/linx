@@ -1,7 +1,8 @@
 // Command control-plane is the Linx API, ARI app, provisioning and push gateway.
 // Phase 1 so far: database, migrations, the API skeleton, authentication
-// (API keys, OAuth client credentials, scopes, rate limits) and webhooks
-// (outbox worker, SSRF-guarded delivery, delivery log; docs/API.md §8).
+// (API keys, OAuth client credentials, scopes, rate limits), webhooks
+// (outbox worker, SSRF-guarded delivery, delivery log) and admin alerts
+// (engine, six channels, first sources; docs/API.md §8).
 //
 // `control-plane api-key ...` is the server-side key tool that `linx api-key`
 // runs inside this container (apikey_cmd.go).
@@ -12,10 +13,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
+	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
@@ -28,6 +31,10 @@ import (
 )
 
 const service = "linx-control-plane"
+
+// certdPollInterval is how often the certificate renewal alert source
+// checks linx-certd's status (docs/API.md §5).
+const certdPollInterval = 5 * time.Minute
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "api-key" {
@@ -77,46 +84,84 @@ func main() {
 	}
 
 	st := store.New(pool)
-	if _, err := st.DefaultTenant(startCtx); err != nil {
+	tenant, err := st.DefaultTenant(startCtx)
+	if err != nil {
 		log.Error("database setup failed", "err", err)
 		os.Exit(1)
 	}
 	authn := auth.NewAuthenticator(st, tokens, ips, log)
 
-	// Outbound connections to admin-given URLs (docs/API.md §4): never to
-	// this container's own networks, private ranges only if allowlisted.
+	// Outbound connections to admin-given URLs (docs/API.md §4, §5): never
+	// to this container's own networks, private ranges only if allowlisted.
 	own, err := safehttp.OwnNetworks()
 	if err != nil {
 		log.Error("reading network interfaces", "err", err)
 		os.Exit(1)
 	}
 	policy := safehttp.Policy{Own: own, Allowlist: webhook.Allowlist(st)}
-	sender := &webhook.Sender{
-		Client: safehttp.NewClient(policy, safehttp.Options{}),
-		Sealer: dbsecret.NewSealer(encKey),
-		Now:    time.Now,
-	}
-	webhooks := &webhook.Service{Store: st, Sealer: sender.Sealer, Sender: sender, Policy: policy, Now: time.Now}
+	guardedClient := safehttp.NewClient(policy, safehttp.Options{})
+	sealer := dbsecret.NewSealer(encKey)
+
+	sender := &webhook.Sender{Client: guardedClient, Sealer: sealer, Now: time.Now}
+	webhooks := &webhook.Service{Store: st, Sealer: sealer, Sender: sender, Policy: policy, Now: time.Now}
+
+	alertSender := &alert.Sender{Client: guardedClient, Sealer: sealer, Now: time.Now}
+	alerts := &alert.Service{Store: st, Sealer: sealer, Sender: alertSender, Policy: policy, Now: time.Now}
+	engine := &alert.Engine{Store: st, Sender: alertSender, Log: log}
+
+	// "webhook endpoint disabled" (docs/API.md §5): fired whether the
+	// worker turned it off automatically or an admin did, resolved once
+	// it's turned back on. The same key either way, so re-enabling always
+	// clears it.
+	webhookDisabledKey := func(endpoint uuid.UUID) string { return "webhook.disabled:" + endpoint.String() }
 	worker := &webhook.Worker{
 		Store: st, Sender: sender, Log: log,
-		OnDisabled: func(_ context.Context, tenant, endpoint uuid.UUID, reason string) {
-			// Admin alerts arrive in docs/API.md §8 step 5; until then the
-			// log line and audit entry are the record.
-			log.Warn("webhook endpoint disabled", "tenant", tenant, "endpoint", endpoint, "reason", reason)
+		OnDisabled: func(ctx context.Context, tenant, endpoint uuid.UUID, reason string) {
+			msg := "Linx turned this webhook off because every delivery failed for 5 days."
+			if reason == webhook.DisabledGone {
+				msg = "The receiver answered 410 Gone, so Linx turned this webhook off."
+			}
+			if err := engine.Fire(ctx, tenant, webhookDisabledKey(endpoint), alert.SeverityWarning,
+				"A webhook was turned off", msg, ""); err != nil {
+				log.Error("firing webhook-disabled alert failed", "err", err)
+			}
 		},
 	}
-	workerCtx, stopWorker := context.WithCancel(context.Background())
-	workerDone := make(chan struct{})
-	go func() {
-		defer close(workerDone)
-		worker.Run(workerCtx)
-	}()
+	webhooks.OnEnabledChanged = func(ctx context.Context, tenant, endpoint uuid.UUID, enabled bool) {
+		var err error
+		if enabled {
+			err = engine.Resolve(ctx, tenant, webhookDisabledKey(endpoint))
+		} else {
+			err = engine.Fire(ctx, tenant, webhookDisabledKey(endpoint), alert.SeverityWarning,
+				"A webhook was turned off", "An admin turned this webhook off.", "")
+		}
+		if err != nil {
+			log.Error("updating webhook-disabled alert failed", "err", err)
+		}
+	}
+
+	bgCtx, stopBackground := context.WithCancel(context.Background())
+	var bg sync.WaitGroup
+	runBackground := func(run func(context.Context)) {
+		bg.Add(1)
+		go func() {
+			defer bg.Done()
+			run(bgCtx)
+		}()
+	}
+	runBackground(worker.Run)
+	runBackground(engine.Run)
+	// The certificate renewal alert source polls linx-certd directly (not
+	// through the SSRF guard: it's Linx's own service, not an admin URL).
+	runBackground(func(ctx context.Context) {
+		pollCertd(ctx, &http.Client{Timeout: 10 * time.Second}, engine, tenant, certdPollInterval, log)
+	})
 	defer func() {
-		stopWorker()
-		<-workerDone
+		stopBackground()
+		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)
@@ -133,8 +178,8 @@ func main() {
 	}
 	if err := server.Run(addr, mux, log); err != nil {
 		log.Error("server stopped", "err", err)
-		stopWorker()
-		<-workerDone
+		stopBackground()
+		bg.Wait()
 		os.Exit(1)
 	}
 }
