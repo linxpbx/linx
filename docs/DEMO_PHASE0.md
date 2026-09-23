@@ -12,7 +12,10 @@ A hand-run check that Phase 0 does what the roadmap promises. Tick each box. It 
 - [ ] `CLAUDE.md`, `docs/ARCHITECTURE.md`, `DECISIONS.md`, `THREAT_MODEL.md`, `ROADMAP.md` and `ui/DESIGN_TOKENS.md` exist and match what you approved on 2026-09-23.
 
 ## 2. On your computer
+Open Terminal. Every command here runs inside the project folder:
 ```
+cd ~/Projects/linx
+git pull
 make setup-dev
 make lint          # ends with "lint: ok"
 make test          # failures only; nothing listed means all passed
