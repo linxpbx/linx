@@ -29,4 +29,4 @@ Filled in as each component lands (Phase 1). Every method must be verified by ch
 
 ## Checking by hand
 - `docker compose logs certd`: shows "certificate deployed" or "certificate is current".
-- `linx doctor` (Phase 0b item 5) checks expiry, issuer and that each service serves the current certificate.
+- `sudo linx doctor` checks the certificate service is running, the certificate covers every hostname, the full chain up to a trusted (or, for test certificates, Let's Encrypt's test) authority, and expiry: a warning under 21 days left, a problem under 7. From Phase 1 it also checks that each service serves the current certificate.

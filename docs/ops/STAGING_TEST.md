@@ -29,6 +29,8 @@ sudo docker run --rm --network none --user 65532 -v linx_certs:/c:ro --entrypoin
 ```
 `meta.json` should show `"staging": true`, `"issuer": "letsencrypt-staging"` and names `*.lab.linxpbx.com`. Also run setup a second time: it should offer to keep the saved token and finish without a new certificate.
 
+Then run `sudo linx doctor`. Every line should say `ok`, except one warning that the root key backup is still on the server. On a throwaway VM, `sudo rm -r /etc/linx/ca-backup` and run doctor again: it should end with "Everything checked is working."
+
 ## If it fails
 - "NXDOMAIN looking up TXT for _acme-challenge…": the domain is very new and some DNS resolvers still remember that it didn't exist. Wait 30 minutes and run setup again.
 - "propagation: time limit exceeded": the DNS provider's name servers didn't show the record within 10 minutes. Check the provider's status page, and that the server can make DNS queries (UDP port 53) to the internet.

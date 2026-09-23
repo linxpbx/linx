@@ -31,6 +31,8 @@ You need the backup and passphrase only to renew the CA (its certificates last 1
 
 ## Checking it
 
+`sudo linx doctor` checks that the CA answers, that its intermediate belongs to its root, how long both have left (a warning under 180 days, a problem under 30), and warns while the root key backup is still on the server.
+
 `docker ps` shows `linx-step-ca` as `healthy` when the CA answers. By hand:
 
 ```

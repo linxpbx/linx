@@ -17,7 +17,7 @@ Usage:
 
 Commands:
   setup     Check this server and install what Linx needs (run with sudo)
-  doctor    Check that everything is working (coming in Phase 0b)
+  doctor    Check that everything is working (run with sudo)
   version   Show the Linx version
   help      Show this help
 `
@@ -41,8 +41,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "setup":
 		return runSetup(context.Background(), args[1:], stdout, stderr, realSetupEnv())
 	case "doctor":
-		fmt.Fprintf(stderr, "linx %s: not available yet in this build.\n", args[0])
-		return 1
+		return runDoctor(context.Background(), args[1:], stdout, stderr, realDoctorEnv())
 	default:
 		fmt.Fprintf(stderr, "linx: unknown command %q\n\n%s", args[0], usage)
 		return 2

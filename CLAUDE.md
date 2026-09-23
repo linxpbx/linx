@@ -11,7 +11,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
 
 ## Current state
-- Phase 0a approved 2026-09-23. Phase 0b items 1 (skeleton), 2 (CI), 3 (installer prereqs), 4a (linx-certd: Cloudflare + DuckDNS, wildcard default) and 4b (step-ca bootstrap in `linx setup`; `make test-docker`) and 4c (setup asks domain/DNS token, installs `/etc/linx/compose.yaml`, gets the first certificate, starts the stack) done. Live staging test passed 2026-09-23 (`docs/ops/STAGING_TEST.md`). Next: `linx doctor` certificate checks (last 0b item), then `docs/DEMO_PHASE0.md`.
+- Phase 0a approved 2026-09-23. Phase 0b items 1 (skeleton), 2 (CI), 3 (installer prereqs), 4a (linx-certd: Cloudflare + DuckDNS, wildcard default) and 4b (step-ca bootstrap in `linx setup`; `make test-docker`) and 4c (setup asks domain/DNS token, installs `/etc/linx/compose.yaml`, gets the first certificate, starts the stack) and 5 (`linx doctor` certificate checks: `internal/doctor`) done. Live staging test passed 2026-09-23 (`docs/ops/STAGING_TEST.md`); doctor not yet run live. Next: `docs/DEMO_PHASE0.md`.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)
@@ -47,7 +47,7 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - `make build` (bin/ + web/dist/). Go module path: `linxpbx.com/linx`
 - `make security` (govulncheck, npm audit, licence allowlist), `make image SERVICE=control-plane`
 - CI: `.github/workflows/ci.yml` (amd64+arm64 tests, gitleaks, SBOM, Trivy, cosign-signed images to ghcr.io on master). Actions pinned by SHA; Dependabot updates them. First external Go dep must add a Go licence check.
-- `linx setup [--config FILE] [--dry-run]` (code: `cmd/linx/setup.go`, `internal/installer`, `internal/hostinfo`), `linx doctor`
+- `linx setup [--config FILE] [--dry-run]` (code: `cmd/linx/setup.go`, `internal/installer`, `internal/hostinfo`), `linx doctor` (code: `cmd/linx/doctor.go`, `internal/doctor`)
 
 ## Security rules (never break these)
 - Never disable cert verification, never use `--insecure`, never fall back to plaintext. Only exception: a provider trunk whose provider can't encrypt (ADR-023): TLS/SRTP tried first, admin confirms a warning; no warning over WireGuard.

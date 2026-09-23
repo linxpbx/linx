@@ -16,7 +16,7 @@ func TestRun(t *testing.T) {
 		{[]string{"version"}, 0, "linx "},
 		{[]string{"help"}, 0, "Commands:"},
 		{[]string{"setup", "--bogus"}, 2, ""},
-		{[]string{"doctor"}, 1, ""},
+		{[]string{"doctor", "--bogus"}, 2, ""},
 		{[]string{"bogus"}, 2, ""},
 	}
 	for _, tt := range tests {
