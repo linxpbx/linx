@@ -43,6 +43,22 @@ test-go:
 test-web:
 	@cd web && npm run --silent test
 
+GOVULNCHECK_VERSION := v1.8.0
+
+.PHONY: security
+security: ## Known-vulnerability scan (Go + npm) and licence allowlist
+	@if out=$$(go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./... 2>&1); then echo "govulncheck: ok"; \
+	else echo "$$out" | tail -50; exit 1; fi
+	@cd web && npm audit --audit-level=high >/dev/null 2>&1 && echo "npm audit: ok" \
+		|| (npm audit --audit-level=high | tail -50; exit 1)
+	@go run ./tools/licensecheck
+
+.PHONY: image
+image: ## Build a local image, e.g. make image SERVICE=control-plane
+	@docker buildx build -q -f deploy/docker/go-service.Dockerfile --build-arg SERVICE=$(SERVICE) \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --load -t linx-$(SERVICE):dev . >/dev/null
+	@echo "image: linx-$(SERVICE):dev"
+
 .PHONY: build
 build: ## Build Go binaries into bin/ and the web app into web/dist/
 	@mkdir -p bin

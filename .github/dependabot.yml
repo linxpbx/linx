@@ -1,0 +1,24 @@
+# Keeps pinned versions current (brief: pin everything, no abandoned libraries).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      go: { patterns: ["*"] }
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: weekly }
+    groups:
+      web: { patterns: ["*"] }
+
+  - package-ecosystem: docker
+    directory: /deploy/docker
+    schedule: { interval: weekly }

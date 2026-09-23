@@ -1,0 +1,10 @@
+.git
+bin
+web/node_modules
+web/dist
+ios
+docs
+**/.DS_Store
+.env
+.env.*
+secrets
