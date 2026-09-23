@@ -10,21 +10,26 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/apihttp"
+	"linxpbx.com/linx/internal/auth"
 )
 
 // Server implements StrictServerInterface.
 type Server struct {
-	spec *openapi3.T
+	spec  *openapi3.T
+	store CredentialStore
+	now   func() time.Time
 }
 
 // NewServer builds a Server. spec is served as-is at GET /openapi.json, so
 // callers must pass the same document the server was validated against.
-func NewServer(spec *openapi3.T) *Server {
-	return &Server{spec: spec}
+func NewServer(spec *openapi3.T, store CredentialStore) *Server {
+	return &Server{spec: spec, store: store, now: time.Now}
 }
 
 func (s *Server) GetOpenapiSpec(_ context.Context, _ GetOpenapiSpecRequestObject) (GetOpenapiSpecResponseObject, error) {
@@ -40,7 +45,7 @@ func (s *Server) GetOpenapiSpec(_ context.Context, _ GetOpenapiSpecRequestObject
 }
 
 func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponseObject, error) {
-	p, ok := PrincipalFromContext(ctx)
+	p, ok := auth.PrincipalFromContext(ctx)
 	if !ok {
 		return GetMedefaultApplicationProblemPlusJSONResponse{
 			StatusCode: http.StatusInternalServerError,
@@ -53,7 +58,17 @@ func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponse
 			},
 		}, nil
 	}
-	return GetMe200JSONResponse(p), nil
+	me := Principal{Id: p.ID, Type: PrincipalType(p.Type), Scopes: p.Scopes}
+	if me.Scopes == nil {
+		me.Scopes = []string{}
+	}
+	if p.Role != "" {
+		me.Role = &p.Role
+	}
+	if p.TenantID != uuid.Nil {
+		me.TenantId = &p.TenantID
+	}
+	return GetMe200JSONResponse(me), nil
 }
 
 func (s *Server) ListEventTypes(_ context.Context, req ListEventTypesRequestObject) (ListEventTypesResponseObject, error) {

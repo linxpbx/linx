@@ -25,6 +25,11 @@ const (
 	DBEncryptionKeyPath = SecretsDir + "/linx_db_encryption_key"
 	// dbEncryptionKeySize is the AES-256 key length in bytes.
 	dbEncryptionKeySize = 32
+	// JWTSigningKeyPath is the Ed25519 seed that signs API access tokens
+	// (ADR-027; Docker secret linx_jwt_signing_key).
+	JWTSigningKeyPath = SecretsDir + "/linx_jwt_signing_key"
+	// jwtSigningKeySize is the Ed25519 seed length in bytes.
+	jwtSigningKeySize = 32
 	// nonrootGID is the distroless "nonroot" group that Linx service images
 	// run as. The DNS token is root-owned and readable by this group only.
 	nonrootGID = 65532
@@ -63,6 +68,9 @@ func StackPlan(c Config, dnsToken, imageTag string) StackSetup {
 	dbKeyStep := fileStep("Save the database encryption key (readable by root and the Linx services only)",
 		DBEncryptionKeyPath, existingOrNewKeyBytes(DBEncryptionKeyPath, dbEncryptionKeySize), 0o440, 0o700)
 	dbKeyStep.File.Gid = nonrootGID
+	jwtKeyStep := fileStep("Save the API token signing key (readable by root and the Linx services only)",
+		JWTSigningKeyPath, existingOrNewKeyBytes(JWTSigningKeyPath, jwtSigningKeySize), 0o440, 0o700)
+	jwtKeyStep.File.Gid = nonrootGID
 	kind := "trusted certificate"
 	if c.Certificates.Staging {
 		kind = "test certificate"
@@ -73,6 +81,7 @@ func StackPlan(c Config, dnsToken, imageTag string) StackSetup {
 			tokenStep,
 			dbPasswordStep,
 			dbKeyStep,
+			jwtKeyStep,
 			fileStep("Write the Linx services configuration", stackFile, compose.File, 0o644, 0o755),
 			fileStep("Write the Linx settings for "+c.Domain.Name, stackEnv, stackDotEnv(c, imageTag), 0o644, 0o755),
 			cmdStep("Download the Linx service images", "docker", append(dc, "pull", "--quiet")...),

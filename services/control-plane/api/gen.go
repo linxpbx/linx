@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/oapi-codegen/runtime"
@@ -25,26 +26,100 @@ import (
 
 // Defines values for PrincipalType.
 const (
-	ApiKey      PrincipalType = "api_key"
-	OauthClient PrincipalType = "oauth_client"
-	System      PrincipalType = "system"
-	User        PrincipalType = "user"
+	PrincipalTypeApiKey      PrincipalType = "api_key"
+	PrincipalTypeOauthClient PrincipalType = "oauth_client"
+	PrincipalTypeSystem      PrincipalType = "system"
+	PrincipalTypeUser        PrincipalType = "user"
 )
 
 // Valid indicates whether the value is a known member of the PrincipalType enum.
 func (e PrincipalType) Valid() bool {
 	switch e {
-	case ApiKey:
+	case PrincipalTypeApiKey:
 		return true
-	case OauthClient:
+	case PrincipalTypeOauthClient:
 		return true
-	case System:
+	case PrincipalTypeSystem:
 		return true
-	case User:
+	case PrincipalTypeUser:
 		return true
 	default:
 		return false
 	}
+}
+
+// Defines values for Role.
+const (
+	RoleAdmin       Role = "admin"
+	RoleReporter    Role = "reporter"
+	RoleSystemAdmin Role = "system_admin"
+	RoleUser        Role = "user"
+)
+
+// Valid indicates whether the value is a known member of the Role enum.
+func (e Role) Valid() bool {
+	switch e {
+	case RoleAdmin:
+		return true
+	case RoleReporter:
+		return true
+	case RoleSystemAdmin:
+		return true
+	case RoleUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// ApiKey defines model for ApiKey.
+type ApiKey struct {
+	AllowedIps []string           `json:"allowed_ips"`
+	CreatedAt  time.Time          `json:"created_at"`
+	CreatedBy  string             `json:"created_by"`
+	ExpiresAt  time.Time          `json:"expires_at"`
+	Id         openapi_types.UUID `json:"id"`
+	LastUsedAt *time.Time         `json:"last_used_at,omitempty"`
+	LastUsedIp *string            `json:"last_used_ip,omitempty"`
+	Name       string             `json:"name"`
+
+	// Prefix The key's public start, `linx_<id>`, to recognise it.
+	Prefix    string     `json:"prefix"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	Role      Role       `json:"role"`
+	Scopes    []string   `json:"scopes"`
+}
+
+// ApiKeyCreated defines model for ApiKeyCreated.
+type ApiKeyCreated struct {
+	ApiKey ApiKey `json:"api_key"`
+
+	// Key The full key. Shown once; store it somewhere safe.
+	Key string `json:"key"`
+}
+
+// ApiKeyList defines model for ApiKeyList.
+type ApiKeyList struct {
+	Items      []ApiKey `json:"items"`
+	NextCursor *string  `json:"next_cursor,omitempty"`
+}
+
+// CredentialCreate A new API key or OAuth client.
+type CredentialCreate struct {
+	// AllowedIps Addresses or CIDR ranges it may be used from. Empty allows any.
+	AllowedIps *[]string `json:"allowed_ips,omitempty"`
+
+	// ExpiresAt Defaults to one year from now; at most two years.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+
+	// Name What it's for, e.g. "CRM sync".
+	Name string `json:"name"`
+
+	// Role Defaults to the caller's role; can't be above it.
+	Role *Role `json:"role,omitempty"`
+
+	// Scopes Scopes to grant, each held by the caller. `all` means every non-sensitive scope the role and caller have; sensitive scopes (api_keys:write, oauth_clients:write, recordings:read, transcripts:read, calls:control) must be named.
+	Scopes []string `json:"scopes"`
 }
 
 // EventType defines model for EventType.
@@ -63,6 +138,37 @@ type EventTypeList struct {
 	NextCursor *string `json:"next_cursor,omitempty"`
 }
 
+// OAuthClient defines model for OAuthClient.
+type OAuthClient struct {
+	AllowedIps []string `json:"allowed_ips"`
+
+	// ClientId Sent to /oauth/token.
+	ClientId   string             `json:"client_id"`
+	CreatedAt  time.Time          `json:"created_at"`
+	CreatedBy  string             `json:"created_by"`
+	ExpiresAt  time.Time          `json:"expires_at"`
+	Id         openapi_types.UUID `json:"id"`
+	LastUsedAt *time.Time         `json:"last_used_at,omitempty"`
+	LastUsedIp *string            `json:"last_used_ip,omitempty"`
+	Name       string             `json:"name"`
+	RevokedAt  *time.Time         `json:"revoked_at,omitempty"`
+	Role       Role               `json:"role"`
+	Scopes     []string           `json:"scopes"`
+}
+
+// OAuthClientCreated defines model for OAuthClientCreated.
+type OAuthClientCreated struct {
+	// ClientSecret Shown once; store it somewhere safe.
+	ClientSecret string      `json:"client_secret"`
+	OauthClient  OAuthClient `json:"oauth_client"`
+}
+
+// OAuthClientList defines model for OAuthClientList.
+type OAuthClientList struct {
+	Items      []OAuthClient `json:"items"`
+	NextCursor *string       `json:"next_cursor,omitempty"`
+}
+
 // OpenApiDocument The full OpenAPI document served by this API. Free-form JSON.
 type OpenApiDocument map[string]interface{}
 
@@ -71,7 +177,7 @@ type Principal struct {
 	// Id The user, API key or OAuth client id.
 	Id string `json:"id"`
 
-	// Role Present for a signed-in person; absent for keys and clients.
+	// Role The role ceiling; scopes never exceed it.
 	Role *string `json:"role,omitempty"`
 
 	// Scopes e.g. `extensions:write`, `webhooks:write`.
@@ -100,11 +206,26 @@ type Problem struct {
 	Type string `json:"type"`
 }
 
+// Role defines model for Role.
+type Role string
+
 // Cursor defines model for Cursor.
 type Cursor = string
 
+// Id defines model for Id.
+type Id = openapi_types.UUID
+
 // Limit defines model for Limit.
 type Limit = int
+
+// ListApiKeysParams defines parameters for ListApiKeys.
+type ListApiKeysParams struct {
+	// Limit Maximum items per page (docs/API.md §2).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous page's `next_cursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
 
 // ListEventTypesParams defines parameters for ListEventTypes.
 type ListEventTypesParams struct {
@@ -115,14 +236,53 @@ type ListEventTypesParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// ListOauthClientsParams defines parameters for ListOauthClients.
+type ListOauthClientsParams struct {
+	// Limit Maximum items per page (docs/API.md §2).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous page's `next_cursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// CreateApiKeyJSONRequestBody defines body for CreateApiKey for application/json ContentType.
+type CreateApiKeyJSONRequestBody = CredentialCreate
+
+// CreateOauthClientJSONRequestBody defines body for CreateOauthClient for application/json ContentType.
+type CreateOauthClientJSONRequestBody = CredentialCreate
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ListApiKeys List API keys
+	// (GET /api/v1/api-keys)
+	ListApiKeys(w http.ResponseWriter, r *http.Request, params ListApiKeysParams)
+	// CreateApiKey Create an API key
+	// (POST /api/v1/api-keys)
+	CreateApiKey(w http.ResponseWriter, r *http.Request)
+	// RevokeApiKey Revoke an API key
+	// (DELETE /api/v1/api-keys/{id})
+	RevokeApiKey(w http.ResponseWriter, r *http.Request, id Id)
+	// GetApiKey Get an API key
+	// (GET /api/v1/api-keys/{id})
+	GetApiKey(w http.ResponseWriter, r *http.Request, id Id)
 	// ListEventTypes Webhook and admin-alert event types this server can emit
 	// (GET /api/v1/event-types)
 	ListEventTypes(w http.ResponseWriter, r *http.Request, params ListEventTypesParams)
 	// GetMe Who am I, which scopes
 	// (GET /api/v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// ListOauthClients List OAuth clients
+	// (GET /api/v1/oauth-clients)
+	ListOauthClients(w http.ResponseWriter, r *http.Request, params ListOauthClientsParams)
+	// CreateOauthClient Create an OAuth client
+	// (POST /api/v1/oauth-clients)
+	CreateOauthClient(w http.ResponseWriter, r *http.Request)
+	// RevokeOauthClient Revoke an OAuth client
+	// (DELETE /api/v1/oauth-clients/{id})
+	RevokeOauthClient(w http.ResponseWriter, r *http.Request, id Id)
+	// GetOauthClient Get an OAuth client
+	// (GET /api/v1/oauth-clients/{id})
+	GetOauthClient(w http.ResponseWriter, r *http.Request, id Id)
 	// GetOpenapiSpec This API's own OpenAPI document
 	// (GET /api/v1/openapi.json)
 	GetOpenapiSpec(w http.ResponseWriter, r *http.Request)
@@ -136,6 +296,118 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListApiKeys operation middleware
+func (siw *ServerInterfaceWrapper) ListApiKeys(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListApiKeysParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListApiKeys(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateApiKey operation middleware
+func (siw *ServerInterfaceWrapper) CreateApiKey(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApiKey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeApiKey operation middleware
+func (siw *ServerInterfaceWrapper) RevokeApiKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeApiKey(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetApiKey operation middleware
+func (siw *ServerInterfaceWrapper) GetApiKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetApiKey(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListEventTypes operation middleware
 func (siw *ServerInterfaceWrapper) ListEventTypes(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +460,118 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOauthClients operation middleware
+func (siw *ServerInterfaceWrapper) ListOauthClients(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOauthClientsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOauthClients(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateOauthClient operation middleware
+func (siw *ServerInterfaceWrapper) CreateOauthClient(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateOauthClient(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeOauthClient operation middleware
+func (siw *ServerInterfaceWrapper) RevokeOauthClient(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeOauthClient(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOauthClient operation middleware
+func (siw *ServerInterfaceWrapper) GetOauthClient(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOauthClient(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -334,11 +718,169 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/openapi.json", wrapper.GetOpenapiSpec)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me", wrapper.GetMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/event-types", wrapper.ListEventTypes)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/api-keys", wrapper.ListApiKeys)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/api-keys", wrapper.CreateApiKey)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/api-keys/{id}", wrapper.RevokeApiKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/api-keys/{id}", wrapper.GetApiKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/oauth-clients", wrapper.ListOauthClients)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/oauth-clients", wrapper.CreateOauthClient)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/oauth-clients/{id}", wrapper.RevokeOauthClient)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/oauth-clients/{id}", wrapper.GetOauthClient)
 
 	return m
 }
 
 type ProblemApplicationProblemPlusJSONResponse Problem
+
+type ListApiKeysRequestObject struct {
+	Params ListApiKeysParams
+}
+
+type ListApiKeysResponseObject interface {
+	VisitListApiKeysResponse(w http.ResponseWriter) error
+}
+
+type ListApiKeys200JSONResponse ApiKeyList
+
+func (response ListApiKeys200JSONResponse) VisitListApiKeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListApiKeysdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListApiKeysdefaultApplicationProblemPlusJSONResponse) VisitListApiKeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiKeyRequestObject struct {
+	Body *CreateApiKeyJSONRequestBody
+}
+
+type CreateApiKeyResponseObject interface {
+	VisitCreateApiKeyResponse(w http.ResponseWriter) error
+}
+
+type CreateApiKey201JSONResponse ApiKeyCreated
+
+func (response CreateApiKey201JSONResponse) VisitCreateApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApiKeydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateApiKeydefaultApplicationProblemPlusJSONResponse) VisitCreateApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeApiKeyRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type RevokeApiKeyResponseObject interface {
+	VisitRevokeApiKeyResponse(w http.ResponseWriter) error
+}
+
+type RevokeApiKey204Response struct {
+}
+
+func (response RevokeApiKey204Response) VisitRevokeApiKeyResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeApiKeydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RevokeApiKeydefaultApplicationProblemPlusJSONResponse) VisitRevokeApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApiKeyRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type GetApiKeyResponseObject interface {
+	VisitGetApiKeyResponse(w http.ResponseWriter) error
+}
+
+type GetApiKey200JSONResponse ApiKey
+
+func (response GetApiKey200JSONResponse) VisitGetApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApiKeydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetApiKeydefaultApplicationProblemPlusJSONResponse) VisitGetApiKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListEventTypesRequestObject struct {
 	Params ListEventTypesParams
@@ -417,6 +959,156 @@ func (response GetMedefaultApplicationProblemPlusJSONResponse) VisitGetMeRespons
 	return err
 }
 
+type ListOauthClientsRequestObject struct {
+	Params ListOauthClientsParams
+}
+
+type ListOauthClientsResponseObject interface {
+	VisitListOauthClientsResponse(w http.ResponseWriter) error
+}
+
+type ListOauthClients200JSONResponse OAuthClientList
+
+func (response ListOauthClients200JSONResponse) VisitListOauthClientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOauthClientsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListOauthClientsdefaultApplicationProblemPlusJSONResponse) VisitListOauthClientsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateOauthClientRequestObject struct {
+	Body *CreateOauthClientJSONRequestBody
+}
+
+type CreateOauthClientResponseObject interface {
+	VisitCreateOauthClientResponse(w http.ResponseWriter) error
+}
+
+type CreateOauthClient201JSONResponse OAuthClientCreated
+
+func (response CreateOauthClient201JSONResponse) VisitCreateOauthClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateOauthClientdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateOauthClientdefaultApplicationProblemPlusJSONResponse) VisitCreateOauthClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeOauthClientRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type RevokeOauthClientResponseObject interface {
+	VisitRevokeOauthClientResponse(w http.ResponseWriter) error
+}
+
+type RevokeOauthClient204Response struct {
+}
+
+func (response RevokeOauthClient204Response) VisitRevokeOauthClientResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeOauthClientdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RevokeOauthClientdefaultApplicationProblemPlusJSONResponse) VisitRevokeOauthClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOauthClientRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type GetOauthClientResponseObject interface {
+	VisitGetOauthClientResponse(w http.ResponseWriter) error
+}
+
+type GetOauthClient200JSONResponse OAuthClient
+
+func (response GetOauthClient200JSONResponse) VisitGetOauthClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOauthClientdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetOauthClientdefaultApplicationProblemPlusJSONResponse) VisitGetOauthClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetOpenapiSpecRequestObject struct {
 }
 
@@ -440,12 +1132,36 @@ func (response GetOpenapiSpec200JSONResponse) VisitGetOpenapiSpecResponse(w http
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// ListApiKeys List API keys
+	// (GET /api/v1/api-keys)
+	ListApiKeys(ctx context.Context, request ListApiKeysRequestObject) (ListApiKeysResponseObject, error)
+	// CreateApiKey Create an API key
+	// (POST /api/v1/api-keys)
+	CreateApiKey(ctx context.Context, request CreateApiKeyRequestObject) (CreateApiKeyResponseObject, error)
+	// RevokeApiKey Revoke an API key
+	// (DELETE /api/v1/api-keys/{id})
+	RevokeApiKey(ctx context.Context, request RevokeApiKeyRequestObject) (RevokeApiKeyResponseObject, error)
+	// GetApiKey Get an API key
+	// (GET /api/v1/api-keys/{id})
+	GetApiKey(ctx context.Context, request GetApiKeyRequestObject) (GetApiKeyResponseObject, error)
 	// ListEventTypes Webhook and admin-alert event types this server can emit
 	// (GET /api/v1/event-types)
 	ListEventTypes(ctx context.Context, request ListEventTypesRequestObject) (ListEventTypesResponseObject, error)
 	// GetMe Who am I, which scopes
 	// (GET /api/v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+	// ListOauthClients List OAuth clients
+	// (GET /api/v1/oauth-clients)
+	ListOauthClients(ctx context.Context, request ListOauthClientsRequestObject) (ListOauthClientsResponseObject, error)
+	// CreateOauthClient Create an OAuth client
+	// (POST /api/v1/oauth-clients)
+	CreateOauthClient(ctx context.Context, request CreateOauthClientRequestObject) (CreateOauthClientResponseObject, error)
+	// RevokeOauthClient Revoke an OAuth client
+	// (DELETE /api/v1/oauth-clients/{id})
+	RevokeOauthClient(ctx context.Context, request RevokeOauthClientRequestObject) (RevokeOauthClientResponseObject, error)
+	// GetOauthClient Get an OAuth client
+	// (GET /api/v1/oauth-clients/{id})
+	GetOauthClient(ctx context.Context, request GetOauthClientRequestObject) (GetOauthClientResponseObject, error)
 	// GetOpenapiSpec This API's own OpenAPI document
 	// (GET /api/v1/openapi.json)
 	GetOpenapiSpec(ctx context.Context, request GetOpenapiSpecRequestObject) (GetOpenapiSpecResponseObject, error)
@@ -488,6 +1204,115 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListApiKeys operation middleware
+func (sh *strictHandler) ListApiKeys(w http.ResponseWriter, r *http.Request, params ListApiKeysParams) {
+	var request ListApiKeysRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListApiKeys(ctx, request.(ListApiKeysRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListApiKeys")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListApiKeysResponseObject); ok {
+		if err := validResponse.VisitListApiKeysResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateApiKey operation middleware
+func (sh *strictHandler) CreateApiKey(w http.ResponseWriter, r *http.Request) {
+	var request CreateApiKeyRequestObject
+
+	var body CreateApiKeyJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateApiKey(ctx, request.(CreateApiKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateApiKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateApiKeyResponseObject); ok {
+		if err := validResponse.VisitCreateApiKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeApiKey operation middleware
+func (sh *strictHandler) RevokeApiKey(w http.ResponseWriter, r *http.Request, id Id) {
+	var request RevokeApiKeyRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeApiKey(ctx, request.(RevokeApiKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeApiKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeApiKeyResponseObject); ok {
+		if err := validResponse.VisitRevokeApiKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetApiKey operation middleware
+func (sh *strictHandler) GetApiKey(w http.ResponseWriter, r *http.Request, id Id) {
+	var request GetApiKeyRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetApiKey(ctx, request.(GetApiKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetApiKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetApiKeyResponseObject); ok {
+		if err := validResponse.VisitGetApiKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListEventTypes operation middleware
@@ -540,6 +1365,115 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListOauthClients operation middleware
+func (sh *strictHandler) ListOauthClients(w http.ResponseWriter, r *http.Request, params ListOauthClientsParams) {
+	var request ListOauthClientsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListOauthClients(ctx, request.(ListOauthClientsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListOauthClients")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListOauthClientsResponseObject); ok {
+		if err := validResponse.VisitListOauthClientsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateOauthClient operation middleware
+func (sh *strictHandler) CreateOauthClient(w http.ResponseWriter, r *http.Request) {
+	var request CreateOauthClientRequestObject
+
+	var body CreateOauthClientJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateOauthClient(ctx, request.(CreateOauthClientRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateOauthClient")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateOauthClientResponseObject); ok {
+		if err := validResponse.VisitCreateOauthClientResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeOauthClient operation middleware
+func (sh *strictHandler) RevokeOauthClient(w http.ResponseWriter, r *http.Request, id Id) {
+	var request RevokeOauthClientRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeOauthClient(ctx, request.(RevokeOauthClientRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeOauthClient")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeOauthClientResponseObject); ok {
+		if err := validResponse.VisitRevokeOauthClientResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetOauthClient operation middleware
+func (sh *strictHandler) GetOauthClient(w http.ResponseWriter, r *http.Request, id Id) {
+	var request GetOauthClientRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetOauthClient(ctx, request.(GetOauthClientRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetOauthClient")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetOauthClientResponseObject); ok {
+		if err := validResponse.VisitGetOauthClientResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetOpenapiSpec operation middleware
 func (sh *strictHandler) GetOpenapiSpec(w http.ResponseWriter, r *http.Request) {
 	var request GetOpenapiSpecRequestObject
@@ -569,28 +1503,50 @@ func (sh *strictHandler) GetOpenapiSpec(w http.ResponseWriter, r *http.Request) 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"nKrR4Njgvh8jV4urxX8GAA==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

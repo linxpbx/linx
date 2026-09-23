@@ -18,6 +18,7 @@ Usage:
 Commands:
   setup     Check this server and install what Linx needs (run with sudo)
   doctor    Check that everything is working (run with sudo)
+  api-key   Create, list or revoke API keys (run with sudo; see linx api-key help)
   version   Show the Linx version
   help      Show this help
 `
@@ -42,6 +43,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runSetup(context.Background(), args[1:], stdout, stderr, realSetupEnv())
 	case "doctor":
 		return runDoctor(context.Background(), args[1:], stdout, stderr, realDoctorEnv())
+	case "api-key":
+		return runAPIKey(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
 	default:
 		fmt.Fprintf(stderr, "linx: unknown command %q\n\n%s", args[0], usage)
 		return 2

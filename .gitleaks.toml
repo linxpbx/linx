@@ -1,0 +1,16 @@
+# Secret scanning (CI: gitleaks-action). Gitleaks' built-in rules plus the
+# Linx credential formats (docs/API.md §3), so a leaked key fails CI.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "linx-api-key"
+description = "Linx API key"
+regex = '''linx_[a-z2-7]{12}_[A-Za-z0-9_-]{43}'''
+keywords = ["linx_"]
+
+[[rules]]
+id = "linx-oauth-client-secret"
+description = "Linx OAuth client secret"
+regex = '''linxcs_[A-Za-z0-9_-]{43}'''
+keywords = ["linxcs_"]

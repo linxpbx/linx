@@ -37,6 +37,13 @@ func TestStackPlan(t *testing.T) {
 	if key == nil || len(key.Data) != 32 || key.Mode != 0o440 || key.Gid != 65532 || key.DirMode != 0o700 {
 		t.Errorf("database encryption key file = %+v", key)
 	}
+	jwtKey := files[JWTSigningKeyPath]
+	if jwtKey == nil || len(jwtKey.Data) != 32 || jwtKey.Mode != 0o440 || jwtKey.Gid != 65532 || jwtKey.DirMode != 0o700 {
+		t.Errorf("token signing key file = %+v", jwtKey)
+	}
+	if string(jwtKey.Data) == string(key.Data) {
+		t.Error("token signing key and database encryption key are the same")
+	}
 	if f := files["/etc/linx/compose.yaml"]; f == nil || string(f.Data) != string(compose.File) {
 		t.Error("compose.yaml not installed from the embedded copy")
 	}
@@ -68,7 +75,7 @@ func TestStackPlan(t *testing.T) {
 // TestComposeSecretsMatchInstaller keeps compose.yaml's secret files where
 // setup writes them.
 func TestComposeSecretsMatchInstaller(t *testing.T) {
-	for _, p := range []string{DNSTokenPath, SecretsDir + "/" + secretStepCAPassword, DBPasswordPath, DBEncryptionKeyPath} {
+	for _, p := range []string{DNSTokenPath, SecretsDir + "/" + secretStepCAPassword, DBPasswordPath, DBEncryptionKeyPath, JWTSigningKeyPath} {
 		rel := "./" + strings.TrimPrefix(p, StackDir+"/")
 		if !strings.Contains(string(compose.File), "file: "+rel+"\n") {
 			t.Errorf("compose.yaml doesn't read %s from %s", p, rel)

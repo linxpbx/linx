@@ -31,17 +31,32 @@ Three kinds of caller, all ending in the same **principal** (tenant, role ceilin
    - `<id>`: 12 chars, public, used to look the key up. `<secret>`: 32 random bytes, base64url. The `linx_` prefix lets GitHub/gitleaks secret scanning spot leaked keys.
    - Stored: `id`, `SHA-256(secret)`, name, scopes, created_by, expires_at (default 1 year, max 2), last_used_at/ip, revoked_at. Compared in constant time. Shown **once** at creation.
    - Scopes can never exceed the creating user's role. Optional IP allowlist per key.
-2. **OAuth 2.0 client credentials** — `POST /oauth/token` with client id + secret (secret stored like an API key). Returns a JWT access token: EdDSA only (alg pinned), 15 min, `aud=linx-api`, `jti` checked against the revocation list (ADR-012). No refresh tokens.
+2. **OAuth 2.0 client credentials** — `POST /oauth/token` (form-encoded) with `client_id` (12 chars) + `client_secret` (`linxcs_<secret>`, stored like an API key), sent by HTTP Basic or in the form, not both. Returns a JWT access token: EdDSA only (alg pinned), 15 min, `iss=linx`, `aud=linx-api`, `jti` checked against the revocation list (ADR-012). The client is looked up on every call, so revoking it stops its tokens at once. Optional `scope` narrows the token. No refresh tokens. Errors use the OAuth format (RFC 6749 §5.2), not problem+json. Signed with `linx_jwt_signing_key`, a Docker secret the installer generates.
 3. **Signed-in people** (admin portal, web client) — session cookie from OIDC/local login + MFA (built later in Phase 1): `HttpOnly`, `Secure`, `SameSite=Strict`, plus a CSRF header on writes. Specified now so the API doesn't change later.
 
-**Scopes** are `resource:read` / `resource:write` (e.g. `extensions:write`, `webhooks:write`, `alerts:write`, `audit:read`). Sensitive scopes are never included in "all": `recordings:read`, `transcripts:read`, `calls:control`, `api_keys:write`.
+**Scopes** are `resource:read` / `resource:write` (e.g. `extensions:write`, `webhooks:write`, `alerts:write`, `audit:read`); the full list is `auth.Scopes` in `internal/auth/scopes.go`. Sensitive scopes are never included in "all": `recordings:read`, `transcripts:read`, `calls:control`, `api_keys:write`, `oauth_clients:write` (making credentials is as strong as holding every scope).
 
-**Roles** (brief): `system_admin`, `admin`, `user`, `reporter`. A role maps to the scopes it may hold; the API checks both role ceiling and key scopes.
+Each operation lists the scopes it needs in `api/openapi.yaml` (`security: [bearer: [scope]]`); the request validator enforces them before the handler runs. `security: []` marks the few public operations (`/openapi.json`, `/oauth/token`); `/me` and `/event-types` need any valid credential. A test fails if any other operation lists no scope.
 
-**Rate limits** (`golang.org/x/time/rate`, in memory; Valkey-backed when multi-node): 600 requests/min per key or client, burst 100. Failed authentication: 20/min per IP, then 429. Responses carry `RateLimit-*` headers and `Retry-After`.
+**Roles**: `system_admin`, `admin`, `user`, `reporter`. A role maps to the scopes it may hold (its ceiling); a request is allowed only with scopes that are both on the key and under its role's ceiling, re-checked on every call.
+
+| Role | Ceiling | Can create keys/clients with role |
+|---|---|---|
+| `system_admin` | every scope | any |
+| `admin` | every scope (system-level scopes will be `system_admin` only) | `admin`, `user`, `reporter` |
+| `reporter` | `alerts:read`, `extensions:read`, `webhooks:read` | `reporter` |
+| `user` | `extensions:read` (own resources come with user accounts) | `user` |
+
+A new key or client can't exceed its creator: its scopes must be held by the creator (`scope_exceeds_caller`) and fit its role (`scope_exceeds_role`).
+
+**Errors** (problem+json `code`): `auth_required` (no credential, 401), `auth_invalid` (unknown or malformed, 401), `credential_revoked` / `credential_expired` / `token_expired` (401, only after the secret is proven), `ip_not_allowed` (403), `scope_missing` (403), `rate_limited` / `auth_rate_limited` (429). 401s carry `WWW-Authenticate: Bearer realm="linx"`.
+
+**Rate limits** (`golang.org/x/time/rate`, in memory; Valkey-backed when multi-node): 600 requests/min per key or client, burst 100. Failed authentication: 20/min per IP (IPv6 per /64), then 429 for every credential from that address until it cools down; public requests without credentials are unaffected. Responses carry `RateLimit-Limit`/`-Remaining`/`-Reset` and, when refused, `Retry-After`. The caller's IP is the connection's peer; `X-Forwarded-For` is only believed from proxies listed in `LINX_TRUSTED_PROXIES` (compose.yaml; empty until the edge templates arrive).
 
 **First key.** Before the portal exists, the owner creates the first key on the server:
-`linx api-key create --name "My laptop" --role admin` → runs inside the control-plane container, prints the key once, writes an audit entry.
+`sudo linx api-key create --name "My laptop" --role admin` → runs inside the control-plane container (`docker exec`), prints the key once, writes an audit entry (actor `system:cli`). `--scopes` defaults to `all`; add sensitive ones by name, e.g. `--scopes all,api_keys:write`. Also `--expires-in-days N` (max 730) and `--allow-ip ADDR` (repeatable). `sudo linx api-key list` shows keys (never secrets); `sudo linx api-key revoke <id or linx_... prefix>` stops one at once.
+
+Creating keys and clients over the API is not idempotent (`Idempotency-Key` isn't honoured there): replaying a stored response would mean storing the secret.
 
 ## 4. Webhooks (ADR-028)
 **Format: Standard Webhooks** (standardwebhooks.com), so receivers can use ready-made libraries.
@@ -105,7 +120,7 @@ GET    /api/v1/audit-log
 ## 8. Build order (one session each)
 1. **Database**: Postgres + control plane in compose, installer secrets, migration runner, `tenant` + `audit_log`, encryption helper. *(Sonnet)*
 2. **API skeleton**: `api/openapi.yaml`, `make api` codegen + stale check, validation middleware, problem+json, pagination, `/me`, `/openapi.json`, `/event-types`. *(Sonnet)*
-3. **Authentication**: API keys, scopes/roles, rate limits, `linx api-key create`, OAuth client credentials. *(Opus: security)*
+3. **Authentication**: API keys, scopes/roles, rate limits, `linx api-key create`, OAuth client credentials. *(Opus: security)* **Done 2026-09-23.**
 4. **Webhooks**: outbox, SSRF guard, signer, retries, delivery log, replay, `webhook.test`. *(Opus: security)*
 5. **Admin alerts**: engine, six channels, first sources (certificate renewal, disk, DDNS, webhook disabled). *(Sonnet)*
 6. **Review + docs**: security review, threat model, `linx doctor` checks, `docs/DEMO_PHASE1A.md`. *(Opus)*

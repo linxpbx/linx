@@ -1,7 +1,9 @@
 // Command control-plane is the Linx API, ARI app, provisioning and push gateway.
-// Phase 1: database, migrations and the API skeleton — validation, problem+json,
-// pagination, /me, /openapi.json, /event-types (docs/API.md §8 step 2).
-// Authentication (step 3) still stands in a fixed system principal.
+// Phase 1 so far: database, migrations, the API skeleton and authentication
+// (API keys, OAuth client credentials, scopes, rate limits; docs/API.md §8).
+//
+// `control-plane api-key ...` is the server-side key tool that `linx api-key`
+// runs inside this container (apikey_cmd.go).
 package main
 
 import (
@@ -11,16 +13,22 @@ import (
 	"os"
 	"time"
 
+	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/health"
 	"linxpbx.com/linx/internal/server"
+	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/version"
 )
 
 const service = "linx-control-plane"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "api-key" {
+		os.Exit(runAPIKeyCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", service)
 	log.Info("starting", "version", version.String(service))
 
@@ -48,7 +56,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	apiHandler, err := newAPIHandler(log)
+	signingKey, err := auth.LoadSigningKey(auth.SigningKeyPathFromEnv(os.Getenv))
+	if err != nil {
+		log.Error("token signing key", "err", err)
+		os.Exit(1)
+	}
+	tokens, err := auth.NewTokens(signingKey)
+	if err != nil {
+		log.Error("token signing key", "err", err)
+		os.Exit(1)
+	}
+	ips, err := auth.NewClientIPResolver(os.Getenv("LINX_TRUSTED_PROXIES"))
+	if err != nil {
+		log.Error("LINX_TRUSTED_PROXIES", "err", err)
+		os.Exit(1)
+	}
+
+	st := store.New(pool)
+	if _, err := st.DefaultTenant(startCtx); err != nil {
+		log.Error("database setup failed", "err", err)
+		os.Exit(1)
+	}
+	authn := auth.NewAuthenticator(st, tokens, ips, log)
+
+	apiHandler, err := newAPIHandler(log, st, authn)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)
@@ -57,6 +88,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", health.Handler(service))
 	mux.Handle("/api/v1/", apiHandler)
+	mux.Handle(auth.TokenPath, authn.TokenHandler())
 
 	addr := os.Getenv("LINX_LISTEN_ADDR")
 	if addr == "" {

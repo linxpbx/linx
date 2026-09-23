@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/google/uuid"
+
+	"linxpbx.com/linx/internal/auth"
 )
 
 func testServer(t *testing.T) *Server {
@@ -14,7 +17,7 @@ func testServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("loading test spec: %v", err)
 	}
-	return NewServer(spec)
+	return NewServer(spec, nil)
 }
 
 func TestGetOpenapiSpec(t *testing.T) {
@@ -46,8 +49,8 @@ func TestGetMeWithoutPrincipal(t *testing.T) {
 }
 
 func TestGetMeWithPrincipal(t *testing.T) {
-	want := Principal{Id: "system", Type: System, Scopes: []string{}}
-	ctx := WithPrincipal(context.Background(), want)
+	want := Principal{Id: "cli", Type: PrincipalTypeSystem, Scopes: auth.Scopes}
+	ctx := auth.WithPrincipal(context.Background(), auth.SystemPrincipal(uuid.Nil))
 
 	resp, err := testServer(t).GetMe(ctx, GetMeRequestObject{})
 	if err != nil {

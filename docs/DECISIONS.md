@@ -328,6 +328,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 - Portal sessions (OIDC/local + MFA, later in Phase 1) use `HttpOnly; Secure; SameSite=Strict` cookies plus a CSRF header.
 - Rate limits with `golang.org/x/time/rate` (BSD-3, Go team), in memory now.
 - First key via `linx api-key create` on the server.
+- Libraries (step 3): `github.com/go-jose/go-jose/v4` (Apache-2.0; already in the module graph via lego) signs and verifies JWTs, with EdDSA passed as the only allowed algorithm on every parse; `github.com/google/uuid` (BSD-3) for UUIDv7. Scopes are declared per operation in `api/openapi.yaml` and enforced through kin-openapi's `AuthenticationFunc`, so the spec is the single source.
 
 **Consequences.** A leaked database gives no usable API keys. Rate limits are per instance until a Valkey limiter is added for multi-node.
 

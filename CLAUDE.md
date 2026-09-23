@@ -15,8 +15,9 @@ Detail lives in `docs/`: read only the part you need.
 - **Phase 0 complete, approved by the owner 2026-09-23** (demo: `docs/DEMO_PHASE0.md`, commit `ff145ad`). Built: skeleton + tokens, CI, `linx setup` (prereqs, domain/DNS token, compose stack), `linx-certd` (Cloudflare + DuckDNS, wildcard default), step-ca bootstrap, `linx doctor` certificate checks.
 - Phase 1 started 2026-09-23: API/webhooks/alerts design in `docs/API.md` (ADR-025 to 030, approved 2026-09-23; webhooks HTTPS only, no LAN http exception). Build order is `docs/API.md` §8, one step per session:
   - Step 1 done: database (Postgres, control plane, migrations, encryption).
-  - Step 2 done: API skeleton — `api/openapi.yaml`, `make api` codegen (oapi-codegen strict server, `services/control-plane/api/gen.go`), kin-openapi request validation, problem+json, cursor pagination, `/me`, `/openapi.json`, `/event-types`. Authentication doesn't exist yet: every request is treated as an unrestricted system principal (`services/control-plane/api_handler.go`, `withTemporarySystemPrincipal`) until step 3 replaces it.
-  - Next: step 3, authentication (API keys, scopes/roles, rate limits, `linx api-key create`, OAuth client credentials) — Opus, security-sensitive.
+  - Step 2 done: API skeleton — `api/openapi.yaml`, `make api` codegen (oapi-codegen strict server, `services/control-plane/api/gen.go`), kin-openapi request validation, problem+json, cursor pagination, `/me`, `/openapi.json`, `/event-types`.
+  - Step 3 done: authentication — `internal/auth` (keys, scopes/roles, EdDSA tokens, rate limits, middleware, `/oauth/token`), `internal/store` (Postgres), migration 0002, `/api-keys` + `/oauth-clients` endpoints, `linx api-key create|list|revoke`, `linx_jwt_signing_key` secret. Scopes are declared per operation in `openapi.yaml` (`security: [bearer: [...]]`) and enforced by the validator.
+  - Next: step 4, webhooks (outbox, SSRF guard, signer, retries, delivery log, replay) — Opus, security-sensitive.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)
@@ -52,7 +53,7 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - `make build` (bin/ + web/dist/). Go module path: `linxpbx.com/linx`
 - `make security` (govulncheck, npm audit, licence allowlist), `make image SERVICE=control-plane`
 - CI: `.github/workflows/ci.yml` (amd64+arm64 tests, gitleaks, SBOM, Trivy, cosign-signed images to ghcr.io on master). Actions pinned by SHA; Dependabot updates them. First external Go dep must add a Go licence check.
-- `linx setup [--config FILE] [--dry-run]` (code: `cmd/linx/setup.go`, `internal/installer`, `internal/hostinfo`), `linx doctor` (code: `cmd/linx/doctor.go`, `internal/doctor`)
+- `linx setup [--config FILE] [--dry-run]` (code: `cmd/linx/setup.go`, `internal/installer`, `internal/hostinfo`), `linx doctor` (code: `cmd/linx/doctor.go`, `internal/doctor`), `linx api-key` (code: `cmd/linx/apikey.go` → `docker exec` → `services/control-plane/apikey_cmd.go`)
 
 ## Security rules (never break these)
 - Never disable cert verification, never use `--insecure`, never fall back to plaintext. Only exception: a provider trunk whose provider can't encrypt (ADR-023): TLS/SRTP tried first, admin confirms a warning; no warning over WireGuard.

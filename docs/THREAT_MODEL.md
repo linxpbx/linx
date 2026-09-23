@@ -1,6 +1,6 @@
 # Linx — Threat Model (STRIDE)
 
-Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phase 0b. This document is updated at the end of every phase.
+Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phase 0b; API authentication rows updated in Phase 1 step 3 (2026-09-23). This document is updated at the end of every phase.
 
 ## Assets
 - Call and meeting media and signalling
@@ -13,6 +13,7 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 - Admin accounts
 - API keys, OAuth client secrets, webhook signing secrets, alert channel tokens
 - Database encryption key (`linx_db_encryption_key`)
+- API token signing key (`linx_jwt_signing_key`)
 - CDR and directory data (personal data)
 - Toll balance: fraudulent calls cost real money
 
@@ -60,11 +61,13 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 | Logs | **I** secret or personal data leakage | Structured logging with redaction of tokens/secrets; retention limits | 0+ |
 | Presence/directory | **I** over-sharing | Server-side visibility filtering by RBAC scope; served only to authenticated devices | 1/4 |
 | Session inactivity | **S** abandoned devices | 7-day expiry via certificate lifetime + token revocation; pushes stop | 2 |
-| Public API (`api.`) | **S** stolen/guessed API key or client secret | 256-bit random secrets, stored only as SHA-256; `linx_` prefix for secret scanning; expiry; optional IP allowlist; instant revocation; failed-auth rate limit per IP (ADR-027) | 1 |
-| Public API | **E** key does more than intended | Scopes capped by the creator's role; sensitive scopes (recordings, transcripts, call control, key management) never granted by "all"; checked on every request | 1 |
+| Public API (`api.`) | **S** stolen/guessed API key or client secret | 256-bit random secrets, stored only as SHA-256 and compared in constant time (an unknown id costs the same hash); `linx_`/`linxcs_` prefixes with gitleaks rules in CI (`.gitleaks.toml`); expiry (default 1 year, max 2); optional IP allowlist; instant revocation; 20 failed attempts/min per IP (IPv6 per /64), then 429, every failure audited. Revoked/expired is only revealed to a caller who proved the secret (ADR-027, built) | 1 |
+| Public API | **E** key does more than intended | Each operation's scopes are declared in `api/openapi.yaml` and enforced by the validator before the handler (a test fails if a new operation forgets them); effective scopes = key scopes ∩ role ceiling, re-checked on every request; a new key/client can't exceed its creator's role or scopes (no minting a stronger key); sensitive scopes (recordings, transcripts, call control, key and client management) never granted by "all" | 1 |
 | Public API | **T**/**D** malformed or huge requests | Spec validation before handlers, unknown fields rejected, 1 MiB body limit, per-key rate limits, problem+json errors without internals | 1 |
 | Portal sessions | **S** CSRF / cookie theft | `HttpOnly; Secure; SameSite=Strict` cookies plus CSRF header on writes | 1 |
-| OAuth tokens | **S** forged or replayed JWT | EdDSA only (alg pinned), 15-minute lifetime, `aud` checked, `jti` revocation (ADR-012) | 1 |
+| OAuth tokens | **S** forged or replayed JWT | EdDSA only (alg pinned; `none`, HS256 alg-confusion and other keys refused, tested), `kid`, `iss`, `aud`, `exp`/`nbf`/`iat` all required, lifetime ≤ 15 min, `jti` revocation (ADR-012). The client is looked up on every call, so revoking it kills its live tokens at once; a token can only narrow the client's current scopes. Signing key is an installer-generated Docker secret | 1 |
+| Rate limits / audit | **S**/**D** spoofed `X-Forwarded-For` to dodge limits or pass IP allowlists | Header only believed from `LINX_TRUSTED_PROXIES` (empty by default), right-most untrusted hop used | 1 |
+| `linx api-key` | **E** creating keys without the API | Runs as root on the host via `docker exec` into the control plane; that is already root-equivalent (Docker), so it adds no new path; every key it makes is audited as `system:cli` | 1 |
 | API writes | **R** "I didn't do that" | Append-only `audit_log` with actor, key/client id, IP, action, target, result | 1 |
 | Webhooks / alert senders / later CRM | **I**/**E** SSRF into `linx-private`, the LAN or cloud metadata | HTTPS only; resolve, check every address, dial the checked address; private, loopback, link-local, metadata, CGNAT, multicast and Linx networks blocked unless the admin allowlists them; no redirects; senders only on `linx-egress` (ADR-028) | 1 |
 | Webhooks | **S** receiver fooled by fake or replayed events | Standard Webhooks HMAC-SHA256 with id + timestamp; receivers told to reject old timestamps and de-duplicate ids; secret rotation with 24 h overlap | 1 |
@@ -75,6 +78,10 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 
 ## Residual risks and open items
 - API rate limits are per control-plane instance until a Valkey-backed limiter exists (single node now).
+- Failed-auth limiting is per IP: an attacker behind the same NAT as a real user can hold that user off for about a minute. Accepted; the alternative (per-key lockout) lets anyone lock out a known key id.
+- One token-signing key, no rotation yet. Losing or replacing `linx_jwt_signing_key` only ends access tokens early (they last 15 minutes), so it needs no backup. Rotation with two `kid`s arrives when needed.
+- `token_revocation` is checked on every token but nothing writes to it yet (revoking a client already stops its tokens). It is used by guest and enrollment tokens later (ADR-012).
+- Portal sessions (cookies + CSRF) are specified but not built; they arrive with the admin portal login later in Phase 1.
 - Losing `linx_db_encryption_key` makes stored integration secrets unreadable; backups must hold it separately from the database dump.
 - Asterisk and coturn can't see real client IPs on passthrough profiles. This is mitigated by pushing clients through WSS (where the control plane sees the IP) and by credential quotas on TURN.
 - Server-decrypted call types (PBX-anchored calls, recordings, trunks) are documented honestly in the user guide.

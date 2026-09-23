@@ -45,3 +45,20 @@ func ResponseErrorHandler(log *slog.Logger) func(w http.ResponseWriter, r *http.
 			"Something went wrong. Please try again; check the server logs if it keeps happening.")
 	}
 }
+
+// Error is a caller-caused failure that becomes a problem+json response.
+type Error struct {
+	Status       int
+	Code, Detail string
+}
+
+func (e *Error) Error() string { return e.Code + ": " + e.Detail }
+
+// WriteError writes e as problem+json. A 401 also carries the
+// WWW-Authenticate challenge RFC 6750 asks for.
+func WriteError(w http.ResponseWriter, e *Error) {
+	if e.Status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="linx"`)
+	}
+	WriteProblem(w, e.Status, e.Code, e.Detail)
+}

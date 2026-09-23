@@ -1,7 +1,12 @@
 # Linx public API (docs/API.md). Hand-written; `make api` generates the Go
 # server (services/control-plane/api/gen.go) and, later, the web TypeScript
 # client from this file. Endpoints are added to this spec one build-order
-# step at a time (docs/API.md §8) — this slice covers step 2, the skeleton.
+# step at a time (docs/API.md §8): step 2, the skeleton; step 3,
+# authentication (API keys, OAuth clients, /oauth/token).
+#
+# Security: every operation needs a bearer credential unless it says
+# `security: []`. The scopes listed under `bearer` are enforced by the
+# request validator before the handler runs (docs/API.md §3).
 openapi: 3.1.0
 info:
   title: Linx API
@@ -13,6 +18,9 @@ info:
     name: Apache-2.0
     identifier: Apache-2.0
 
+security:
+  - bearer: []
+
 paths:
   /api/v1/openapi.json:
     get:
@@ -20,6 +28,7 @@ paths:
       summary: This API's own OpenAPI document
       description: Public; contains no secrets (docs/API.md §2).
       tags: [meta]
+      security: []
       responses:
         "200":
           description: The OpenAPI document served by this API.
@@ -63,8 +72,226 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/api-keys:
+    get:
+      operationId: listApiKeys
+      summary: List API keys
+      description: Newest first, including revoked and expired keys. Secrets are never returned.
+      tags: [api-keys]
+      security:
+        - bearer: [api_keys:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of API keys.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createApiKey
+      summary: Create an API key
+      description: >-
+        The key is in the response once and can't be shown again. Its role
+        and scopes can't exceed the caller's. Not idempotent: retrying
+        creates a second key (a stored response would have to keep the secret).
+      tags: [api-keys]
+      security:
+        - bearer: [api_keys:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialCreate"
+      responses:
+        "201":
+          description: The new key, with its secret shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyCreated"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/api-keys/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getApiKey
+      summary: Get an API key
+      tags: [api-keys]
+      security:
+        - bearer: [api_keys:read]
+      responses:
+        "200":
+          description: The API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKey"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: revokeApiKey
+      summary: Revoke an API key
+      description: Takes effect immediately. Revoking a revoked key succeeds and changes nothing.
+      tags: [api-keys]
+      security:
+        - bearer: [api_keys:write]
+      responses:
+        "204":
+          description: Revoked.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/oauth-clients:
+    get:
+      operationId: listOauthClients
+      summary: List OAuth clients
+      description: Newest first, including revoked and expired clients. Secrets are never returned.
+      tags: [oauth-clients]
+      security:
+        - bearer: [oauth_clients:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of OAuth clients.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthClientList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createOauthClient
+      summary: Create an OAuth client
+      description: >-
+        For the client credentials grant at /oauth/token. The secret is in
+        the response once and can't be shown again. Role and scopes can't
+        exceed the caller's. Not idempotent.
+      tags: [oauth-clients]
+      security:
+        - bearer: [oauth_clients:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialCreate"
+      responses:
+        "201":
+          description: The new client, with its secret shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthClientCreated"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/oauth-clients/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getOauthClient
+      summary: Get an OAuth client
+      tags: [oauth-clients]
+      security:
+        - bearer: [oauth_clients:read]
+      responses:
+        "200":
+          description: The OAuth client.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthClient"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: revokeOauthClient
+      summary: Revoke an OAuth client
+      description: Takes effect immediately, including for access tokens it already holds.
+      tags: [oauth-clients]
+      security:
+        - bearer: [oauth_clients:write]
+      responses:
+        "204":
+          description: Revoked.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /oauth/token:
+    post:
+      operationId: oauthToken
+      summary: Get an access token (OAuth 2.0 client credentials)
+      description: >-
+        RFC 6749 §4.4. Authenticate the client with HTTP Basic or with
+        client_id and client_secret in the form, not both. Returns a JWT
+        (EdDSA) valid for 15 minutes; there are no refresh tokens. Errors use
+        the OAuth format (RFC 6749 §5.2), not problem+json. Served by a
+        hand-written handler (excluded from code generation).
+      tags: [oauth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+      responses:
+        "200":
+          description: An access token.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "400":
+          description: A malformed request, unknown grant type or scope not held.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthError"
+        "401":
+          description: The client couldn't be authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthError"
+        "429":
+          description: Too many failed attempts or requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthError"
+
 components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: >-
+        An API key (`linx_<id>_<secret>`) or an access token from
+        /oauth/token. Operations list the scopes they need (docs/API.md §3).
+
   parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     Limit:
       name: limit
       in: query
@@ -111,7 +338,7 @@ components:
           format: uuid
         role:
           type: string
-          description: Present for a signed-in person; absent for keys and clients.
+          description: The role ceiling; scopes never exceed it.
         scopes:
           type: array
           items:
@@ -139,6 +366,207 @@ components:
         next_cursor:
           type: string
           description: Pass as `?cursor=` to fetch the next page; absent on the last page.
+
+    Role:
+      type: string
+      enum: [system_admin, admin, user, reporter]
+
+    CredentialCreate:
+      description: A new API key or OAuth client.
+      type: object
+      additionalProperties: false
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: What it's for, e.g. "CRM sync".
+        role:
+          $ref: "#/components/schemas/Role"
+          description: Defaults to the caller's role; can't be above it.
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: string
+          description: >-
+            Scopes to grant, each held by the caller. `all` means every
+            non-sensitive scope the role and caller have; sensitive scopes
+            (api_keys:write, oauth_clients:write, recordings:read,
+            transcripts:read, calls:control) must be named.
+        expires_at:
+          type: string
+          format: date-time
+          description: Defaults to one year from now; at most two years.
+        allowed_ips:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+          description: Addresses or CIDR ranges it may be used from. Empty allows any.
+
+    ApiKey:
+      type: object
+      required: [id, name, prefix, role, scopes, allowed_ips, created_by, created_at, expires_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          description: The key's public start, `linx_<id>`, to recognise it.
+        role:
+          $ref: "#/components/schemas/Role"
+        scopes:
+          type: array
+          items:
+            type: string
+        allowed_ips:
+          type: array
+          items:
+            type: string
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        last_used_ip:
+          type: string
+        revoked_at:
+          type: string
+          format: date-time
+
+    ApiKeyCreated:
+      type: object
+      required: [api_key, key]
+      properties:
+        api_key:
+          $ref: "#/components/schemas/ApiKey"
+        key:
+          type: string
+          description: The full key. Shown once; store it somewhere safe.
+
+    ApiKeyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiKey"
+        next_cursor:
+          type: string
+
+    OAuthClient:
+      type: object
+      required: [id, client_id, name, role, scopes, allowed_ips, created_by, created_at, expires_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        client_id:
+          type: string
+          description: Sent to /oauth/token.
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        scopes:
+          type: array
+          items:
+            type: string
+        allowed_ips:
+          type: array
+          items:
+            type: string
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        last_used_ip:
+          type: string
+        revoked_at:
+          type: string
+          format: date-time
+
+    OAuthClientCreated:
+      type: object
+      required: [oauth_client, client_secret]
+      properties:
+        oauth_client:
+          $ref: "#/components/schemas/OAuthClient"
+        client_secret:
+          type: string
+          description: Shown once; store it somewhere safe.
+
+    OAuthClientList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OAuthClient"
+        next_cursor:
+          type: string
+
+    TokenRequest:
+      type: object
+      required: [grant_type]
+      properties:
+        grant_type:
+          type: string
+          const: client_credentials
+        scope:
+          type: string
+          description: Space-separated scopes to narrow the token to; defaults to all the client holds.
+        client_id:
+          type: string
+        client_secret:
+          type: string
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          const: Bearer
+        expires_in:
+          type: integer
+          description: Seconds (900).
+        scope:
+          type: string
+
+    OAuthError:
+      description: RFC 6749 §5.2.
+      type: object
+      required: [error, error_description]
+      properties:
+        error:
+          type: string
+          enum: [invalid_request, invalid_client, invalid_scope, unsupported_grant_type, server_error, temporarily_unavailable]
+        error_description:
+          type: string
 
     Problem:
       description: RFC 9457 `application/problem+json` (docs/API.md §2).

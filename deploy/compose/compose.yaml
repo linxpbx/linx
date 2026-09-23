@@ -73,7 +73,10 @@ services:
       LINX_DB_PORT: "5432"
       LINX_DB_NAME: linx
       LINX_DB_USER: linx
-    secrets: [linx_db_password, linx_db_encryption_key]
+      # Proxies whose X-Forwarded-For is believed (rate limits, IP
+      # allowlists). Empty until the edge templates arrive with the profiles.
+      LINX_TRUSTED_PROXIES: ""
+    secrets: [linx_db_password, linx_db_encryption_key, linx_jwt_signing_key]
     depends_on:
       postgres:
         condition: service_healthy
@@ -122,6 +125,10 @@ secrets:
   # Root-owned, group 65532, mode 0440.
   linx_db_encryption_key:
     file: ./secrets/linx_db_encryption_key
+  # Ed25519 seed that signs API access tokens (ADR-027).
+  # Root-owned, group 65532, mode 0440.
+  linx_jwt_signing_key:
+    file: ./secrets/linx_jwt_signing_key
 
 volumes:
   certd-state:
