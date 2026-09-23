@@ -260,3 +260,27 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** `golang.org/x/term`, pinned. It restores the terminal on return.
 
 **Consequences.** The token never touches `setup.yaml` or `.env`; in `--config` mode it must already be saved in `/etc/linx/secrets/linx_dns_token`.
+
+## ADR-023 — Unencrypted trunk calls as a fallback (owner decision, 2026-09-23)
+
+**Context.** Many phone providers (ITSPs) and gateways don't support SIP over TLS or SRTP. The original rule ("SIP only over TLS/WSS, reject unencrypted media") would stop Linx connecting to them.
+
+**Decision.** Unencrypted SIP and RTP are allowed **only for provider trunks, and only when the provider doesn't support encryption**.
+- The trunk wizard always tries TLS + SRTP first. It offers unencrypted only after that test fails, and the admin must confirm a plain-language warning ("Calls to and from this provider can be listened to on the way"). The trunk list shows these trunks as unencrypted.
+- A trunk using a WireGuard profile (ADR-024) is encrypted by the tunnel, so the wizard doesn't warn.
+- Apps, web, meetings, guests and device enrollment stay encrypted always, with no fallback. LAN desk phones keep the existing rule (plaintext only on explicitly enabled LAN networks).
+- Port 5060 is never public: registration trunks are outbound only; IP-auth trunks open 5060 only to the provider's addresses (nftables), or only on the WireGuard interface.
+
+**Consequences.** Admins can connect any provider. The threat model records the eavesdropping risk on unencrypted trunks; `linx doctor` lists them.
+
+## ADR-024 — Trunk VPN profiles: WireGuard only (owner decision, 2026-09-23)
+
+**Context.** Some providers offer trunks over a VPN, and a VPN makes an unencrypted trunk safe to use.
+
+**Decision.** Linx supports **WireGuard only** (no OpenVPN or IPsec).
+- Admins can add several WireGuard profiles (import the provider's `.conf` or fill in the fields). Private keys are secrets, never shown again after saving.
+- Each SIP trunk has a **Connection** drop-down: "Internet (this server's network)" or one of the WireGuard profiles.
+- **Split tunnel only.** A profile carries only the traffic of its trunks, to the provider's addresses. A profile that routes everything (`AllowedIPs = 0.0.0.0/0` or `::/0`) is narrowed to the addresses of its trunks, with a note to the admin. If a VPN drops, only its trunks go down; apps, meetings and updates keep working.
+- Kernel WireGuard (in Ubuntu 24.04), managed with `wgctrl-go` (MIT; licence checked when added). Creating interfaces needs `NET_ADMIN`: that goes to one small dedicated service, never to the control plane or Asterisk.
+
+**Consequences.** Built with trunks in Phase 1. Health checks show each profile's last handshake; a trunk on a VPN with no recent handshake is flagged.

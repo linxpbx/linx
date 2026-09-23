@@ -22,7 +22,8 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - Public REST API (OpenAPI), signed webhooks and admin alerts come first.
 - Asterisk 22 + Postgres realtime; control plane with RBAC, OIDC and MFA.
 - Admin portal:
-  - extensions, devices and trunks
+  - extensions, devices and trunks (TLS/SRTP first, unencrypted fallback with warning, ADR-023)
+  - WireGuard profiles (several) and a per-trunk Connection drop-down (ADR-024)
   - inbound, outbound and ring-group wizards with the call simulator
   - email sending
   - Domain & DNS

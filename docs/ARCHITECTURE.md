@@ -84,7 +84,7 @@ Default hostnames sit under one base domain chosen in the setup wizard.
 | `turn.` | TURN/TLS | **TLS passthrough** (+ UDP 443 direct) | Public (credentials + quotas) |
 | `tunnel.` | Reserved for ADR-008 | Passthrough | — |
 
-Public UDP 5060/TCP 5060 is never exposed. Plaintext SIP is allowed only for explicitly enabled LAN desk-phone networks.
+Public UDP 5060/TCP 5060 is never exposed. Plaintext SIP is allowed only for explicitly enabled LAN desk-phone networks and for provider trunks whose provider can't encrypt (ADR-023; IP-auth trunks reach 5060 only from the provider's addresses or over WireGuard). Each trunk connects over the internet or over one of several split-tunnel WireGuard profiles (ADR-024).
 
 ## 3. Deployment profiles and ingress
 
