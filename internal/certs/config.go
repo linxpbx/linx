@@ -6,6 +6,7 @@ package certs
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"regexp"
 	"slices"
@@ -30,6 +31,12 @@ var Providers = []string{ProviderCloudflare, ProviderDuckDNS}
 // Hostnames are the Linx hostnames under the base domain (ARCHITECTURE §2).
 // They're used when the owner chooses a named certificate instead of a wildcard.
 var Hostnames = []string{"admin", "api", "meet", "provision", "sip", "turn"}
+
+// DefaultResolvers are the public DNS resolvers that must all see the DNS-01
+// record before Let's Encrypt is asked to check it. The server's own resolver
+// (Docker's, then the host's) isn't enough: a brand-new domain can be visible
+// there while other resolvers still remember that it didn't exist.
+var DefaultResolvers = []string{"1.1.1.1:53", "8.8.8.8:53", "9.9.9.9:53"}
 
 // RenewBefore is how long before expiry a certificate is renewed.
 const RenewBefore = 30 * 24 * time.Hour
@@ -56,6 +63,9 @@ type Config struct {
 	CertsDir string
 	// StateDir holds ACME account keys. Private to linx-certd.
 	StateDir string
+	// Resolvers are IP:port DNS resolvers used to check the DNS-01 record
+	// (LINX_DNS_RESOLVERS, comma-separated), for networks that block public DNS.
+	Resolvers []string
 }
 
 // ConfigFromEnv reads the configuration from the environment.
@@ -68,6 +78,13 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		ZoneTokenFile: getenv("LINX_DNS_ZONE_TOKEN_FILE"),
 		CertsDir:      envOr(getenv, "LINX_CERTS_DIR", "/var/lib/linx/certs"),
 		StateDir:      envOr(getenv, "LINX_STATE_DIR", "/var/lib/linx/state"),
+		Resolvers:     DefaultResolvers,
+	}
+	if v := strings.TrimSpace(getenv("LINX_DNS_RESOLVERS")); v != "" {
+		c.Resolvers = nil
+		for _, r := range strings.Split(v, ",") {
+			c.Resolvers = append(c.Resolvers, strings.TrimSpace(r))
+		}
 	}
 	var errs []error
 	var err error
@@ -110,6 +127,14 @@ func (c Config) Validate() error {
 	}
 	if c.TokenFile == "" {
 		errs = append(errs, errors.New("LINX_DNS_TOKEN_FILE: required"))
+	}
+	for _, r := range c.Resolvers {
+		if _, err := netip.ParseAddrPort(r); err != nil {
+			errs = append(errs, fmt.Errorf("LINX_DNS_RESOLVERS: %q must be IP:port, e.g. 1.1.1.1:53", r))
+		}
+	}
+	if len(c.Resolvers) == 0 {
+		errs = append(errs, errors.New("LINX_DNS_RESOLVERS: at least one resolver is required"))
 	}
 	if c.CertsDir == "" || c.StateDir == "" {
 		errs = append(errs, errors.New("LINX_CERTS_DIR and LINX_STATE_DIR: required"))

@@ -22,6 +22,7 @@ import (
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge"
+	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
 	"github.com/go-acme/lego/v4/providers/dns/duckdns"
@@ -33,6 +34,16 @@ const (
 	IssuerLEStaging = "letsencrypt-staging"
 	IssuerLE        = "letsencrypt"
 	IssuerZeroSSL   = "zerossl"
+)
+
+const (
+	// propagationTimeout is how long to wait for the DNS-01 record to appear
+	// at every resolver; pollInterval is how often to look.
+	propagationTimeout = 10 * time.Minute
+	pollInterval       = 10 * time.Second
+	// settleDelay is an extra wait after every resolver sees the record, because
+	// Let's Encrypt checks from several places whose caches we can't query.
+	settleDelay = time.Minute
 )
 
 const (
@@ -74,6 +85,7 @@ func DNSProvider(c Config) (challenge.Provider, error) {
 	case ProviderCloudflare:
 		pc := cloudflare.NewDefaultConfig()
 		pc.AuthToken = token
+		pc.PropagationTimeout, pc.PollingInterval = propagationTimeout, pollInterval
 		if c.ZoneTokenFile != "" {
 			if pc.ZoneToken, err = readSecret(c.ZoneTokenFile); err != nil {
 				return nil, err
@@ -83,6 +95,7 @@ func DNSProvider(c Config) (challenge.Provider, error) {
 	case ProviderDuckDNS:
 		pc := duckdns.NewDefaultConfig()
 		pc.Token = token
+		pc.PropagationTimeout, pc.PollingInterval = propagationTimeout, pollInterval
 		return duckdns.NewDNSProviderConfig(pc)
 	}
 	return nil, fmt.Errorf("unsupported DNS provider %q", c.Provider)
@@ -97,6 +110,18 @@ type acmeIssuer struct {
 }
 
 func (a *acmeIssuer) ID() string { return a.id }
+
+// settle wraps lego's propagation check: once the record is visible
+// everywhere, it waits once more before Let's Encrypt is asked to look.
+func settle(d time.Duration, sleep func(time.Duration)) dns01.WrapPreCheckFunc {
+	return func(_, fqdn, value string, check dns01.PreCheckFunc) (bool, error) {
+		ok, err := check(fqdn, value)
+		if ok && err == nil {
+			sleep(d)
+		}
+		return ok, err
+	}
+}
 
 // Obtain registers (or reuses) the ACME account and orders a certificate.
 // lego's calls aren't cancellable; ctx is checked between steps.
@@ -113,7 +138,11 @@ func (a *acmeIssuer) Obtain(ctx context.Context, names []string) (*Issued, error
 	if err != nil {
 		return nil, err
 	}
-	if err := client.Challenge.SetDNS01Provider(a.dns); err != nil {
+	err = client.Challenge.SetDNS01Provider(a.dns,
+		dns01.AddRecursiveNameservers(a.cfg.Resolvers),
+		dns01.RecursiveNSsPropagationRequirement(),
+		dns01.WrapPreCheck(settle(settleDelay, time.Sleep)))
+	if err != nil {
 		return nil, err
 	}
 	if acct.Registration == nil {

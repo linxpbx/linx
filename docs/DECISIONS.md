@@ -157,6 +157,7 @@ The gaps compared with a custom tunnel are:
 - Default certificate: one wildcard `*.<domain>`. It keeps the Linx hostnames out of Certificate Transparency logs. A named certificate (admin, api, meet, provision, sip, turn) is an option. `tunnel.` isn't issued until ADR-008 is built.
 - Certificate keys are ECDSA P-256. ACME accounts are kept per CA in a volume only certd can read.
 - Staging mode uses Let's Encrypt staging only. ZeroSSL has no staging environment, so the fallback only applies in production. ZeroSSL's EAB credentials are fetched with the ACME contact email, so production needs an email.
+- DNS-01 check (after the first live test, 2026-09-23): before asking the CA to validate, certd waits until the record is visible at public resolvers (1.1.1.1, 8.8.8.8, 9.9.9.9; `LINX_DNS_RESOLVERS` overrides), up to 10 minutes, then waits one more minute. The server's own resolver had reported the record while Let's Encrypt still got NXDOMAIN for a domain registered the same day.
 
 ## ADR-011 — Internal PKI: step-ca
 
