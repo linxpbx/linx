@@ -167,6 +167,12 @@ Decision: Smallstep step-ca (Apache-2.0).
 
 step-ca also issues **device certificates**. It uses a dedicated provisioner that only the control plane can use after enrollment checks, and the certificate lifetime equals the inactivity window (default 7 days).
 
+**Implementation notes (Phase 0b, 2026-09-23).**
+- Image `smallstep/step-ca:0.30.2`, pinned by digest. `linx setup` bootstraps it once, inside a throwaway container with no network. Re-running setup never replaces an existing CA.
+- Root and intermediate keys are ECDSA P-256, valid 10 years. The root key is created already encrypted with a generated passphrase (six groups of four characters), shown to the owner once and never saved. Its only copy goes to `/etc/linx/ca-backup` for the owner to take off the server.
+- Provisioners are JWK: `linx-services` (24 h max and default) and `linx-devices` (7 d max and default). Each has its own password as a Docker secret. Remote management (the admin API) is off, so provisioners can only change through `ca.json`.
+- The CA listens on `https://linx-step-ca:9000` on `linx-private` only.
+
 ## ADR-012 — Guest and enrollment tokens: JWT (EdDSA)
 
 **Options.** JWT vs PASETO v4.

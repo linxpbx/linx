@@ -39,6 +39,11 @@ test-go:
 	@if out=$$(go test -count=1 ./... 2>&1); then echo "go tests: ok"; \
 	else echo "$$out" | grep -Ev '^(ok|\?) '; echo "go tests: FAILED"; exit 1; fi
 
+.PHONY: test-docker
+test-docker: ## Run tests that need Docker (internal CA bootstrap end to end)
+	@if out=$$(LINX_DOCKER_TESTS=1 go test -count=1 -run Docker ./internal/... 2>&1); then echo "docker tests: ok"; \
+	else echo "$$out" | grep -Ev '^(ok|\?) '; echo "docker tests: FAILED"; exit 1; fi
+
 .PHONY: test-web
 test-web:
 	@cd web && npm run --silent test

@@ -59,6 +59,8 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 		"Docker isn't installed",
 		"Install Docker Engine and Docker Compose",
 		"Start Portainer",
+		"Create the internal certificate authority",
+		"-c <script>",
 		"Save your answers",
 		"Dry run: nothing was changed.",
 	} {

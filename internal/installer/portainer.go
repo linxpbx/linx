@@ -22,7 +22,7 @@ const portainerImage = "portainer/portainer-ce:2.45.1@sha256:4d616db18cfeb5dd41a
 
 const (
 	portainerDir          = "/etc/linx/portainer"
-	portainerPasswordFile = "/etc/linx/secrets/portainer_admin_password"
+	portainerPasswordFile = SecretsDir + "/portainer_admin_password"
 	portainerPort         = 9443
 )
 

@@ -54,14 +54,29 @@ type Cmd struct {
 	Args []string
 }
 
-func (c Cmd) String() string { return strings.Join(append([]string{c.Name}, c.Args...), " ") }
+// String shows the command line. Multi-line arguments (inline scripts) are
+// shown as <script>.
+func (c Cmd) String() string {
+	parts := []string{c.Name}
+	for _, a := range c.Args {
+		if strings.Contains(a, "\n") {
+			a = "<script>"
+		}
+		parts = append(parts, a)
+	}
+	return strings.Join(parts, " ")
+}
 
-// File is a file to write. Parent directories are created with DirMode.
+// File is a file to write, owned by root. Parent directories are created with
+// DirMode.
 type File struct {
 	Path    string
 	Data    []byte
 	Mode    fs.FileMode
 	DirMode fs.FileMode
+	// Gid, if not 0, is the file's group, so a container user in that group
+	// can read a Docker secret.
+	Gid int
 }
 
 // Plan is an ordered list of steps.
@@ -123,6 +138,12 @@ func writeFile(f File) error {
 	if err := tmp.Chmod(f.Mode); err != nil {
 		tmp.Close()
 		return err
+	}
+	if f.Gid != 0 {
+		if err := tmp.Chown(0, f.Gid); err != nil {
+			tmp.Close()
+			return err
+		}
 	}
 	if _, err := tmp.Write(f.Data); err != nil {
 		tmp.Close()

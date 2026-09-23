@@ -26,13 +26,45 @@ services:
     mem_limit: 64m
     pids_limit: 64
 
+  # Internal certificate authority (ADR-011, docs/ops/INTERNAL_CA.md). linx
+  # setup creates it in the linx-step-ca volume; the root key isn't on the server.
+  step-ca:
+    image: smallstep/step-ca:0.30.2@sha256:a2b17872915c193259b75a5474c398326f41bd199f0842093e52cf4182bc8270
+    container_name: linx-step-ca
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    # The step-ca binary carries this file capability; exec fails without it.
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [step-ca]
+    command: [--password-file, /run/secrets/linx_step_ca_password, /home/step/config/ca.json]
+    secrets: [linx_step_ca_password]
+    volumes:
+      - step-ca:/home/step
+    networks: [linx-private]
+    healthcheck:
+      test: [CMD, step, ca, health, --ca-url, "https://localhost:9000", --root, /home/step/certs/root_ca.crt]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 128m
+    pids_limit: 64
+
 secrets:
   linx_dns_token:
     file: ./secrets/linx_dns_token
+  # Root-owned, group 1000 (the image's step user), mode 0440.
+  linx_step_ca_password:
+    file: ./secrets/linx_step_ca_password
 
 volumes:
   certd-state:
   certs:
+  step-ca:
+    name: linx-step-ca
+    external: true # created by linx setup
 
 networks:
   # Databases, CA, metrics and internal APIs. No route to the internet.

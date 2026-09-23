@@ -1,6 +1,6 @@
 # Linx — Threat Model (STRIDE)
 
-Version: Phase 0 (2026-09-23), installer rows updated in Phase 0b. This document is updated at the end of every phase.
+Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phase 0b. This document is updated at the end of every phase.
 
 ## Assets
 - Call and meeting media and signalling
@@ -39,7 +39,9 @@ Version: Phase 0 (2026-09-23), installer rows updated in Phase 0b. This document
 | REST API / webhooks | **T**/**R** forged webhooks, key leak | Hashed and scoped API keys; HMAC-signed outbound webhooks; replay-safe delivery log; audit | 1 |
 | Outbound requests (webhooks, CRM, storage) | **I** SSRF | Private ranges blocked by default with an explicit allowlist; timeouts and size limits | 1 |
 | Web app | **T**/**I** XSS/CSRF | Strict CSP (no inline scripts), HSTS, Secure/HttpOnly/SameSite cookies, CSRF tokens, output encoding; external content treated as untrusted | 1 |
-| step-ca | **E** CA key compromise | Offline root (exported encrypted, removed from host); intermediate only on `linx-private`; provisioner restricted to the control plane via mTLS | 0 |
+| step-ca | **E** CA key compromise | Offline root: generated inside a network-less bootstrap container, written only encrypted with a generated passphrase that is shown once and never saved; the CA volume never holds the root key (tested). Intermediate key encrypted, its password a group-restricted Docker secret; CA only on `linx-private`; non-root, read-only container; no remote admin API | 0 |
+| step-ca | **E** rogue certificate issuance | Separate provisioners: `linx-services` (24 h max) and `linx-devices` (7 d max), limits enforced by the CA (tested); the device provisioner's password is mounted only into the control plane; no SSH certificates | 0 |
+| Root key backup | **I** encrypted backup left on the server | Owner told to copy `/etc/linx/ca-backup` off the server and delete it; folder root-only; `linx doctor` warns while it is still there (doctor item) | 0 |
 | linx-certd | **I** DNS token leak → domain hijack | Least-privilege token (Cloudflare: `Zone:Read` + `DNS:Edit` on the one zone), stored as a Docker secret, never logged (tested); CAA records restrict issuance | 0 |
 | linx-certd | **I** hostname discovery via CT logs | Wildcard certificate by default, so `sip.`/`turn.`/`admin.` never appear in public logs | 0 |
 | linx-certd | **T**/**D** half-written or stolen certificate files | New versions written to a fresh directory, then an atomic symlink swap; key `0640` (shared group only); ACME account keys `0600` in a separate volume; non-root, read-only container, all capabilities dropped | 0 |
@@ -60,3 +62,5 @@ Version: Phase 0 (2026-09-23), installer rows updated in Phase 0b. This document
 - Server-decrypted call types (PBX-anchored calls, recordings, trunks) are documented honestly in the user guide.
 - Dynamic IP with IP-auth trunks is unsupported (the wizard warns about this).
 - CAA records aren't created automatically yet. Until the Domain & DNS page does it (Phase 1), the owner adds `CAA 0 issue "letsencrypt.org"` and `CAA 0 issue "sectigo.com"` (ZeroSSL) by hand.
+- The device provisioner is protected by its password (a Docker secret for the control plane only), not by mTLS as first planned (accepted by the owner, 2026-09-23). step-ca has no per-provisioner client-certificate gate; revisit with an X5C provisioner in Phase 2 if needed.
+- If the CA secrets in `/etc/linx/secrets` are lost, step-ca can't unlock its intermediate key. Rebuilding needs the root backup and passphrase (`docs/ops/INTERNAL_CA.md`).

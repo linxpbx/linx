@@ -161,11 +161,16 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		plan = append(plan, portainer.Plan...)
 	}
 
+	// 5. Internal certificate authority (ADR-011). If Docker is being
+	// installed now there can't be an existing CA to detect.
+	pki := installer.PKIPlan(action != installer.DockerInstall && installer.CAExists(ctx, env.runner))
+	plan = append(plan, pki.Plan...)
+
 	plan = append(plan, installer.Step{Title: "Save your answers to " + installer.ConfigPath, File: &installer.File{
 		Path: installer.ConfigPath, Data: cfg.Marshal(), Mode: 0o600, DirMode: 0o755,
 	}})
 
-	// 5. Confirm and apply.
+	// 6. Confirm and apply.
 	fmt.Fprintln(stdout, "\nSetup will:")
 	for i, s := range plan {
 		fmt.Fprintf(stdout, "  %2d. %s\n", i+1, s.Title)
@@ -199,12 +204,29 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		return 1
 	}
 
-	// 6. Summary.
+	// 7. Summary.
 	fmt.Fprintf(stdout, "\nPrerequisites are ready. Resource profile: %s.\n", profile)
 	if cfg.ContainerUI == installer.ContainerUIPortainer {
 		printPortainer(stdout, portainer)
 	}
+	if pki.Passphrase != "" {
+		printCABackup(stdout, pki.Passphrase)
+	}
 	return 0
+}
+
+func printCABackup(w io.Writer, passphrase string) {
+	fmt.Fprintln(w, "\nInternal certificate authority created. Linx uses it to secure connections")
+	fmt.Fprintln(w, "between its own parts and to your apps. Its master key (the \"root key\") is")
+	fmt.Fprintln(w, "not kept on this server. Its only copy is locked with this backup passphrase:")
+	fmt.Fprintf(w, "\n    %s\n\n", passphrase)
+	fmt.Fprintln(w, "  1. Write the passphrase down and store it somewhere safe. It is shown only now")
+	fmt.Fprintln(w, "     and is not saved anywhere.")
+	fmt.Fprintf(w, "  2. Copy the folder %s to a USB stick or your password manager, e.g.\n", installer.CABackupDir)
+	fmt.Fprintf(w, "     from your computer:  scp -r root@<this server>:%s .\n", installer.CABackupDir)
+	fmt.Fprintf(w, "  3. Then delete it from this server:  sudo rm -r %s\n", installer.CABackupDir)
+	fmt.Fprintln(w, "You only need the backup and passphrase if the certificate authority has to be")
+	fmt.Fprintln(w, "renewed (in about 10 years) or rebuilt. See docs/ops/INTERNAL_CA.md.")
 }
 
 func printPortainer(w io.Writer, s installer.PortainerSetup) {
