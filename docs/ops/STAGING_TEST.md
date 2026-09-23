@@ -48,3 +48,4 @@ Then delete the Cloudflare token.
 
 ## Results
 - 2026-09-23, Ubuntu 24.04 VM (amd64), `lab.linxpbx.com` via Cloudflare, commit `1f596eb`: **passed.** Test certificate `*.lab.linxpbx.com` from `letsencrypt-staging` (valid to 2026-12-22); step-ca healthy; certd running; a second `linx setup` run kept the saved token and issued nothing new; Portainer reachable from the LAN only. Two earlier attempts failed on DNS timing for the same-day domain, fixed in `b267ccb` and `1f596eb` (see ADR-010 notes).
+- 2026-09-23, same VM after clean-up, commit `ff145ad`: **passed**, including `linx doctor` all green (part of [`DEMO_PHASE0.md`](../DEMO_PHASE0.md)).

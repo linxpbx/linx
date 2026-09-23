@@ -57,7 +57,7 @@ Follow steps 1–3 of [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md): build `linx`
 sudo ./linx doctor
 ```
 - [ ] Every line says `ok` except one `warning`: the root key backup is still on the server. Each `ok` line should be one of:
-  - Docker, the certificate service and the internal certificate authority are running.
+  - The certificate service is running; the internal certificate authority is running and answering. (Docker gets a line only if it's down.)
   - Test certificate covers admin., api., meet., provision., sip. and turn.lab.linxpbx.com.
   - Valid until a date about 90 days away.
   - Full chain checked up to Let's Encrypt's test authority.
@@ -105,3 +105,5 @@ Follow "Clean up" in [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md), then delete t
 
 ## Results
 Add one line per run: date, server, commit, passed or what failed.
+
+- 2026-09-23, Ubuntu 24.04 VM (the staging-test server after its clean-up, so Docker was already installed), `lab.linxpbx.com` via Cloudflare, commit `ff145ad`: **passed.** Every check matched. `linx doctor` was all green once the root key backup was deleted, reported a stopped certificate service as a problem with a fix (exit code 1), and went green again after the restart.
