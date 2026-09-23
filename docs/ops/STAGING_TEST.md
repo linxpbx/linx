@@ -18,7 +18,7 @@ Checks the whole path on a real server: `linx setup` → Let's Encrypt **test** 
    sudo ./linx setup
    ```
    Answer: domain `lab.linxpbx.com` (any unused subdomain), paste the token, keep **test certificates** (Enter), skip the email (Enter).
-3. Getting the certificate takes about 2 minutes (setup waits until public DNS sees the proof record, then one more minute). Setup should end with "Linx is running" and "Test certificate issued for *.lab.linxpbx.com". It also shows the CA backup passphrase: for a throwaway VM you can ignore it.
+3. Getting the certificate takes about 2 minutes (setup waits until your DNS provider's name servers have the proof record, then 90 seconds more). Setup should end with "Linx is running" and "Test certificate issued for *.lab.linxpbx.com". It also shows the CA backup passphrase: for a throwaway VM you can ignore it.
 
 ## Check
 ```
@@ -30,7 +30,7 @@ sudo docker run --rm -v linx_certs:/c:ro alpine cat /c/current/meta.json
 
 ## If it fails
 - "NXDOMAIN looking up TXT for _acme-challenge…": the domain is very new and some DNS resolvers still remember that it didn't exist. Wait 30 minutes and run setup again.
-- "propagation: time limit exceeded": the record didn't reach the public resolvers within 10 minutes. The same fix applies; also check the server can reach 1.1.1.1, 8.8.8.8 and 9.9.9.9 on port 53.
+- "propagation: time limit exceeded": the DNS provider's name servers didn't show the record within 10 minutes. Check the provider's status page, and that the server can make DNS queries (UDP port 53) to the internet.
 - "no matching manifest" / "denied" on download: the images for this commit aren't published or aren't public. Check the CI run for your commit.
 - Cloudflare "Authentication error" / "could not find zone": the token's permissions or zone are wrong.
 - Setup is safe to run again after fixing the problem.

@@ -51,9 +51,6 @@ func TestConfigFromEnv(t *testing.T) {
 		{"unknown provider", map[string]string{"LINX_DNS_PROVIDER": "desec"}, "LINX_DNS_PROVIDER"},
 		{"duckdns suffix", map[string]string{"LINX_DNS_PROVIDER": "duckdns"}, "duckdns.org"},
 		{"duckdns ok", map[string]string{"LINX_DNS_PROVIDER": "duckdns", "LINX_DOMAIN": "mypbx.duckdns.org"}, ""},
-		{"resolvers", map[string]string{"LINX_DNS_RESOLVERS": "192.168.1.1:53, [2606:4700:4700::1111]:53"}, ""},
-		{"resolver without port", map[string]string{"LINX_DNS_RESOLVERS": "1.1.1.1"}, "LINX_DNS_RESOLVERS"},
-		{"resolver hostname", map[string]string{"LINX_DNS_RESOLVERS": "dns.google:53"}, "LINX_DNS_RESOLVERS"},
 		{"zone token not cloudflare", map[string]string{"LINX_DNS_PROVIDER": "duckdns", "LINX_DOMAIN": "x.duckdns.org", "LINX_DNS_ZONE_TOKEN_FILE": "/x"}, "only used with Cloudflare"},
 	}
 	for _, tt := range tests {
@@ -76,18 +73,11 @@ func TestConfigFromEnv(t *testing.T) {
 	}
 }
 
-func TestConfigResolvers(t *testing.T) {
-	c, err := ConfigFromEnv(env(map[string]string{"LINX_DOMAIN": "pbx.example.com", "LINX_DNS_PROVIDER": "cloudflare"}))
-	if err != nil || !slices.Equal(c.Resolvers, DefaultResolvers) {
-		t.Errorf("default resolvers = %v, %v", c.Resolvers, err)
-	}
-}
-
-// TestSettle checks the extra wait happens once, only after the record is
-// visible everywhere, and that check results pass through unchanged.
+// TestSettle checks the extra wait happens once, only after the name servers
+// have the record, and that check results pass through unchanged.
 func TestSettle(t *testing.T) {
 	var slept []time.Duration
-	wrap := settle(time.Minute, func(d time.Duration) { slept = append(slept, d) })
+	wrap := settle(90*time.Second, func(d time.Duration) { slept = append(slept, d) })
 	boom := errors.New("NS 8.8.8.8:53 returned NXDOMAIN")
 	for _, tt := range []struct {
 		ok  bool
@@ -103,8 +93,8 @@ func TestSettle(t *testing.T) {
 			t.Errorf("settle = %v, %v; want %v, %v", ok, err, tt.ok, tt.err)
 		}
 	}
-	if !slices.Equal(slept, []time.Duration{time.Minute}) {
-		t.Errorf("slept %v, want one minute once", slept)
+	if !slices.Equal(slept, []time.Duration{90 * time.Second}) {
+		t.Errorf("slept %v, want 90 s once", slept)
 	}
 }
 

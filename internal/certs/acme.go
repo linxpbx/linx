@@ -38,12 +38,13 @@ const (
 
 const (
 	// propagationTimeout is how long to wait for the DNS-01 record to appear
-	// at every resolver; pollInterval is how often to look.
+	// at the domain's own name servers; pollInterval is how often to look.
 	propagationTimeout = 10 * time.Minute
 	pollInterval       = 10 * time.Second
-	// settleDelay is an extra wait after every resolver sees the record, because
-	// Let's Encrypt checks from several places whose caches we can't query.
-	settleDelay = time.Minute
+	// settleDelay is an extra wait once the name servers we reach have the
+	// record: Cloudflare-style anycast name servers update location by
+	// location, and Let's Encrypt checks from several places at once.
+	settleDelay = 90 * time.Second
 )
 
 const (
@@ -111,8 +112,8 @@ type acmeIssuer struct {
 
 func (a *acmeIssuer) ID() string { return a.id }
 
-// settle wraps lego's propagation check: once the record is visible
-// everywhere, it waits once more before Let's Encrypt is asked to look.
+// settle wraps lego's propagation check: once the authoritative name servers
+// have the record, it waits once more before Let's Encrypt is asked to look.
 func settle(d time.Duration, sleep func(time.Duration)) dns01.WrapPreCheckFunc {
 	return func(_, fqdn, value string, check dns01.PreCheckFunc) (bool, error) {
 		ok, err := check(fqdn, value)
@@ -138,10 +139,11 @@ func (a *acmeIssuer) Obtain(ctx context.Context, names []string) (*Issued, error
 	if err != nil {
 		return nil, err
 	}
-	err = client.Challenge.SetDNS01Provider(a.dns,
-		dns01.AddRecursiveNameservers(a.cfg.Resolvers),
-		dns01.RecursiveNSsPropagationRequirement(),
-		dns01.WrapPreCheck(settle(settleDelay, time.Sleep)))
+	// Only the domain's authoritative name servers are checked (lego's
+	// default). Public resolvers are never asked: asking them before the
+	// record is everywhere makes them remember "no such record" for up to the
+	// zone's negative TTL (30 minutes on Cloudflare).
+	err = client.Challenge.SetDNS01Provider(a.dns, dns01.WrapPreCheck(settle(settleDelay, time.Sleep)))
 	if err != nil {
 		return nil, err
 	}
