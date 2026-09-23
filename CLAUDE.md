@@ -13,7 +13,10 @@ Detail lives in `docs/`: read only the part you need.
 
 ## Current state
 - **Phase 0 complete, approved by the owner 2026-09-23** (demo: `docs/DEMO_PHASE0.md`, commit `ff145ad`). Built: skeleton + tokens, CI, `linx setup` (prereqs, domain/DNS token, compose stack), `linx-certd` (Cloudflare + DuckDNS, wildcard default), step-ca bootstrap, `linx doctor` certificate checks.
-- Phase 1 started 2026-09-23: API/webhooks/alerts design in `docs/API.md` (ADR-025 to 030, approved 2026-09-23; webhooks HTTPS only, no LAN http exception). Next: build step 1 in `docs/API.md` §8 (database), then steps 2–6 in order, one per session.
+- Phase 1 started 2026-09-23: API/webhooks/alerts design in `docs/API.md` (ADR-025 to 030, approved 2026-09-23; webhooks HTTPS only, no LAN http exception). Build order is `docs/API.md` §8, one step per session:
+  - Step 1 done: database (Postgres, control plane, migrations, encryption).
+  - Step 2 done: API skeleton — `api/openapi.yaml`, `make api` codegen (oapi-codegen strict server, `services/control-plane/api/gen.go`), kin-openapi request validation, problem+json, cursor pagination, `/me`, `/openapi.json`, `/event-types`. Authentication doesn't exist yet: every request is treated as an unrestricted system principal (`services/control-plane/api_handler.go`, `withTemporarySystemPrincipal`) until step 3 replaces it.
+  - Next: step 3, authentication (API keys, scopes/roles, rate limits, `linx api-key create`, OAuth client credentials) — Opus, security-sensitive.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)

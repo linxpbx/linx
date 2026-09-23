@@ -23,11 +23,24 @@ tokens: ## Regenerate web CSS + iOS colours from design/tokens.json
 	@go run ./tools/tokengen
 	@echo "tokens: generated"
 
+.PHONY: api
+api: ## Regenerate the Go API server from api/openapi.yaml
+	@go tool oapi-codegen -config api/oapi-codegen-config.yaml api/openapi.yaml
+	@echo "api: generated"
+
 .PHONY: lint
-lint: ## Check formatting, vet Go code, verify tokens, type-check web
+lint: ## Check formatting, vet Go code, verify tokens/API codegen, type-check web
 	@out=$$(gofmt -l .); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 	@go vet ./...
 	@go run ./tools/tokengen -check
+	@tmp=$$(mktemp -d) && trap "rm -rf $$tmp" EXIT \
+		&& cp services/control-plane/api/gen.go $$tmp/gen.go \
+		&& $(MAKE) api >/dev/null \
+		&& if ! diff -q $$tmp/gen.go services/control-plane/api/gen.go >/dev/null; then \
+			echo "api: out of date, run \`make api\`"; \
+			cp $$tmp/gen.go services/control-plane/api/gen.go; \
+			exit 1; \
+		fi
 	@cd web && npm run --silent typecheck
 	@echo "lint: ok"
 

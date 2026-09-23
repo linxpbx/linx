@@ -1,6 +1,7 @@
 // Command control-plane is the Linx API, ARI app, provisioning and push gateway.
-// Phase 1: database connection and migrations (docs/API.md); everything else
-// is still the health endpoint.
+// Phase 1: database, migrations and the API skeleton — validation, problem+json,
+// pagination, /me, /openapi.json, /event-types (docs/API.md §8 step 2).
+// Authentication (step 3) still stands in a fixed system principal.
 package main
 
 import (
@@ -47,8 +48,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	apiHandler, err := newAPIHandler(log)
+	if err != nil {
+		log.Error("api handler setup failed", "err", err)
+		os.Exit(1)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", health.Handler(service))
+	mux.Handle("/api/v1/", apiHandler)
 
 	addr := os.Getenv("LINX_LISTEN_ADDR")
 	if addr == "" {

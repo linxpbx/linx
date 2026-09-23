@@ -1,0 +1,163 @@
+# Linx public API (docs/API.md). Hand-written; `make api` generates the Go
+# server (services/control-plane/api/gen.go) and, later, the web TypeScript
+# client from this file. Endpoints are added to this spec one build-order
+# step at a time (docs/API.md §8) — this slice covers step 2, the skeleton.
+openapi: 3.1.0
+info:
+  title: Linx API
+  version: "1"
+  description: >-
+    The API used by the admin portal, the web client, the `linx` CLI and
+    every integration (docs/API.md).
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+
+paths:
+  /api/v1/openapi.json:
+    get:
+      operationId: getOpenapiSpec
+      summary: This API's own OpenAPI document
+      description: Public; contains no secrets (docs/API.md §2).
+      tags: [meta]
+      responses:
+        "200":
+          description: The OpenAPI document served by this API.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenApiDocument"
+
+  /api/v1/me:
+    get:
+      operationId: getMe
+      summary: Who am I, which scopes
+      description: Identifies the caller — a signed-in person, API key or OAuth client — and the scopes it holds.
+      tags: [meta]
+      responses:
+        "200":
+          description: The calling principal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Principal"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/event-types:
+    get:
+      operationId: listEventTypes
+      summary: Webhook and admin-alert event types this server can emit
+      description: The event catalog webhook endpoints subscribe to (docs/API.md §4).
+      tags: [meta]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of event types.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventTypeList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+components:
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Maximum items per page (docs/API.md §2).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque pagination cursor from a previous page's `next_cursor`.
+      schema:
+        type: string
+
+  responses:
+    Problem:
+      description: An error (docs/API.md §2).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    OpenApiDocument:
+      description: The full OpenAPI document served by this API. Free-form JSON.
+      type: object
+      additionalProperties: true
+
+    Principal:
+      description: The authenticated caller (docs/API.md §3).
+      type: object
+      required: [id, type, scopes]
+      properties:
+        id:
+          type: string
+          description: The user, API key or OAuth client id.
+        type:
+          type: string
+          enum: [user, api_key, oauth_client, system]
+        tenant_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          description: Present for a signed-in person; absent for keys and clients.
+        scopes:
+          type: array
+          items:
+            type: string
+          description: e.g. `extensions:write`, `webhooks:write`.
+
+    EventType:
+      type: object
+      required: [name, description]
+      properties:
+        name:
+          type: string
+          description: e.g. `call.missed`.
+        description:
+          type: string
+
+    EventTypeList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventType"
+        next_cursor:
+          type: string
+          description: Pass as `?cursor=` to fetch the next page; absent on the last page.
+
+    Problem:
+      description: RFC 9457 `application/problem+json` (docs/API.md §2).
+      type: object
+      required: [type, title, status, code, detail]
+      properties:
+        type:
+          type: string
+          description: A URI identifying the problem type; `about:blank` when none is registered.
+        title:
+          type: string
+          description: Short, human-readable summary of the status code.
+        status:
+          type: integer
+        code:
+          type: string
+          description: Stable machine-readable error code, e.g. `scope_missing`.
+        detail:
+          type: string
+          description: Plain-language explanation. Never a stack trace.
+        instance:
+          type: string
