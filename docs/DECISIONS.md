@@ -26,6 +26,15 @@ Status values: `Proposed` (awaiting owner approval), `Accepted`, `Superseded by 
 | 019 | Optional container management UI | Portainer CE or none (Dockge and Cockpit dropped) | Accepted (owner, 2026-09-23) |
 | 020 | setup.yaml parser (first external Go dependency) | go.yaml.in/yaml/v3 | Accepted (owner, 2026-09-23) |
 | 021 | Languages | English only (CLI, server UI, apps); Arabic/RTL dropped | Accepted (owner, 2026-09-23) |
+| 022 | Hidden terminal input | golang.org/x/term | Accepted |
+| 023 | Unencrypted trunk fallback | Only for provider trunks that can't encrypt, with warning | Accepted (owner, 2026-09-23) |
+| 024 | Trunk VPN profiles | WireGuard only, split tunnel, per-trunk Connection | Accepted (owner, 2026-09-23) |
+| 025 | API description and server | OpenAPI 3.1 written first; oapi-codegen (Go), openapi-typescript/openapi-fetch (web) | Accepted (owner, 2026-09-23) |
+| 026 | Database access and migrations | PostgreSQL 18, pgx v5, built-in forward-only migration runner | Accepted (owner, 2026-09-23) |
+| 027 | API authentication | Hashed scoped API keys, OAuth client credentials (EdDSA JWT), x/time/rate | Accepted (owner, 2026-09-23) |
+| 028 | Webhooks | Standard Webhooks signing, transactional outbox, retries, SSRF guard | Accepted (owner, 2026-09-23) |
+| 029 | Admin alerts | Built-in senders (ntfy, Gotify, Slack, Teams, Telegram, webhook; email later), de-dup, quiet hours | Accepted (owner, 2026-09-23) |
+| 030 | Secrets stored in the database | AES-256-GCM, key held as a Docker secret | Accepted (owner, 2026-09-23) |
 
 ---
 
@@ -284,3 +293,66 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 - Kernel WireGuard (in Ubuntu 24.04), managed with `wgctrl-go` (MIT; licence checked when added). Creating interfaces needs `NET_ADMIN`: that goes to one small dedicated service, never to the control plane or Asterisk.
 
 **Consequences.** Built with trunks in Phase 1. Health checks show each profile's last handshake; a trunk on a VPN with no recent handshake is flagged.
+
+## ADR-025 — API description and server: OpenAPI 3.1 written first (owner chose the approach, 2026-09-23)
+
+**Context.** The admin portal, web client, CLI and all integrations use one public REST API (brief: "OpenAPI-documented, covering everything the admin console can do"). Design: `docs/API.md`.
+
+**Options.** (a) Spec first: hand-write `api/openapi.yaml`, generate Go server interfaces and the TypeScript client. (b) Code first: Go handlers produce the spec (Huma, MIT). (c) Hand-written both sides.
+
+**Decision.** (a).
+- Go: `oapi-codegen` v2 (Apache-2.0) strict server for `net/http`, standard library `ServeMux`, no web framework. Runtime helper `github.com/oapi-codegen/runtime` (Apache-2.0).
+- Request validation against the spec: `oapi-codegen/nethttp-middleware` + `kin-openapi` (MIT).
+- Web: `openapi-typescript` + `openapi-fetch` (MIT).
+- `make api` regenerates; lint fails on stale generated code. All pinned; the generator is pinned as a Go tool dependency.
+
+**Consequences.** Spec and code can't drift, and the spec is reviewable in plain YAML. Each endpoint needs a spec edit before code. First external Go dependencies beyond ADR-020/022: the Go licence check covers them.
+
+## ADR-026 — Database access and migrations
+
+**Context.** Phase 1 needs PostgreSQL (ADR-001 realtime views, API data).
+
+**Options.** Drivers: `pgx` v5 (MIT, most used, native Postgres features) vs `lib/pq` (maintenance mode). Migrations: `goose` (MIT; its go.mod pulls many database drivers), `golang-migrate` (MIT; same issue), or a small built-in runner.
+
+**Decision.** PostgreSQL 18 image pinned by digest, on `linx-private` only. `pgx` v5 with `pgxpool`; plain SQL, no ORM. Migrations: a built-in runner (~100 lines) over SQL files embedded in the binary — forward-only, each in one transaction, a `schema_migrations` table, a Postgres advisory lock. Runs when the control plane starts; `linx doctor` reports the schema version.
+
+**Consequences.** One small dependency. No down-migrations: a bad migration is fixed with a new one; backups (Phase 1 later) cover disasters.
+
+## ADR-027 — API authentication
+
+**Context.** Brief: scoped, hashed, rate-limited, revocable API keys plus OAuth client credentials.
+
+**Decision.** (Details in `docs/API.md` §3.)
+- API keys `linx_<id>_<secret>`, 256-bit secret, stored as SHA-256 (the secret is random, so a slow password hash adds nothing), shown once, default expiry 1 year, optional IP allowlist, scopes capped by the creator's role.
+- OAuth client credentials issue 15-minute EdDSA JWTs (alg pinned, `aud=linx-api`, `jti` revocable, ADR-012). No refresh tokens.
+- Portal sessions (OIDC/local + MFA, later in Phase 1) use `HttpOnly; Secure; SameSite=Strict` cookies plus a CSRF header.
+- Rate limits with `golang.org/x/time/rate` (BSD-3, Go team), in memory now.
+- First key via `linx api-key create` on the server.
+
+**Consequences.** A leaked database gives no usable API keys. Rate limits are per instance until a Valkey limiter is added for multi-node.
+
+## ADR-028 — Webhooks: Standard Webhooks (owner chose the format, 2026-09-23)
+
+**Context.** Brief: HMAC-signed payloads, retries with backoff, replay from a delivery log; outbound HTTP blocks private IPs unless allowlisted.
+
+**Options.** Standard Webhooks spec; a custom `X-Linx-Signature` header.
+
+**Decision.** Standard Webhooks (`webhook-id`, `webhook-timestamp`, `webhook-signature`, HMAC-SHA256, `whsec_` secrets), implemented with the standard library (no SDK needed). Transactional outbox + `SKIP LOCKED` worker; retry schedule ≈ 27 h; 5 days of failures disables the endpoint and alerts. Shared SSRF-guarded HTTP client: HTTPS only, including allowlisted LAN targets (owner decision: no `http://` exception), resolve-check-then-dial the checked address, private/metadata ranges blocked unless allowlisted.
+
+**Consequences.** Receivers verify with off-the-shelf libraries. Delivery is at-least-once and unordered; receivers de-duplicate on `webhook-id`.
+
+## ADR-029 — Admin alerts (owner chose the channels, 2026-09-23)
+
+**Options.** Shoutrrr (MIT; covers most services, but maintenance has moved between forks and it has its own HTTP client, bypassing our SSRF guard) vs built-in senders.
+
+**Decision.** Built-in senders for ntfy, Gotify, Slack, Microsoft Teams (Workflows webhook), Telegram and generic webhook, each a single HTTPS POST through the SSRF-guarded client. Email joins when email sending is built. Severity levels, per-channel minimum severity, quiet hours (critical bypasses by default), de-duplication by alert key with 24 h reminders, flap hold-back of 5 minutes, "resolved" messages.
+
+**Consequences.** No new dependency; each sender is small and tested against a fake server. New channels are a small file each.
+
+## ADR-030 — Secrets stored in the database
+
+**Context.** Some secrets must be usable again, not just checked: webhook signing secrets, Telegram bot tokens, Slack/Teams URLs with tokens inside, later SMTP and OAuth tokens.
+
+**Decision.** Encrypt them with AES-256-GCM (Go standard library), random nonce, the row id as additional data (a ciphertext can't be moved to another row). The 32-byte key is a Docker secret `linx_db_encryption_key`, generated by the installer, never stored in the database. Key id is stored with each ciphertext so the key can be rotated later.
+
+**Consequences.** A stolen database dump alone doesn't reveal these secrets. Losing the key file loses them: backups (later in Phase 1) must include it, stored separately from the database backup.

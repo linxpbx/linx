@@ -8,11 +8,12 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/DECISIONS.md` ADRs (check before choosing any library/tool)
 - `docs/THREAT_MODEL.md` STRIDE; update every phase
 - `docs/ROADMAP.md` phases and exit criteria
+- `docs/API.md` public API, auth, webhooks, admin alerts (Phase 1 foundation)
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
 
 ## Current state
 - **Phase 0 complete, approved by the owner 2026-09-23** (demo: `docs/DEMO_PHASE0.md`, commit `ff145ad`). Built: skeleton + tokens, CI, `linx setup` (prereqs, domain/DNS token, compose stack), `linx-certd` (Cloudflare + DuckDNS, wildcard default), step-ca bootstrap, `linx doctor` certificate checks.
-- Next: Phase 1 (`docs/ROADMAP.md`), starting with the public REST API (OpenAPI), signed webhooks and admin alerts. Use Opus for its design.
+- Phase 1 started 2026-09-23: API/webhooks/alerts design in `docs/API.md` (ADR-025 to 030, approved 2026-09-23; webhooks HTTPS only, no LAN http exception). Next: build step 1 in `docs/API.md` §8 (database), then steps 2–6 in order, one per session.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)

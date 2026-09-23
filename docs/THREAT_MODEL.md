@@ -11,6 +11,8 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 - DNS provider token
 - APNs key
 - Admin accounts
+- API keys, OAuth client secrets, webhook signing secrets, alert channel tokens
+- Database encryption key (`linx_db_encryption_key`)
 - CDR and directory data (personal data)
 - Toll balance: fraudulent calls cost real money
 
@@ -58,9 +60,22 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 | Logs | **I** secret or personal data leakage | Structured logging with redaction of tokens/secrets; retention limits | 0+ |
 | Presence/directory | **I** over-sharing | Server-side visibility filtering by RBAC scope; served only to authenticated devices | 1/4 |
 | Session inactivity | **S** abandoned devices | 7-day expiry via certificate lifetime + token revocation; pushes stop | 2 |
+| Public API (`api.`) | **S** stolen/guessed API key or client secret | 256-bit random secrets, stored only as SHA-256; `linx_` prefix for secret scanning; expiry; optional IP allowlist; instant revocation; failed-auth rate limit per IP (ADR-027) | 1 |
+| Public API | **E** key does more than intended | Scopes capped by the creator's role; sensitive scopes (recordings, transcripts, call control, key management) never granted by "all"; checked on every request | 1 |
+| Public API | **T**/**D** malformed or huge requests | Spec validation before handlers, unknown fields rejected, 1 MiB body limit, per-key rate limits, problem+json errors without internals | 1 |
+| Portal sessions | **S** CSRF / cookie theft | `HttpOnly; Secure; SameSite=Strict` cookies plus CSRF header on writes | 1 |
+| OAuth tokens | **S** forged or replayed JWT | EdDSA only (alg pinned), 15-minute lifetime, `aud` checked, `jti` revocation (ADR-012) | 1 |
+| API writes | **R** "I didn't do that" | Append-only `audit_log` with actor, key/client id, IP, action, target, result | 1 |
+| Webhooks / alert senders / later CRM | **I**/**E** SSRF into `linx-private`, the LAN or cloud metadata | HTTPS only; resolve, check every address, dial the checked address; private, loopback, link-local, metadata, CGNAT, multicast and Linx networks blocked unless the admin allowlists them; no redirects; senders only on `linx-egress` (ADR-028) | 1 |
+| Webhooks | **S** receiver fooled by fake or replayed events | Standard Webhooks HMAC-SHA256 with id + timestamp; receivers told to reject old timestamps and de-duplicate ids; secret rotation with 24 h overlap | 1 |
+| Webhooks | **I** personal data in payloads | Only what each event needs; never recording/transcript contents; delivery log kept 30 days | 1 |
+| Stored integration secrets | **I** database dump leaks tokens | AES-256-GCM with a key held as a Docker secret, bound to the row (ADR-030) | 1 |
+| Admin alerts | **D** alert flood hides real problems | De-duplication by key, flap hold-back, reminders at most every 24 h, one summary after quiet hours | 1 |
 | AI/MCP (later) | **E** prompt injection via untrusted content | Untrusted-data marking; write tools require human confirmation | 6 |
 
 ## Residual risks and open items
+- API rate limits are per control-plane instance until a Valkey-backed limiter exists (single node now).
+- Losing `linx_db_encryption_key` makes stored integration secrets unreadable; backups must hold it separately from the database dump.
 - Asterisk and coturn can't see real client IPs on passthrough profiles. This is mitigated by pushing clients through WSS (where the control plane sees the IP) and by credential quotas on TURN.
 - Server-decrypted call types (PBX-anchored calls, recordings, trunks) are documented honestly in the user guide.
 - Dynamic IP with IP-auth trunks is unsupported (the wizard warns about this).
