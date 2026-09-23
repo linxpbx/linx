@@ -1,7 +1,7 @@
 // Command licensecheck fails if any npm dependency in a package-lock.json uses a
 // licence outside the allowlist (ADR-014). Shipped (prod) packages get the strict
 // list; build-only (dev) packages may also use weak-copyleft build tooling licences.
-// Go modules are checked separately once the first external Go dependency lands.
+// Go modules linked into Linx binaries are checked by their licence text (gomod.go).
 package main
 
 import (
@@ -57,6 +57,11 @@ func main() {
 			bad = append(bad, fmt.Sprintf("%s (%s): %s", strings.TrimPrefix(p[strings.LastIndex(p, "node_modules/")+1:], "node_modules/"), scope, lic))
 		}
 	}
+	goMods, goBad, err := checkGo()
+	if err != nil {
+		fail(err)
+	}
+	bad = append(bad, goBad...)
 	sort.Strings(bad)
 	for _, l := range bad {
 		fmt.Fprintln(os.Stderr, "licence not allowed:", l)
@@ -64,7 +69,7 @@ func main() {
 	if len(bad) > 0 {
 		fail(fmt.Errorf("%d package(s) with disallowed licences", len(bad)))
 	}
-	fmt.Printf("licences: ok (%d packages)\n", len(lf.Packages)-1)
+	fmt.Printf("licences: ok (%d npm packages, %d Go modules)\n", len(lf.Packages)-1, goMods)
 }
 
 // allowed evaluates simple SPDX expressions: "A OR B" passes if any side passes,

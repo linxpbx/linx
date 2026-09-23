@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -15,7 +16,7 @@ Usage:
   linx <command>
 
 Commands:
-  setup     Install or reconfigure Linx on this server (coming in Phase 0b)
+  setup     Check this server and install what Linx needs (run with sudo)
   doctor    Check that everything is working (coming in Phase 0b)
   version   Show the Linx version
   help      Show this help
@@ -37,7 +38,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0
-	case "setup", "doctor":
+	case "setup":
+		return runSetup(context.Background(), args[1:], stdout, stderr, realSetupEnv())
+	case "doctor":
 		fmt.Fprintf(stderr, "linx %s: not available yet in this build.\n", args[0])
 		return 1
 	default:

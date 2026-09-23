@@ -1,6 +1,6 @@
 # Linx — Threat Model (STRIDE)
 
-Version: Phase 0 (2026-09-23). This document is updated at the end of every phase.
+Version: Phase 0 (2026-09-23), installer rows updated in Phase 0b. This document is updated at the end of every phase.
 
 ## Assets
 - Call and meeting media and signalling
@@ -44,7 +44,9 @@ Version: Phase 0 (2026-09-23). This document is updated at the end of every phas
 | DNS automation | **T** clobbering user records | Only touches records it created (ownership tag); preview before write | 1 |
 | Push gateway | **S**/**D** push spam, APNs key leak | APNs key as a Docker secret; VoIP pushes only for real calls (Apple policy); push rate limits per device | 2 |
 | Docker host | **E** container escape, socket abuse | Non-root containers, read-only FS, no-new-privileges, dropped capabilities, seccomp; the Docker socket is never mounted into Linx services; container UIs warned as root-equivalent and bound to LAN | 0 |
-| Installer | **T** supply chain | Docker installed from the official repo with a verified GPG key; images pinned by digest and cosign-verified; SBOM; CI blocks high/critical CVEs | 0 |
+| Installer | **T** supply chain | Docker's apt signing key is embedded in the `linx` binary (fingerprint checked by tests), not downloaded; packages come only from Docker's official repo; images pinned by digest and cosign-verified; SBOM; CI blocks high/critical CVEs | 0 |
+| Installer | **E** privilege | `linx setup` runs as root and shows every step before applying it (`--dry-run` shows the exact commands); Docker group membership only for the `linx` system account, which has no login shell | 0 |
+| Container management UI (Portainer, optional) | **E** root-equivalent via the Docker socket | Off by default; bound to the private LAN address only (loopback + SSH tunnel if the server has none); generated admin password in a root-only file mounted as a secret; image pinned by digest; setup warns never to port-forward it (ADR-019) | 0 |
 | Backups | **I** data exposure off-site | Client-side encryption (restic) with an owner-held passphrase; private keys excluded by default | 5 |
 | Logs | **I** secret or personal data leakage | Structured logging with redaction of tokens/secrets; retention limits | 0+ |
 | Presence/directory | **I** over-sharing | Server-side visibility filtering by RBAC scope; served only to authenticated devices | 1/4 |

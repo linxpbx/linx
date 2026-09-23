@@ -11,7 +11,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
 
 ## Current state
-- Phase 0a approved 2026-09-23. Phase 0b items 1 (skeleton) and 2 (CI) done. Next: item 3 (installer prereqs), then item 4 (certs).
+- Phase 0a approved 2026-09-23. Phase 0b items 1 (skeleton), 2 (CI) and 3 (installer prereqs) done. Next: item 4 (certs).
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)
@@ -36,7 +36,7 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - Only permissive licences (MIT/BSD/Apache/ISC) in client bundles. No GPL SDKs in apps.
 - Design tokens only from `design/tokens.json`. No hardcoded colours in UI code.
 - Brand colour: Cobalt `#1F5FD6` (not the mockup teal). Status colours per DESIGN_TOKENS.md.
-- Every user-facing string goes through i18n (en + ar, full RTL).
+- English only for CLI, server UI and apps (ADR-021). No Arabic/RTL.
 - Plain-language copy in default admin views; no telecom jargon.
 - Prefer mature OSS; custom code only for glue, control plane, provisioning, clients.
 
@@ -46,7 +46,7 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - `make build` (bin/ + web/dist/). Go module path: `linxpbx.com/linx`
 - `make security` (govulncheck, npm audit, licence allowlist), `make image SERVICE=control-plane`
 - CI: `.github/workflows/ci.yml` (amd64+arm64 tests, gitleaks, SBOM, Trivy, cosign-signed images to ghcr.io on master). Actions pinned by SHA; Dependabot updates them. First external Go dep must add a Go licence check.
-- `linx setup`, `linx doctor`
+- `linx setup [--config FILE] [--dry-run]` (code: `cmd/linx/setup.go`, `internal/installer`, `internal/hostinfo`), `linx doctor`
 
 ## Security rules (never break these)
 - Never disable cert verification, never use `--insecure`, never fall back to plaintext.

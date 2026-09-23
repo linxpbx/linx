@@ -13,7 +13,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - **0b (code):**
   - repo skeleton and design-token pipeline (CSS vars + Swift assets)
   - multi-arch CI (amd64 + arm64, lint/test, Trivy/govulncheck/npm audit, SBOM, cosign, licence allowlist, gitleaks)
-  - `linx setup` prerequisites step (OS/arch/RAM/disk detection, Docker install/upgrade, optional container UI, resource-profile suggestion, `setup.yaml`)
+  - `linx setup` prerequisites step (OS/arch/RAM/disk detection, Docker install/upgrade, optional Portainer, resource-profile suggestion, `setup.yaml`)
   - `linx-certd` (lego, LE staging default, ZeroSSL fallback) and a step-ca bootstrap
   - `linx doctor` certificate checks
 - **Exit:** on a fresh VM, `linx setup` → staging certificate for a linxpbx.com test subdomain → step-ca healthy → `linx doctor` all green.
@@ -33,7 +33,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 ## Phase 2 — Provisioning + first native client
 - QR, email-link and manual enrollment with device certificates (Secure Enclave).
 - Push gateway (APNs), with the "hold INVITE until register" logic in the ARI app.
-- iOS/iPadOS app: CallKit/PushKit, audio + 1:1 video, the 5 tabs, iPad split view, EN/AR RTL.
+- iOS/iPadOS app: CallKit/PushKit, audio + 1:1 video, the 5 tabs, iPad split view (English only, ADR-021).
 - 7-day inactivity expiry.
 - `APPLE_SIGNING.md`, `STORE_SUBMISSION.md`, `TEST_MATRIX.md`.
 - *Custom tunnel is not built (ADR-007).* The "tunnel-only network" test cases run against WSS + TURN/TLS 443 and may trigger ADR-008.

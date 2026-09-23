@@ -25,3 +25,23 @@ func TestAllowed(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyLicence(t *testing.T) {
+	tests := []struct {
+		text string
+		ok   bool
+	}{
+		{"MIT License\nPermission is hereby granted, free of charge, to any person", true},
+		{"Apache License\nVersion 2.0, January 2004", true},
+		{"Redistribution and use in source and binary forms, with or without", true},
+		{"GNU GENERAL PUBLIC LICENSE Version 3", false},
+		{"Permission is hereby granted, free of charge\n...\nGNU Lesser General Public License", false},
+		{"Mozilla Public License Version 2.0", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := classifyLicence(tt.text) != ""; got != tt.ok {
+			t.Errorf("classifyLicence(%.40q) ok = %v, want %v", tt.text, got, tt.ok)
+		}
+	}
+}

@@ -23,6 +23,9 @@ Status values: `Proposed` (awaiting owner approval), `Accepted`, `Superseded by 
 | 016 | Brand colour | Linx Cobalt `#1F5FD6` replaces mockup teal | Accepted (owner, 2026-09-23) |
 | 017 | Web SIP library | JsSIP | Accepted (owner, 2026-09-23) |
 | 018 | Code hosting / CI | Private GitHub repo, GitHub Actions (amd64 + arm64 runners) | Accepted (owner, 2026-09-23) |
+| 019 | Optional container management UI | Portainer CE or none (Dockge and Cockpit dropped) | Accepted (owner, 2026-09-23) |
+| 020 | setup.yaml parser (first external Go dependency) | go.yaml.in/yaml/v3 | Accepted (owner, 2026-09-23) |
+| 021 | Languages | English only (CLI, server UI, apps); Arabic/RTL dropped | Accepted (owner, 2026-09-23) |
 
 ---
 
@@ -208,3 +211,29 @@ Linx Cobalt `#1F5FD6` is the primary/accent colour and replaces the mockup teal.
 ## ADR-018 — Hosting and CI (owner decision)
 
 Private GitHub repository with GitHub Actions. Multi-arch builds run on native `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64) runners, not QEMU emulation. All actions are pinned by commit SHA.
+
+## ADR-019 — Optional container management UI (owner decision)
+
+**Context.** The brief offered Portainer CE, Dockge or Cockpit during setup, each LAN-only with a generated admin password.
+
+**Findings.** Dockge serves its login over plain HTTP and can't be given an admin password in advance, so whoever opens it first becomes admin. Cockpit's container add-on (cockpit-podman) manages Podman, not Docker, so it can't see Linx containers.
+
+**Decision.** Setup offers **Portainer CE** or **None** (default None). Portainer runs from a generated Compose file, image pinned by digest, bound to the server's private LAN address only (127.0.0.1 plus SSH-tunnel instructions when the server has no private address). The admin password is generated, kept in a root-only file and mounted as a Compose secret.
+
+**Consequences.** Portainer mounts the Docker socket, so it's root-equivalent. Setup says so, and never binds it to a public address.
+
+## ADR-020 — setup.yaml parser: go.yaml.in/yaml/v3
+
+**Context.** `linx setup --config setup.yaml` needs a YAML parser. The standard library has none.
+
+**Options.** `go.yaml.in/yaml/v3` (MIT + Apache-2.0, maintained by the YAML organisation; continuation of the archived `gopkg.in/yaml.v3`); `sigs.k8s.io/yaml` (wraps the same parser, adds a JSON step); `go.yaml.in/yaml/v4` (still release candidates).
+
+**Decision.** `go.yaml.in/yaml/v3`, pinned. Unknown keys are rejected so typos don't pass silently.
+
+**Consequences.** It's the first external Go dependency, so `make security` now checks Go module licences too (`tools/licensecheck/gomod.go`).
+
+## ADR-021 — Languages: English only (owner decision)
+
+**Decision.** The `linx` CLI, the web/admin UI and the iOS app ship in English only. The brief's Arabic translation and right-to-left layout requirement is dropped.
+
+**Consequences.** No i18n string catalogues or RTL layout work in this scope. User-facing copy still stays plain-language and in one place per client, so adding languages later is a refactor, not a rewrite. The Arabic font token in `design/tokens.json` is unused and can be removed.

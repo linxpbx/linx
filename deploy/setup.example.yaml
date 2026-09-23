@@ -1,0 +1,10 @@
+# Example answers for "sudo linx setup --config setup.yaml" (no questions asked).
+# Copy it, adjust it, and keep your copy out of git.
+version: 1
+docker:
+  # Allow setup to install or upgrade Docker from Docker's official repository.
+  install: true
+# Optional container management screen: none or portainer.
+container_ui: none
+# Resource profile: auto (chosen from the hardware), lite, standard or performance.
+resource_profile: auto
