@@ -41,7 +41,6 @@ Status is never shown by colour alone. It always has a text label, and the dot h
 | Display / headings | Instrument Sans (600–700) | SF Pro (system) with Dynamic Type; Instrument Sans only for branding moments |
 | Body | IBM Plex Sans | SF Pro (system) |
 | Numbers (dial string, timers, extensions) | IBM Plex Mono | SF Mono |
-| Arabic | IBM Plex Sans Arabic | SF Arabic (system) |
 
 iOS uses system fonts per HIG and the brief. Web self-hosts the IBM Plex and Instrument Sans files (no Google Fonts call on the guest page, which keeps it under 300 KB).
 

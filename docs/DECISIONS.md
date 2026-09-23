@@ -236,4 +236,4 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Decision.** The `linx` CLI, the web/admin UI and the iOS app ship in English only. The brief's Arabic translation and right-to-left layout requirement is dropped.
 
-**Consequences.** No i18n string catalogues or RTL layout work in this scope. User-facing copy still stays plain-language and in one place per client, so adding languages later is a refactor, not a rewrite. The Arabic font token in `design/tokens.json` is unused and can be removed.
+**Consequences.** No i18n string catalogues or RTL layout work in this scope. User-facing copy still stays plain-language and in one place per client, so adding languages later is a refactor, not a rewrite.
