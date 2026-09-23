@@ -24,7 +24,8 @@ Checks the whole path on a real server: `linx setup` → Let's Encrypt **test** 
 ```
 sudo docker compose --file /etc/linx/compose.yaml ps          # linx-step-ca "healthy", linx-certd "running"
 sudo docker compose --file /etc/linx/compose.yaml logs certd | grep -E '"level":"(INFO|ERROR)"' | tail -5
-sudo docker run --rm -v linx_certs:/c:ro alpine cat /c/current/meta.json
+# the step-ca image is already on the server (pinned); 65532 is the certificate service user
+sudo docker run --rm --network none --user 65532 -v linx_certs:/c:ro --entrypoint cat smallstep/step-ca:0.30.2@sha256:a2b17872915c193259b75a5474c398326f41bd199f0842093e52cf4182bc8270 /c/current/meta.json
 ```
 `meta.json` should show `"staging": true`, `"issuer": "letsencrypt-staging"` and names `*.lab.linxpbx.com`. Also run setup a second time: it should offer to keep the saved token and finish without a new certificate.
 
@@ -42,3 +43,6 @@ sudo docker volume rm linx-step-ca
 sudo rm -r /etc/linx
 ```
 Then delete the Cloudflare token.
+
+## Results
+- 2026-09-23, Ubuntu 24.04 VM (amd64), `lab.linxpbx.com` via Cloudflare, commit `1f596eb`: **passed.** Test certificate `*.lab.linxpbx.com` from `letsencrypt-staging` (valid to 2026-12-22); step-ca healthy; certd running; a second `linx setup` run kept the saved token and issued nothing new; Portainer reachable from the LAN only. Two earlier attempts failed on DNS timing for the same-day domain, fixed in `b267ccb` and `1f596eb` (see ADR-010 notes).

@@ -11,7 +11,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
 
 ## Current state
-- Phase 0a approved 2026-09-23. Phase 0b items 1 (skeleton), 2 (CI), 3 (installer prereqs), 4a (linx-certd: Cloudflare + DuckDNS, wildcard default) and 4b (step-ca bootstrap in `linx setup`; `make test-docker`) and 4c (setup asks domain/DNS token, installs `/etc/linx/compose.yaml`, gets the first certificate, starts the stack) done. Next: live staging test on a linxpbx.com subdomain (`docs/ops/STAGING_TEST.md`), then `linx doctor` certificate checks.
+- Phase 0a approved 2026-09-23. Phase 0b items 1 (skeleton), 2 (CI), 3 (installer prereqs), 4a (linx-certd: Cloudflare + DuckDNS, wildcard default) and 4b (step-ca bootstrap in `linx setup`; `make test-docker`) and 4c (setup asks domain/DNS token, installs `/etc/linx/compose.yaml`, gets the first certificate, starts the stack) done. Live staging test passed 2026-09-23 (`docs/ops/STAGING_TEST.md`). Next: `linx doctor` certificate checks (last 0b item), then `docs/DEMO_PHASE0.md`.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)
