@@ -8,7 +8,7 @@ Every phase ends with:
 
 UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, approved by the owner before coding.
 
-## Phase 0 — Design and foundations
+## Phase 0 — Design and foundations ✅ approved 2026-09-23
 - **0a (docs):** `CLAUDE.md`, `ARCHITECTURE.md`, `DECISIONS.md`, `THREAT_MODEL.md`, `ROADMAP.md`, `ui/DESIGN_TOKENS.md`. ➡ Owner approval.
 - **0b (code):**
   - repo skeleton and design-token pipeline (CSS vars + Swift assets)

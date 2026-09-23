@@ -11,7 +11,8 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
 
 ## Current state
-- Phase 0a approved 2026-09-23. Phase 0b items 1 (skeleton), 2 (CI), 3 (installer prereqs), 4a (linx-certd: Cloudflare + DuckDNS, wildcard default) and 4b (step-ca bootstrap in `linx setup`; `make test-docker`) and 4c (setup asks domain/DNS token, installs `/etc/linx/compose.yaml`, gets the first certificate, starts the stack) and 5 (`linx doctor` certificate checks: `internal/doctor`) done. Live staging test passed 2026-09-23 (`docs/ops/STAGING_TEST.md`); Phase 0 demo (`docs/DEMO_PHASE0.md`) passed 2026-09-23 on commit `ff145ad`, `linx doctor` all green. Next: owner approves the end of Phase 0, then Phase 1.
+- **Phase 0 complete, approved by the owner 2026-09-23** (demo: `docs/DEMO_PHASE0.md`, commit `ff145ad`). Built: skeleton + tokens, CI, `linx setup` (prereqs, domain/DNS token, compose stack), `linx-certd` (Cloudflare + DuckDNS, wildcard default), step-ca bootstrap, `linx doctor` certificate checks.
+- Next: Phase 1 (`docs/ROADMAP.md`), starting with the public REST API (OpenAPI), signed webhooks and admin alerts. Use Opus for its design.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)
