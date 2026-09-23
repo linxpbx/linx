@@ -1,0 +1,2 @@
+# False positive: internal/certs/acme.go:111 sets the key algorithm (EC P-256), not a secret.
+68a5ccf70565f49d8b20665b0f33f0a26b541964:internal/certs/acme.go:generic-api-key:111

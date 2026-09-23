@@ -113,6 +113,7 @@ issue svc linx-services services
 issue dev linx-devices devices
 issue big linx-services services --not-after 48h || echo "48h refused"
 step crypto key public /backup/root_ca_key --password-file <(printf %s "$PASS") >/dev/null && echo "backup ok"
+chmod 0644 /out/*.crt # the test runs as a different user from the container
 `
 	res := docker("run", "--rm", "--network", network, "--tmpfs", "/tmp", "--env", "PASS="+s.Passphrase,
 		"--volume", volume+":/home/step:ro", "--volume", secrets+":/run/secrets:ro", "--volume", backup+":/backup:ro",
