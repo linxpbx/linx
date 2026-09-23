@@ -1,0 +1,9 @@
+Linx
+Copyright 2026 Mohammed AlMudharreb
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Linx orchestrates separately licensed components that run as independent
+processes and are not linked into Linx code, including Asterisk (GPLv2),
+HAProxy (GPLv2), LiveKit (Apache-2.0), coturn (BSD-3-Clause),
+step-ca (Apache-2.0), PostgreSQL (PostgreSQL License) and Valkey (BSD-3-Clause).

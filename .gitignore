@@ -1,0 +1,25 @@
+# Build output
+/bin/
+dist/
+node_modules/
+*.tsbuildinfo
+
+# Secrets and local config — never commit
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+setup.yaml
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate

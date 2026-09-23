@@ -11,7 +11,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
 
 ## Current state
-- Phase 0a (docs) approved 2026-09-23. Next: Phase 0b, one item per session (skeleton → CI → installer prereqs → certs), per docs/ROADMAP.md.
+- Phase 0a approved 2026-09-23. Phase 0b item 1 (repo skeleton) done. Next: item 2 (CI), then installer prereqs, then certs.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)
@@ -40,9 +40,10 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - Plain-language copy in default admin views; no telecom jargon.
 - Prefer mature OSS; custom code only for glue, control plane, provisioning, clients.
 
-## Commands (created in Phase 0b)
-- `make lint`, `make test` (quiet: failures and summary only)
-- `make build` (multi-arch images), `make up` / `make down`
+## Commands
+- `make setup-dev` (npm ci), `make lint`, `make test` (quiet: failures and summary only)
+- `make tokens` after editing `design/tokens.json` (lint fails if generated files are stale; contrast is tested)
+- `make build` (bin/ + web/dist/). Go module path: `linxpbx.com/linx`
 - `linx setup`, `linx doctor`
 
 ## Security rules (never break these)

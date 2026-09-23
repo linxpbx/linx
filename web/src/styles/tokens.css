@@ -1,0 +1,97 @@
+/* Generated from design/tokens.json by `make tokens`. Do not edit. */
+
+:root {
+  color-scheme: light;
+  --linx-color-accent: #1F5FD6;
+  --linx-color-bg: #F4F3EF;
+  --linx-color-border: #E3E1DA;
+  --linx-color-brand-fill: #1F5FD6;
+  --linx-color-call: #1E8E4E;
+  --linx-color-end: #C53030;
+  --linx-color-on-brand: #FFFFFF;
+  --linx-color-on-call: #FFFFFF;
+  --linx-color-on-end: #FFFFFF;
+  --linx-color-on-surface-dark: #F4F3EF;
+  --linx-color-surface: #FFFFFF;
+  --linx-color-surface-dark: #17191E;
+  --linx-color-text: #17191E;
+  --linx-color-text-muted: #5B5F68;
+  --linx-status-available: #1E8E4E;
+  --linx-status-away: #9C7F0A;
+  --linx-status-busy: #C53030;
+  --linx-status-dnd: #7A3FC4;
+  --linx-status-meeting: #1F5FD6;
+  --linx-status-offline: #8A8E96;
+  --linx-status-push: #5A7A9A;
+  --linx-status-ringing: #C27A12;
+  --linx-font-arabic: "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --linx-font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --linx-font-display: "Instrument Sans", system-ui, sans-serif;
+  --linx-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --linx-space-1: 4px;
+  --linx-space-10: 40px;
+  --linx-space-2: 8px;
+  --linx-space-3: 12px;
+  --linx-space-4: 16px;
+  --linx-space-5: 20px;
+  --linx-space-6: 24px;
+  --linx-space-8: 32px;
+  --linx-radius-full: 9999px;
+  --linx-radius-lg: 16px;
+  --linx-radius-md: 12px;
+  --linx-radius-sm: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --linx-color-accent: #7FB0FF;
+    --linx-color-bg: #17191E;
+    --linx-color-border: #343842;
+    --linx-color-brand-fill: #1F5FD6;
+    --linx-color-call: #1E8E4E;
+    --linx-color-end: #C53030;
+    --linx-color-on-brand: #FFFFFF;
+    --linx-color-on-call: #FFFFFF;
+    --linx-color-on-end: #FFFFFF;
+    --linx-color-on-surface-dark: #F4F3EF;
+    --linx-color-surface: #22252C;
+    --linx-color-surface-dark: #17191E;
+    --linx-color-text: #F4F3EF;
+    --linx-color-text-muted: #A6AAB3;
+    --linx-status-available: #1E8E4E;
+    --linx-status-away: #B8960C;
+    --linx-status-busy: #E05252;
+    --linx-status-dnd: #9D6FE3;
+    --linx-status-meeting: #5B8FEA;
+    --linx-status-offline: #8A8E96;
+    --linx-status-push: #5A7A9A;
+    --linx-status-ringing: #C27A12;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --linx-color-accent: #7FB0FF;
+  --linx-color-bg: #17191E;
+  --linx-color-border: #343842;
+  --linx-color-brand-fill: #1F5FD6;
+  --linx-color-call: #1E8E4E;
+  --linx-color-end: #C53030;
+  --linx-color-on-brand: #FFFFFF;
+  --linx-color-on-call: #FFFFFF;
+  --linx-color-on-end: #FFFFFF;
+  --linx-color-on-surface-dark: #F4F3EF;
+  --linx-color-surface: #22252C;
+  --linx-color-surface-dark: #17191E;
+  --linx-color-text: #F4F3EF;
+  --linx-color-text-muted: #A6AAB3;
+  --linx-status-available: #1E8E4E;
+  --linx-status-away: #B8960C;
+  --linx-status-busy: #E05252;
+  --linx-status-dnd: #9D6FE3;
+  --linx-status-meeting: #5B8FEA;
+  --linx-status-offline: #8A8E96;
+  --linx-status-push: #5A7A9A;
+  --linx-status-ringing: #C27A12;
+}

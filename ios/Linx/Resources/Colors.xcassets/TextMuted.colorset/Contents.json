@@ -1,0 +1,38 @@
+{
+  "colors": [
+    {
+      "color": {
+        "color-space": "srgb",
+        "components": {
+          "alpha": "1.000",
+          "blue": "0x68",
+          "green": "0x5F",
+          "red": "0x5B"
+        }
+      },
+      "idiom": "universal"
+    },
+    {
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "color": {
+        "color-space": "srgb",
+        "components": {
+          "alpha": "1.000",
+          "blue": "0xB3",
+          "green": "0xAA",
+          "red": "0xA6"
+        }
+      },
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "linx-tokengen",
+    "version": 1
+  }
+}

@@ -20,16 +20,18 @@ The mockups used a placeholder teal. **Linx Cobalt replaces it everywhere** that
 All text/background pairs must meet WCAG 2.2 AA. This is verified by a contrast test in CI (Phase 0b).
 
 ## Presence status colours (brief-mandated, identical on all platforms)
-| Status | Token | Value |
-|---|---|---|
-| Available | `status.available` | `#1E8E4E` green |
-| On a call / busy | `status.busy` | `#C53030` red |
-| Ringing | `status.ringing` | `#C27A12` amber |
-| Away | `status.away` | `#B8960C` yellow |
-| Do not disturb | `status.dnd` | `#7A3FC4` purple |
-| Reachable via push | `status.push` | `#5A7A9A` grey-blue |
-| Offline | `status.offline` | `#8A8E96` grey |
-| In a meeting | `status.meeting` | `#1F5FD6` cobalt |
+| Status | Token | Light | Dark |
+|---|---|---|---|
+| Available | `status.available` | `#1E8E4E` green | `#1E8E4E` |
+| On a call / busy | `status.busy` | `#C53030` red | `#E05252` |
+| Ringing | `status.ringing` | `#C27A12` amber | `#C27A12` |
+| Away | `status.away` | `#9C7F0A` yellow | `#B8960C` |
+| Do not disturb | `status.dnd` | `#7A3FC4` purple | `#9D6FE3` |
+| Reachable via push | `status.push` | `#5A7A9A` grey-blue | `#5A7A9A` |
+| Offline | `status.offline` | `#8A8E96` grey | `#8A8E96` |
+| In a meeting | `status.meeting` | `#1F5FD6` cobalt | `#5B8FEA` |
+
+Some dark-mode shades (and the light-mode away yellow) were lightened or darkened so that every status dot reaches the WCAG 3:1 minimum for non-text elements. This is enforced by `internal/tokens` tests.
 
 Status is never shown by colour alone. It always has a text label, and the dot has an accessible name.
 
