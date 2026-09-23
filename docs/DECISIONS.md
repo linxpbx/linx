@@ -152,6 +152,12 @@ The gaps compared with a custom tunnel are:
 - reload hooks for each consumer
 - Prometheus expiry metrics
 
+**Implementation notes (Phase 0b, owner, 2026-09-23).**
+- DNS providers for now: **Cloudflare and DuckDNS**. deSEC is deferred: lego's deSEC client pulls in MPL-2.0 modules (`nrdcg/desec`, `hashicorp/go-retryablehttp`, `go-cleanhttp`), which the licence allowlist rejects. More providers arrive with the Domain & DNS page, and each one's module licences are checked first.
+- Default certificate: one wildcard `*.<domain>`. It keeps the Linx hostnames out of Certificate Transparency logs. A named certificate (admin, api, meet, provision, sip, turn) is an option. `tunnel.` isn't issued until ADR-008 is built.
+- Certificate keys are ECDSA P-256. ACME accounts are kept per CA in a volume only certd can read.
+- Staging mode uses Let's Encrypt staging only. ZeroSSL has no staging environment, so the fallback only applies in production. ZeroSSL's EAB credentials are fetched with the ACME contact email, so production needs an email.
+
 ## ADR-011 — Internal PKI: step-ca
 
 Decision: Smallstep step-ca (Apache-2.0).

@@ -1,0 +1,44 @@
+# Linx base stack. linx setup writes .env (non-secret settings) and the files
+# under secrets/ (mode 0600, never committed); you shouldn't need to edit this.
+name: linx
+
+services:
+  certd:
+    image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-certd:${LINX_VERSION:?set by linx setup}
+    container_name: linx-certd
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      LINX_DOMAIN: ${LINX_DOMAIN:?set by linx setup}
+      LINX_DNS_PROVIDER: ${LINX_DNS_PROVIDER:?set by linx setup}
+      LINX_ACME_EMAIL: ${LINX_ACME_EMAIL:-}
+      LINX_ACME_STAGING: ${LINX_ACME_STAGING:-true}
+      LINX_CERT_WILDCARD: ${LINX_CERT_WILDCARD:-true}
+    secrets: [linx_dns_token]
+    volumes:
+      - certd-state:/var/lib/linx/state
+      # Consumers mount this read-only at the same path and add
+      # group_add: ["65532"] to read privkey.pem (see docs/ops/CERT_RELOAD.md).
+      - certs:/var/lib/linx/certs
+    networks: [linx-private, linx-egress]
+    mem_limit: 64m
+    pids_limit: 64
+
+secrets:
+  linx_dns_token:
+    file: ./secrets/linx_dns_token
+
+volumes:
+  certd-state:
+  certs:
+
+networks:
+  # Databases, CA, metrics and internal APIs. No route to the internet.
+  linx-private:
+    name: linx-private
+    internal: true
+  # Outbound-only access for services that call external APIs (ACME, DNS).
+  linx-egress:
+    name: linx-egress

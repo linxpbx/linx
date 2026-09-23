@@ -1,3 +1,8 @@
 # Docker Compose
 
-The base `compose.yaml` and per-profile overrides are added in Phase 0b (items 2–5). They're generated or selected by `linx setup`, so you should never need to edit them by hand.
+`compose.yaml` is the base stack. `linx setup` writes `.env` (non-secret settings) and `secrets/` (mode 0600) next to it, so you should never need to edit it by hand. Per-profile overrides arrive with later Phase 0b items.
+
+Services so far:
+- `linx-certd`: public certificate (see `docs/ops/CERT_RELOAD.md`). Settings: `LINX_DOMAIN`, `LINX_DNS_PROVIDER` (`cloudflare` or `duckdns`), `LINX_ACME_EMAIL`, `LINX_ACME_STAGING` (default `true`), `LINX_CERT_WILDCARD` (default `true`). Secret: `secrets/linx_dns_token`.
+
+Run once without the daemon: `docker compose run --rm certd -once`.

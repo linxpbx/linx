@@ -40,7 +40,9 @@ Version: Phase 0 (2026-09-23), installer rows updated in Phase 0b. This document
 | Outbound requests (webhooks, CRM, storage) | **I** SSRF | Private ranges blocked by default with an explicit allowlist; timeouts and size limits | 1 |
 | Web app | **T**/**I** XSS/CSRF | Strict CSP (no inline scripts), HSTS, Secure/HttpOnly/SameSite cookies, CSRF tokens, output encoding; external content treated as untrusted | 1 |
 | step-ca | **E** CA key compromise | Offline root (exported encrypted, removed from host); intermediate only on `linx-private`; provisioner restricted to the control plane via mTLS | 0 |
-| linx-certd | **I** DNS token leak → domain hijack | Least-privilege token (`Zone:DNS:Edit`, one zone), stored as a Docker secret, never logged; CAA records restrict issuance | 0 |
+| linx-certd | **I** DNS token leak → domain hijack | Least-privilege token (Cloudflare: `Zone:Read` + `DNS:Edit` on the one zone), stored as a Docker secret, never logged (tested); CAA records restrict issuance | 0 |
+| linx-certd | **I** hostname discovery via CT logs | Wildcard certificate by default, so `sip.`/`turn.`/`admin.` never appear in public logs | 0 |
+| linx-certd | **T**/**D** half-written or stolen certificate files | New versions written to a fresh directory, then an atomic symlink swap; key `0640` (shared group only); ACME account keys `0600` in a separate volume; non-root, read-only container, all capabilities dropped | 0 |
 | DNS automation | **T** clobbering user records | Only touches records it created (ownership tag); preview before write | 1 |
 | Push gateway | **S**/**D** push spam, APNs key leak | APNs key as a Docker secret; VoIP pushes only for real calls (Apple policy); push rate limits per device | 2 |
 | Docker host | **E** container escape, socket abuse | Non-root containers, read-only FS, no-new-privileges, dropped capabilities, seccomp; the Docker socket is never mounted into Linx services; container UIs warned as root-equivalent and bound to LAN | 0 |
@@ -57,3 +59,4 @@ Version: Phase 0 (2026-09-23), installer rows updated in Phase 0b. This document
 - Asterisk and coturn can't see real client IPs on passthrough profiles. This is mitigated by pushing clients through WSS (where the control plane sees the IP) and by credential quotas on TURN.
 - Server-decrypted call types (PBX-anchored calls, recordings, trunks) are documented honestly in the user guide.
 - Dynamic IP with IP-auth trunks is unsupported (the wizard warns about this).
+- CAA records aren't created automatically yet. Until the Domain & DNS page does it (Phase 1), the owner adds `CAA 0 issue "letsencrypt.org"` and `CAA 0 issue "sectigo.com"` (ZeroSSL) by hand.
