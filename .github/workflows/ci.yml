@@ -81,9 +81,9 @@ jobs:
     needs: [test, security]
     runs-on: ubuntu-24.04
     # Asterisk compiles from source under QEMU for the arm64 leg (no arm64
-    # runner here); a cold cache takes 25-30 min on that leg alone. The
-    # go-service images finish in a few minutes either way.
-    timeout-minutes: 60
+    # runner here); a cold cache took over 50 min on that leg alone in
+    # practice. The go-service images finish in a few minutes either way.
+    timeout-minutes: 75
     permissions:
       contents: read
       packages: write # push to ghcr.io (master only)
