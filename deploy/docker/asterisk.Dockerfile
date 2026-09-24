@@ -109,7 +109,12 @@ RUN menuselect/menuselect \
       menuselect.makeopts \
     && menuselect/menuselect --check-deps menuselect.makeopts
 
-RUN make -j"$(nproc)" && make install
+# third-party (pjproject) has real missing-dependency races under -j
+# (pjsip/pjproject#2626: libpjnath and others link before their own build
+# finishes) — build it serially first, then the rest of Asterisk in
+# parallel, which doesn't share that problem.
+RUN make -C third-party
+RUN NOISY_BUILD=yes make -j"$(nproc)" && make install
 
 # --- Go entrypoint (config renderer + exec into asterisk) ---
 # golang:1.27.1-bookworm
