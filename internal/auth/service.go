@@ -237,6 +237,7 @@ func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch
 		}
 		u.Name = name
 	}
+	roleChanging := false
 	if patch.Role != nil {
 		if !ValidRole(*patch.Role) {
 			return User{}, badRequest("role_invalid", fmt.Sprintf("%q is not a role. Roles: %s.", *patch.Role, strings.Join(Roles, ", ")))
@@ -245,6 +246,7 @@ func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch
 			return User{}, &apihttp.Error{Status: http.StatusForbidden, Code: "role_exceeds_caller",
 				Detail: fmt.Sprintf("You can't give the %s role.", *patch.Role)}
 		}
+		roleChanging = *patch.Role != u.Role
 		u.Role = *patch.Role
 	}
 	if patch.ExtensionID != nil {
@@ -273,7 +275,11 @@ func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch
 	if err != nil {
 		return User{}, err
 	}
-	if disabling {
+	// A session carries the role it signed in with (Principal's scopes come
+	// from it); ending every session on a role change is what makes a
+	// demotion (or promotion) take effect at once instead of up to
+	// AdminSessionTTL/UserSessionTTL later.
+	if disabling || roleChanging {
 		if err := a.Store.RevokeUserSessions(ctx, id, now); err != nil {
 			return out, err
 		}
@@ -459,6 +465,15 @@ func (a *Accounts) VerifyMFA(ctx context.Context, code string) error {
 	if sess.MFAVerified {
 		return nil
 	}
+	now := a.Now().UTC()
+	// Wrong codes share the same per-address budget and per-account lockout
+	// as a wrong password (docs/WEB.md §4): without this, a stolen pending
+	// session cookie would let an attacker brute-force a 6-digit code with
+	// no limit.
+	ipKey := IPKey(ClientIPFromContext(ctx))
+	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
+		return tooManyFailuresErr()
+	}
 	u, err := a.Store.User(ctx, sess.TenantID, sess.UserID)
 	if err != nil {
 		return err
@@ -466,12 +481,32 @@ func (a *Accounts) VerifyMFA(ctx context.Context, code string) error {
 	if !u.MFAEnabled || len(u.MFASecretEnc) == 0 {
 		return badRequest("mfa_not_enrolled", "Set up an authenticator app first: POST /me/mfa.")
 	}
+	if u.LockedUntil != nil && now.Before(*u.LockedUntil) {
+		return lockedError(*u.LockedUntil)
+	}
 	ok, err = a.checkMFACode(ctx, u, code)
 	if err != nil {
 		return err
 	}
 	if !ok {
+		if a.Failures != nil {
+			a.Failures.Allow(ipKey, now)
+		}
+		lockedUntil, alertThreshold, ferr := a.Store.RecordLoginFailure(ctx, sess.TenantID, u.ID, now)
+		if ferr != nil {
+			return unavailableErr()
+		}
+		if alertThreshold && a.Alerts != nil {
+			_ = a.Alerts.Fire(ctx, sess.TenantID, loginGuessKey(u.ID), "warning", "Someone is guessing a password",
+				fmt.Sprintf("More than 20 failed sign-ins for %s in the last hour.", u.Email), "")
+		}
+		if lockedUntil != nil {
+			return lockedError(*lockedUntil)
+		}
 		return &apihttp.Error{Status: http.StatusUnauthorized, Code: "mfa_code_invalid", Detail: "That code isn't right."}
+	}
+	if err := a.Store.RecordLoginSuccess(ctx, sess.TenantID, u.ID, now); err != nil {
+		return err
 	}
 	return a.Store.PromoteSession(ctx, sess.ID)
 }
@@ -545,7 +580,7 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 	if err != nil {
 		return nil, err
 	}
-	if len(u.MFASecretEnc) == 0 {
+	if len(u.MFAPendingSecretEnc) == 0 {
 		return nil, badRequest("mfa_not_started", "Start enrollment first: POST /me/mfa.")
 	}
 	ok2, err := a.checkTOTPOnly(u, code)
@@ -575,10 +610,14 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 	return codes, nil
 }
 
+// checkTOTPOnly checks code against the pending (unconfirmed) enrollment
+// secret, never the active one: a code from an old, already-confirmed
+// authenticator app must not be able to confirm a new enrollment it was
+// never shown.
 func (a *Accounts) checkTOTPOnly(u User, code string) (bool, error) {
-	secret, err := a.Sealer.Open(mfaRowID(u.ID), u.MFASecretEnc)
+	secret, err := a.Sealer.Open(mfaRowID(u.ID), u.MFAPendingSecretEnc)
 	if err != nil {
-		return false, fmt.Errorf("opening MFA secret: %w", err)
+		return false, fmt.Errorf("opening pending MFA secret: %w", err)
 	}
 	return ValidTOTPCode(secret, code, a.Now()), nil
 }

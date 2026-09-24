@@ -15,11 +15,16 @@ CREATE TABLE app_user (
     extension_id          uuid REFERENCES extension (id),
     password_hash         text NOT NULL,
     password_updated_at   timestamptz NOT NULL,
-    -- Present (and unconfirmed) once enrollment has started; mfa_enabled
-    -- only turns true once a code from it has been checked (auth.go).
-    mfa_secret_enc         bytea,
-    mfa_enabled            boolean NOT NULL DEFAULT false,
-    recovery_code_hashes   bytea[],
+    -- mfa_secret_enc is the confirmed, in-use secret (mfa_enabled true
+    -- whenever it's set). mfa_pending_secret_enc holds an enrollment in
+    -- progress separately, so starting (or restarting) enrollment never
+    -- weakens an already-confirmed secret until a code from the *new* one
+    -- is checked (ConfirmMFAEnrollment) and it's promoted into
+    -- mfa_secret_enc.
+    mfa_secret_enc          bytea,
+    mfa_pending_secret_enc  bytea,
+    mfa_enabled             boolean NOT NULL DEFAULT false,
+    recovery_code_hashes    bytea[],
     -- Per-account lockout (docs/WEB.md §4): after 5 failures, each further
     -- try waits, doubling, up to 1 hour. failure_window_* is separate: a
     -- rolling count over the last hour, for the "someone is guessing

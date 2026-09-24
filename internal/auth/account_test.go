@@ -121,7 +121,7 @@ func (f *fakeAccountStore) SetMFASecret(_ context.Context, _, user uuid.UUID, se
 	if !ok {
 		return ErrNotFound
 	}
-	u.MFASecretEnc, u.MFAEnabled = sealed, false
+	u.MFAPendingSecretEnc = sealed
 	f.users[user] = u
 	return nil
 }
@@ -131,6 +131,7 @@ func (f *fakeAccountStore) ConfirmMFA(_ context.Context, _, user uuid.UUID, hash
 	if !ok {
 		return ErrNotFound
 	}
+	u.MFASecretEnc, u.MFAPendingSecretEnc = u.MFAPendingSecretEnc, nil
 	u.MFAEnabled = true
 	u.RecoveryCodeHashes = hashes
 	f.users[user] = u
@@ -575,5 +576,108 @@ func TestSignInLockout(t *testing.T) {
 	}
 	if e, ok := err.(interface{ Error() string }); !ok || e.Error() == "" {
 		t.Fatal("expected a locked-out error")
+	}
+}
+
+func TestVerifyMFALockout(t *testing.T) {
+	a, _, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	ip := netip.MustParseAddr("203.0.113.21")
+
+	u, token, err := a.CreateUser(adminCtx, UserInput{Email: "mfalock@example.com", Name: "Person", Role: RoleAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := a.CompleteSetup(adminCtx, token, "a fine long passphrase 2", ip, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCtx := WithSession(WithPrincipal(ctx, out.Session.Principal()), out.Session)
+	secret, _, err := a.BeginMFAEnrollment(sessionCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawSecret, err := totpSecretEncoding.DecodeString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ConfirmMFAEnrollment(sessionCtx, totpCode(rawSecret, uint64(a.Now().Unix())/30)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sign in again to get a fresh session pending its authenticator code.
+	signIn, err := a.SignIn(ctx, tenant, u.Email, "a fine long passphrase 2", ip, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyCtx := WithSession(ctx, signIn.Session)
+
+	wrong := "000000"
+	if wrong == totpCode(rawSecret, uint64(a.Now().Unix())/30) {
+		wrong = "111111"
+	}
+	for i := 0; i < 5; i++ {
+		if err := a.VerifyMFA(verifyCtx, wrong); err == nil {
+			t.Fatal("a wrong code should never succeed")
+		}
+	}
+	// Even the right code should now be refused: repeated wrong MFA codes
+	// lock the account the same way repeated wrong passwords do.
+	if err := a.VerifyMFA(verifyCtx, totpCode(rawSecret, uint64(a.Now().Unix())/30)); err == nil {
+		t.Fatal("the account should be locked out after repeated wrong MFA codes")
+	}
+}
+
+// TestMFAReEnrollmentDoesNotDisableExisting guards against starting a new
+// (unconfirmed) enrollment silently turning MFA off for an account that
+// already has it confirmed and enabled.
+func TestMFAReEnrollmentDoesNotDisableExisting(t *testing.T) {
+	a, _, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	ip := netip.MustParseAddr("203.0.113.22")
+
+	_, token, err := a.CreateUser(adminCtx, UserInput{Email: "reenroll@example.com", Name: "Person", Role: RoleAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := a.CompleteSetup(adminCtx, token, "a fine long passphrase 3", ip, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCtx := WithSession(WithPrincipal(ctx, out.Session.Principal()), out.Session)
+	secret1, _, err := a.BeginMFAEnrollment(sessionCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawSecret1, err := totpSecretEncoding.DecodeString(secret1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ConfirmMFAEnrollment(sessionCtx, totpCode(rawSecret1, uint64(a.Now().Unix())/30)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start a second enrollment (e.g. setting up a new phone) without
+	// confirming it.
+	if _, _, err := a.BeginMFAEnrollment(sessionCtx); err != nil {
+		t.Fatal(err)
+	}
+
+	// MFA must still be required, and the original confirmed secret must
+	// still work: an unconfirmed new enrollment can't weaken the account.
+	signIn, err := a.SignIn(ctx, tenant, "reenroll@example.com", "a fine long passphrase 3", ip, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signIn.Status != "mfa_verify_required" {
+		t.Fatalf("status = %q, want mfa_verify_required (MFA should still be required)", signIn.Status)
+	}
+	verifyCtx := WithSession(ctx, signIn.Session)
+	if err := a.VerifyMFA(verifyCtx, totpCode(rawSecret1, uint64(a.Now().Unix())/30)); err != nil {
+		t.Fatalf("the original confirmed secret should still verify: %v", err)
 	}
 }

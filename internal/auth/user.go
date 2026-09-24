@@ -8,8 +8,11 @@ import (
 )
 
 // User is a person who can sign in (docs/WEB.md §4). PasswordHash is an
-// Argon2id hash (password.go); MFASecretEnc is a TOTP secret sealed with
-// ADR-030's key, present (and unconfirmed) once enrollment has started;
+// Argon2id hash (password.go); MFASecretEnc is the confirmed, in-use TOTP
+// secret sealed with ADR-030's key, set only once a code from it has been
+// checked; MFAPendingSecretEnc holds an enrollment in progress separately,
+// so starting (or restarting) enrollment never disturbs an
+// already-confirmed secret until the new one is confirmed in turn.
 // RecoveryCodeHashes are SHA-256, one per unused recovery code.
 type User struct {
 	ID, TenantID uuid.UUID
@@ -21,9 +24,10 @@ type User struct {
 	PasswordHash      string
 	PasswordUpdatedAt time.Time
 
-	MFASecretEnc       []byte
-	MFAEnabled         bool
-	RecoveryCodeHashes [][]byte
+	MFASecretEnc        []byte
+	MFAPendingSecretEnc []byte
+	MFAEnabled          bool
+	RecoveryCodeHashes  [][]byte
 
 	// FailedAttempts and LockedUntil are per-account lockout (docs/WEB.md
 	// §4); FailureWindowStart/-Count are the separate rolling hour the
@@ -72,11 +76,12 @@ type UserStore interface {
 	// every session of the account first (docs/WEB.md §4: changing the
 	// password ends the person's sessions).
 	SetPassword(ctx context.Context, tenant, user uuid.UUID, passwordHash string, at time.Time, revokeSessions bool, audit AuditEntry) error
-	// SetMFASecret starts (or restarts) enrollment: the secret is stored but
-	// mfa_enabled stays false until ConfirmMFA.
+	// SetMFASecret starts (or restarts) enrollment: the secret is stored as
+	// the *pending* secret, never touching an already-confirmed one.
 	SetMFASecret(ctx context.Context, tenant, user uuid.UUID, sealedSecret []byte, at time.Time) error
-	// ConfirmMFA turns MFA on and replaces the recovery codes, once a code
-	// from the pending secret has been checked.
+	// ConfirmMFA promotes the pending secret to the confirmed one, turns MFA
+	// on and replaces the recovery codes, once a code from the pending
+	// secret has been checked.
 	ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recoveryHashes [][]byte, at time.Time, audit AuditEntry) error
 	// ConsumeRecoveryCode removes one used recovery code.
 	ConsumeRecoveryCode(ctx context.Context, tenant, user uuid.UUID, hash []byte) error

@@ -121,7 +121,7 @@ func TestAccountsDocker(t *testing.T) {
 			t.Fatalf("SetMFASecret: %v", err)
 		}
 		mid, _ := s.User(ctx, tenant, u.ID)
-		if mid.MFAEnabled || len(mid.MFASecretEnc) == 0 {
+		if mid.MFAEnabled || len(mid.MFAPendingSecretEnc) == 0 || len(mid.MFASecretEnc) != 0 {
 			t.Fatalf("expected a pending secret, not yet enabled: %+v", mid)
 		}
 		hashes := [][]byte{auth.HashSecret("code-one"), auth.HashSecret("code-two")}
@@ -138,6 +138,20 @@ func TestAccountsDocker(t *testing.T) {
 		after, _ := s.User(ctx, tenant, u.ID)
 		if len(after.RecoveryCodeHashes) != 1 {
 			t.Fatalf("expected 1 recovery code left, got %d", len(after.RecoveryCodeHashes))
+		}
+
+		// Restarting enrollment must not disturb the confirmed secret: it
+		// stays active (and MFA stays enabled) until a code from the *new*
+		// pending secret is confirmed in turn.
+		if err := s.SetMFASecret(ctx, tenant, u.ID, []byte("second-sealed-secret"), now); err != nil {
+			t.Fatalf("SetMFASecret (restart): %v", err)
+		}
+		restarted, _ := s.User(ctx, tenant, u.ID)
+		if !restarted.MFAEnabled || string(restarted.MFASecretEnc) != "sealed-secret" {
+			t.Fatalf("restarting enrollment must not disable or replace the active secret: %+v", restarted)
+		}
+		if string(restarted.MFAPendingSecretEnc) != "second-sealed-secret" {
+			t.Fatalf("expected the new secret to be pending, got %q", restarted.MFAPendingSecretEnc)
 		}
 	})
 

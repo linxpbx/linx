@@ -117,8 +117,12 @@ func (a *Authenticator) serveWithSession(w http.ResponseWriter, r *http.Request,
 
 	sess, f := a.authenticateSession(ctx, cookie.Value, now)
 	if f != nil {
-		a.Failures.Allow(ipKey, now)
-		a.auditFailure(ctx, ip, "auth.failed", f)
+		// A database outage isn't the caller's failure (matches the
+		// Authorization-header path above).
+		if f.err.Status != http.StatusServiceUnavailable {
+			a.Failures.Allow(ipKey, now)
+			a.auditFailure(ctx, ip, "auth.failed", f)
+		}
 		apihttp.WriteError(w, f.err)
 		return
 	}

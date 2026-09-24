@@ -163,7 +163,7 @@ func (f *fakeStore) SetMFASecret(_ context.Context, _, user uuid.UUID, sealed []
 	if !ok {
 		return auth.ErrNotFound
 	}
-	u.MFASecretEnc, u.MFAEnabled = sealed, false
+	u.MFAPendingSecretEnc = sealed
 	f.users[user] = u
 	return nil
 }
@@ -175,6 +175,7 @@ func (f *fakeStore) ConfirmMFA(_ context.Context, _, user uuid.UUID, hashes [][]
 	if !ok {
 		return auth.ErrNotFound
 	}
+	u.MFASecretEnc, u.MFAPendingSecretEnc = u.MFAPendingSecretEnc, nil
 	u.MFAEnabled = true
 	u.RecoveryCodeHashes = hashes
 	f.users[user] = u

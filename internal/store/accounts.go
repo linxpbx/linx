@@ -19,13 +19,13 @@ var (
 )
 
 const userColumns = `id, tenant_id, email, name, role, extension_id, password_hash, password_updated_at,
-	mfa_secret_enc, mfa_enabled, recovery_code_hashes, failed_attempts, locked_until,
+	mfa_secret_enc, mfa_pending_secret_enc, mfa_enabled, recovery_code_hashes, failed_attempts, locked_until,
 	failure_window_start, failure_window_count, disabled_at, version, created_at, updated_at`
 
 func scanUser(row pgx.Row) (auth.User, error) {
 	var u auth.User
 	err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Role, &u.ExtensionID, &u.PasswordHash, &u.PasswordUpdatedAt,
-		&u.MFASecretEnc, &u.MFAEnabled, &u.RecoveryCodeHashes, &u.FailedAttempts, &u.LockedUntil,
+		&u.MFASecretEnc, &u.MFAPendingSecretEnc, &u.MFAEnabled, &u.RecoveryCodeHashes, &u.FailedAttempts, &u.LockedUntil,
 		&u.FailureWindowStart, &u.FailureWindowCount, &u.DisabledAt, &u.Version, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return u, auth.ErrNotFound
@@ -83,13 +83,13 @@ func (s *Store) UpdateUser(ctx context.Context, u auth.User, audit auth.AuditEnt
 		var err error
 		out, err = scanUser(tx.QueryRow(ctx, `UPDATE app_user SET
 				name = $4, role = $5, extension_id = $6, password_hash = $7, password_updated_at = $8,
-				mfa_secret_enc = $9, mfa_enabled = $10, recovery_code_hashes = $11, failed_attempts = $12,
-				locked_until = $13, failure_window_start = $14, failure_window_count = $15, disabled_at = $16,
-				version = version + 1, updated_at = $17
+				mfa_secret_enc = $9, mfa_pending_secret_enc = $10, mfa_enabled = $11, recovery_code_hashes = $12,
+				failed_attempts = $13, locked_until = $14, failure_window_start = $15, failure_window_count = $16,
+				disabled_at = $17, version = version + 1, updated_at = $18
 			WHERE id = $1 AND tenant_id = $2 AND version = $3
 			RETURNING `+userColumns,
 			u.ID, u.TenantID, u.Version, u.Name, u.Role, u.ExtensionID, u.PasswordHash, u.PasswordUpdatedAt,
-			u.MFASecretEnc, u.MFAEnabled, u.RecoveryCodeHashes, u.FailedAttempts, u.LockedUntil,
+			u.MFASecretEnc, u.MFAPendingSecretEnc, u.MFAEnabled, u.RecoveryCodeHashes, u.FailedAttempts, u.LockedUntil,
 			u.FailureWindowStart, u.FailureWindowCount, u.DisabledAt, u.UpdatedAt))
 		if errors.Is(err, auth.ErrNotFound) {
 			var exists bool
@@ -156,8 +156,11 @@ func (s *Store) SetPassword(ctx context.Context, tenant, user uuid.UUID, passwor
 	})
 }
 
+// SetMFASecret stores sealedSecret as the *pending* enrollment secret only:
+// it never touches mfa_secret_enc or mfa_enabled, so starting (or
+// restarting) enrollment can't weaken an already-confirmed secret.
 func (s *Store) SetMFASecret(ctx context.Context, tenant, user uuid.UUID, sealedSecret []byte, at time.Time) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE app_user SET mfa_secret_enc = $3, mfa_enabled = false, updated_at = $4, version = version + 1
+	tag, err := s.pool.Exec(ctx, `UPDATE app_user SET mfa_pending_secret_enc = $3, updated_at = $4, version = version + 1
 		WHERE id = $1 AND tenant_id = $2`, user, tenant, sealedSecret, at)
 	if err != nil {
 		return fmt.Errorf("starting MFA enrollment: %w", err)
@@ -168,10 +171,14 @@ func (s *Store) SetMFASecret(ctx context.Context, tenant, user uuid.UUID, sealed
 	return nil
 }
 
+// ConfirmMFA promotes the pending secret to the confirmed one and clears
+// the pending column, once a code from it has been checked.
 func (s *Store) ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recoveryHashes [][]byte, at time.Time, audit auth.AuditEntry) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE app_user SET mfa_enabled = true, recovery_code_hashes = $3, updated_at = $4, version = version + 1
-			WHERE id = $1 AND tenant_id = $2 AND mfa_secret_enc IS NOT NULL`, user, tenant, recoveryHashes, at)
+		tag, err := tx.Exec(ctx, `UPDATE app_user SET
+				mfa_secret_enc = mfa_pending_secret_enc, mfa_pending_secret_enc = NULL,
+				mfa_enabled = true, recovery_code_hashes = $3, updated_at = $4, version = version + 1
+			WHERE id = $1 AND tenant_id = $2 AND mfa_pending_secret_enc IS NOT NULL`, user, tenant, recoveryHashes, at)
 		if err != nil {
 			return fmt.Errorf("confirming MFA: %w", err)
 		}
