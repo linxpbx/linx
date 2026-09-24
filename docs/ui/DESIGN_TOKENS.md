@@ -54,6 +54,7 @@ The X mark and the "linx" wordmark come from `A · Meeting point@1x.png`. It's a
 ## Screen index (approved mockups → build phase)
 | Mockup file | Screen | Phase |
 |---|---|---|
+| `WEB_SCREENS_PHASE1C.md` | Low-fidelity specs: sign-in, app shell, dialer, incoming call, active call panel, Team list, settings | 1C |
 | `iOS · Keypad@1x.png` | iOS dialer: status pill, network pill, 5-tab bar | 2 |
 | `iOS · Team & presence@1x.png` | iOS Team: search, filter chips, favourites, department sections | 2/4 |
 | `iOS · Active call@1x.png` | iOS in-call (dark): quality pill, low-data toggle, 3×3 controls | 2 |
