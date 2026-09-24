@@ -6,7 +6,10 @@ package asteriskconf
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +54,28 @@ type Config struct {
 	// CARootFile is the internal CA's root certificate: Asterisk checks the
 	// control plane's step-ca certificate against it.
 	CARootFile string
+	// SIPNetworks lists the networks phones may connect from, comma-separated
+	// ("192.168.1.0/24"), or "none" (docs/PBX.md §6: LAN only this slice).
+	// Everything else is refused before authentication.
+	SIPNetworks string
+	// SIPAddress is the host address phones reach Asterisk on (compose.yaml
+	// publishes the SIP and audio ports there). Asterisk puts it in its SIP
+	// headers and audio offers instead of its own container address. Empty,
+	// or a loopback address, means phones talk to the container directly.
+	SIPAddress string
+	// InterfaceAddrs lists the container's own addresses, which become
+	// local_net (no address rewriting towards them). Nil means
+	// net.InterfaceAddrs.
+	InterfaceAddrs func() ([]net.Addr, error)
 }
+
+// Phone ports (docs/PBX.md §2). compose.yaml publishes exactly these, and
+// linx setup's firewall opens them to the LAN only.
+const (
+	SIPPort  = 5061
+	RTPStart = 10000
+	RTPEnd   = 10199
+)
 
 // ConfigFromEnv reads the configuration from the environment, defaulting
 // every path to the layout compose.yaml mounts.
@@ -62,7 +86,7 @@ func ConfigFromEnv(getenv func(string) string) Config {
 		RunDir:          envOr(getenv, "LINX_ASTERISK_RUN_DIR", "/var/run/asterisk"),
 		ScratchDir:      envOr(getenv, "LINX_ASTERISK_SCRATCH_DIR", "/tmp/asterisk"),
 		CertsDir:        envOr(getenv, "LINX_CERTS_DIR", "/var/lib/linx/certs"),
-		SIPPort:         5061,
+		SIPPort:         SIPPort,
 		DBHost:          envOr(getenv, "LINX_DB_HOST", "postgres"),
 		DBPort:          envOr(getenv, "LINX_DB_PORT", "5432"),
 		DBName:          envOr(getenv, "LINX_DB_NAME", "linx"),
@@ -71,6 +95,8 @@ func ConfigFromEnv(getenv func(string) string) Config {
 		ARIURL:          envOr(getenv, "LINX_ARI_URL", "wss://linx-ari:8089/ari"),
 		ARIPasswordFile: envOr(getenv, "LINX_ARI_PASSWORD_FILE", "/run/secrets/linx_ari_password"),
 		CARootFile:      envOr(getenv, "LINX_CA_ROOT_FILE", "/etc/linx/ca/root_ca.crt"),
+		SIPNetworks:     strings.TrimSpace(getenv("LINX_SIP_NETWORKS")),
+		SIPAddress:      strings.TrimSpace(getenv("LINX_SIP_ADDRESS")),
 	}
 }
 
@@ -121,6 +147,14 @@ func (c Config) Render() error {
 	if !strings.HasPrefix(c.ARIURL, "wss://") {
 		return fmt.Errorf("LINX_ARI_URL %q: must be wss:// (ARI never runs without TLS)", c.ARIURL)
 	}
+	nets, err := ParseSIPNetworks(c.SIPNetworks)
+	if err != nil {
+		return fmt.Errorf("LINX_SIP_NETWORKS: %w", err)
+	}
+	nat, err := c.natSettings()
+	if err != nil {
+		return err
+	}
 
 	files := map[string]string{
 		"asterisk.conf":         c.asteriskConf(),
@@ -132,7 +166,8 @@ func (c Config) Render() error {
 		"websocket_client.conf": c.websocketClientConf(ariPassword),
 		"extensions.conf":       extensionsConf,
 		"func_odbc.conf":        funcOdbcConf,
-		"pjsip.conf":            c.pjsipConf(),
+		"pjsip.conf":            c.pjsipConf(nets, nat),
+		"rtp.conf":              rtpConf,
 		"sorcery.conf":          sorceryConf,
 		"extconfig.conf":        extconfigConf,
 		"odbcinst.ini":          odbcinstIni,
@@ -186,7 +221,93 @@ console = no
 		filepath.Join(c.ScratchDir, "spool"), c.RunDir, filepath.Join(c.ScratchDir, "log"))
 }
 
-func (c Config) pjsipConf() string {
+// ParseSIPNetworks reads LINX_SIP_NETWORKS: comma-separated network
+// prefixes, or "none". Each must be a network address ("192.168.1.0/24",
+// not "192.168.1.7/24"), so what's configured is exactly what's allowed.
+func ParseSIPNetworks(s string) ([]netip.Prefix, error) {
+	switch s = strings.TrimSpace(s); s {
+	case "":
+		return nil, errors.New(`not set (a list of networks, or "none")`)
+	case "none":
+		return nil, nil
+	}
+	var nets []netip.Prefix
+	for _, f := range strings.Split(s, ",") {
+		p, err := netip.ParsePrefix(strings.TrimSpace(f))
+		if err != nil {
+			return nil, err
+		}
+		if p != p.Masked() {
+			return nil, fmt.Errorf("%s isn't a network address (did you mean %s?)", p, p.Masked())
+		}
+		nets = append(nets, p)
+	}
+	return nets, nil
+}
+
+// FormatSIPNetworks is ParseSIPNetworks' inverse.
+func FormatSIPNetworks(nets []netip.Prefix) string {
+	if len(nets) == 0 {
+		return "none"
+	}
+	s := make([]string, len(nets))
+	for i, p := range nets {
+		s[i] = p.String()
+	}
+	return strings.Join(s, ",")
+}
+
+// natSettings are the TLS transport's address-rewriting options. Phones
+// reach Asterisk through the host's published ports (Docker DNAT keeps
+// their source address), so Asterisk must advertise the host's address in
+// Contact headers and audio offers, not its container address. Its own
+// container networks are local_net: towards them nothing is rewritten.
+func (c Config) natSettings() (string, error) {
+	if c.SIPAddress == "" {
+		return "", nil
+	}
+	a, err := netip.ParseAddr(c.SIPAddress)
+	if err != nil {
+		return "", fmt.Errorf("LINX_SIP_ADDRESS: %w", err)
+	}
+	if a.IsLoopback() || a.IsUnspecified() {
+		return "", nil // no LAN: no phone can connect, nothing to advertise
+	}
+	addrs := c.InterfaceAddrs
+	if addrs == nil {
+		addrs = net.InterfaceAddrs
+	}
+	list, err := addrs()
+	if err != nil {
+		return "", fmt.Errorf("container addresses: %w", err)
+	}
+	s := fmt.Sprintf("external_media_address=%s\nexternal_signaling_address=%s\n", a, a)
+	seen := map[netip.Prefix]bool{}
+	for _, ad := range list {
+		n, ok := ad.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip, _ := netip.AddrFromSlice(n.IP)
+		ones, _ := n.Mask.Size()
+		p := netip.PrefixFrom(ip.Unmap(), ones).Masked()
+		if !p.Addr().Is4() || p.Addr().IsLoopback() || seen[p] {
+			continue
+		}
+		seen[p] = true
+		s += "local_net=" + p.String() + "\n"
+	}
+	return s, nil
+}
+
+// pjsipConf is the TLS transport and the ACL every incoming SIP request
+// passes (res_pjsip_acl, before authentication): the allowed networks, and
+// nothing else. No networks means every request is refused.
+func (c Config) pjsipConf(nets []netip.Prefix, nat string) string {
+	acl := "deny=0.0.0.0/0.0.0.0\ndeny=::/0\n"
+	for _, p := range nets {
+		acl += "permit=" + p.String() + "\n"
+	}
 	return fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint. Endpoints, AORs and auths come from
 ; the asterisk schema's realtime views over ODBC (docs/PBX.md §3;
 ; sorcery.conf, extconfig.conf, res_odbc.conf) — nothing else belongs here.
@@ -198,8 +319,21 @@ bind=0.0.0.0:%d
 cert_file=%s
 priv_key_file=%s
 method=tlsv1_2
-`, c.SIPPort, filepath.Join(c.CertsDir, "current", "fullchain.pem"), filepath.Join(c.CertsDir, "current", "privkey.pem"))
+%s
+[phone-networks]
+type=acl
+%s`, c.SIPPort, filepath.Join(c.CertsDir, "current", "fullchain.pem"), filepath.Join(c.CertsDir, "current", "privkey.pem"),
+		nat, acl)
 }
+
+// rtpConf pins audio to the port range compose.yaml publishes. strictrtp
+// only accepts audio from the address a call's audio actually comes from.
+var rtpConf = fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint.
+[general]
+rtpstart=%d
+rtpend=%d
+strictrtp=yes
+`, RTPStart, RTPEnd)
 
 // sorceryConf points PJSIP's endpoint/auth/aor objects at the realtime
 // engine instead of pjsip.conf (docs/PBX.md §3, ADR-032). "ps_endpoints" etc.

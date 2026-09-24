@@ -41,7 +41,9 @@ func testEnv(stdin string, files map[string]string) setupEnv {
 		runner:      hostRunner{"dpkg --print-architecture": "amd64"}, // no Docker installed
 		stdin:       strings.NewReader(stdin),
 		interactive: true,
-		lanAddress:  func() netip.Addr { return netip.MustParseAddr("192.168.1.20") },
+		lan: func() installer.LAN {
+			return installer.LAN{Address: netip.MustParseAddr("192.168.1.20"), Network: netip.MustParsePrefix("192.168.1.0/24")}
+		},
 		savedConfig: func() ([]byte, error) { return nil, fs.ErrNotExist },
 		readFile: func(p string) ([]byte, error) {
 			if s, ok := files[p]; ok {
@@ -67,6 +69,12 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 		"Suggested resource profile: lite",
 		"Docker isn't installed",
 		"Install Docker Engine and Docker Compose",
+		"Phones will be able to connect from your local network (192.168.1.0/24), where this server is 192.168.1.20.",
+		"Install the firewall tools (nftables)",
+		"Tell Docker to forward ports without a helper process per port",
+		"$ systemctl restart docker",
+		"Write the firewall rules: Allow phones from your local network (192.168.1.0/24) only",
+		"$ systemctl reload-or-restart linx-firewall.service",
 		"Start Portainer",
 		"Create the internal certificate authority",
 		"-c <script>",

@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"net/netip"
 	"os"
 	"strings"
 	"testing"
@@ -11,7 +12,8 @@ import (
 func TestStackPlan(t *testing.T) {
 	c := DefaultConfig()
 	c.Domain.Name = "lab.linxpbx.com"
-	s := StackPlan(c, "  test-token-xxxxxxxxxxxxxxxx\n", "sha-"+strings.Repeat("a", 40))
+	lan := LAN{Address: netip.MustParseAddr("192.168.1.20"), Network: netip.MustParsePrefix("192.168.1.0/24")}
+	s := StackPlan(c, "  test-token-xxxxxxxxxxxxxxxx\n", "sha-"+strings.Repeat("a", 40), lan)
 
 	var titles, cmds []string
 	files := map[string]*File{}
@@ -62,6 +64,7 @@ func TestStackPlan(t *testing.T) {
 	for _, want := range []string{
 		"LINX_VERSION=sha-aaaa", "LINX_DOMAIN=lab.linxpbx.com\n", "LINX_DNS_PROVIDER=cloudflare\n",
 		"LINX_ACME_EMAIL=\n", "LINX_ACME_STAGING=true\n", "LINX_CERT_WILDCARD=true\n",
+		"LINX_SIP_ADDRESS=192.168.1.20\n", "LINX_SIP_NETWORKS=192.168.1.0/24\n",
 	} {
 		if !strings.Contains(env, want) {
 			t.Errorf(".env missing %q:\n%s", want, env)

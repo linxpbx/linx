@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -35,6 +36,13 @@ type Env struct {
 	// StagingRoots verifies Let's Encrypt test certificates.
 	StagingRoots *x509.CertPool
 	Stat         func(string) (fs.FileInfo, error)
+	// LAN detects the local network phones connect from.
+	LAN func() installer.LAN
+	// LookupIP resolves a host name.
+	LookupIP func(ctx context.Context, host string) ([]netip.Addr, error)
+	// TLSLeaf connects to addr over TLS, verifies the certificate for
+	// serverName against roots (nil: the system's) and returns it.
+	TLSLeaf func(ctx context.Context, addr, serverName string, roots *x509.CertPool) (*x509.Certificate, error)
 }
 
 // Let's Encrypt's staging roots (https://letsencrypt.org/docs/staging-environment/).

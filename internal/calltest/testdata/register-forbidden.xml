@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!-- A sign-in from a network phones may not connect from: refused before
+     any password is asked for (Asterisk's ACL). -->
+<scenario name="register forbidden">
+  <Global variables="user"/>
+  <send>
+    <![CDATA[
+      REGISTER sip:linx SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: <sip:[$user]@linx>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[$user]@linx>
+      Call-ID: [call_id]
+      CSeq: 1 REGISTER
+      Contact: <sip:[$user]@[local_ip]:[local_port];transport=tls>
+      Max-Forwards: 70
+      Expires: 300
+      Content-Length: 0
+    ]]>
+  </send>
+  <recv response="403"/>
+</scenario>

@@ -20,9 +20,16 @@ New container `linx-asterisk`:
 | Runs as | User `asterisk` (non-root), read-only root filesystem, all capabilities dropped, `no-new-privileges`. Writable: a `asterisk-state` volume (its own small local database: registrations), `/tmp`, run dir. |
 | Config | `/etc/asterisk/*.conf` rendered at container start by a small Linx entrypoint (Go, same binary style as certd). Settings come from environment variables and Docker secrets, never edited by hand. |
 | Networks | `linx-private` (Postgres, control plane ↔ ARI) and `linx-public`. |
-| Ports (this slice) | `5061/tcp` SIP-TLS and `10000–10199/udp` encrypted audio, **reachable from your LAN only** (Asterisk ACL + nftables rule from `linx setup`). 100 calls at once. No 5060, ever. |
+| Ports (this slice) | `5061/tcp` SIP-TLS and `10000–10199/udp` encrypted audio, **reachable from your LAN only** (Asterisk ACL + nftables rule from `linx setup`). 100 calls at once. No 5060, ever. *As built (step 5):* see "Phone ports" below. |
 | Certificates | The public certificate from `linx-certd` (`certs` volume, read-only), so phones trust it without extra setup. Reload on renewal: `pjsip reload` of the TLS transport, filled into `docs/ops/CERT_RELOAD.md` once verified. |
 | Health | `asterisk -rx "core show uptime"` from the container's own console socket. |
+
+**Phone ports, as built (step 5).** `linx setup` finds the local network from the default route (the interface holding its private source address, e.g. `192.168.1.0/24`) and writes it to `.env` as `LINX_SIP_ADDRESS`/`LINX_SIP_NETWORKS`. Three layers then keep phones LAN-only:
+1. **Publishing:** compose publishes 5061/tcp and the audio range on the LAN address only, never `0.0.0.0`. Setup turns Docker's `userland-proxy` off in `/etc/docker/daemon.json` (merged into existing settings; Docker restarts once): with it on, Docker runs one helper process per published port, and 200 audio ports would cost hundreds of MB.
+2. **Firewall:** an nftables table `inet linx` (`/etc/linx/nftables.conf`, loaded at boot by `linx-firewall.service`) drops traffic to 5061 and the audio range from outside the LAN, in a prerouting chain that runs before Docker's port forwarding, and drops 5060 from everyone. It only drops, never opens, and leaves other tables (Docker's included) alone; reloading replaces it atomically.
+3. **Asterisk:** a PJSIP ACL (`type=acl`) refuses SIP requests from outside `LINX_SIP_NETWORKS` with 403 before authentication. Asterisk advertises the LAN address in SIP headers and audio offers (`external_*_address`, its container networks as `local_net`) and uses exactly the published audio range (`rtp.conf`).
+
+A server without a private address (e.g. a cloud server) publishes on `127.0.0.1` and allows no network: no phone can connect until public SIP arrives with registration lockout (§6). Phones find the server as `sip.<domain>`, which must point at the LAN address; nothing creates that DNS record yet, so setup prints it and `linx doctor` checks it.
 
 Why build it ourselves: Asterisk has no official Docker image. The community images are one-person projects with unclear update speed, and a phone system can't wait days for a security fix.
 
@@ -80,7 +87,7 @@ On a fresh Ubuntu 24.04 server: `linx doctor` all green; create extensions `101`
 2. **Realtime data:** migration `0005`, `asterisk` schema views, `linx_asterisk` role + installer secret, ODBC config, a Docker test that Asterisk loads an endpoint from Postgres and can't read anything else. *(Sonnet)*
 3. **API:** `/extensions`, `/devices`, SIP credential generation (ADR-033), events, audit. *(Sonnet)*
 4. **Calls:** dialplan (ring-all, `*43`, not-available messages), ARI outbound websocket, ARI client, device online state, call events, `/calls/active`, SIPp suite in `make test-docker`. *(Opus: hardest integration)* — **done 2026-09-24** (`make test-calls`; CI runs it on the amd64 Asterisk image).
-5. **Setup and doctor:** `linx setup` renders LAN ACL + nftables + port publishing, installs the new secrets; `linx doctor` PBX checks. *(Sonnet)*
+5. **Setup and doctor:** `linx setup` renders LAN ACL + nftables + port publishing, installs the new secrets; `linx doctor` PBX checks. *(Sonnet)* — **done 2026-09-24** (see "Phone ports, as built" in §2; doctor's "Phone system" section).
 6. **Review + docs:** security review, threat model, `docs/DEMO_PHASE1B.md`. *(Opus)*
 
 ## 9. Next slices (not in this one)

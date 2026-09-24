@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"linxpbx.com/linx/internal/ari"
+	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
 )
 
 // TestCallsDocker is docs/PBX.md §7's automated suite: sign in, wrong
-// password, a call, nobody answering, unknown number, a revoked device —
-// plus the echo test, calling yourself, and the call and device events the
+// password, a call, nobody answering, unknown number, a revoked device, a
+// network phones may not connect from — plus the echo test, calling yourself, and the call and device events the
 // control plane derives from Asterisk's ARI events.
 func TestCallsDocker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -26,6 +27,18 @@ func TestCallsDocker(t *testing.T) {
 		return tracker
 	})
 	eventually(t, "Asterisk's ARI connection", 30*time.Second, tracker.Connected)
+
+	// What linx doctor reads from Asterisk's console, on the real image.
+	if out := e.asteriskCLI("ari show websocket sessions"); !doctor.ARIConnected(out) {
+		t.Errorf("doctor doesn't see the ARI connection in:\n%s", out)
+	}
+	if out := e.asteriskCLI("odbc show asterisk"); !doctor.ODBCConnected(out) {
+		t.Errorf("doctor doesn't see the database connection in:\n%s", out)
+	}
+	out := e.asteriskCLI("pjsip show transports")
+	if bad, ok := doctor.PlainSIPTransports(out); !ok || len(bad) > 0 {
+		t.Errorf("doctor reads transports %v (found %v) from:\n%s", bad, ok, out)
+	}
 
 	alice := e.newPhone("101", "Alice")
 	bob := e.newPhone("102", "Bob")
@@ -126,6 +139,10 @@ func TestCallsDocker(t *testing.T) {
 		wrong := alice
 		wrong.password = pbx.NewDevicePassword()
 		e.run("wrong-password", "register-rejected.xml", wrong)
+	})
+
+	t.Run("outside the phone networks", func(t *testing.T) {
+		e.wait(e.sippOn(outsideNet, "outside", "register-forbidden.xml", alice))
 	})
 
 	t.Run("revoked device", func(t *testing.T) {

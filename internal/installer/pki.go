@@ -32,6 +32,10 @@ const (
 	secretDevicesPassword  = "linx_ca_devices_password"  // linx-devices provisioner
 )
 
+// CAServicesPasswordPath is the linx-services provisioner's password: the
+// control plane uses it to get its ARI certificate (docs/PBX.md §4).
+const CAServicesPasswordPath = SecretsDir + "/" + secretServicesPassword
+
 var caSecrets = []string{secretStepCAPassword, secretServicesPassword, secretDevicesPassword}
 
 //go:embed ca-init.sh

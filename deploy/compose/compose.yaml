@@ -126,7 +126,10 @@ services:
   # realtime views (role linx_asterisk, docs/PBX.md §3); no cache, so a
   # revoked device stops at once. Connects out to control-plane's ARI
   # websocket (wss://linx-ari:8089, ADR-034); nothing here listens for ARI.
-  # LAN-only SIP/RTP port publishing arrives with step 5.
+  # Phones: SIP over TLS and encrypted audio, published on the server's LAN
+  # address only and accepted from the LAN only (docs/PBX.md §6: Asterisk's
+  # ACL, and linx setup's nftables table). Never 5060. The audio range must
+  # match internal/asteriskconf's RTPStart/RTPEnd.
   asterisk:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-asterisk:${LINX_VERSION:?set by linx setup}
     container_name: linx-asterisk
@@ -140,6 +143,11 @@ services:
       LINX_DB_HOST: postgres
       LINX_DB_PORT: "5432"
       LINX_DB_NAME: linx
+      LINX_SIP_ADDRESS: ${LINX_SIP_ADDRESS:?set by linx setup}
+      LINX_SIP_NETWORKS: ${LINX_SIP_NETWORKS:?set by linx setup}
+    ports:
+      - ${LINX_SIP_ADDRESS}:5061:5061/tcp
+      - ${LINX_SIP_ADDRESS}:10000-10199:10000-10199/udp
     secrets: [linx_asterisk_db_password, linx_ari_password]
     volumes:
       - asterisk-state:/var/lib/asterisk

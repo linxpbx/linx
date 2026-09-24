@@ -35,8 +35,11 @@ import (
 
 // Names of everything the suite creates in Docker, removed before and after.
 const (
-	prefix     = "linx-calltest"
-	netName    = prefix + "-net"
+	prefix  = "linx-calltest"
+	netName = prefix + "-net"
+	// outsideNet is a second network Asterisk is on but phones may not
+	// connect from (LINX_SIP_NETWORKS lists netName's subnet only).
+	outsideNet = prefix + "-outside"
 	pgName     = prefix + "-postgres"
 	astName    = prefix + "-asterisk"
 	ariPass    = "test-ari-password"
@@ -99,11 +102,13 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		for _, id := range strings.Fields(string(out)) {
 			exec.Command("docker", "rm", "--force", id).Run()
 		}
-		exec.Command("docker", "network", "rm", netName).Run()
+		exec.Command("docker", "network", "rm", netName, outsideNet).Run()
 	}
 	cleanup()
 	t.Cleanup(cleanup)
 	docker(t, ctx, "network", "create", netName)
+	docker(t, ctx, "network", "create", outsideNet)
+	subnet := docker(t, ctx, "network", "inspect", "--format", "{{(index .IPAM.Config 0).Subnet}}", netName)
 
 	pool := dbtest.Start(t, ctx, pgName)
 	docker(t, ctx, "network", "connect", "--alias", "postgres", netName, pgName)
@@ -153,7 +158,9 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		"--volume", filepath.Join(d, "secrets", "linx_asterisk_db_password")+":/run/secrets/linx_asterisk_db_password:ro",
 		"--volume", filepath.Join(d, "secrets", "linx_ari_password")+":/run/secrets/linx_ari_password:ro",
 		"--env", "LINX_ARI_URL=wss://host.docker.internal:"+strconv.Itoa(port)+"/ari",
+		"--env", "LINX_SIP_NETWORKS="+subnet,
 		asteriskImage())
+	docker(t, ctx, "network", "connect", "--alias", "asterisk", outsideNet, astName)
 	e.waitAsterisk()
 	return e
 }
@@ -214,13 +221,19 @@ func (e *env) audit(action string) auth.AuditEntry {
 // name. extra are further SIPp arguments.
 func (e *env) sipp(name, scenario string, p phone, extra ...string) string {
 	e.t.Helper()
+	return e.sippOn(netName, name, scenario, p, extra...)
+}
+
+// sippOn is sipp from a given Docker network.
+func (e *env) sippOn(network, name, scenario string, p phone, extra ...string) string {
+	e.t.Helper()
 	cname := prefix + "-sipp-" + name
 	exec.Command("docker", "rm", "--force", cname).Run()
 	testdata, err := filepath.Abs("testdata")
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	args := []string{"run", "--detach", "--name", cname, "--network", netName,
+	args := []string{"run", "--detach", "--name", cname, "--network", network,
 		"--volume", testdata + ":/scenarios:ro", "--volume", filepath.Join(e.dir, "sipp") + ":/tls:ro",
 		sippImage, "asterisk:5061", "-t", "l1",
 		"-tls_cert", "/tls/client.pem", "-tls_key", "/tls/client.key", "-tls_ca", "/tls/root_ca.crt",

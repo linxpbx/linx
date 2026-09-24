@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/netip"
 	"os"
 	"slices"
 	"strings"
@@ -26,7 +25,7 @@ type setupEnv struct {
 	stdin       io.Reader
 	interactive bool // stdin is a terminal
 	isRoot      bool
-	lanAddress  func() netip.Addr
+	lan         func() installer.LAN
 	savedConfig func() ([]byte, error) // reads installer.ConfigPath
 	readFile    func(string) ([]byte, error)
 	// readSecret reads a line from the terminal without echoing it.
@@ -42,7 +41,7 @@ func realSetupEnv() setupEnv {
 		stdin:       os.Stdin,
 		interactive: err == nil && fi.Mode()&os.ModeCharDevice != 0,
 		isRoot:      os.Geteuid() == 0,
-		lanAddress:  installer.LANAddress,
+		lan:         installer.DetectLAN,
 		savedConfig: func() ([]byte, error) { return os.ReadFile(installer.ConfigPath) },
 		readFile:    os.ReadFile,
 		readSecret: func() (string, error) {
@@ -156,7 +155,22 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		plan = append(plan, dp...)
 	}
 
-	// 4. Optional container management UI.
+	// 4. Phones: from the local network only (docs/PBX.md §6).
+	lan := env.lan()
+	if lan.OK() {
+		fmt.Fprintf(stdout, "\nPhones will be able to connect from your local network (%s), where this server is %s.\n", lan.Network, lan.Address)
+	} else {
+		fmt.Fprintln(stdout, "\nThis server isn't on a local network (its address is public), so phones can't connect yet.\n"+
+			"Connecting from anywhere arrives in a later Linx update, with protection against password guessing.")
+	}
+	pp, err := installer.PhonesPlan(ctx, env.runner, lan, env.readFile)
+	if err != nil {
+		fmt.Fprintln(stderr, "Can't set up the phone connections:", err)
+		return 1
+	}
+	plan = append(plan, pp...)
+
+	// 5. Optional container management UI.
 	if ask {
 		fmt.Fprint(stdout, "\nA container management screen lets you see and control Docker containers from a web browser.\n"+
 			"It has full control of this server, so Linx makes it reachable from your local network only.\n")
@@ -170,11 +184,11 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	}
 	var portainer installer.PortainerSetup
 	if cfg.ContainerUI == installer.ContainerUIPortainer {
-		portainer = installer.PortainerPlan(env.lanAddress())
+		portainer = installer.PortainerPlan(lan.BindAddress())
 		plan = append(plan, portainer.Plan...)
 	}
 
-	// 5. Domain, DNS provider token and certificate settings.
+	// 6. Domain, DNS provider token and certificate settings.
 	token, err := askDomain(p, &cfg, ask, env)
 	if err != nil {
 		return inputError(stderr, err)
@@ -185,20 +199,20 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		return 1
 	}
 
-	// 6. Internal certificate authority (ADR-011). If Docker is being
+	// 7. Internal certificate authority (ADR-011). If Docker is being
 	// installed now there can't be an existing CA to detect.
 	pki := installer.PKIPlan(action != installer.DockerInstall && installer.CAExists(ctx, env.runner))
 	plan = append(plan, pki.Plan...)
 
-	// 7. The Linx services: first certificate, then start everything.
-	stack := installer.StackPlan(cfg, token, imageTag)
+	// 8. The Linx services: first certificate, then start everything.
+	stack := installer.StackPlan(cfg, token, imageTag, lan)
 	plan = append(plan, stack.Plan...)
 
 	plan = append(plan, installer.Step{Title: "Save your answers to " + installer.ConfigPath, File: &installer.File{
 		Path: installer.ConfigPath, Data: cfg.Marshal(), Mode: 0o600, DirMode: 0o755,
 	}})
 
-	// 8. Confirm and apply.
+	// 9. Confirm and apply.
 	fmt.Fprintln(stdout, "\nSetup will:")
 	for i, s := range plan {
 		fmt.Fprintf(stdout, "  %2d. %s\n", i+1, s.Title)
@@ -232,12 +246,13 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		return 1
 	}
 
-	// 9. Summary.
+	// 10. Summary.
 	fmt.Fprintf(stdout, "\nLinx is running. Resource profile: %s.\n", profile)
 	printCertificate(stdout, cfg, stack)
 	if cfg.ContainerUI == installer.ContainerUIPortainer {
 		printPortainer(stdout, portainer)
 	}
+	printPhones(stdout, cfg, lan)
 	if pki.Passphrase != "" {
 		printCABackup(stdout, pki.Passphrase)
 	}
@@ -354,6 +369,18 @@ func printCertificate(w io.Writer, cfg installer.Config, s installer.StackSetup)
 		return
 	}
 	fmt.Fprintf(w, "\nTrusted certificate issued for %s. It renews automatically.\n", s.Names)
+}
+
+func printPhones(w io.Writer, cfg installer.Config, lan installer.LAN) {
+	if !lan.OK() {
+		return
+	}
+	fmt.Fprintln(w, "\nPhones:")
+	fmt.Fprintf(w, "  Phones sign in to sip.%s (port 5061, TLS) from your local network (%s) only.\n", cfg.Domain.Name, lan.Network)
+	fmt.Fprintf(w, "  So they can find this server, add a DNS record at your DNS provider: sip.%s, type A, value %s\n",
+		cfg.Domain.Name, lan.Address)
+	fmt.Fprintln(w, "  (at Cloudflare: \"DNS only\", not proxied). If this server's address changes, run setup again.")
+	fmt.Fprintln(w, "  linx doctor checks all of this.")
 }
 
 func printCABackup(w io.Writer, passphrase string) {

@@ -73,3 +73,40 @@ func TestPlatformQueryDocker(t *testing.T) {
 		t.Fatalf("open alerts: %+v", st.OpenAlerts)
 	}
 }
+
+// TestPhoneQueryDocker checks doctor's view of the linx_asterisk role
+// against the real migrations: exactly the four views, read-only, and a
+// widened grant is noticed.
+func TestPhoneQueryDocker(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool := dbtest.Start(t, ctx, "linx-doctor-phone-test")
+	if _, err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	read := func() (st struct{ Views, Other int }) {
+		t.Helper()
+		out, err := installer.ExecRunner{}.Run(ctx, nil, "docker", psqlArgs("linx-doctor-phone-test", phoneQuery)...)
+		if err != nil {
+			t.Fatalf("docker exec psql: %v\n%s", err, out)
+		}
+		if err := json.Unmarshal(out, &st); err != nil {
+			t.Fatalf("%v in %s", err, out)
+		}
+		return st
+	}
+	if st := read(); st.Views != 4 || st.Other != 0 {
+		t.Fatalf("fresh database: %+v", st)
+	}
+	for _, grant := range []string{"GRANT SELECT ON api_key TO linx_asterisk", "GRANT INSERT ON asterisk.ps_auths TO linx_asterisk"} {
+		if _, err := pool.Exec(ctx, grant); err != nil {
+			t.Fatal(err)
+		}
+		if st := read(); st.Other == 0 {
+			t.Errorf("%s: not noticed (%+v)", grant, st)
+		}
+		if _, err := pool.Exec(ctx, "REVOKE ALL ON api_key, asterisk.ps_auths FROM linx_asterisk; GRANT SELECT ON asterisk.ps_auths TO linx_asterisk"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

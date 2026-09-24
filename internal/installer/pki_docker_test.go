@@ -99,6 +99,8 @@ func TestPKIBootstrapDocker(t *testing.T) {
 	t.Setenv("LINX_VERSION", "test")
 	t.Setenv("LINX_DOMAIN", "example.test")
 	t.Setenv("LINX_DNS_PROVIDER", "cloudflare")
+	t.Setenv("LINX_SIP_ADDRESS", "127.0.0.1")
+	t.Setenv("LINX_SIP_NETWORKS", "none")
 	docker(append(compose, "up", "--detach", "--wait", "--wait-timeout", "60", "step-ca")...)
 
 	// 3. Certificates from each provisioner, and the lifetime caps.

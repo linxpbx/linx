@@ -1,6 +1,7 @@
 package asteriskconf
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,7 @@ func testConfig(t *testing.T) Config {
 		ARIURL:          "wss://linx-ari:8089/ari",
 		ARIPasswordFile: ariFile,
 		CARootFile:      "/etc/linx/ca/root_ca.crt",
+		SIPNetworks:     "192.168.1.0/24",
 	}
 }
 
@@ -196,7 +198,72 @@ func TestRenderARI(t *testing.T) {
 	}
 }
 
+func TestRenderPhoneNetworks(t *testing.T) {
+	ifaces := func() ([]net.Addr, error) {
+		return []net.Addr{
+			&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
+			&net.IPNet{IP: net.ParseIP("172.20.0.5"), Mask: net.CIDRMask(16, 32)},
+			&net.IPNet{IP: net.ParseIP("172.21.0.3"), Mask: net.CIDRMask(16, 32)},
+			&net.IPNet{IP: net.ParseIP("fe80::1"), Mask: net.CIDRMask(64, 128)},
+		}, nil
+	}
+	c := testConfig(t)
+	c.SIPAddress = "192.168.1.20"
+	c.InterfaceAddrs = ifaces
+	if err := c.Render(); err != nil {
+		t.Fatal(err)
+	}
+	pjsip := read(t, c, "pjsip.conf")
+	for _, want := range []string{"external_media_address=192.168.1.20\n", "external_signaling_address=192.168.1.20\n",
+		"local_net=172.20.0.0/16\n", "local_net=172.21.0.0/16\n",
+		"[phone-networks]\ntype=acl\ndeny=0.0.0.0/0.0.0.0\ndeny=::/0\npermit=192.168.1.0/24\n"} {
+		if !strings.Contains(pjsip, want) {
+			t.Errorf("pjsip.conf missing %q:\n%s", want, pjsip)
+		}
+	}
+	if strings.Contains(pjsip, "local_net=127.") || strings.Contains(pjsip, "local_net=fe80") {
+		t.Errorf("loopback/IPv6 link-local in local_net:\n%s", pjsip)
+	}
+	if got := read(t, c, "rtp.conf"); !strings.Contains(got, "rtpstart=10000\nrtpend=10199\n") {
+		t.Errorf("rtp.conf: %s", got)
+	}
+
+	// No LAN: every request refused, nothing advertised.
+	c = testConfig(t)
+	c.SIPNetworks, c.SIPAddress = "none", "127.0.0.1"
+	c.InterfaceAddrs = ifaces
+	if err := c.Render(); err != nil {
+		t.Fatal(err)
+	}
+	pjsip = read(t, c, "pjsip.conf")
+	if strings.Contains(pjsip, "permit=") || strings.Contains(pjsip, "external_") || !strings.Contains(pjsip, "deny=0.0.0.0/0.0.0.0") {
+		t.Errorf("no-LAN pjsip.conf:\n%s", pjsip)
+	}
+}
+
+func TestParseSIPNetworks(t *testing.T) {
+	got, err := ParseSIPNetworks(" 192.168.1.0/24, 10.8.0.0/16 ")
+	if err != nil || FormatSIPNetworks(got) != "192.168.1.0/24,10.8.0.0/16" {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	if got, err := ParseSIPNetworks("none"); err != nil || got != nil || FormatSIPNetworks(got) != "none" {
+		t.Fatalf("none: %v, %v", got, err)
+	}
+	for _, bad := range []string{"", "192.168.1.7/24", "192.168.1.0", "lan", "192.168.1.0/24,"} {
+		if _, err := ParseSIPNetworks(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
 func TestRenderRefuses(t *testing.T) {
+	t.Run("no phone networks", func(t *testing.T) {
+		c := testConfig(t)
+		c.SIPNetworks = ""
+		if err := c.Render(); err == nil || !strings.Contains(err.Error(), "LINX_SIP_NETWORKS") {
+			t.Fatalf("err = %v", err)
+		}
+	})
 	t.Run("plain ws", func(t *testing.T) {
 		c := testConfig(t)
 		c.ARIURL = "ws://linx-ari:8089/ari"

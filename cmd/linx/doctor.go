@@ -28,6 +28,9 @@ func realDoctorEnv() doctorEnv {
 			Now:          time.Now,
 			StagingRoots: doctor.LEStagingRoots(),
 			Stat:         os.Stat,
+			LAN:          installer.DetectLAN,
+			LookupIP:     doctor.LookupIP,
+			TLSLeaf:      doctor.DialTLSLeaf,
 		},
 	}
 }
