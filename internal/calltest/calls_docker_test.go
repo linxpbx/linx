@@ -70,7 +70,15 @@ func TestCallsDocker(t *testing.T) {
 			t.Errorf("last registered not recorded: %+v", d)
 		}
 
+		// Asterisk's SIP messages are logged during the call, to check it
+		// names itself sip.linx.test (from_domain, see start), never its
+		// container address: phones keep that name in their call history.
+		e.asteriskCLI("pjsip set logger on")
 		e.run("call", "call.xml", alice, "-s", "102", "-d", "2000")
+		e.asteriskCLI("pjsip set logger off")
+		if logs := e.asteriskLogs(); !strings.Contains(logs, `From: "Alice" <sip:101@sip.linx.test>`) {
+			t.Errorf("the INVITE to Bob doesn't come from sip.linx.test:\n%s", logs)
+		}
 		ended := e.callEnded("102")
 		if ended["outcome"] != pbx.OutcomeAnswered || ended["duration_seconds"].(float64) < 1 {
 			t.Errorf("call.ended = %v", ended)

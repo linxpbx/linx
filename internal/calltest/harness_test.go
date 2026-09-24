@@ -130,6 +130,10 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 	if err := db.EnsureAsteriskRole(ctx, pool, filepath.Join(e.dir, "secrets", "linx_asterisk_db_password")); err != nil {
 		t.Fatal(err)
 	}
+	// "sign in, call, answer, hang up" checks Asterisk uses this name.
+	if err := db.SetSIPDomain(ctx, pool, "sip.linx.test"); err != nil {
+		t.Fatal(err)
+	}
 
 	// The ARI app, over TLS with a certificate for the name Asterisk dials.
 	ln, err := net.Listen("tcp", "0.0.0.0:0")

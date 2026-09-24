@@ -72,6 +72,14 @@ func main() {
 		log.Error("asterisk database role", "err", err)
 		os.Exit(1)
 	}
+	sipDomain := ""
+	if d := os.Getenv("LINX_DOMAIN"); d != "" {
+		sipDomain = "sip." + d
+	}
+	if err := db.SetSIPDomain(startCtx, pool, sipDomain); err != nil {
+		log.Error("phone system domain", "err", err)
+		os.Exit(1)
+	}
 
 	encKey, err := dbsecret.LoadKey(dbsecret.KeyPathFromEnv(os.Getenv))
 	if err != nil {

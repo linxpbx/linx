@@ -53,7 +53,7 @@ On a throwaway server, delete the root key backup so it doesn't warn: `sudo rm -
 sudo ./linx doctor
 ```
 - [ ] A **Phone system** heading, all `ok`: running and answering; reads the phone settings from the database and nothing else; connected to the API service; only encrypted phone connections (port 5061); ports open on the local network address only; phones get the current certificate; nothing offers port 5060; the firewall only lets phones connect from your local network; "Phones find this server at sip.lab.linxpbx.com".
-- [ ] The database line shows `schema version 9`. The only warnings are no API key and no alert channel, as in Phase 1A. (If the DNS line warns, the record from step 4 hasn't spread yet: wait a few minutes.)
+- [ ] The database line shows `schema version 10`. The only warnings are no API key and no alert channel, as in Phase 1A. (If the DNS line warns, the record from step 4 hasn't spread yet: wait a few minutes.)
 
 ## 6. API key and webhook
 A key that can make phone logins needs the sensitive scope `devices:write` by name:
@@ -86,7 +86,7 @@ api -X POST -H "$JSON" -d '{"name":"My Mac"}'    $API/extensions/$(jq -r .id /tm
 Both on your home Wi-Fi. In Linphone (iPhone: the first screen offers "Use SIP account" / "Third-party SIP account"; Mac: "Use a SIP account"):
 - Username and password: from the settings block (iPhone gets 101's, Mac gets 102's).
 - Domain: `sip.lab.linxpbx.com`. Transport: **TLS**.
-- In Linphone's settings: **Media encryption: SRTP**, and turn on **Media encryption is mandatory**.
+- In Linphone's settings: **Media encryption: SRTP**, and turn on **Media encryption is mandatory** on *every* device. Without it the app offers encryption only "if possible", which Linx refuses: its calls fail at once (the server log says `488 Not Acceptable Here`), though calls *to* it still work.
 - If it doesn't connect: in the account's advanced settings set the SIP server / proxy to `sip:sip.lab.linxpbx.com:5061;transport=tls`.
 
 ```

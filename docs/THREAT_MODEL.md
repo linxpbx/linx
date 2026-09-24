@@ -168,6 +168,7 @@ Security review of the phone engine (docs/PBX.md §8 steps 1–5): the Asterisk 
 
 **Found during the demo run (after the review):**
 7. Asterisk couldn't start again after a restart (including a server reboot): Docker recreates a restarted container's tmpfs mounts as root-owned 0755, so the non-root entrypoint couldn't write `/etc/asterisk`. Fixed with explicit owner and mode on the mounts in compose.yaml and the directories created in the image; the call suite now restarts Asterisk and makes a call.
-8. Not fixed yet: a renewed public certificate only reaches Asterisk when it restarts (docs/ops/CERT_RELOAD.md). The first renewal is 60 days after install; `linx doctor` reports the mismatch. Next task.
+8. Asterisk named itself by its container address (e.g. `172.21.0.3`) in the From header of calls and checks it sent to phones; calling back from Linphone's history dialled that address. Now `from_domain` is `sip.<domain>` (migration 0010), checked in the call suite. Also found: Codec order (Opus first) silenced Linx's spoken messages; now G.722 first (migration 0009).
+9. Not fixed yet: a renewed public certificate only reaches Asterisk when it restarts (docs/ops/CERT_RELOAD.md). The first renewal is 60 days after install; `linx doctor` reports the mismatch. Next task.
 
 **Still open (accepted for now, listed above):** certificate reload into Asterisk; no registration lockout (precondition for public SIP); per-device call limit; a call in progress on a revoked device continues; pjproject's checksum is MD5; TLS 1.2 cipher list; unencrypted Postgres on the internal network; not tenant-aware; `sip.` DNS record created by hand; Asterisk authenticates to the control plane by password, not certificate.

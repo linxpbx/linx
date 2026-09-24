@@ -44,3 +44,14 @@ func EnsureAsteriskRole(ctx context.Context, pool *pgxpool.Pool, path string) er
 	}
 	return nil
 }
+
+// SetSIPDomain records the name phones reach the server by ("sip.<domain>"),
+// which the asterisk.ps_endpoints view hands Asterisk as from_domain
+// (migration 0010). Run at every startup, like EnsureAsteriskRole, so a
+// changed domain takes effect with the next call. Empty clears it.
+func SetSIPDomain(ctx context.Context, pool *pgxpool.Pool, domain string) error {
+	if _, err := pool.Exec(ctx, "UPDATE pbx_setting SET sip_domain = $1", strings.ToLower(domain)); err != nil {
+		return fmt.Errorf("SIP domain: %w", err)
+	}
+	return nil
+}
