@@ -159,7 +159,13 @@ services:
         read_only: true
         volume:
           subpath: certs
-    tmpfs: [/etc/asterisk, /var/run/asterisk, /tmp]
+    # Owner and mode are explicit: on a restart (not the first start) Docker
+    # recreates a tmpfs as root-owned 0755 unless told otherwise, and
+    # Asterisk (uid 100) could no longer write its config or console socket.
+    tmpfs:
+      - /etc/asterisk:uid=100,gid=101,mode=0750
+      - /var/run/asterisk:uid=100,gid=101,mode=0750
+      - /tmp
     networks: [linx-private, linx-public]
     depends_on:
       postgres:

@@ -48,6 +48,10 @@ const (
 	sipTimeout = "90s"
 )
 
+// asteriskTmpfs are compose.yaml's tmpfs mounts for Asterisk (checked by
+// TestComposeAsteriskTmpfs), so the suite's restart test covers them.
+var asteriskTmpfs = []string{"/etc/asterisk:uid=100,gid=101,mode=0750", "/var/run/asterisk:uid=100,gid=101,mode=0750"}
+
 // env is one running phone system: Postgres, Asterisk and the ARI app.
 type env struct {
 	t      *testing.T
@@ -151,7 +155,7 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 	docker(t, ctx, "run", "--detach", "--name", astName, "--network", netName, "--network-alias", "asterisk",
 		"--add-host", "host.docker.internal:host-gateway",
 		"--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-		"--tmpfs", "/etc/asterisk", "--tmpfs", "/var/run/asterisk", "--tmpfs", "/tmp",
+		"--tmpfs", asteriskTmpfs[0], "--tmpfs", asteriskTmpfs[1], "--tmpfs", "/tmp",
 		"--tmpfs", "/var/lib/asterisk:uid=100,gid=101,mode=0750",
 		// For this test process's own TLS checks (sipAddr).
 		"--publish", "127.0.0.1::5061",

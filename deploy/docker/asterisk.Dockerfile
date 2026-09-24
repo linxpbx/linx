@@ -172,7 +172,10 @@ COPY --from=asterisk-build /usr/lib/libasterisk*.so* /usr/lib/
 # Asterisk needs its XML docs at startup: without them it refuses to
 # register config options ("Stasis initialization failed").
 COPY --from=asterisk-build /var/lib/asterisk /usr/share/asterisk
-RUN install -d -o asterisk -g asterisk -m 0750 /var/lib/asterisk
+# /etc/asterisk and /var/run/asterisk are tmpfs mounts in compose.yaml; they
+# exist here, owned by asterisk, so a mount without options still starts
+# out writable.
+RUN install -d -o asterisk -g asterisk -m 0750 /var/lib/asterisk /etc/asterisk /var/run/asterisk
 COPY --from=go-build /out/asterisk-entrypoint /usr/local/bin/asterisk-entrypoint
 
 RUN ldconfig

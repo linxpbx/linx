@@ -176,6 +176,15 @@ func TestCallsDocker(t *testing.T) {
 		}
 	})
 
+	t.Run("survives a restart", func(t *testing.T) {
+		// A restarted container's tmpfs mounts aren't the same as a new
+		// one's: this once left Asterisk unable to write its config.
+		docker(t, ctx, "restart", astName)
+		e.waitAsterisk()
+		eventually(t, "Asterisk's ARI connection after the restart", 30*time.Second, tracker.Connected)
+		e.run("echo-after-restart", "call.xml", alice, "-s", "*43", "-d", "1000")
+	})
+
 	t.Run("revoked device", func(t *testing.T) {
 		if _, err := e.store.RevokeDevice(ctx, e.tenant, alice.dev.ID, time.Now(), e.audit("device.revoke")); err != nil {
 			t.Fatal(err)
