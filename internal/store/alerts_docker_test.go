@@ -63,7 +63,9 @@ func TestAlertsDocker(t *testing.T) {
 
 	t.Run("Fire upserts, justOpened only on a fresh open", func(t *testing.T) {
 		key := "test.fire:" + uuid.Must(uuid.NewV7()).String()
-		now := time.Now()
+		// Postgres keeps microseconds; Linux clocks give nanoseconds (macOS
+		// only microseconds, which hid this locally). Compare like with like.
+		now := time.Now().Truncate(time.Microsecond)
 		a1, justOpened, err := s.Fire(ctx, tenant, key, alert.SeverityWarning, "T1", "M1", "", now)
 		if err != nil || !justOpened || a1.Status != alert.StatusOpen || !a1.StableSince.Equal(a1.FirstSeenAt) {
 			t.Fatalf("first fire: %+v, justOpened=%v, err=%v", a1, justOpened, err)

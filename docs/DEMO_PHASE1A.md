@@ -66,7 +66,8 @@ API=http://linx-control-plane:8080/api/v1
 api $API/me | jq
 api $API/event-types | jq '.items[].name'
 sudo docker run --rm --network linx-public curlimages/curl:8.11.1 -sS $API/me | jq .code
-sudo docker run --rm --network linx-public curlimages/curl:8.11.1 -sS -H "Authorization: Bearer linx_notarealkey" $API/me | jq .code
+FAKE=linx_notarealkey
+sudo docker run --rm --network linx-public curlimages/curl:8.11.1 -sS -H "Authorization: Bearer $FAKE" $API/me | jq .code
 ```
 - [ ] `/me` shows your key's id, type `api_key`, role `admin` and its scopes.
 - [ ] The event types include `webhook.test`, `alert.fired` and `alert.resolved`.

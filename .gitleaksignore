@@ -1,2 +1,6 @@
 # False positive: internal/certs/acme.go:111 sets the key algorithm (EC P-256), not a secret.
 68a5ccf70565f49d8b20665b0f33f0a26b541964:internal/certs/acme.go:generic-api-key:111
+# False positive: the published Standard Webhooks test vector (a public example secret), used to check our signer.
+0d3d63acefd2bcb531982e4d91c20e6e3867f3ac:internal/webhook/sign_test.go:generic-api-key:11
+# False positive: a deliberately fake API key in the demo checklist (moved into a variable since).
+c6ff8bac173ca2b108a4e8918019624791983c97:docs/DEMO_PHASE1A.md:curl-auth-header:68
