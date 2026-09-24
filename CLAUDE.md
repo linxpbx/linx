@@ -9,6 +9,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/THREAT_MODEL.md` STRIDE; update every phase
 - `docs/ROADMAP.md` phases and exit criteria
 - `docs/API.md` public API, auth, webhooks, admin alerts (Phase 1 foundation)
+- `docs/PBX.md` phone engine: Asterisk image, realtime views, devices, calls (Phase 1B)
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
 
 ## Current state
@@ -21,7 +22,7 @@ Detail lives in `docs/`: read only the part you need.
   - Step 5 done: admin alerts — `internal/alert` (channel config + 6 senders: ntfy, Gotify, Slack, Teams, Telegram, generic webhook; service; engine), `internal/store/alerts.go`, migration 0004, `/alert-channels*`, `/alerts`. `Fire`/`Resolve` are cheap in-process calls (see `services/control-plane/main.go`'s `webhookDisabledKey` and `certdpoll.go`); the engine's tick decides notify/remind/resolve timing, severity and quiet hours. Sources wired: webhook disabled, certificate renewal (polls `linx-certd`'s `/metrics` on `linx-private`, not through the SSRF guard — that's for admin URLs, not Linx's own services). Disk/storage and DDNS deferred: no filesystem/DDNS signal reaches the control plane yet (`docs/THREAT_MODEL.md`).
   - Step 6 done (2026-09-24): security review (findings and fixes in `docs/THREAT_MODEL.md` "Phase 1A review"), `linx doctor` now checks services, schema version, API keys, alert channels, open alerts and secret files (`internal/doctor/platform.go`; reads the DB via `docker exec linx-postgres psql`), control-plane Docker health check (`service healthcheck`), `docs/DEMO_PHASE1A.md`.
   - **Phase 1A (steps 1–6) complete, demo passed and approved by the owner 2026-09-24** (`docs/DEMO_PHASE1A.md`, commit `a6effa3`).
-  - Next: plan the next Phase 1 slice (Asterisk + Postgres realtime, or portal sign-in with OIDC/MFA) — Opus for the design.
+  - Phase 1B (phone engine) design approved by the owner 2026-09-24: `docs/PBX.md` (ADR-031 to 035). Build order is `docs/PBX.md` §8, one step per session. Next: step 1 (Asterisk image) — Sonnet.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)
