@@ -5,6 +5,7 @@
 package asteriskconf
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Config is the Asterisk container's configuration.
@@ -63,10 +65,24 @@ type Config struct {
 	// headers and audio offers instead of its own container address. Empty,
 	// or a loopback address, means phones talk to the container directly.
 	SIPAddress string
+	// SIPWSHost is the name the control plane reaches Asterisk's secure
+	// websocket by (docs/WEB.md §2): a network alias compose.yaml gives
+	// Asterisk on linx-sipws only, so it resolves to Asterisk's address on
+	// that network, where the websocket listens. "none" turns the websocket
+	// off.
+	SIPWSHost string
+	// SIPWSCertsDir holds the websocket's certificate for SIPWSHost, laid out
+	// like CertsDir (current/{fullchain,privkey}.pem). The control plane
+	// issues it from the internal CA and writes it there (a memory-only
+	// volume); Asterisk never holds a CA credential.
+	SIPWSCertsDir string
 	// InterfaceAddrs lists the container's own addresses, which become
 	// local_net (no address rewriting towards them). Nil means
 	// net.InterfaceAddrs.
 	InterfaceAddrs func() ([]net.Addr, error)
+	// LookupHost resolves SIPWSHost. Nil means the system resolver, retried
+	// for a few seconds while Docker's DNS catches up with a new container.
+	LookupHost func(host string) ([]netip.Addr, error)
 }
 
 // Phone ports (docs/PBX.md §2). compose.yaml publishes exactly these, and
@@ -76,6 +92,18 @@ const (
 	RTPStart = 10000
 	RTPEnd   = 10199
 )
+
+// SIPWSPort is the secure websocket's port on linx-sipws. Nothing publishes
+// it: only the control plane's /sip relay connects (docs/WEB.md §5).
+const SIPWSPort = 8089
+
+// SIPWSPath is the websocket's URL path (res_http_websocket's).
+const SIPWSPath = "/ws"
+
+// DefaultSIPWSHost is SIPWSHost's default: the name on the certificate the
+// control plane issues for the websocket, and the alias compose.yaml gives
+// Asterisk on linx-sipws.
+const DefaultSIPWSHost = "linx-sipws"
 
 // ConfigFromEnv reads the configuration from the environment, defaulting
 // every path to the layout compose.yaml mounts.
@@ -97,6 +125,8 @@ func ConfigFromEnv(getenv func(string) string) Config {
 		CARootFile:      envOr(getenv, "LINX_CA_ROOT_FILE", "/etc/linx/ca/root_ca.crt"),
 		SIPNetworks:     strings.TrimSpace(getenv("LINX_SIP_NETWORKS")),
 		SIPAddress:      strings.TrimSpace(getenv("LINX_SIP_ADDRESS")),
+		SIPWSHost:       envOr(getenv, "LINX_SIPWS_HOST", DefaultSIPWSHost),
+		SIPWSCertsDir:   envOr(getenv, "LINX_SIPWS_CERTS_DIR", "/var/lib/linx/sipws-certs"),
 	}
 }
 
@@ -159,18 +189,22 @@ func (c Config) Render() error {
 	if err != nil {
 		return err
 	}
+	ws, err := c.sipwsNetwork()
+	if err != nil {
+		return fmt.Errorf("LINX_SIPWS_HOST %q: %w", c.SIPWSHost, err)
+	}
 
 	files := map[string]string{
 		"asterisk.conf":         c.asteriskConf(),
 		"logger.conf":           loggerConf,
 		"modules.conf":          modulesConf,
 		"manager.conf":          managerConf,
-		"http.conf":             httpConf,
+		"http.conf":             c.httpConf(ws),
 		"ari.conf":              ariConf(rand.Text()),
 		"websocket_client.conf": c.websocketClientConf(ariPassword),
 		"extensions.conf":       extensionsConf,
 		"func_odbc.conf":        funcOdbcConf,
-		"pjsip.conf":            c.pjsipConf(nets, nat),
+		"pjsip.conf":            c.pjsipConf(nets, nat, ws),
 		"rtp.conf":              rtpConf,
 		"sorcery.conf":          sorceryConf,
 		"extconfig.conf":        extconfigConf,
@@ -305,6 +339,56 @@ func (c Config) natSettings() (string, error) {
 	return s, nil
 }
 
+// sipwsNetwork is the linx-sipws network: Asterisk's own address on it
+// (SIPWSHost's), with its prefix. The zero Prefix means the websocket is off.
+func (c Config) sipwsNetwork() (netip.Prefix, error) {
+	if c.SIPWSHost == "none" {
+		return netip.Prefix{}, nil
+	}
+	lookup := c.LookupHost
+	if lookup == nil {
+		lookup = lookupWithRetry
+	}
+	ips, err := lookup(c.SIPWSHost)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	addrs := c.InterfaceAddrs
+	if addrs == nil {
+		addrs = net.InterfaceAddrs
+	}
+	list, err := addrs()
+	if err != nil {
+		return netip.Prefix{}, fmt.Errorf("container addresses: %w", err)
+	}
+	for _, a := range list {
+		n, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip, _ := netip.AddrFromSlice(n.IP)
+		ones, _ := n.Mask.Size()
+		for _, want := range ips {
+			if ip.Unmap() == want.Unmap() {
+				return netip.PrefixFrom(ip.Unmap(), ones), nil
+			}
+		}
+	}
+	return netip.Prefix{}, fmt.Errorf("resolves to %v, which isn't one of this container's addresses", ips)
+}
+
+func lookupWithRetry(host string) ([]netip.Addr, error) {
+	for attempt := 0; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip4", host)
+		cancel()
+		if err == nil || attempt == 10 {
+			return ips, err
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 // opensslConf is OpenSSL's configuration for every TLS connection Asterisk
 // makes or accepts (phones on 5061, the ARI websocket to the control plane):
 // TLS 1.2 at least. The transport's method=sslv23 means "whatever OpenSSL
@@ -325,15 +409,26 @@ MinProtocol = TLSv1.2
 CipherString = DEFAULT:@SECLEVEL=2
 `
 
-// pjsipConf is the TLS transport and the ACL every incoming SIP request
-// passes (res_pjsip_acl, before authentication): the allowed networks, and
-// nothing else. No networks means every request is refused. user_agent
-// replaces Asterisk's default, which names its exact version in every
-// response.
-func (c Config) pjsipConf(nets []netip.Prefix, nat string) string {
+// pjsipConf is the TLS transport, the browsers' secure websocket transport
+// (when ws is valid), and the ACL every incoming SIP request passes
+// (res_pjsip_acl, before authentication): the allowed networks and
+// linx-sipws (where only the control plane's relay connects from), and
+// nothing else. No networks means every phone request is refused.
+// user_agent replaces Asterisk's default, which names its exact version in
+// every response.
+func (c Config) pjsipConf(nets []netip.Prefix, nat string, ws netip.Prefix) string {
 	acl := "deny=0.0.0.0/0.0.0.0\ndeny=::/0\n"
 	for _, p := range nets {
 		acl += "permit=" + p.String() + "\n"
+	}
+	wss := ""
+	if ws.IsValid() {
+		acl += "permit=" + ws.Masked().String() + "\n"
+		// The websocket itself is http.conf's TLS listener: a websocket
+		// transport binds nothing, so bind only makes "pjsip show
+		// transports" show where it really listens (instead of its default,
+		// 0.0.0.0:5060).
+		wss = "\n[transport-wss]\ntype=transport\nprotocol=wss\nbind=" + netip.AddrPortFrom(ws.Addr(), SIPWSPort).String() + "\n"
 	}
 	return fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint. Endpoints, AORs and auths come from
 ; the asterisk schema's realtime views over ODBC (docs/PBX.md §3;
@@ -351,11 +446,11 @@ cert_file=%s
 priv_key_file=%s
 ; TLS 1.2 and 1.3; the floor is openssl.cnf's MinProtocol.
 method=sslv23
-%s
+%s%s
 [phone-networks]
 type=acl
 %s`, c.SIPPort, filepath.Join(c.CertsDir, "current", "fullchain.pem"), filepath.Join(c.CertsDir, "current", "privkey.pem"),
-		nat, acl)
+		nat, wss, acl)
 }
 
 // rtpConf pins audio to the port range compose.yaml publishes. strictrtp
@@ -456,12 +551,32 @@ const managerConf = `[general]
 enabled = no
 `
 
-// httpConf keeps Asterisk's built-in HTTP server off for good: ARI runs over
-// the websocket Asterisk opens to the control plane, REST requests included
-// (ARI REST over websocket), so nothing in this container listens for ARI.
-const httpConf = `[general]
+// httpConf is Asterisk's built-in web server: never plain HTTP, and HTTPS
+// only for the browsers' SIP websocket, on Asterisk's linx-sipws address
+// (docs/WEB.md §2). ARI doesn't use it: ARI runs over the websocket Asterisk
+// opens to the control plane, REST requests included. The certificate is
+// the control plane's step-ca one for SIPWSHost; when it changes, the
+// entrypoint's watcher reloads this module, which re-reads it. Until the
+// first one arrives the HTTPS listener doesn't start. servername replaces
+// "Asterisk/<version>" in the Server header. The ciphers only matter for
+// TLS 1.2 (the floor is openssl.cnf's).
+func (c Config) httpConf(ws netip.Prefix) string {
+	if !ws.IsValid() {
+		return "; Rendered by linx-asterisk-entrypoint.\n[general]\nenabled=no\n"
+	}
+	return fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint.
+[general]
 enabled=no
-`
+servername=Linx
+sessionlimit=1000
+tlsenable=yes
+tlsbindaddr=%s
+tlscertfile=%s
+tlsprivatekey=%s
+tlscipher=ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305
+`, netip.AddrPortFrom(ws.Addr(), SIPWSPort), filepath.Join(c.SIPWSCertsDir, "current", "fullchain.pem"),
+		filepath.Join(c.SIPWSCertsDir, "current", "privkey.pem"))
+}
 
 // ariConf serves the "linx" ARI app over the outbound websocket to the
 // control plane, subscribed to every channel, bridge, endpoint and device

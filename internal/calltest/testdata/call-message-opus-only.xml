@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="ISO-8859-1" ?>
 <!DOCTYPE scenario SYSTEM "sipp.dtd">
-<!-- Like call-message.xml, but offers Opus first (as Linphone does) and checks Asterisk answers in Opus: the caller's order wins, and Asterisk converts its messages to Opus (ADR-041). Variables: -s <number>; -set user <sip username>; -au/-ap for the login. -->
-<scenario name="call offering Opus first, hear a message in Opus">
+<!-- Like call-message-opus.xml, but offers nothing except Opus (as a browser limited to Opus would): before Linx had an Opus encoder, Asterisk couldn't play its messages to this caller at all (ADR-041). Variables: -s <number>; -set user <sip username>; -au/-ap for the login. -->
+<scenario name="call offering only Opus, hear a message">
   <Global variables="user"/>
   <send>
     <![CDATA[
@@ -21,10 +21,9 @@
       s=-
       c=IN IP[media_ip_type] [media_ip]
       t=0 0
-      m=audio [media_port] RTP/SAVP 96 9 0
+      m=audio [media_port] RTP/SAVP 96
       a=rtpmap:96 opus/48000/2
-      a=rtpmap:9 G722/8000
-      a=rtpmap:0 PCMU/8000
+      a=fmtp:96 useinbandfec=1
       a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:WnD7c1ksDGs+dIefCEo8omPg4uO8DYIinNGL5yxQ
       a=sendrecv
     ]]>
@@ -62,10 +61,9 @@
       s=-
       c=IN IP[media_ip_type] [media_ip]
       t=0 0
-      m=audio [media_port] RTP/SAVP 96 9 0
+      m=audio [media_port] RTP/SAVP 96
       a=rtpmap:96 opus/48000/2
-      a=rtpmap:9 G722/8000
-      a=rtpmap:0 PCMU/8000
+      a=fmtp:96 useinbandfec=1
       a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:WnD7c1ksDGs+dIefCEo8omPg4uO8DYIinNGL5yxQ
       a=sendrecv
     ]]>

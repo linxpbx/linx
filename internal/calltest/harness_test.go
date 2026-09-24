@@ -13,9 +13,12 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,6 +32,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/db/dbtest"
+	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/store"
 )
@@ -40,6 +44,10 @@ const (
 	// outsideNet is a second network Asterisk is on but phones may not
 	// connect from (LINX_SIP_NETWORKS lists netName's subnet only).
 	outsideNet = prefix + "-outside"
+	// sipwsNet stands in for linx-sipws: Asterisk's browser websocket
+	// listens there only, and wsphone (in place of the control plane's
+	// relay) connects from there.
+	sipwsNet   = prefix + "-sipws"
 	pgName     = prefix + "-postgres"
 	astName    = prefix + "-asterisk"
 	ariPass    = "test-ari-password"
@@ -109,12 +117,13 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		for _, id := range strings.Fields(string(out)) {
 			exec.Command("docker", "rm", "--force", id).Run()
 		}
-		exec.Command("docker", "network", "rm", netName, outsideNet).Run()
+		exec.Command("docker", "network", "rm", netName, outsideNet, sipwsNet).Run()
 	}
 	cleanup()
 	t.Cleanup(cleanup)
 	docker(t, ctx, "network", "create", netName)
 	docker(t, ctx, "network", "create", outsideNet)
+	docker(t, ctx, "network", "create", "--internal", sipwsNet)
 	subnet := docker(t, ctx, "network", "inspect", "--format", "{{(index .IPAM.Config 0).Subnet}}", netName)
 
 	pool := dbtest.Start(t, ctx, pgName)
@@ -130,6 +139,7 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 	}
 	e.tenant = tenant
 	e.writeFiles()
+	e.buildWSPhone()
 	if err := db.EnsureAsteriskRole(ctx, pool, filepath.Join(e.dir, "secrets", "linx_asterisk_db_password")); err != nil {
 		t.Fatal(err)
 	}
@@ -158,8 +168,10 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 	})
 	port := ln.Addr().(*net.TCPAddr).Port
 
+	// Created, attached to every network, then started: the entrypoint
+	// resolves linx-sipws as it starts.
 	d := e.dir
-	docker(t, ctx, "run", "--detach", "--name", astName, "--network", netName, "--network-alias", "asterisk",
+	docker(t, ctx, "create", "--name", astName, "--network", netName, "--network-alias", "asterisk",
 		"--add-host", "host.docker.internal:host-gateway",
 		"--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--tmpfs", asteriskTmpfs[0], "--tmpfs", asteriskTmpfs[1], "--tmpfs", "/tmp",
@@ -167,6 +179,7 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		// For this test process's own TLS checks (sipAddr).
 		"--publish", "127.0.0.1::5061",
 		"--volume", filepath.Join(d, "certs")+":/var/lib/linx/certs:ro",
+		"--volume", filepath.Join(d, "sipws")+":/var/lib/linx/sipws-certs:ro",
 		"--init", // as compose.yaml
 		"--env", "LINX_CERT_CHECK_INTERVAL=1s",
 		"--volume", filepath.Join(d, "ca")+":/etc/linx/ca:ro",
@@ -176,22 +189,25 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		"--env", "LINX_SIP_NETWORKS="+subnet,
 		asteriskImage())
 	docker(t, ctx, "network", "connect", "--alias", "asterisk", outsideNet, astName)
+	docker(t, ctx, "network", "connect", "--alias", asteriskconf.DefaultSIPWSHost, sipwsNet, astName)
+	docker(t, ctx, "start", astName)
 	e.waitAsterisk()
 	return e
 }
 
 // waitAsterisk waits until Asterisk answers its console and has loaded
-// PJSIP (so the TLS transport is up).
+// PJSIP (so the TLS transport is up) and its browser websocket listener.
 func (e *env) waitAsterisk() {
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		out, err := exec.Command("docker", "exec", astName, "asterisk", "-rx", "pjsip show transports").CombinedOutput()
-		if err == nil && strings.Contains(string(out), "transport-tls") {
+		tcp, _ := exec.Command("docker", "exec", astName, "cat", "/proc/net/tcp").CombinedOutput()
+		ws := slices.ContainsFunc(doctor.ListeningTCP(string(tcp)), func(a netip.AddrPort) bool { return a.Port() == asteriskconf.SIPWSPort })
+		if err == nil && strings.Contains(string(out), "transport-tls") && ws {
 			return
 		}
 		if time.Now().After(deadline) {
-			logs, _ := exec.Command("docker", "logs", "--tail", "80", astName).CombinedOutput()
-			e.t.Fatalf("Asterisk never came up: %v %s\n%s", err, out, logs)
+			e.t.Fatalf("Asterisk never came up (websocket listening: %v): %v %s\n%s", ws, err, out, e.asteriskLogs())
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -208,9 +224,17 @@ func (e *env) sipAddr() string {
 	return addr
 }
 
+// asteriskLogs is Asterisk's recent log, without the console connections
+// every asteriskCLI call adds.
 func (e *env) asteriskLogs() string {
-	out, _ := exec.Command("docker", "logs", "--tail", "150", astName).CombinedOutput()
-	return string(out)
+	out, _ := exec.Command("docker", "logs", "--tail", "1500", astName).CombinedOutput()
+	var lines []string
+	for _, l := range strings.Split(string(out), "\n") {
+		if !strings.Contains(l, "Remote UNIX connection") {
+			lines = append(lines, l)
+		}
+	}
+	return strings.Join(lines[max(0, len(lines)-150):], "\n")
 }
 
 // newPhone creates an extension with one device whose password this test
@@ -285,6 +309,57 @@ func (e *env) run(name, scenario string, p phone, extra ...string) {
 	e.wait(e.sipp(name, scenario, p, extra...))
 }
 
+// newWebPhone creates an extension with one web device (a browser's line,
+// which the control plane creates at sign-in from step 4 on).
+func (e *env) newWebPhone(number, name string) phone {
+	e.t.Helper()
+	p := e.newPhone(number, name)
+	if _, err := e.pool.Exec(e.ctx, `UPDATE device SET kind = 'web' WHERE id = $1`, p.dev.ID); err != nil {
+		e.t.Fatal(err)
+	}
+	p.dev.Kind = pbx.KindWeb
+	return p
+}
+
+// buildWSPhone builds wsphone for the containers' platform, to run in the
+// SIPp image (it's static).
+func (e *env) buildWSPhone() {
+	e.t.Helper()
+	cmd := exec.CommandContext(e.ctx, "go", "build", "-trimpath", "-o", filepath.Join(e.dir, "wsphone", "wsphone"), "./wsphone")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		e.t.Fatalf("building wsphone: %v\n%s", err, out)
+	}
+	os.Chmod(filepath.Join(e.dir, "wsphone"), 0o755)
+}
+
+// wsphone starts wsphone for a device on sipwsNet and returns its container
+// name.
+func (e *env) wsphone(name string, p phone, extra ...string) string {
+	e.t.Helper()
+	cname := prefix + "-ws-" + name
+	exec.Command("docker", "rm", "--force", cname).Run()
+	args := []string{"run", "--detach", "--name", cname, "--network", sipwsNet,
+		"--volume", filepath.Join(e.dir, "wsphone") + ":/wsphone:ro", "--volume", filepath.Join(e.dir, "ca") + ":/ca:ro",
+		"--entrypoint", "/wsphone/wsphone", sippImage,
+		"-url", "wss://" + asteriskconf.DefaultSIPWSHost + ":" + strconv.Itoa(asteriskconf.SIPWSPort) + asteriskconf.SIPWSPath,
+		"-user", p.dev.SIPUsername, "-pass", p.password}
+	docker(e.t, e.ctx, append(args, extra...)...)
+	return cname
+}
+
+// waitWS waits for a wsphone to finish, fails the test unless it
+// succeeded, and returns what it printed.
+func (e *env) waitWS(cname string) string {
+	e.t.Helper()
+	code := docker(e.t, e.ctx, "wait", cname)
+	logs, _ := exec.Command("docker", "logs", cname).CombinedOutput()
+	if code != "0" {
+		e.t.Fatalf("wsphone %s exited %s:\n%s\n--- Asterisk:\n%s", cname, code, logs, e.asteriskLogs())
+	}
+	return string(logs)
+}
+
 type testWriter struct{ t *testing.T }
 
 func (w testWriter) Write(b []byte) (int, error) {
@@ -299,12 +374,12 @@ func (w testWriter) Write(b []byte) (int, error) {
 // other users in their containers.
 func (e *env) writeFiles() {
 	t := e.t
-	for _, sub := range []string{"certs/v1", "ca", "secrets", "sipp"} {
+	for _, sub := range []string{"certs/v1", "sipws/v20", "ca", "secrets", "sipp"} {
 		if err := os.MkdirAll(filepath.Join(e.dir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, d := range []string{e.dir, filepath.Join(e.dir, "certs")} {
+	for _, d := range []string{e.dir, filepath.Join(e.dir, "certs"), filepath.Join(e.dir, "sipws")} {
 		os.Chmod(d, 0o755)
 	}
 	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -322,11 +397,15 @@ func (e *env) writeFiles() {
 	sipCert, sipKey := e.leaf(2, "asterisk")
 	ariCert, ariKey := e.leaf(3, "host.docker.internal")
 	cliCert, cliKey := e.leaf(4, "sipp")
+	wsCert, wsKey := e.leaf(20, asteriskconf.DefaultSIPWSHost)
 
 	files := map[string][]byte{
 		// Laid out like linx-certd's volume: versions, and current -> one.
-		"certs/v1/fullchain.pem":            append(sipCert, rootPEM...),
-		"certs/v1/privkey.pem":              sipKey,
+		"certs/v1/fullchain.pem": append(sipCert, rootPEM...),
+		"certs/v1/privkey.pem":   sipKey,
+		// The browser websocket's, laid out as the control plane writes it.
+		"sipws/v20/fullchain.pem":           append(wsCert, rootPEM...),
+		"sipws/v20/privkey.pem":             wsKey,
 		"ca/root_ca.crt":                    rootPEM,
 		"ari.pem":                           ariCert,
 		"ari.key":                           ariKey,
@@ -342,6 +421,9 @@ func (e *env) writeFiles() {
 		}
 	}
 	if err := os.Symlink("v1", filepath.Join(e.dir, "certs", "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("v20", filepath.Join(e.dir, "sipws", "current")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -364,11 +446,19 @@ func (e *env) leaf(serial int64, dns string) (certPEM, keyPEM []byte) {
 
 // renewSIPCert deploys a new SIP certificate with this serial the way
 // linx-certd does: a new version directory, then current swapped to it.
-func (e *env) renewSIPCert(serial int64) {
+func (e *env) renewSIPCert(serial int64) { e.renewCert("certs", "asterisk", serial) }
+
+// renewSIPWSCert does the same for the browser websocket's certificate, as
+// the control plane does.
+func (e *env) renewSIPWSCert(serial int64) {
+	e.renewCert("sipws", asteriskconf.DefaultSIPWSHost, serial)
+}
+
+func (e *env) renewCert(sub, name string, serial int64) {
 	e.t.Helper()
 	v := "v" + strconv.FormatInt(serial, 10)
-	cert, key := e.leaf(serial, "asterisk")
-	dir := filepath.Join(e.dir, "certs", v)
+	cert, key := e.leaf(serial, name)
+	dir := filepath.Join(e.dir, sub, v)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		e.t.Fatal(err)
 	}
@@ -377,11 +467,11 @@ func (e *env) renewSIPCert(serial int64) {
 			e.t.Fatal(err)
 		}
 	}
-	tmp := filepath.Join(e.dir, "certs", "current.tmp")
+	tmp := filepath.Join(e.dir, sub, "current.tmp")
 	if err := os.Symlink(v, tmp); err != nil {
 		e.t.Fatal(err)
 	}
-	if err := os.Rename(tmp, filepath.Join(e.dir, "certs", "current")); err != nil {
+	if err := os.Rename(tmp, filepath.Join(e.dir, sub, "current")); err != nil {
 		e.t.Fatal(err)
 	}
 }

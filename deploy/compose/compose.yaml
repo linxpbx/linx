@@ -99,6 +99,8 @@ services:
         read_only: true
         volume:
           subpath: certs
+      # Writes Asterisk's browser-websocket certificate here (docs/WEB.md §2).
+      - sipws-certs:/var/lib/linx/sipws-certs
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,6 +120,9 @@ services:
         aliases: [linx-ari]
       linx-public: {}
       linx-egress: {}
+      # Reaches Asterisk's browser websocket (wss://linx-sipws:8089/ws), for
+      # the /sip relay (docs/WEB.md §5).
+      linx-sipws: {}
     mem_limit: 256m
     pids_limit: 128
 
@@ -126,6 +131,8 @@ services:
   # realtime views (role linx_asterisk, docs/PBX.md §3); no cache, so a
   # revoked device stops at once. Connects out to control-plane's ARI
   # websocket (wss://linx-ari:8089, ADR-034); nothing here listens for ARI.
+  # Browsers: a secure SIP websocket on linx-sipws only, which only the
+  # control plane's /sip relay reaches (docs/WEB.md §2); never published.
   # Phones: SIP over TLS and encrypted audio, published on the server's LAN
   # address only and accepted from the LAN only (docs/PBX.md §6: Asterisk's
   # ACL, and linx setup's nftables table). Never 5060. The audio range must
@@ -156,6 +163,9 @@ services:
     volumes:
       - asterisk-state:/var/lib/asterisk
       - certs:/var/lib/linx/certs:ro
+      # The browser websocket's certificate, issued by the control plane
+      # (Asterisk holds no internal-CA credential).
+      - sipws-certs:/var/lib/linx/sipws-certs:ro
       # To check the control plane's ARI certificate (see control-plane).
       - type: volume
         source: step-ca
@@ -170,7 +180,13 @@ services:
       - /etc/asterisk:uid=100,gid=101,mode=0750
       - /var/run/asterisk:uid=100,gid=101,mode=0750
       - /tmp
-    networks: [linx-private, linx-public]
+    networks:
+      linx-private: {}
+      linx-public: {}
+      linx-sipws:
+        # The name the websocket's certificate is for, on this network only:
+        # the entrypoint binds the websocket to the address it resolves to.
+        aliases: [linx-sipws]
     depends_on:
       postgres:
         condition: service_healthy
@@ -246,6 +262,15 @@ secrets:
 volumes:
   certd-state:
   certs:
+  # Asterisk's browser-websocket certificate and key: in memory only, written
+  # by the control plane (uid 65532), read by Asterisk (group 101, which the
+  # setgid directory passes on to every file in it).
+  sipws-certs:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=65532,gid=101,mode=2750,size=1m
   postgres-data:
   asterisk-state:
   step-ca:
@@ -265,3 +290,8 @@ networks:
   # publishes a port here yet; that arrives with the deployment profiles.
   linx-public:
     name: linx-public
+  # The control plane's /sip relay to Asterisk's browser websocket, and
+  # nothing else: no other container, no route out.
+  linx-sipws:
+    name: linx-sipws
+    internal: true

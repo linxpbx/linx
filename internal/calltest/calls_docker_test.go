@@ -5,10 +5,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +25,9 @@ import (
 // password, a call, nobody answering, unknown number, a revoked device, a
 // network phones may not connect from, unencrypted audio, old TLS versions —
 // plus the echo test, calling yourself, and the call and device events the
-// control plane derives from Asterisk's ARI events.
+// control plane derives from Asterisk's ARI events. Phase 1C adds Opus
+// callers hearing messages (ADR-041) and browsers' devices signing in over
+// the secure websocket on linx-sipws (docs/WEB.md §2).
 func TestCallsDocker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -112,10 +117,19 @@ func TestCallsDocker(t *testing.T) {
 		for _, c := range []string{echo, unknown, self, offline} {
 			e.wait(c)
 		}
-		// A phone offering Opus first (Linphone does) is answered in G.722,
-		// so it hears the message: Asterisk can't encode Opus.
+		// Opus (ADR-041): a phone offering Opus first (Linphone does) is
+		// answered in Opus, and one offering nothing else still hears the
+		// message, converted to Opus as it plays.
 		e.run("opus-first", "call-message-opus.xml", alice, "-s", "556")
-		if logs := e.asteriskLogs(); strings.Contains(logs, "Playback failed") {
+		if out := e.asteriskCLI("module show like codec_opus"); !strings.Contains(out, "codec_opus_open_source.so") || !strings.Contains(out, "Running") {
+			t.Fatalf("Opus codec not running:\n%s", out)
+		}
+		opusOnly := e.sipp("opus-only", "call-message-opus-only.xml", alice, "-s", "557")
+		eventually(t, "Asterisk encoding a message in Opus", 15*time.Second, func() bool {
+			return strings.Contains(e.channelDetails(), "(opus@")
+		})
+		e.wait(opusOnly)
+		if logs := e.asteriskLogs(); strings.Contains(logs, "Playback failed") || strings.Contains(logs, "Unable to find a codec translation path") {
 			t.Errorf("a message didn't play:\n%s", logs)
 		}
 		for to, want := range map[string]string{
@@ -215,6 +229,78 @@ func TestCallsDocker(t *testing.T) {
 		}
 	})
 
+	t.Run("browsers over the secure websocket", func(t *testing.T) {
+		dana := e.newWebPhone("104", "Dana")
+		erin := e.newWebPhone("105", "Erin")
+
+		// Browsers get WebRTC media (ICE, DTLS-SRTP, AVPF, rtcp-mux) over
+		// the websocket; phones keep SIP over TLS with SDES-SRTP.
+		web := e.asteriskCLI("pjsip show endpoint " + dana.dev.SIPUsername)
+		for _, want := range []string{`transport\s*:\s*transport-wss`, `media_encryption\s*:\s*dtls`, `ice_support\s*:\s*true`,
+			`use_avpf\s*:\s*true`, `rtcp_mux\s*:\s*true`, `dtls_verify\s*:\s*Fingerprint`, `dtls_setup\s*:\s*actpass`, `allow\s*:\s*\(opus\|g722\|ulaw\)`} {
+			if !regexp.MustCompile(want).MatchString(web) {
+				t.Errorf("web endpoint doesn't match %s:\n%s", want, web)
+			}
+		}
+		phone := e.asteriskCLI("pjsip show endpoint " + bob.dev.SIPUsername)
+		for _, want := range []string{`transport\s*:\s*transport-tls`, `media_encryption\s*:\s*sdes`, `ice_support\s*:\s*false`,
+			`allow\s*:\s*\(opus\|g722\|ulaw\)`} {
+			if !regexp.MustCompile(want).MatchString(phone) {
+				t.Errorf("phone endpoint doesn't match %s:\n%s", want, phone)
+			}
+		}
+
+		// Never plain HTTP; HTTPS on the websocket network's address only.
+		wsIP := docker(t, ctx, "inspect", "--format", "{{(index .NetworkSettings.Networks \""+sipwsNet+"\").IPAddress}}", astName)
+		if out := e.asteriskCLI("http show status"); !strings.Contains(out, "Server Disabled") || !strings.Contains(out, "Server: Linx") {
+			t.Errorf("http show status (want plain HTTP off, no version in the Server header):\n%s", out)
+		}
+		tcp := docker(t, ctx, "exec", astName, "cat", "/proc/net/tcp")
+		var others []string
+		for _, l := range doctor.ListeningTCP(tcp) {
+			// 127.0.0.11 is Docker's own DNS resolver, in every container.
+			if l.Port() != 5061 && !l.Addr().IsLoopback() {
+				others = append(others, l.String())
+			}
+		}
+		if fmt.Sprint(others) != "["+wsIP+":8089]" {
+			t.Errorf("Asterisk listens on %v besides 5061, want only %s:8089", others, wsIP)
+		}
+		// Nothing listens there for the phones' network.
+		out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", netName,
+			"--volume", filepath.Join(e.dir, "wsphone")+":/wsphone:ro", "--volume", filepath.Join(e.dir, "ca")+":/ca:ro",
+			"--entrypoint", "/wsphone/wsphone", sippImage, "-url", "wss://asterisk:8089/ws",
+			"-user", dana.dev.SIPUsername, "-pass", dana.password).CombinedOutput()
+		if err == nil || !strings.Contains(string(out), "dial") {
+			t.Errorf("websocket reachable from the phones' network: %v\n%s", err, out)
+		}
+
+		// Dana signs in and stays connected while the certificate renews.
+		held := e.wsphone("dana", dana, "-hold", "12s")
+		eventually(t, "Dana online", 15*time.Second, func() bool { return online(dana) })
+		if reg := e.lastEvent("device.registered"); reg["sip_username"] != dana.dev.SIPUsername {
+			t.Errorf("device.registered = %v", reg)
+		}
+		e.renewSIPWSCert(21)
+		eventually(t, "the websocket serving the renewed certificate", 20*time.Second, func() bool {
+			return strings.Contains(e.waitWS(e.wsphone("erin", erin)), "cert-serial 21\nregistered\n")
+		})
+		// Dana's connection stayed up through the reload.
+		if out := e.waitWS(held); !strings.Contains(out, "cert-serial 20\nregistered\nregistered again\n") {
+			t.Errorf("held connection:\n%s", out)
+		}
+		if logs := e.asteriskLogs(); !strings.Contains(logs, `"cert":"browser websocket"`) {
+			t.Errorf("no websocket certificate reload logged:\n%s", logs)
+		}
+		eventually(t, "Dana offline after her connection closed", 10*time.Second, func() bool { return !online(dana) })
+
+		wrong := dana
+		wrong.password = pbx.NewDevicePassword()
+		if out := e.waitWS(e.wsphone("wrong", wrong, "-want-reject")); !strings.Contains(out, "refused 401") {
+			t.Errorf("wrong password:\n%s", out)
+		}
+	})
+
 	t.Run("survives a restart", func(t *testing.T) {
 		// A restarted container's tmpfs mounts aren't the same as a new
 		// one's: this once left Asterisk unable to write its config.
@@ -222,6 +308,7 @@ func TestCallsDocker(t *testing.T) {
 		e.waitAsterisk()
 		eventually(t, "Asterisk's ARI connection after the restart", 30*time.Second, tracker.Connected)
 		e.run("echo-after-restart", "call.xml", alice, "-s", "*43", "-d", "1000")
+		e.waitWS(e.wsphone("after-restart", e.newWebPhone("106", "Fay")))
 	})
 
 	t.Run("revoked device", func(t *testing.T) {
@@ -231,6 +318,18 @@ func TestCallsDocker(t *testing.T) {
 		e.run("revoked-register", "register-rejected.xml", alice)
 		e.run("revoked-call", "call-rejected.xml", alice, "-s", "102")
 	})
+}
+
+// channelDetails is "core show channel" for every channel Asterisk has.
+func (e *env) channelDetails() string {
+	var b strings.Builder
+	for _, line := range strings.Split(e.asteriskCLI("core show channels concise"), "\n") {
+		if name, _, ok := strings.Cut(line, "!"); ok {
+			out, _ := exec.Command("docker", "exec", astName, "asterisk", "-rx", "core show channel "+name).CombinedOutput()
+			b.Write(out)
+		}
+	}
+	return b.String()
 }
 
 // lastEvent returns the data of the newest queued webhook event of a type.

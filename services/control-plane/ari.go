@@ -31,6 +31,9 @@ type ariConfig struct {
 	CAURL          string
 	CARootFile     string
 	CAPasswordFile string
+	// SIPWSCertsDir is where Asterisk's browser websocket certificate is
+	// written (sipws.go).
+	SIPWSCertsDir string
 }
 
 func ariConfigFromEnv(getenv func(string) string) ariConfig {
@@ -46,6 +49,7 @@ func ariConfigFromEnv(getenv func(string) string) ariConfig {
 		CAURL:          or("LINX_CA_URL", "https://step-ca:9000"),
 		CARootFile:     or("LINX_CA_ROOT_FILE", "/etc/linx/ca/root_ca.crt"),
 		CAPasswordFile: or("LINX_CA_SERVICES_PASSWORD_FILE", "/run/secrets/linx_ca_services_password"),
+		SIPWSCertsDir:  or("LINX_SIPWS_CERTS_DIR", "/var/lib/linx/sipws-certs"),
 	}
 }
 
@@ -75,8 +79,10 @@ func startARI(ctx context.Context, cfg ariConfig, app ari.App, log *slog.Logger,
 		addr = netip.AddrPortFrom(ip, 8089).String()
 	}
 
+	issuer := stepca.NewClient(cfg.CAURL, stepca.ServicesProvisioner, []byte(caPassword), roots)
+	runBackground(sipwsRenewer(issuer, cfg.SIPWSCertsDir, log).Run)
 	renewer := &stepca.Renewer{
-		Issuer:     stepca.NewClient(cfg.CAURL, stepca.ServicesProvisioner, []byte(caPassword), roots),
+		Issuer:     issuer,
 		CommonName: ARIHost,
 		DNSNames:   []string{ARIHost},
 		Log:        log,

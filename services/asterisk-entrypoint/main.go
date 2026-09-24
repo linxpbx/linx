@@ -1,7 +1,8 @@
 // Command asterisk-entrypoint renders Asterisk's configuration from
 // environment variables (internal/asteriskconf), starts asterisk, and stays
-// beside it to reload its TLS certificate when linx-certd renews it
-// (certwatch.go). It forwards docker stop's SIGTERM to Asterisk and exits
+// beside it to reload its TLS certificates when they're renewed
+// (certwatch.go): the phones' one from linx-certd, and the browser
+// websocket's one from the control plane. It forwards docker stop's SIGTERM to Asterisk and exits
 // with Asterisk's exit status.
 package main
 
@@ -57,8 +58,14 @@ func main() {
 		}
 		interval = d
 	}
-	watcher := &certWatcher{certsDir: cfg.CertsDir, reload: reloadPJSIP, log: log}
-	watcher.start()
+	watchers := []*certWatcher{{certsDir: cfg.CertsDir, reload: reloadModule("res_pjsip.so"), log: log.With("cert", "phones")}}
+	if cfg.SIPWSHost != "none" {
+		watchers = append(watchers, &certWatcher{certsDir: cfg.SIPWSCertsDir, reload: reloadModule("http"),
+			log: log.With("cert", "browser websocket")})
+	}
+	for _, w := range watchers {
+		w.start()
+	}
 
 	// Signals Docker sends are forwarded to Asterisk; Asterisk's own exit
 	// ends the container.
@@ -74,7 +81,9 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go watcher.run(ctx, interval)
+	for _, w := range watchers {
+		go w.run(ctx, interval)
+	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 
@@ -99,17 +108,21 @@ func main() {
 	}
 }
 
-// reloadPJSIP makes Asterisk read its TLS certificate again, through its
-// console socket (the same way the health check talks to it).
-func reloadPJSIP(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, asteriskBin, "-rx", "module reload res_pjsip.so").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+// reloadModule makes Asterisk reload a module, and with it the TLS
+// certificate that module reads (res_pjsip.so: the phones' transport; http:
+// the browser websocket's listener), through its console socket (the same
+// way the health check talks to it).
+func reloadModule(module string) func(context.Context) error {
+	return func(ctx context.Context) error {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, asteriskBin, "-rx", "module reload "+module).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		}
+		if !strings.Contains(string(out), "reloaded successfully") {
+			return fmt.Errorf("unexpected answer: %s", strings.TrimSpace(string(out)))
+		}
+		return nil
 	}
-	if !strings.Contains(string(out), "reloaded successfully") {
-		return fmt.Errorf("unexpected answer: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
 }

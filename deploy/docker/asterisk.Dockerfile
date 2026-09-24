@@ -22,8 +22,20 @@ ARG ASTERISK_GPG_FINGERPRINT=F2FC93DB7587BD1FB49E045A5D984BE337191CE7
 # the tarball ourselves, pinned by SHA-256 (captured from a download whose
 # SHA-1 matched downloads.asterisk.org's published .sha1), and leave it where
 # the Makefile finds it.
-ARG CORE_SOUNDS=asterisk-core-sounds-en-gsm-1.6.1.tar.gz
-ARG CORE_SOUNDS_SHA256=d79c3d2044d41da8f363c447dfccc140be86b4fcc41b1ca5a60a80da52f24f2d
+# G.722 (wideband) rather than GSM: the best quality Asterisk can store, and
+# converted on the fly for Opus callers (Asterisk has no Opus file format).
+ARG CORE_SOUNDS=asterisk-core-sounds-en-g722-1.6.1.tar.gz
+ARG CORE_SOUNDS_SHA256=59891033e764d9dffc5ccdd78e845a1c8ea6bed0b434128bb0199c63ef591770
+# Opus transcoding (ADR-041): Wazo's open-source codec_opus (a maintained
+# fork of traud/asterisk-opus, GPLv2 like Asterisk; libopus is BSD), from a
+# pinned commit of wazo-platform/wazo-codec-opus-open-source (their 26.09
+# release). Only its codec file is used: Asterisk 22's own
+# res_format_attr_opus handles Opus SDP settings. Each file is pinned by
+# SHA-256, and codec_opus_open_source.patch (in deploy/docker/asterisk/)
+# makes the codec read those settings through Asterisk's public API.
+ARG OPUS_CODEC_COMMIT=591b6cd9b75e2b9b6d815ef364a385fccee595a7
+ARG OPUS_CODEC_C_SHA256=b35e8917fb42cb371e8ef37a45a46aca3988130ebc38b7b8c0ff533d65756bba
+ARG OPUS_CODEC_H_SHA256=4cfd088a445233ae0c9b7d823d7918dd2561cbaf7e2f458d5f4c552fe8f504f3
 
 # debian:bookworm-slim (multi-arch index digest)
 FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS asterisk-build
@@ -32,11 +44,14 @@ ARG ASTERISK_SHA256
 ARG ASTERISK_GPG_FINGERPRINT
 ARG CORE_SOUNDS
 ARG CORE_SOUNDS_SHA256
+ARG OPUS_CODEC_COMMIT
+ARG OPUS_CODEC_C_SHA256
+ARG OPUS_CODEC_H_SHA256
 
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
       build-essential pkg-config bzip2 patch curl ca-certificates gnupg \
       libedit-dev libjansson-dev libsqlite3-dev uuid-dev libxml2-dev \
-      libssl-dev libsrtp2-dev unixodbc-dev libnewt-dev \
+      libssl-dev libsrtp2-dev unixodbc-dev libnewt-dev libopus-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src
@@ -60,7 +75,16 @@ RUN tar xzf asterisk.tar.gz && mv "asterisk-${ASTERISK_VERSION}" asterisk
 ADD --checksum=sha256:${CORE_SOUNDS_SHA256} \
     https://downloads.asterisk.org/pub/telephony/sounds/releases/${CORE_SOUNDS} \
     asterisk/sounds/${CORE_SOUNDS}
+# Before ./configure and menuselect, so menuselect lists the module.
+ADD --checksum=sha256:${OPUS_CODEC_C_SHA256} \
+    https://raw.githubusercontent.com/wazo-platform/wazo-codec-opus-open-source/${OPUS_CODEC_COMMIT}/codecs/codec_opus_open_source.c \
+    asterisk/codecs/codec_opus_open_source.c
+ADD --checksum=sha256:${OPUS_CODEC_H_SHA256} \
+    https://raw.githubusercontent.com/wazo-platform/wazo-codec-opus-open-source/${OPUS_CODEC_COMMIT}/codecs/ex_opus.h \
+    asterisk/codecs/ex_opus.h
+COPY deploy/docker/asterisk/codec_opus_open_source.patch ./
 WORKDIR /usr/src/asterisk
+RUN patch -p1 < ../codec_opus_open_source.patch
 
 # --with-pjproject-bundled: Asterisk has no PJSIP support without it, and
 # Debian doesn't package a compatible pjproject. The bundled source's own
@@ -75,8 +99,9 @@ RUN make menuselect.makeopts || make menuselect.makeopts
 
 # Only what Linx uses (docs/PBX.md §2): PJSIP + SRTP + RTP, ODBC realtime,
 # ARI/Stasis, dialplan basics, app_echo, func_odbc, ulaw/alaw/g722/Opus
-# (Opus is passthrough only: res_format_attr_opus negotiates it, nothing
-# transcodes it — Asterisk ships no bundled Opus transcoder). No chan_sip
+# (Opus transcoding from Wazo's codec_opus_open_source, above), and the
+# secure websocket SIP transport for browsers (docs/WEB.md §2: served on
+# linx-sipws only, for the control plane's /sip relay). No chan_sip
 # (gone in 22 anyway), no AGI, no AMI-over-network, no telephony cards, no
 # add-ons, no unit tests, no voicemail/queues/conferencing/fax/presence yet
 # (later Phase 1B/1C slices) — trimmed at the category level, not by
@@ -111,13 +136,16 @@ RUN menuselect/menuselect \
       --enable res_stasis --enable res_stasis_answer --enable res_stasis_device_state \
       --enable res_stasis_playback --enable res_stasis_recording --enable res_stasis_snoop \
       --enable res_timing_timerfd --enable res_websocket_client \
+      --enable res_http_websocket --enable res_pjsip_transport_websocket \
       --enable ENABLE_SRTP_AES_192 --enable ENABLE_SRTP_AES_256 --enable ENABLE_SRTP_AES_GCM \
       --enable chan_pjsip \
       --enable codec_ulaw --enable codec_alaw --enable codec_g722 --enable codec_gsm --enable codec_resample \
+      --enable codec_opus_open_source \
       --enable func_odbc --enable func_channel --enable func_callerid \
       --enable pbx_config \
       --enable bridge_simple --enable bridge_native_rtp \
-      --enable format_gsm --enable format_sln \
+      --enable format_pcm --enable format_sln \
+      --disable CORE-SOUNDS-EN-GSM --enable CORE-SOUNDS-EN-G722 \
       menuselect.makeopts \
     && menuselect/menuselect --check-deps menuselect.makeopts
 
@@ -152,7 +180,7 @@ LABEL org.opencontainers.image.source="https://github.com/linxpbx/linx" \
 # (the entrypoint) is Apache-2.0 like the rest of the repo.
 
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-      libxml2 libsqlite3-0 libssl3 libjansson4 libedit2 libodbc2 libsrtp2-1 odbc-postgresql \
+      libxml2 libsqlite3-0 libssl3 libjansson4 libedit2 libodbc2 libsrtp2-1 libopus0 odbc-postgresql \
     && rm -rf /var/lib/apt/lists/* \
     # The Debian package installs psqlodbcw.so under an architecture triplet
     # directory (/usr/lib/<triplet>/odbc/); symlink it to one fixed path so

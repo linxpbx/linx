@@ -481,3 +481,5 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Asterisk stays GPLv2 in its own container (ADR-001). The module has a small maintainer base; we own its updates like the rest of the image. Transcoding costs CPU only when a call actually converts (messages, later trunks); browser-to-browser calls pass Opus through unchanged.
 
+**As built (Phase 1C step 2).** It built and passed on Asterisk 22.11, so no G.722 fallback was needed. Pinned: `wazo-platform/wazo-codec-opus-open-source` commit `591b6cd` (their 26.09 release), `codec_opus_open_source.c` and `ex_opus.h` each by SHA-256. Asterisk 22's own `res_format_attr_opus` is kept (Wazo ships an older copy); a small Linx patch (`deploy/docker/asterisk/codec_opus_open_source.patch`) makes the codec read Opus SDP settings with `ast_format_attribute_get()` rather than casting to its own copy of that module's struct, whose layout differs in Asterisk 22. Wazo's experimental "native PLC" core patch isn't applied. Prompts: G.722 files, converted to Opus as they play (Asterisk has no Opus file format).
+

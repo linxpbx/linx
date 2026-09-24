@@ -19,8 +19,17 @@ const (
 	ariDown   = "Connection ID  Type  RemoteAddr  State Apps\n-----\nlinx  persistent  N/A  Down  linx\n"
 	transport = "\nTransport:  <TransportId........>  <Type>  <cos>  <tos>  <BindAddress....................>\n" +
 		"==========================================================================================\n\n" +
-		"Transport:  transport-tls             tls      0      0  0.0.0.0:5061\n\nObjects found: 1\n"
-	nftSet = `{"nftables": [{"metainfo": {"version": "1.0.9"}}, {"set": {"family": "inet", "name": "phone_networks", "table": "linx",` +
+		"Transport:  transport-tls             tls      0      0  0.0.0.0:5061\n" +
+		"Transport:  transport-wss             wss      0      0  172.22.0.4:8089\n\nObjects found: 2\n"
+	// Asterisk's sockets: 5061 everywhere (Docker publishes it on the LAN
+	// address), the browser websocket on its linx-sipws address
+	// (172.22.0.4) only, and a connection to Postgres (not listening).
+	procTCP = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n" +
+		"   0: 00000000:13C5 00000000:0000 0A 00000000:00000000 00:00000000 00000000   100        0 1 1\n" +
+		"   1: 040016AC:1F99 00000000:0000 0A 00000000:00000000 00:00000000 00000000   100        0 2 1\n" +
+		"   2: 030014AC:D2F0 020014AC:1538 01 00000000:00000000 00:00000000 00000000   100        0 3 1\n"
+	procTCPCmd = "docker exec linx-asterisk cat /proc/net/tcp"
+	nftSet     = `{"nftables": [{"metainfo": {"version": "1.0.9"}}, {"set": {"family": "inet", "name": "phone_networks", "table": "linx",` +
 		` "type": "ipv4_addr", "flags": ["interval"], "elem": [{"prefix": {"addr": "192.168.1.0", "len": 24}}]}}]}`
 	nftGet = "nft -j list set inet linx phone_networks"
 )
@@ -43,6 +52,7 @@ func addPhones(t *testing.T, f *fixture) {
 	f.runner[astCLI+"odbc show asterisk"] = odbcShow
 	f.runner[astCLI+"ari show websocket sessions"] = ariUp
 	f.runner[astCLI+"pjsip show transports"] = transport
+	f.runner[procTCPCmd] = procTCP
 	f.runner["docker port linx-asterisk"] = dockerPorts("192.168.1.20")
 	f.runner[psqlCmd+phoneQuery] = `{"views": 4, "other": 0}`
 	f.runner["docker ps --format {{.Names}} {{.Ports}}"] = "linx-asterisk 192.168.1.20:5061->5061/tcp, 192.168.1.20:10000-10199->10000-10199/udp\nlinx-postgres \n"
@@ -102,7 +112,8 @@ func TestPhonesAllGreen(t *testing.T) {
 			t.Fatalf("staging=%v: want all ok, got:\n%s", staging, dump(rs))
 		}
 		for _, w := range []string{"The phone system is running and answering", "reads the phone settings from the database, and nothing else",
-			"connected to the API service", "only accepts encrypted phone connections", "local network address (192.168.1.20) only",
+			"connected to the API service", "only accepts encrypted phone connections",
+			"accepts browsers' connections encrypted, and only from inside the server", "local network address (192.168.1.20) only",
 			"current certificate for sip.lab.example.com", "Nothing on this server offers unencrypted SIP",
 			"only lets phones connect from your local network (192.168.1.0/24)", "find this server at sip.lab.example.com"} {
 			want(t, rs, installer.OK, w)
@@ -127,6 +138,16 @@ func TestPhonesProblems(t *testing.T) {
 		{"UDP transport", func(f *fixture) {
 			f.runner[astCLI+"pjsip show transports"] = transport + "Transport:  transport-udp             udp      0      0  0.0.0.0:5060\n"
 		}, installer.Fail, "without encryption: transport-udp (udp 0.0.0.0:5060)"},
+		{"websocket on 5060", func(f *fixture) {
+			f.runner[astCLI+"pjsip show transports"] = strings.Replace(transport, "172.22.0.4:8089", "0.0.0.0:5060", 1)
+		}, installer.Fail, "without encryption: transport-wss (wss 0.0.0.0:5060)"},
+		{"no browser websocket yet", func(f *fixture) { f.runner[procTCPCmd] = strings.Replace(procTCP, ":1F99", ":1F9A", 1) },
+			installer.Fail, "isn't accepting connections from browsers yet"},
+		{"browser websocket everywhere", func(f *fixture) { f.runner[procTCPCmd] = strings.Replace(procTCP, "040016AC:1F99", "00000000:1F99", 1) },
+			installer.Fail, "more addresses than its internal one"},
+		{"plain HTTP", func(f *fixture) {
+			f.runner[procTCPCmd] = procTCP + "   3: 040016AC:1F98 00000000:0000 0A 00000000:00000000 00:00000000 00000000   100        0 4 1\n"
+		}, installer.Fail, "unencrypted web connection (port 8088)"},
 		{"no transport", func(f *fixture) { f.runner[astCLI+"pjsip show transports"] = "No objects found.\n" }, installer.Fail, "isn't accepting phone connections"},
 		{"published everywhere", func(f *fixture) { f.runner["docker port linx-asterisk"] = dockerPorts("0.0.0.0") },
 			installer.Fail, "open on 0.0.0.0:5061"},
@@ -213,5 +234,13 @@ func TestPhoneNetworksSet(t *testing.T) {
 	}
 	if _, err := phoneNetworksSet([]byte(`{"nftables": []}`), nil); err == nil {
 		t.Error("no set accepted")
+	}
+}
+
+func TestListeningTCP(t *testing.T) {
+	got := ListeningTCP(procTCP)
+	want := []netip.AddrPort{netip.MustParseAddrPort("0.0.0.0:5061"), netip.MustParseAddrPort("172.22.0.4:8089")}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }

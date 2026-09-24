@@ -1,7 +1,9 @@
 package asteriskconf
 
 import (
+	"errors"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +20,8 @@ func TestConfigFromEnvDefaults(t *testing.T) {
 		c.DBHost != "postgres" || c.DBPort != "5432" || c.DBName != "linx" ||
 		c.DBPasswordFile != "/run/secrets/linx_asterisk_db_password" || c.DataDir != "/usr/share/asterisk" ||
 		c.ARIURL != "wss://linx-ari:8089/ari" || c.ARIPasswordFile != "/run/secrets/linx_ari_password" ||
-		c.CARootFile != "/etc/linx/ca/root_ca.crt" {
+		c.CARootFile != "/etc/linx/ca/root_ca.crt" || c.SIPWSHost != "linx-sipws" ||
+		c.SIPWSCertsDir != "/var/lib/linx/sipws-certs" {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 }
@@ -28,6 +31,26 @@ func TestConfigFromEnvOverride(t *testing.T) {
 	if c.ConfDir != "/custom/conf" {
 		t.Fatalf("ConfDir = %q, want /custom/conf", c.ConfDir)
 	}
+}
+
+// testIfaces are a container's addresses: loopback, two Docker networks,
+// linx-sipws (172.22.0.4, what testConfig's LookupHost resolves
+// linx-sipws to) and an IPv6 link-local address.
+func testIfaces() ([]net.Addr, error) {
+	return []net.Addr{
+		&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
+		&net.IPNet{IP: net.ParseIP("172.20.0.5"), Mask: net.CIDRMask(16, 32)},
+		&net.IPNet{IP: net.ParseIP("172.21.0.3"), Mask: net.CIDRMask(16, 32)},
+		&net.IPNet{IP: net.ParseIP("172.22.0.4"), Mask: net.CIDRMask(24, 32)},
+		&net.IPNet{IP: net.ParseIP("fe80::1"), Mask: net.CIDRMask(64, 128)},
+	}, nil
+}
+
+func testLookup(host string) ([]netip.Addr, error) {
+	if host != "linx-sipws" {
+		return nil, errors.New("no such host")
+	}
+	return []netip.Addr{netip.MustParseAddr("172.22.0.4")}, nil
 }
 
 func testConfig(t *testing.T) Config {
@@ -57,6 +80,10 @@ func testConfig(t *testing.T) Config {
 		ARIPasswordFile: ariFile,
 		CARootFile:      "/etc/linx/ca/root_ca.crt",
 		SIPNetworks:     "192.168.1.0/24",
+		SIPWSHost:       "linx-sipws",
+		SIPWSCertsDir:   "/var/lib/linx/sipws-certs",
+		InterfaceAddrs:  testIfaces,
+		LookupHost:      testLookup,
 	}
 }
 
@@ -193,10 +220,6 @@ func TestRenderARI(t *testing.T) {
 			t.Errorf("ari.conf missing %q:\n%s", want, got)
 		}
 	}
-	// Nothing in the container listens for ARI.
-	if got := read(t, c, "http.conf"); !strings.Contains(got, "enabled=no") {
-		t.Errorf("http.conf must stay off:\n%s", got)
-	}
 	for _, want := range []string{"exten => *43,1,Answer()", "Dial(${TARGETS},30)", "Playback(ss-noservice)", "Playback(vm-nobodyavail)",
 		`GotoIf($["${CALLERID(num)}" = "${EXTEN}"]?linx-messages,not-available,1)`} {
 		if got := read(t, c, "extensions.conf"); !strings.Contains(got, want) {
@@ -209,17 +232,8 @@ func TestRenderARI(t *testing.T) {
 }
 
 func TestRenderPhoneNetworks(t *testing.T) {
-	ifaces := func() ([]net.Addr, error) {
-		return []net.Addr{
-			&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
-			&net.IPNet{IP: net.ParseIP("172.20.0.5"), Mask: net.CIDRMask(16, 32)},
-			&net.IPNet{IP: net.ParseIP("172.21.0.3"), Mask: net.CIDRMask(16, 32)},
-			&net.IPNet{IP: net.ParseIP("fe80::1"), Mask: net.CIDRMask(64, 128)},
-		}, nil
-	}
 	c := testConfig(t)
 	c.SIPAddress = "192.168.1.20"
-	c.InterfaceAddrs = ifaces
 	if err := c.Render(); err != nil {
 		t.Fatal(err)
 	}
@@ -238,16 +252,61 @@ func TestRenderPhoneNetworks(t *testing.T) {
 		t.Errorf("rtp.conf: %s", got)
 	}
 
-	// No LAN: every request refused, nothing advertised.
+	// No LAN: every phone request refused, nothing advertised. Only the
+	// control plane's relay, on linx-sipws, gets through.
 	c = testConfig(t)
 	c.SIPNetworks, c.SIPAddress = "none", "127.0.0.1"
-	c.InterfaceAddrs = ifaces
 	if err := c.Render(); err != nil {
 		t.Fatal(err)
 	}
 	pjsip = read(t, c, "pjsip.conf")
-	if strings.Contains(pjsip, "permit=") || strings.Contains(pjsip, "external_") || !strings.Contains(pjsip, "deny=0.0.0.0/0.0.0.0") {
+	if !strings.HasSuffix(pjsip, "[phone-networks]\ntype=acl\ndeny=0.0.0.0/0.0.0.0\ndeny=::/0\npermit=172.22.0.0/24\n") ||
+		strings.Contains(pjsip, "external_") {
 		t.Errorf("no-LAN pjsip.conf:\n%s", pjsip)
+	}
+}
+
+func TestRenderSIPWebsocket(t *testing.T) {
+	c := testConfig(t)
+	if err := c.Render(); err != nil {
+		t.Fatal(err)
+	}
+	// HTTPS on linx-sipws only, never plain HTTP, with the control plane's
+	// certificate for linx-sipws.
+	http := read(t, c, "http.conf")
+	for _, want := range []string{"enabled=no\n", "tlsenable=yes\n", "tlsbindaddr=172.22.0.4:8089\n", "servername=Linx\n",
+		"tlscertfile=/var/lib/linx/sipws-certs/current/fullchain.pem\n",
+		"tlsprivatekey=/var/lib/linx/sipws-certs/current/privkey.pem\n"} {
+		if !strings.Contains(http, want) {
+			t.Errorf("http.conf missing %q:\n%s", want, http)
+		}
+	}
+	for _, bad := range []string{"bindaddr=0", "bindport", "CBC", "SHA:"} {
+		if strings.Contains(http, bad) {
+			t.Errorf("http.conf has %q:\n%s", bad, http)
+		}
+	}
+	pjsip := read(t, c, "pjsip.conf")
+	for _, want := range []string{"[transport-wss]\ntype=transport\nprotocol=wss\nbind=172.22.0.4:8089\n", "permit=192.168.1.0/24\npermit=172.22.0.0/24\n"} {
+		if !strings.Contains(pjsip, want) {
+			t.Errorf("pjsip.conf missing %q:\n%s", want, pjsip)
+		}
+	}
+	if strings.Contains(pjsip, "protocol=ws\n") || strings.Contains(pjsip, "protocol=udp") || strings.Contains(pjsip, "protocol=tcp") {
+		t.Errorf("unencrypted transport in pjsip.conf:\n%s", pjsip)
+	}
+
+	// Off: no web server at all, no transport, no extra ACL entry.
+	c = testConfig(t)
+	c.SIPWSHost = "none"
+	if err := c.Render(); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, c, "http.conf"); strings.Contains(got, "tls") || !strings.Contains(got, "enabled=no") {
+		t.Errorf("websocket off, http.conf:\n%s", got)
+	}
+	if got := read(t, c, "pjsip.conf"); strings.Contains(got, "wss") || strings.Contains(got, "172.22.") {
+		t.Errorf("websocket off, pjsip.conf:\n%s", got)
 	}
 }
 
@@ -271,6 +330,20 @@ func TestRenderRefuses(t *testing.T) {
 		c := testConfig(t)
 		c.SIPNetworks = ""
 		if err := c.Render(); err == nil || !strings.Contains(err.Error(), "LINX_SIP_NETWORKS") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("websocket name isn't this container", func(t *testing.T) {
+		c := testConfig(t)
+		c.LookupHost = func(string) ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr("172.22.0.9")}, nil }
+		if err := c.Render(); err == nil || !strings.Contains(err.Error(), "LINX_SIPWS_HOST") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("websocket name doesn't resolve", func(t *testing.T) {
+		c := testConfig(t)
+		c.SIPWSHost = "linx-nowhere"
+		if err := c.Render(); err == nil || !strings.Contains(err.Error(), "LINX_SIPWS_HOST") {
 			t.Fatalf("err = %v", err)
 		}
 	})

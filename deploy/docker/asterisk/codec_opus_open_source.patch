@@ -1,0 +1,68 @@
+Linx patch for Wazo's codec_opus_open_source.c (deploy/docker/asterisk.Dockerfile):
+read Opus SDP settings through ast_format_attribute_get() by name instead of
+casting to a private copy of res_format_attr_opus's struct, whose layout in
+Asterisk 22 differs from the one this module was written against.
+
+--- a/codecs/codec_opus_open_source.c
++++ b/codecs/codec_opus_open_source.c
+@@ -97,29 +97,29 @@
+ 	int previous_lost;
+ };
+ 
+-struct opus_attr {
+-	unsigned int maxbitrate;
+-	unsigned int maxplayrate;
+-	unsigned int unused; /* was minptime */
+-	unsigned int stereo;
+-	unsigned int cbr;
+-	unsigned int fec;
+-	unsigned int dtx;
+-	unsigned int spropmaxcapturerate; /* FIXME: not utilised, yet */
+-	unsigned int spropstereo; /* FIXME: currently, we are just mono */
+-};
++/*
++ * Linx: read Opus settings by name through Asterisk's public format API,
++ * never by casting to a copy of res_format_attr_opus's private struct,
++ * whose layout differs between Asterisk versions.
++ */
++static int opus_attr_int(const struct ast_format *format, const char *name, int fallback)
++{
++	const int *val = format ? ast_format_attribute_get(format, name) : NULL;
++
++	return val ? *val : fallback;
++}
+ 
+ /* Helper methods */
+ static int opus_encoder_construct(struct ast_trans_pvt *pvt, int sampling_rate)
+ {
+ 	struct opus_coder_pvt *opvt = pvt->pvt;
+-	struct opus_attr *attr = pvt->explicit_dst ? ast_format_get_attribute_data(pvt->explicit_dst) : NULL;
+-	const opus_int32 bitrate = attr ? attr->maxbitrate  : CODEC_OPUS_DEFAULT_BITRATE;
+-	const int maxplayrate    = attr ? attr->maxplayrate : CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE;
+-	const int channels       = attr ? attr->stereo + 1  : CODEC_OPUS_DEFAULT_STEREO + 1;
+-	const opus_int32 vbr     = attr ? !(attr->cbr)      : !CODEC_OPUS_DEFAULT_CBR;
+-	const opus_int32 fec     = attr ? attr->fec         : CODEC_OPUS_DEFAULT_FEC;
+-	const opus_int32 dtx     = attr ? attr->dtx         : CODEC_OPUS_DEFAULT_DTX;
++	const struct ast_format *dst = pvt->explicit_dst;
++	const opus_int32 bitrate = opus_attr_int(dst, CODEC_OPUS_ATTR_MAX_AVERAGE_BITRATE, CODEC_OPUS_DEFAULT_BITRATE);
++	const int maxplayrate    = opus_attr_int(dst, CODEC_OPUS_ATTR_MAX_PLAYBACK_RATE, CODEC_OPUS_DEFAULT_MAX_PLAYBACK_RATE);
++	const int channels       = opus_attr_int(dst, CODEC_OPUS_ATTR_STEREO, CODEC_OPUS_DEFAULT_STEREO) + 1;
++	const opus_int32 vbr     = !opus_attr_int(dst, CODEC_OPUS_ATTR_CBR, CODEC_OPUS_DEFAULT_CBR);
++	const opus_int32 fec     = opus_attr_int(dst, CODEC_OPUS_ATTR_FEC, CODEC_OPUS_DEFAULT_FEC);
++	const opus_int32 dtx     = opus_attr_int(dst, CODEC_OPUS_ATTR_DTX, CODEC_OPUS_DEFAULT_DTX);
+ 	const int application    = OPUS_APPLICATION_VOIP;
+ 	int status = 0;
+ 
+@@ -283,11 +283,7 @@
+ 	 * status can change any time (SDP re-negotiation), we save again and again.
+ 	 */
+ 	if (f->subclass.format) {
+-		struct opus_attr *attr = ast_format_get_attribute_data(f->subclass.format);
+-
+-		if (attr) {
+-			opvt->decode_fec_incoming = attr->fec;
+-		}
++		opvt->decode_fec_incoming = opus_attr_int(f->subclass.format, CODEC_OPUS_ATTR_FEC, opvt->decode_fec_incoming);
+ 	}
+ 	decode_fec = opvt->decode_fec_incoming;
+ 

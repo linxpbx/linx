@@ -8,13 +8,15 @@ import (
 	"time"
 )
 
-// certWatcher reloads Asterisk's TLS certificate when linx-certd deploys a
-// new one (docs/ops/CERT_RELOAD.md). certd writes each certificate to a new
-// directory and swaps the "current" symlink to it, so the symlink's target
-// names the deployed version. Asterisk reads current/{fullchain,privkey}.pem
-// only when res_pjsip loads; "module reload res_pjsip.so" makes it read them
-// again without dropping connected phones or calls (checked against the
-// real image; PJSIP's transport stays up and only its certificate changes).
+// certWatcher reloads one of Asterisk's TLS certificates when a new one is
+// deployed (docs/ops/CERT_RELOAD.md): linx-certd's for phones, or the
+// control plane's for the browser websocket. Both write each certificate to
+// a new directory and swap the "current" symlink to it, so the symlink's
+// target names the deployed version. Asterisk reads
+// current/{fullchain,privkey}.pem only when the module using it loads;
+// reloading that module makes it read them again without dropping connected
+// phones or calls (checked against the real image: PJSIP's transport and
+// the web server's open websockets stay up, only the certificate changes).
 type certWatcher struct {
 	certsDir string
 	reload   func(context.Context) error

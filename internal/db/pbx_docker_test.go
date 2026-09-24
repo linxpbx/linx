@@ -85,6 +85,34 @@ func TestAsteriskRealtimeDocker(t *testing.T) {
 		t.Errorf("ps_endpoints row = (%q, %q, %q)", transport, auth, mediaEnc)
 	}
 
+	// A browser's device (Phase 1C, migration 0011): the websocket and WebRTC
+	// media; the phone above keeps TLS and SDES. Opus first for both.
+	webExt := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO extension (id, tenant_id, number, display_name, created_at, updated_at)
+		VALUES ($1, $2, '102', 'Dana', $3, $3)`, webExt, tenant, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO device (id, tenant_id, extension_id, name, kind, sip_username, digest_hash, created_at, updated_at)
+		VALUES ($1, $2, $3, 'Browser', 'web', 'd_w3bw3bw3', '0123456789abcdef0123456789abcdef', $4, $4)`,
+		uuid.New(), tenant, webExt, now); err != nil {
+		t.Fatal(err)
+	}
+	endpoint := func(id string) string {
+		var row string
+		if err := astPool.QueryRow(ctx, `SELECT concat_ws(' ', transport, allow, media_encryption, ice_support, use_avpf, rtcp_mux,
+			coalesce(dtls_verify, '-'), coalesce(dtls_setup, '-'), coalesce(dtls_auto_generate_cert, '-'), media_use_received_transport,
+			coalesce(incoming_offer_codec_prefs, '-')) FROM asterisk.ps_endpoints WHERE id = $1`, id).Scan(&row); err != nil {
+			t.Fatalf("reading endpoint %s: %v", id, err)
+		}
+		return row
+	}
+	if got, want := endpoint("d_w3bw3bw3"), "transport-wss opus,g722,ulaw dtls yes yes yes fingerprint actpass yes yes -"; got != want {
+		t.Errorf("web endpoint = %q, want %q", got, want)
+	}
+	if got, want := endpoint("d_1a2b3c4d"), "transport-tls opus,g722,ulaw sdes no no no - - - no -"; got != want {
+		t.Errorf("phone endpoint = %q, want %q", got, want)
+	}
+
 	var credHash string
 	if err := astPool.QueryRow(ctx, "SELECT md5_cred FROM asterisk.ps_auths WHERE id = 'd_1a2b3c4d'").Scan(&credHash); err != nil {
 		t.Fatalf("reading the enabled device's auth: %v", err)

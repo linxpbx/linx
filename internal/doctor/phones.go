@@ -37,6 +37,7 @@ func Phones(ctx context.Context, env Env, cfg installer.Config) []Result {
 		phoneDatabase(ctx, env, &rs)
 		phoneControl(ctx, env, &rs)
 		phoneTransports(ctx, env, &rs)
+		browserWebsocket(ctx, env, &rs)
 		phonePorts(ctx, env, &rs, lan)
 		if lan.OK() {
 			phoneCertificate(ctx, env, &rs, cfg, lan)
@@ -132,7 +133,8 @@ func phoneControl(ctx context.Context, env Env, rs *results) {
 }
 
 // PlainSIPTransports returns the SIP transports "pjsip show transports"
-// lists that aren't TLS on port 5061 (there must be none: docs/PBX.md §2).
+// lists that aren't TLS on port 5061 or the browsers' secure websocket on
+// 8089 (there must be none: docs/PBX.md §2, docs/WEB.md §2).
 // ok is false if the output lists no transport at all.
 func PlainSIPTransports(cliOutput string) (bad []string, ok bool) {
 	for _, line := range strings.Split(cliOutput, "\n") {
@@ -141,7 +143,10 @@ func PlainSIPTransports(cliOutput string) (bad []string, ok bool) {
 			continue
 		}
 		ok = true
-		if f[2] != "tls" || !strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.SIPPort)) {
+		switch {
+		case f[2] == "tls" && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.SIPPort)):
+		case f[2] == "wss" && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.SIPWSPort)):
+		default:
 			bad = append(bad, f[1]+" ("+f[2]+" "+f[len(f)-1]+")")
 		}
 	}
@@ -233,6 +238,62 @@ func phoneCertificate(ctx context.Context, env Env, rs *results, cfg installer.C
 	default:
 		rs.ok("Phones get the current certificate for " + name + ".")
 	}
+}
+
+// browserWebsocket checks Asterisk's secure websocket for browsers
+// (docs/WEB.md §2) listens on one internal address (linx-sipws) and that its
+// web server offers nothing else: no plain HTTP (8088), nothing on every
+// address. Asterisk's own "http show status" can't tell: it never mentions
+// HTTPS while plain HTTP is off, so this reads the container's sockets.
+func browserWebsocket(ctx context.Context, env Env, rs *results) {
+	out, err := env.Runner.Run(ctx, nil, "docker", "exec", asteriskContainer, "cat", "/proc/net/tcp")
+	if err != nil {
+		rs.fail("Couldn't check the phone system's connection for browsers.", asteriskLogs)
+		return
+	}
+	var ws []netip.AddrPort
+	for _, l := range ListeningTCP(string(out)) {
+		switch l.Port() {
+		case asteriskconf.SIPWSPort:
+			ws = append(ws, l)
+		case 8088:
+			rs.fail("The phone system offers an unencrypted web connection (port 8088).",
+				"Linx never sets this up; restart it to restore its settings: sudo docker restart "+asteriskContainer)
+			return
+		}
+	}
+	switch {
+	case len(ws) == 0:
+		rs.fail("The phone system isn't accepting connections from browsers yet.",
+			"The API service gives it a certificate for this within a minute of starting; if Linx just started, run linx doctor again. "+
+				"Otherwise look for errors about the phone websocket certificate in: sudo docker logs --tail 50 linx-control-plane")
+	case len(ws) > 1 || ws[0].Addr().IsUnspecified():
+		rs.fail("The phone system's connection for browsers listens on more addresses than its internal one.",
+			"Linx never sets this up; restart it to restore its settings: sudo docker restart "+asteriskContainer)
+	default:
+		rs.ok("The phone system accepts browsers' connections encrypted, and only from inside the server.")
+	}
+}
+
+// ListeningTCP returns the listening IPv4 sockets in a /proc/net/tcp file.
+func ListeningTCP(procNetTCP string) []netip.AddrPort {
+	var ls []netip.AddrPort
+	for _, line := range strings.Split(procNetTCP, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || f[3] != "0A" { // 0A: TCP_LISTEN
+			continue
+		}
+		addr, port, ok := strings.Cut(f[1], ":")
+		a, err1 := strconv.ParseUint(addr, 16, 32)
+		p, err2 := strconv.ParseUint(port, 16, 16)
+		if !ok || len(addr) != 8 || err1 != nil || err2 != nil {
+			continue
+		}
+		// The kernel prints the address in host (little-endian) order.
+		ip := netip.AddrFrom4([4]byte{byte(a), byte(a >> 8), byte(a >> 16), byte(a >> 24)})
+		ls = append(ls, netip.AddrPortFrom(ip, uint16(p)))
+	}
+	return ls
 }
 
 // no5060 checks nothing on this server offers unencrypted SIP: no container
