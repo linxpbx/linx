@@ -4,3 +4,5 @@
 0d3d63acefd2bcb531982e4d91c20e6e3867f3ac:internal/webhook/sign_test.go:generic-api-key:11
 # False positive: a deliberately fake API key in the demo checklist (moved into a variable since).
 c6ff8bac173ca2b108a4e8918019624791983c97:docs/DEMO_PHASE1A.md:curl-auth-header:68
+# False positive: a bundled list of common passwords to refuse at sign-up (ADR-036), not a secret.
+eb56ec1272c6ffe3d7d9bf28f5d6814fb34f6681:internal/auth/password.go:generic-api-key:106
