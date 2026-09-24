@@ -2,7 +2,9 @@
 // Phase 1 so far: database, migrations, the API skeleton, authentication
 // (API keys, OAuth client credentials, scopes, rate limits), webhooks
 // (outbox worker, SSRF-guarded delivery, delivery log) and admin alerts
-// (engine, six channels, first sources; docs/API.md §8).
+// (engine, six channels, first sources; docs/API.md §8). Phase 1B so far:
+// extensions/devices and the linx_asterisk realtime role Asterisk reads
+// over ODBC (docs/PBX.md §8 step 2).
 //
 // `control-plane api-key ...` is the server-side key tool that `linx api-key`
 // runs inside this container (apikey_cmd.go); `control-plane healthcheck` is
@@ -64,6 +66,11 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("database ready", "schema_version", schemaVersion)
+
+	if err := db.EnsureAsteriskRole(startCtx, pool, db.AsteriskRolePasswordPathFromEnv(os.Getenv)); err != nil {
+		log.Error("asterisk database role", "err", err)
+		os.Exit(1)
+	}
 
 	encKey, err := dbsecret.LoadKey(dbsecret.KeyPathFromEnv(os.Getenv))
 	if err != nil {

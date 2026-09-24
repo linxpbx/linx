@@ -77,7 +77,7 @@ services:
       # Proxies whose X-Forwarded-For is believed (rate limits, IP
       # allowlists). Empty until the edge templates arrive with the profiles.
       LINX_TRUSTED_PROXIES: ""
-    secrets: [linx_db_password, linx_db_encryption_key, linx_jwt_signing_key]
+    secrets: [linx_db_password, linx_db_encryption_key, linx_jwt_signing_key, linx_asterisk_db_password]
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,11 +93,10 @@ services:
     pids_limit: 128
 
   # Phone engine (docs/PBX.md): Asterisk 22, pjsip. Reads extensions and
-  # devices straight from Postgres through the asterisk schema's realtime
-  # views (linx_asterisk role, added Phase 1B step 2); no cache, so a
+  # devices straight from Postgres, over ODBC, through the asterisk schema's
+  # realtime views (role linx_asterisk, docs/PBX.md §3); no cache, so a
   # revoked device stops at once. LAN-only SIP/RTP ports and the ARI
-  # websocket to control-plane arrive with steps 4 and 5 — this image just
-  # brings the container and its TLS transport up.
+  # websocket to control-plane arrive with steps 4 and 5.
   asterisk:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-asterisk:${LINX_VERSION:?set by linx setup}
     container_name: linx-asterisk
@@ -107,11 +106,19 @@ services:
     security_opt: [no-new-privileges:true]
     # Reads the certs volume's privkey.pem (docs/ops/CERT_RELOAD.md).
     group_add: ["65532"]
+    environment:
+      LINX_DB_HOST: postgres
+      LINX_DB_PORT: "5432"
+      LINX_DB_NAME: linx
+    secrets: [linx_asterisk_db_password]
     volumes:
       - asterisk-state:/var/lib/asterisk
       - certs:/var/lib/linx/certs:ro
     tmpfs: [/etc/asterisk, /var/run/asterisk, /tmp]
     networks: [linx-private, linx-public]
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: [CMD, asterisk, -rx, "core show uptime"]
       interval: 30s
@@ -166,6 +173,11 @@ secrets:
   # Root-owned, group 65532, mode 0440.
   linx_jwt_signing_key:
     file: ./secrets/linx_jwt_signing_key
+  # The linx_asterisk Postgres role's password (docs/PBX.md §3): the
+  # control plane sets the role to it, and Asterisk connects with it.
+  # Root-owned, group 65532, mode 0440.
+  linx_asterisk_db_password:
+    file: ./secrets/linx_asterisk_db_password
 
 volumes:
   certd-state:

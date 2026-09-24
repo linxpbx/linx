@@ -41,10 +41,11 @@ func (f fakeFile) Sys() any           { return nil }
 // otherwise; every other path (e.g. the CA backup) doesn't exist.
 func secretsStat(override map[string]fs.FileInfo) func(string) (fs.FileInfo, error) {
 	files := map[string]fs.FileInfo{
-		installer.DNSTokenPath:        fakeFile{40, 0o440},
-		installer.DBPasswordPath:      fakeFile{32, 0o440},
-		installer.DBEncryptionKeyPath: fakeFile{32, 0o440},
-		installer.JWTSigningKeyPath:   fakeFile{32, 0o440},
+		installer.DNSTokenPath:           fakeFile{40, 0o440},
+		installer.DBPasswordPath:         fakeFile{32, 0o440},
+		installer.DBEncryptionKeyPath:    fakeFile{32, 0o440},
+		installer.JWTSigningKeyPath:      fakeFile{32, 0o440},
+		installer.AsteriskDBPasswordPath: fakeFile{32, 0o440},
 	}
 	for k, v := range override {
 		files[k] = v

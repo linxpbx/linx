@@ -30,6 +30,11 @@ const (
 	JWTSigningKeyPath = SecretsDir + "/linx_jwt_signing_key"
 	// jwtSigningKeySize is the Ed25519 seed length in bytes.
 	jwtSigningKeySize = 32
+	// AsteriskDBPasswordPath is the linx_asterisk Postgres role's password
+	// (docs/PBX.md §3; Docker secret linx_asterisk_db_password), read by
+	// both the control plane (to set the role's password) and Asterisk (to
+	// connect as it).
+	AsteriskDBPasswordPath = SecretsDir + "/linx_asterisk_db_password"
 	// nonrootGID is the distroless "nonroot" group that Linx service images
 	// run as. The DNS token is root-owned and readable by this group only.
 	nonrootGID = 65532
@@ -71,6 +76,9 @@ func StackPlan(c Config, dnsToken, imageTag string) StackSetup {
 	jwtKeyStep := fileStep("Save the API token signing key (readable by root and the Linx services only)",
 		JWTSigningKeyPath, existingOrNewKeyBytes(JWTSigningKeyPath, jwtSigningKeySize), 0o440, 0o700)
 	jwtKeyStep.File.Gid = nonrootGID
+	asteriskDBPasswordStep := fileStep("Save the phone system's database password (readable by root and the Linx services only)",
+		AsteriskDBPasswordPath, []byte(existingOrNewPassword(AsteriskDBPasswordPath)), 0o440, 0o700)
+	asteriskDBPasswordStep.File.Gid = nonrootGID
 	kind := "trusted certificate"
 	if c.Certificates.Staging {
 		kind = "test certificate"
@@ -82,6 +90,7 @@ func StackPlan(c Config, dnsToken, imageTag string) StackSetup {
 			dbPasswordStep,
 			dbKeyStep,
 			jwtKeyStep,
+			asteriskDBPasswordStep,
 			fileStep("Write the Linx services configuration", stackFile, compose.File, 0o644, 0o755),
 			fileStep("Write the Linx settings for "+c.Domain.Name, stackEnv, stackDotEnv(c, imageTag), 0o644, 0o755),
 			cmdStep("Download the Linx service images", "docker", append(dc, "pull", "--quiet")...),

@@ -168,6 +168,7 @@ var secretFiles = []struct {
 	{installer.DBPasswordPath, 0, "database password"},
 	{installer.DBEncryptionKeyPath, dbsecret.KeySize, "database encryption key"},
 	{installer.JWTSigningKeyPath, ed25519.SeedSize, "API token signing key"},
+	{installer.AsteriskDBPasswordPath, 0, "phone system database password"},
 }
 
 // Secrets checks the installer's secret files exist, are the right size,

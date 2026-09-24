@@ -140,8 +140,13 @@ LABEL org.opencontainers.image.source="https://github.com/linxpbx/linx" \
 # (the entrypoint) is Apache-2.0 like the rest of the repo.
 
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-      libxml2 libsqlite3-0 libssl3 libjansson4 libedit2 libodbc2 libsrtp2-1 \
+      libxml2 libsqlite3-0 libssl3 libjansson4 libedit2 libodbc2 libsrtp2-1 odbc-postgresql \
     && rm -rf /var/lib/apt/lists/* \
+    # The Debian package installs psqlodbcw.so under an architecture triplet
+    # directory (/usr/lib/<triplet>/odbc/); symlink it to one fixed path so
+    # internal/asteriskconf's rendered odbcinst.ini doesn't need to know the
+    # image's architecture.
+    && ln -s "$(find /usr/lib -name psqlodbcw.so)" /usr/lib/psqlodbcw.so \
     && addgroup --system --gid 101 asterisk \
     && adduser --system --uid 100 --gid 101 --home /var/lib/asterisk --no-create-home asterisk
 

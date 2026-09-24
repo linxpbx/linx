@@ -26,9 +26,16 @@ func main() {
 		os.Exit(2)
 	}
 
+	// unixODBC (res_odbc's driver) has no env var of its own for config
+	// location; it reads ODBCINI (the odbc.ini file) and ODBCSYSINI (the
+	// directory holding odbcinst.ini). Both must point at the rendered
+	// config: the container's real /etc has none, and the root filesystem
+	// is read-only.
+	env := append(os.Environ(), "ODBCINI="+cfg.ODBCIniPath(), "ODBCSYSINI="+cfg.ODBCSysIniDir())
+
 	argv := []string{asteriskBin, "-f"}
 	log.Info("exec asterisk", "argv", argv)
-	if err := syscall.Exec(asteriskBin, argv, os.Environ()); err != nil {
+	if err := syscall.Exec(asteriskBin, argv, env); err != nil {
 		log.Error("exec asterisk", "err", err)
 		os.Exit(1)
 	}
