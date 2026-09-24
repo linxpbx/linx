@@ -93,7 +93,7 @@ On a fresh Ubuntu 24.04 server: `linx doctor` all green; create extensions `101`
 6. **Review + docs:** security review, threat model, `docs/DEMO_PHASE1B.md`. *(Opus)* — **done 2026-09-24** (`docs/THREAT_MODEL.md` "Phase 1B review").
 
 ## 9. Next slices (not in this one)
-- **1C:** web client audio calls over WSS + coturn (TURN/TLS 443), DTLS-SRTP, registration lockout, public SIP-over-WSS through the edge. Phase 1 exit test "web-to-web with UDP blocked".
+- **1C:** web client audio calls over WSS + coturn (TURN/TLS 443), DTLS-SRTP, registration lockout, public SIP-over-WSS through the edge. Phase 1 exit test "web-to-web with UDP blocked". Designed in `docs/WEB.md`.
 - **1D:** trunks (TLS/SRTP first, ADR-023 fallback, WireGuard ADR-024), outbound rules, toll-fraud limits, Opus↔G.711 transcoding at the trunk.
 - **1E:** portal sign-in (OIDC/local + MFA) and the admin portal screens.
 - Then voicemail + email, CDR, routing wizards and call simulator.

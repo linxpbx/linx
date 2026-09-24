@@ -40,6 +40,12 @@ Status values: `Proposed` (awaiting owner approval), `Accepted`, `Superseded by 
 | 033 | Device SIP logins | Random 128-bit password shown once, stored as SIP digest hash (`md5_cred`) | Accepted (owner, 2026-09-24) |
 | 034 | Call control split | Dialplan rings devices; ARI app (outbound websocket) watches calls; hand-written ARI client + coder/websocket | Accepted (owner, 2026-09-24) |
 | 035 | First test phones | LAN-only SIP-TLS + SRTP softphones in Phase 1B; public SIP waits for registration lockout (1C) | Accepted (owner, 2026-09-24) |
+| 036 | People accounts and sign-in | Local accounts: Argon2id passwords, TOTP (required for admins), cookie sessions; OIDC/passkeys in 1E | Accepted (owner, 2026-09-24) |
+| 037 | One HTTPS entry | Control plane serves the web app, API and `/sip` on one port; web app built into its image | Accepted (owner, 2026-09-24) |
+| 038 | Browser SIP path | JsSIP over WSS relayed by the control plane (session-bound, lockout) to Asterisk on an internal network; 5061 stays LAN-only | Accepted (owner, 2026-09-24) |
+| 039 | TURN relay | Official coturn image, HMAC credentials (1 h), UDP/TLS 443, relays to Asterisk only | Accepted (owner, 2026-09-24) |
+| 040 | Front doors | Every profile supported, NAT-friendly, 443 only; Pangolin and Linx-takes-443 built first | Accepted (owner, 2026-09-24) |
+| 041 | Opus transcoding | Wazo's open-source `codec_opus` built into the Asterisk image; G.722 fallback | Accepted (owner, 2026-09-24) |
 
 ---
 
@@ -416,4 +422,62 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** In Phase 1B, devices of kind `softphone` connect over SIP-TLS (5061) with SDES-SRTP (allowed by the brief: SDES only over TLS), from the LAN only (Asterisk ACL and nftables). Test apps (e.g. Linphone) are used by the owner only and never shipped with Linx. Nothing SIP-related is public until registration lockout exists (Phase 1C).
 
 **Consequences.** The owner can hear real calls before the web client exists. `softphone` devices stay useful later for desk phones and third-party apps.
+
+## ADR-036 — People accounts and sign-in (owner decision, 2026-09-24)
+
+**Context.** The web client (Phase 1C) must know who is using it. Accounts were planned with the admin portal (1E). Design: `docs/WEB.md` §4.
+
+**Options.** (a) Simple local accounts now, company sign-in later. (b) A one-time link per browser, no accounts. (c) Build 1E's sign-in first.
+
+**Decision.** (a). Local accounts: Argon2id (`golang.org/x/crypto/argon2`, BSD), TOTP written with the standard library (required for admins, optional for users), 10 recovery codes, `__Host-` session cookies stored hashed, CSRF header, per-address and per-account lockout with an admin alert. First account through `linx user create` (one-time set-password link). OIDC and passkeys (WebAuthn) join in 1E on the same sessions.
+
+**Consequences.** The session model from `docs/API.md` §3 gets built now. `golang.org/x/crypto` becomes a direct dependency. Until email sending exists, set-password links are handed over by the admin.
+
+## ADR-037 — One HTTPS entry
+
+**Context.** Browsers need the page, the API and a SIP websocket. Every front door (ADR-040) must forward them easily. ARCHITECTURE listed a separate `linx-web` static server.
+
+**Options.** (a) Separate `linx-web`, API and Asterisk WSS each behind the front door. (b) The control plane serves all three on one port; the web build is copied into its image.
+
+**Decision.** (b). One HTTPS backend (8443, certd certificate) for all HTTP hostnames. The page talks to `/api/v1` and `/sip` on its own origin. Strict CSP, HSTS.
+
+**Consequences.** Any HTTP proxy works with one route per name. Same-origin cookies, no CORS. A web-only change rebuilds the control-plane image. A separate static server can return later (e.g. for the <300 KB guest page) without changing URLs.
+
+## ADR-038 — Browser SIP path
+
+**Context.** Browsers speak SIP over websockets. Public SIP needs lockout first (ADR-035). Asterisk can't see real client addresses behind a proxy.
+
+**Options.** (a) Publish Asterisk's WSS through the front door and read Asterisk's security events for lockout. (b) The control plane relays `/sip` to Asterisk after checking the session, and enforces lockout itself.
+
+**Decision.** (b). Each browser session gets its own `web` device with a fresh random SIP password (in memory only). The relay requires a valid session cookie and same-origin `Origin`, allows only that device's username, closes after 3 failed authentications, and caps rate and size. Asterisk's HTTP server is enabled only for the websocket transport, bound to a new internal network `linx-sipws` (control plane and Asterisk only), TLS with a step-ca certificate. ARI stays on its outbound websocket.
+
+**Consequences.** No unauthenticated SIP reaches the internet; 5061 stays LAN-only. Signing out or disabling a person drops their line at once. The relay is a small, tested piece of Linx code in the call path (byte relay with light SIP parsing; no SIP rewriting). Enabling Asterisk's HTTP server also exposes ARI's HTTP routes on `linx-sipws`, reachable only by the control plane.
+
+## ADR-039 — TURN relay
+
+**Context.** Browsers outside the LAN need a media path that works behind NAT and on 443-only networks (ADR-007), without forwarding audio ports.
+
+**Options.** coturn (BSD, the standard; official Docker image) vs LiveKit's built-in TURN (for meetings only) vs eturnal (Apache-2.0, smaller community).
+
+**Decision.** coturn, official image pinned by digest, on UDP 443 and TLS 443 (certd certificate). HMAC "TURN REST" credentials (1 h) from the control plane, secret `linx_turn_secret`. Relays only to Asterisk's address on internal network `linx-media`. Non-root, read-only. LiveKit (Phase 3) will share it (ADR-002).
+
+**Consequences.** Remote audio always relays through the server; no public IP or audio ports to configure; a dynamic IP only affects DNS. coturn can't see real client addresses behind a passthrough, so quotas and short credentials do the work.
+
+## ADR-040 — Front doors (owner decision on scope, 2026-09-24)
+
+**Context.** The owner wants Linx to work behind any reverse proxy (Pangolin, nginx, …) or plain port forwarding, and NAT-friendly in every case. ARCHITECTURE §3 lists profiles A–G.
+
+**Decision.** `linx setup` asks what sits in front (Pangolin, Linx takes 443, nginx/HAProxy, HTTP-only proxy, home only) and generates config, router forwards and DNS records. Only 443 is needed (TCP, plus UDP when possible); TURN/TLS uses 443 by name passthrough where the proxy supports it, or its own port. Pangolin (the owner's demo setup) and Linx-takes-443 are built first, the rest right after. certd gains a DNS updater for changing home IPs. Backends are HTTPS only; proxies check Linx's certificate.
+
+**Consequences.** One design, several small generators, each with a Docker test. Pangolin's TURN/TLS-on-443 depends on a Traefik passthrough file routing to a raw TCP resource, to be proved in the build; if it can't be done, TURN/TLS gets its own port there and the owner is told.
+
+## ADR-041 — Opus transcoding (owner decision, 2026-09-24)
+
+**Context.** Asterisk 22 ships no Opus encoder or `.opus` file format. Sangoma's `codec_opus` is a closed binary for x86-64 only. Without an encoder, Linx's messages are silent to Opus-only callers, and web calls would fall back to G.722 (migration 0009).
+
+**Options.** (a) Wazo's open-source `codec_opus` (fork of `traud/asterisk-opus`, GPLv2; libopus BSD). (b) Sangoma's binary. (c) No Opus via Asterisk (G.722 for web calls).
+
+**Decision.** (a), compiled into the Asterisk image from a pinned commit (SHA-256 checked), for amd64 and arm64. Prompts stored in formats Asterisk can play to Opus callers. Opus first in the codec order again. If it doesn't build or pass the call suite on Asterisk 22, fall back to (c) and tell the owner.
+
+**Consequences.** Asterisk stays GPLv2 in its own container (ADR-001). The module has a small maintainer base; we own its updates like the rest of the image. Transcoding costs CPU only when a call actually converts (messages, later trunks); browser-to-browser calls pass Opus through unchanged.
 

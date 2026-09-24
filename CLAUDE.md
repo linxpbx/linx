@@ -10,6 +10,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/ROADMAP.md` phases and exit criteria
 - `docs/API.md` public API, auth, webhooks, admin alerts (Phase 1 foundation)
 - `docs/PBX.md` phone engine: Asterisk image, realtime views, devices, calls (Phase 1B)
+- `docs/WEB.md` web client, accounts/sign-in, `/sip` relay, coturn, front doors, Opus (Phase 1C)
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
 
 ## Current state
@@ -31,6 +32,7 @@ Detail lives in `docs/`: read only the part you need.
     - Step 6 done (2026-09-24): security review (`docs/THREAT_MODEL.md` "Phone engine" rows and "Phase 1B review"). Fixed: revoke is now permanent (migration `0008_device_revoked.sql`, `revoked_at` + DB check; PATCH/reset-password on a revoked device → 409 `device_revoked`); phone TLS accepts 1.2 and 1.3 (`method=sslv23` + rendered `openssl.cnf` `MinProtocol = TLSv1.2`, entrypoint sets `OPENSSL_CONF`); PJSIP `user_agent=Linx`; every API response `Cache-Control: no-store` (`apihttp.NoStore`); call suite gained "unencrypted audio refused" (488) and "TLS 1.2 and 1.3 only" (Asterisk publishes 5061 on 127.0.0.1 in the harness). `docs/DEMO_PHASE1B.md` written (needs a bridged VM on the home LAN and a trusted, not staging, certificate). Demo fixes after step 6: `b1d403f` (setup keeps the DNS token when the domain changes within a zone), `ba4502b` (Asterisk tmpfs mounts get explicit owner/mode: a restarted container's tmpfs came back root 0755), `6dc6d68` (migration 0009: codecs `g722,ulaw,opus` + `prefer:configured`, since Asterisk can't encode Opus and messages failed), `ae653f1` (migration 0010: `pbx_setting.sip_domain` from `LINX_DOMAIN` → `from_domain`; empty `contact` column on `ps_aors`).
   - **Phase 1B (steps 1–6) complete, demo passed and approved by the owner 2026-09-24** (`docs/DEMO_PHASE1B.md`, commit `ae653f1`).
   - Certificate reload done (2026-09-24): `services/asterisk-entrypoint` now stays as Asterisk's parent (forwards signals, exits with its status; compose `init: true`) and `certwatch.go` runs `module reload res_pjsip.so` within a minute of certd swapping `current` (verified: new cert served, connected phones and live calls unaffected; `LINX_CERT_CHECK_INTERVAL` for tests). Call suite: "picks up a renewed certificate during a call" (harness certs dir is now versioned with a `current` symlink, `--init`). Doctor skips Asterisk console checks while its health is `starting`. Next: Phase 1C design (web client, TURN, registration lockout, Opus encoder decision) — Opus.
+  - Phase 1C (web client) design drafted 2026-09-24: `docs/WEB.md` (ADR-036 to 041), **approved by the owner 2026-09-24**. Next: step 1, screen specs (Sonnet). Owner decisions: simple local accounts now (ADR-036); every front door supported and NAT-friendly, Pangolin built/demoed first (ADR-040); Wazo open-source `codec_opus` with G.722 fallback (ADR-041). Build order `docs/WEB.md` §8, one step per session.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)
