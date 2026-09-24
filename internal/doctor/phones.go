@@ -30,8 +30,10 @@ func Phones(ctx context.Context, env Env, cfg installer.Config) []Result {
 	var rs results
 	service(ctx, env, &rs, asteriskContainer, "The phone system")
 	lan := env.LAN()
-	status, _, err := containerState(ctx, env.Runner, asteriskContainer)
-	if err == nil && status == "running" {
+	// While Asterisk starts, its console makes every command wait until
+	// it's fully up; service has already said to run doctor again.
+	status, health, err := containerState(ctx, env.Runner, asteriskContainer)
+	if err == nil && status == "running" && health != "starting" {
 		phoneDatabase(ctx, env, &rs)
 		phoneControl(ctx, env, &rs)
 		phoneTransports(ctx, env, &rs)
@@ -225,8 +227,9 @@ func phoneCertificate(ctx context.Context, env Env, rs *results, cfg installer.C
 		rs.fail("Couldn't make a secure connection to the phone system like a phone would ("+err.Error()+").",
 			"Restart it so it reads the current certificate: sudo docker restart "+asteriskContainer+". If that doesn't help: "+asteriskLogs)
 	case !bytes.Equal(leaf.Raw, chain[0].Raw):
-		rs.fail("The phone system is still using an older certificate (a renewed one only takes effect after a restart).",
-			"Restart it: sudo docker restart "+asteriskContainer)
+		rs.fail("The phone system is still using an older certificate (it picks up a renewed one within a minute on its own).",
+			"Run linx doctor again in a minute. If it's still old, look for \"reloading the TLS certificate failed\" in: "+asteriskLogs+
+				", then restart it: sudo docker restart "+asteriskContainer)
 	default:
 		rs.ok("Phones get the current certificate for " + name + ".")
 	}

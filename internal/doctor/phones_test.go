@@ -176,6 +176,21 @@ func TestPhonesProblems(t *testing.T) {
 	}
 }
 
+func TestPhonesStarting(t *testing.T) {
+	f := phonesFixture(t)
+	f.runner[inspect+"linx-asterisk"] = "running starting\n"
+	for k := range f.runner {
+		if strings.HasPrefix(k, astCLI) {
+			delete(f.runner, k) // would fail (or, for real, wait) if asked
+		}
+	}
+	rs := f.phones()
+	want(t, rs, installer.Warn, "still starting")
+	if worst(rs) != installer.Warn {
+		t.Errorf("asked the phone system while it's starting:\n%s", dump(rs))
+	}
+}
+
 func TestPhonesNoLAN(t *testing.T) {
 	f := phonesFixture(t)
 	f.env.LAN = func() installer.LAN { return installer.LAN{} }

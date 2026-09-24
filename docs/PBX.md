@@ -22,7 +22,7 @@ New container `linx-asterisk`:
 | Networks | `linx-private` (Postgres, control plane ↔ ARI) and `linx-public`. |
 | Ports (this slice) | `5061/tcp` SIP-TLS and `10000–10199/udp` encrypted audio, **reachable from your LAN only** (Asterisk ACL + nftables rule from `linx setup`). About 50 calls between two phones at once (each phone's side of a call uses two audio ports; an echo test uses one side), corrected in the step 6 review. No 5060, ever. *As built (step 5):* see "Phone ports" below. |
 | TLS | 1.2 and 1.3 (`method=sslv23` with OpenSSL `MinProtocol = TLSv1.2` in a rendered `openssl.cnf`; PJSIP's `tlsv1_2` would refuse 1.3). Asterisk identifies itself as `Linx`, not its version. *(step 6)* |
-| Certificates | The public certificate from `linx-certd` (`certs` volume, read-only), so phones trust it without extra setup. Reload on renewal: `pjsip reload` of the TLS transport, filled into `docs/ops/CERT_RELOAD.md` once verified. |
+| Certificates | The public certificate from `linx-certd` (`certs` volume, read-only), so phones trust it without extra setup. Reload on renewal: the entrypoint watches certd's `current` symlink and runs `module reload res_pjsip.so` within a minute; no calls dropped (`docs/ops/CERT_RELOAD.md`). The entrypoint therefore stays as Asterisk's parent (forwarding `docker stop`'s signal), with compose's `init: true` as PID 1. |
 | Health | `asterisk -rx "core show uptime"` from the container's own console socket. |
 
 **Phone ports, as built (step 5).** `linx setup` finds the local network from the default route (the interface holding its private source address, e.g. `192.168.1.0/24`) and writes it to `.env` as `LINX_SIP_ADDRESS`/`LINX_SIP_NETWORKS`. Three layers then keep phones LAN-only:

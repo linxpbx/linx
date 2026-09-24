@@ -60,6 +60,9 @@ type env struct {
 	store  *store.Store
 	tenant uuid.UUID
 	dir    string
+	// The test CA, for renewSIPCert.
+	caCert *x509.Certificate
+	caKey  *ecdsa.PrivateKey
 }
 
 type phone struct {
@@ -164,6 +167,8 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		// For this test process's own TLS checks (sipAddr).
 		"--publish", "127.0.0.1::5061",
 		"--volume", filepath.Join(d, "certs")+":/var/lib/linx/certs:ro",
+		"--init", // as compose.yaml
+		"--env", "LINX_CERT_CHECK_INTERVAL=1s",
 		"--volume", filepath.Join(d, "ca")+":/etc/linx/ca:ro",
 		"--volume", filepath.Join(d, "secrets", "linx_asterisk_db_password")+":/run/secrets/linx_asterisk_db_password:ro",
 		"--volume", filepath.Join(d, "secrets", "linx_ari_password")+":/run/secrets/linx_ari_password:ro",
@@ -294,7 +299,7 @@ func (w testWriter) Write(b []byte) (int, error) {
 // other users in their containers.
 func (e *env) writeFiles() {
 	t := e.t
-	for _, sub := range []string{"certs/current", "ca", "secrets", "sipp"} {
+	for _, sub := range []string{"certs/v1", "ca", "secrets", "sipp"} {
 		if err := os.MkdirAll(filepath.Join(e.dir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -310,29 +315,18 @@ func (e *env) writeFiles() {
 	if err != nil {
 		t.Fatal(err)
 	}
-	caCert, _ := x509.ParseCertificate(caDER)
+	e.caCert, _ = x509.ParseCertificate(caDER)
+	e.caKey = caKey
 	rootPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
 
-	leaf := func(serial int64, dns string) (certPEM, keyPEM []byte) {
-		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		tmpl := &x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: dns}, DNSNames: []string{dns},
-			NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
-			KeyUsage:    x509.KeyUsageDigitalSignature,
-			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
-		der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
-		if err != nil {
-			t.Fatal(err)
-		}
-		kder, _ := x509.MarshalECPrivateKey(key)
-		return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kder})
-	}
-	sipCert, sipKey := leaf(2, "asterisk")
-	ariCert, ariKey := leaf(3, "host.docker.internal")
-	cliCert, cliKey := leaf(4, "sipp")
+	sipCert, sipKey := e.leaf(2, "asterisk")
+	ariCert, ariKey := e.leaf(3, "host.docker.internal")
+	cliCert, cliKey := e.leaf(4, "sipp")
 
 	files := map[string][]byte{
-		"certs/current/fullchain.pem":       append(sipCert, rootPEM...),
-		"certs/current/privkey.pem":         sipKey,
+		// Laid out like linx-certd's volume: versions, and current -> one.
+		"certs/v1/fullchain.pem":            append(sipCert, rootPEM...),
+		"certs/v1/privkey.pem":              sipKey,
 		"ca/root_ca.crt":                    rootPEM,
 		"ari.pem":                           ariCert,
 		"ari.key":                           ariKey,
@@ -346,6 +340,49 @@ func (e *env) writeFiles() {
 		if err := os.WriteFile(filepath.Join(e.dir, name), b, 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.Symlink("v1", filepath.Join(e.dir, "certs", "current")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// leaf issues a certificate for dns from the test CA.
+func (e *env) leaf(serial int64, dns string) (certPEM, keyPEM []byte) {
+	e.t.Helper()
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: dns}, DNSNames: []string{dns},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, e.caCert, &key.PublicKey, e.caKey)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	kder, _ := x509.MarshalECPrivateKey(key)
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kder})
+}
+
+// renewSIPCert deploys a new SIP certificate with this serial the way
+// linx-certd does: a new version directory, then current swapped to it.
+func (e *env) renewSIPCert(serial int64) {
+	e.t.Helper()
+	v := "v" + strconv.FormatInt(serial, 10)
+	cert, key := e.leaf(serial, "asterisk")
+	dir := filepath.Join(e.dir, "certs", v)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		e.t.Fatal(err)
+	}
+	for name, b := range map[string][]byte{"fullchain.pem": cert, "privkey.pem": key} {
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	tmp := filepath.Join(e.dir, "certs", "current.tmp")
+	if err := os.Symlink(v, tmp); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := os.Rename(tmp, filepath.Join(e.dir, "certs", "current")); err != nil {
+		e.t.Fatal(err)
 	}
 }
 

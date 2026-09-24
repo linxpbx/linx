@@ -134,6 +134,10 @@ services:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-asterisk:${LINX_VERSION:?set by linx setup}
     container_name: linx-asterisk
     restart: unless-stopped
+    # A minimal init as PID 1: the entrypoint stays beside Asterisk (it
+    # reloads the TLS certificate on renewal), and something must reap
+    # whatever exits under it.
+    init: true
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

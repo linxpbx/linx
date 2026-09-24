@@ -191,6 +191,30 @@ func TestCallsDocker(t *testing.T) {
 		}
 	})
 
+	t.Run("picks up a renewed certificate during a call", func(t *testing.T) {
+		roots := x509.NewCertPool()
+		root, err := os.ReadFile(filepath.Join(e.dir, "ca", "root_ca.crt"))
+		if err != nil || !roots.AppendCertsFromPEM(root) {
+			t.Fatalf("test CA root: %v", err)
+		}
+		served := func() int64 {
+			c, err := tls.Dial("tcp", e.sipAddr(), &tls.Config{ServerName: "asterisk", RootCAs: roots})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			return c.ConnectionState().PeerCertificates[0].SerialNumber.Int64()
+		}
+		call := e.sipp("renew-call", "call.xml", alice, "-s", "*43", "-d", "6000")
+		time.Sleep(time.Second)
+		e.renewSIPCert(10)
+		eventually(t, "Asterisk serving the renewed certificate", 20*time.Second, func() bool { return served() == 10 })
+		e.wait(call) // the call in progress carried on to its normal end
+		if logs := e.asteriskLogs(); !strings.Contains(logs, "TLS certificate reloaded") {
+			t.Errorf("no reload logged:\n%s", logs)
+		}
+	})
+
 	t.Run("survives a restart", func(t *testing.T) {
 		// A restarted container's tmpfs mounts aren't the same as a new
 		// one's: this once left Asterisk unable to write its config.

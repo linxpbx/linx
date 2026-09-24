@@ -22,7 +22,7 @@ Filled in as each component lands (Phase 1). Every method must be verified by ch
 
 | Component | Method | Drops calls? |
 |---|---|---|
-| Asterisk (PJSIP TLS/WSS) | `pjsip.conf`'s transport points straight at `current/{fullchain,privkey}.pem` (`internal/asteriskconf`, Phase 1B step 1). A running container needs `pjsip reload` after renewal; nothing triggers that yet — a renewal only takes effect on the container's next restart until a watcher is added (later step) | _Not yet verified_ |
+| Asterisk (PJSIP TLS/WSS) | `pjsip.conf`'s transport points straight at `current/{fullchain,privkey}.pem` (`internal/asteriskconf`). The container's entrypoint stays beside Asterisk and checks `current`'s target once a minute; when it changes it runs `asterisk -rx "module reload res_pjsip.so"` (`services/asterisk-entrypoint/certwatch.go`), retrying at the next check if that fails. Verified on the real image: new connections get the new certificate, phones already connected keep their connection, and a call in progress carries on (call suite, "picks up a renewed certificate during a call"). Without the reload Asterisk keeps serving the old one until restarted. (`pjsip reload` isn't an Asterisk 22 command.) | No |
 | coturn | _Phase 1_ | |
 | LiveKit / livekit-sip | _Phase 1_ | |
 | Web/API (control plane) | _Phase 1_ (Go: re-read on `tls.Config.GetCertificate`) | No |
