@@ -10,7 +10,9 @@ output: services/control-plane/api/gen.go
 output-options:
   # /oauth/token speaks OAuth's own error format (RFC 6749), so it's a
   # hand-written handler (internal/auth/oauth.go), documented in the spec only.
-  exclude-operation-ids: [oauthToken]
+  # The session endpoints need to set two cookies each, which a typed JSON
+  # response can't do, so they're hand-written too (services/control-plane/session.go).
+  exclude-operation-ids: [oauthToken, createSession, deleteSession, verifySessionMfa, completeSetupLink]
   # WebhookMessage is only referenced from the spec's `webhooks:` section,
   # which pruning doesn't follow.
   skip-prune: true

@@ -10,16 +10,21 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/pbx"
 )
 
 // fakeStore is an in-memory stand-in for internal/store (which is tested
 // against real Postgres in make test-docker).
 type fakeStore struct {
-	mu      sync.Mutex
-	tenant  uuid.UUID
-	creds   map[uuid.UUID]auth.Credential
-	revoked map[string]bool
-	audits  []auth.AuditEntry
+	mu         sync.Mutex
+	tenant     uuid.UUID
+	creds      map[uuid.UUID]auth.Credential
+	revoked    map[string]bool
+	audits     []auth.AuditEntry
+	users      map[uuid.UUID]auth.User
+	links      map[string]auth.SetupLink
+	sessions   map[uuid.UUID]auth.UserSession
+	extensions map[string]pbx.Extension
 }
 
 func newFakeStore() *fakeStore {

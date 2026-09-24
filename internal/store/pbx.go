@@ -65,6 +65,13 @@ func (s *Store) Extension(ctx context.Context, tenant, id uuid.UUID) (pbx.Extens
 		`SELECT `+extensionColumns+` FROM extension WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`, id, tenant))
 }
 
+// ExtensionByNumber finds an extension by its number, e.g. for `linx user
+// create --extension 101` (docs/WEB.md §4).
+func (s *Store) ExtensionByNumber(ctx context.Context, tenant uuid.UUID, number string) (pbx.Extension, error) {
+	return scanExtension(s.pool.QueryRow(ctx,
+		`SELECT `+extensionColumns+` FROM extension WHERE tenant_id = $1 AND number = $2 AND deleted_at IS NULL`, tenant, number))
+}
+
 func (s *Store) ListExtensions(ctx context.Context, tenant uuid.UUID, before *uuid.UUID, limit int) ([]pbx.Extension, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+extensionColumns+` FROM extension
 		WHERE tenant_id = $1 AND deleted_at IS NULL AND ($2::uuid IS NULL OR id < $2) ORDER BY id DESC LIMIT $3`,

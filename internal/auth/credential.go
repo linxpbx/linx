@@ -44,6 +44,14 @@ func (c Credential) Principal() Principal {
 // ErrNotFound is returned by Store lookups that find nothing.
 var ErrNotFound = errors.New("not found")
 
+// ErrDuplicate is returned when a unique constraint refuses a write (e.g. a
+// person's email is already used).
+var ErrDuplicate = errors.New("already exists")
+
+// ErrVersionChanged is returned when an update's expected version no
+// longer matches what's stored (optimistic concurrency).
+var ErrVersionChanged = errors.New("changed since it was read")
+
 // AuditEntry is one audit_log row (docs/API.md §2).
 type AuditEntry struct {
 	TenantID *uuid.UUID

@@ -27,6 +27,11 @@ type Authenticator struct {
 	Calls, Failures *Limiters
 	Log             *slog.Logger
 	Now             func() time.Time
+	// Sessions authenticates the __Host-linx_session cookie (docs/WEB.md
+	// §4). Nil disables cookie authentication entirely (every request needs
+	// an Authorization header), which existing tests that build an
+	// Authenticator directly rely on.
+	Sessions SessionStore
 }
 
 // NewAuthenticator builds an Authenticator with the limits from docs/API.md §3.
@@ -53,10 +58,11 @@ type failure struct {
 var errInvalid = &apihttp.Error{Status: http.StatusUnauthorized, Code: "auth_invalid",
 	Detail: "The API key or access token is not valid."}
 
-// Middleware authenticates requests that carry an Authorization header and
-// puts the Principal in the context. Requests without one continue with no
-// principal; the spec's security requirements (Authorize) then decide
-// whether the operation needs one.
+// Middleware authenticates requests that carry an Authorization header or
+// (with Sessions set) a session cookie, and puts the Principal in the
+// context. Requests with neither continue with no principal; the spec's
+// security requirements (Authorize) then decide whether the operation needs
+// one.
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := a.Now()
@@ -65,7 +71,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 
 		header := r.Header.Get("Authorization")
 		if header == "" {
-			next.ServeHTTP(w, r.WithContext(ctx))
+			a.serveWithSession(w, r, ctx, ip, now, next)
 			return
 		}
 
@@ -85,31 +91,118 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			apihttp.WriteError(w, f.err)
 			return
 		}
+		a.finishAuthenticated(w, r, ctx, p, ip, now, next)
+	})
+}
 
-		if !a.Calls.Allow(p.Actor(), now) {
-			SetRateLimitHeaders(w.Header(), a.Calls.Status(p.Actor(), now))
-			apihttp.WriteProblem(w, http.StatusTooManyRequests, "rate_limited",
-				"Too many requests from this key. Wait a moment and try again.")
-			return
+// serveWithSession handles a request with no Authorization header: a
+// session cookie if Sessions is configured and one is present, otherwise
+// through with no principal (docs/WEB.md §4).
+func (a *Authenticator) serveWithSession(w http.ResponseWriter, r *http.Request, ctx context.Context, ip netip.Addr, now time.Time, next http.Handler) {
+	if a.Sessions == nil {
+		next.ServeHTTP(w, r.WithContext(ctx))
+		return
+	}
+	cookie, err := r.Cookie(SessionCookieName)
+	if err != nil || cookie.Value == "" {
+		next.ServeHTTP(w, r.WithContext(ctx))
+		return
+	}
+
+	ipKey := IPKey(ip)
+	if a.Failures.Exhausted(ipKey, now) {
+		tooManyFailures(w, a.Failures.Status(ipKey, now))
+		return
+	}
+
+	sess, f := a.authenticateSession(ctx, cookie.Value, now)
+	if f != nil {
+		a.Failures.Allow(ipKey, now)
+		a.auditFailure(ctx, ip, "auth.failed", f)
+		apihttp.WriteError(w, f.err)
+		return
+	}
+	if !isSafeMethod(r.Method) && !validCSRF(r, sess.CSRFHash) {
+		apihttp.WriteProblem(w, http.StatusForbidden, "csrf_invalid", "This request is missing a valid CSRF token.")
+		return
+	}
+	a.touchSession(ctx, sess, ip, now)
+	ctx = WithSession(ctx, sess)
+	a.finishAuthenticated(w, r, ctx, sess.Principal(), ip, now, next)
+}
+
+var errSessionInvalid = &apihttp.Error{Status: http.StatusUnauthorized, Code: "session_invalid",
+	Detail: "This session isn't valid. Sign in again."}
+var errSessionExpired = &apihttp.Error{Status: http.StatusUnauthorized, Code: "session_expired",
+	Detail: "This session has expired. Sign in again."}
+
+func (a *Authenticator) authenticateSession(ctx context.Context, raw string, now time.Time) (UserSession, *failure) {
+	sess, err := a.Sessions.SessionByTokenHash(ctx, HashSecret(raw))
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			a.Log.Error("session lookup failed", "err", err)
+			return UserSession{}, &failure{err: unavailable(), reason: "lookup_error"}
 		}
+		return UserSession{}, &failure{err: errSessionInvalid, reason: "unknown_session"}
+	}
+	switch {
+	case sess.RevokedAt != nil:
+		return UserSession{}, &failure{err: errSessionInvalid, reason: "revoked"}
+	case !now.Before(sess.ExpiresAt), !now.Before(sess.IdleExpiresAt):
+		return UserSession{}, &failure{err: errSessionExpired, reason: "expired"}
+	}
+	return sess, nil
+}
+
+// validCSRF checks the X-CSRF-Token header against the session's stored
+// hash (docs/WEB.md §4). Only cookie-authenticated writes need this: a
+// bearer credential isn't sent automatically by a browser, so it can't be
+// forged cross-site the way a cookie can.
+func validCSRF(r *http.Request, storedHash []byte) bool {
+	token := r.Header.Get(CSRFHeaderName)
+	return token != "" && SecretMatches(storedHash, token)
+}
+
+func (a *Authenticator) touchSession(ctx context.Context, s UserSession, ip netip.Addr, now time.Time) {
+	if now.Sub(s.LastSeenAt) < touchInterval && s.LastSeenIP != nil && *s.LastSeenIP == ip {
+		return
+	}
+	idle := now.Add(SessionIdleTTL)
+	if idle.After(s.ExpiresAt) {
+		idle = s.ExpiresAt
+	}
+	if err := a.Sessions.TouchSession(ctx, s.ID, now, idle, ip); err != nil {
+		a.Log.Warn("recording session use failed", "err", err)
+	}
+}
+
+// finishAuthenticated applies the per-principal rate limit and audits a
+// write, for a principal from either an Authorization header or a session
+// cookie.
+func (a *Authenticator) finishAuthenticated(w http.ResponseWriter, r *http.Request, ctx context.Context, p Principal, ip netip.Addr, now time.Time, next http.Handler) {
+	if !a.Calls.Allow(p.Actor(), now) {
 		SetRateLimitHeaders(w.Header(), a.Calls.Status(p.Actor(), now))
+		apihttp.WriteProblem(w, http.StatusTooManyRequests, "rate_limited",
+			"Too many requests from this key. Wait a moment and try again.")
+		return
+	}
+	SetRateLimitHeaders(w.Header(), a.Calls.Status(p.Actor(), now))
 
-		ctx = WithPrincipal(ctx, p)
-		if isSafeMethod(r.Method) {
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
-		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(sw, r.WithContext(ctx))
-		a.audit(ctx, AuditEntry{
-			TenantID: &p.TenantID,
-			Actor:    p.Actor(),
-			IP:       ip,
-			Action:   "api.write",
-			Target:   r.Method + " " + r.URL.Path,
-			Result:   resultForStatus(sw.status),
-			Detail:   map[string]any{"status": sw.status},
-		})
+	ctx = WithPrincipal(ctx, p)
+	if isSafeMethod(r.Method) {
+		next.ServeHTTP(w, r.WithContext(ctx))
+		return
+	}
+	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+	next.ServeHTTP(sw, r.WithContext(ctx))
+	a.audit(ctx, AuditEntry{
+		TenantID: &p.TenantID,
+		Actor:    p.Actor(),
+		IP:       ip,
+		Action:   "api.write",
+		Target:   r.Method + " " + r.URL.Path,
+		Result:   resultForStatus(sw.status),
+		Detail:   map[string]any{"status": sw.status},
 	})
 }
 

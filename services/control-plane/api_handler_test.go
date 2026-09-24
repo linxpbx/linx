@@ -40,6 +40,7 @@ type testEnv struct {
 	pbx      *pbx.Service
 	pbxStore *fakePbxStore
 	calls    *fakeCalls
+	accounts *auth.Accounts
 }
 
 // testResolver answers the host names the webhook tests use, so no test
@@ -94,17 +95,20 @@ func newTestEnv(t *testing.T) *testEnv {
 	pbxSvc := &pbx.Service{Store: pb, Now: time.Now, Domain: "linx.example.com"}
 
 	calls := &fakeCalls{connected: true}
-	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, calls)
+	authn.Sessions = st
+	accounts := &auth.Accounts{Store: st, Sealer: sender.Sealer, Alerts: nil, Failures: authn.Failures, Now: time.Now}
+	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, calls, accounts)
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/", handler)
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
+	registerSessionHandlers(mux, authn, accounts, st.tenant)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return &testEnv{t: t, srv: srv, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al,
-		pbx: pbxSvc, pbxStore: pb, calls: calls}
+		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts}
 }
 
 // newCredential stores a key or client made by the server-side CLI and
@@ -623,8 +627,12 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The embedded spec's operation ids are capitalised by the generator.
-	public := []string{"GetOpenapiSpec", "OauthToken"}
-	anyCredential := []string{"GetMe", "ListEventTypes"}
+	// The four session endpoints authenticate a cookie themselves (or are
+	// unauthenticated, signing in), never the bearer scheme (docs/WEB.md §4).
+	public := []string{"GetOpenapiSpec", "OauthToken", "CreateSession", "VerifySessionMfa", "CompleteSetupLink", "DeleteSession"}
+	// /me/mfa* and /me/password act on the caller's own account, whatever
+	// kind of credential it is signed in with (docs/WEB.md §4), like GetMe.
+	anyCredential := []string{"GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword"}
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
 			sec := spec.Security

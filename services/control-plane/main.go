@@ -44,6 +44,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "api-key" {
 		os.Exit(runAPIKeyCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "user" {
+		os.Exit(runUserCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(runHealthcheck(os.Getenv, nil))
 	}
@@ -110,6 +113,7 @@ func main() {
 		os.Exit(1)
 	}
 	authn := auth.NewAuthenticator(st, tokens, ips, log)
+	authn.Sessions = st
 
 	// Outbound connections to admin-given URLs (docs/API.md §4, §5): never
 	// to this container's own networks, private ranges only if allowlisted.
@@ -128,6 +132,11 @@ func main() {
 	alertSender := &alert.Sender{Client: guardedClient, Sealer: sealer, Now: time.Now}
 	alerts := &alert.Service{Store: st, Sealer: sealer, Sender: alertSender, Policy: policy, Now: time.Now}
 	engine := &alert.Engine{Store: st, Sender: alertSender, Log: log}
+
+	// People accounts and sessions (docs/WEB.md §4): the "someone is
+	// guessing a password" alert reuses this same engine, and sign-in
+	// failures share the per-address budget a bad API key or token draws on.
+	accounts := &auth.Accounts{Store: st, Sealer: sealer, Alerts: engine, Failures: authn.Failures, Now: time.Now}
 
 	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
 	// The ARI app: device online state, call webhooks, /calls/active.
@@ -193,7 +202,7 @@ func main() {
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, tracker)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, tracker, accounts)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)
@@ -203,6 +212,7 @@ func main() {
 	mux.Handle("/healthz", health.Handler(service))
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
+	registerSessionHandlers(mux, authn, accounts, tenant)
 
 	addr := os.Getenv("LINX_LISTEN_ADDR")
 	if addr == "" {

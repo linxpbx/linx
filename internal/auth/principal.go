@@ -26,6 +26,11 @@ type Principal struct {
 	Role     string
 	// Scopes are already limited to Role's ceiling.
 	Scopes []string
+	// Pending is true for a signed-in person's session still waiting on its
+	// authenticator code or its first-run MFA enrollment (docs/WEB.md §4).
+	// A pending principal holds no scopes, so it can only reach operations
+	// that need no scope; those handlers decide what it may actually do.
+	Pending bool
 }
 
 // Actor is how the principal appears in audit_log.actor.

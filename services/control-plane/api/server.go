@@ -30,6 +30,7 @@ type Server struct {
 	alerts   *alert.Service
 	pbx      *pbx.Service
 	calls    CallSource
+	accounts *auth.Accounts
 	now      func() time.Time
 }
 
@@ -42,8 +43,8 @@ type CallSource interface {
 
 // NewServer builds a Server. spec is served as-is at GET /openapi.json, so
 // callers must pass the same document the server was validated against.
-func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls CallSource) *Server {
-	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, calls: calls, now: time.Now}
+func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls CallSource, accounts *auth.Accounts) *Server {
+	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, calls: calls, accounts: accounts, now: time.Now}
 }
 
 func (s *Server) GetOpenapiSpec(_ context.Context, _ GetOpenapiSpecRequestObject) (GetOpenapiSpecResponseObject, error) {
@@ -81,6 +82,15 @@ func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponse
 	}
 	if p.TenantID != uuid.Nil {
 		me.TenantId = &p.TenantID
+	}
+	if p.Type == auth.TypeUser {
+		me.Pending = &p.Pending
+		if uid, err := uuid.Parse(p.ID); err == nil {
+			if u, err := s.accounts.GetUser(ctx, uid); err == nil {
+				me.Email, me.Name, me.MfaEnabled = &u.Email, &u.Name, &u.MFAEnabled
+				me.ExtensionId = u.ExtensionID
+			}
+		}
 	}
 	return GetMe200JSONResponse(me), nil
 }

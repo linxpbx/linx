@@ -980,6 +980,293 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/session:
+    post:
+      operationId: createSession
+      summary: "Sign in (step 1: email and password)"
+      description: >-
+        Sets the __Host-linx_session and __Host-linx_csrf cookies
+        (docs/WEB.md §4). Served by a hand-written handler (excluded from
+        code generation): it needs to set two cookies, which a typed JSON
+        response can't do.
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignIn"
+      responses:
+        "200":
+          description: Signed in, or pending an authenticator code or first-run MFA enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSession
+      summary: Sign out
+      description: >-
+        Ends the caller's own session and clears its cookies. Served by a
+        hand-written handler (excluded from code generation): it
+        authenticates the session cookie itself, not through the bearer
+        scheme this spec's operations otherwise declare.
+      tags: [sessions]
+      security: []
+      responses:
+        "204":
+          description: Signed out.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/mfa:
+    post:
+      operationId: verifySessionMfa
+      summary: "Sign in (step 2: authenticator code)"
+      description: >-
+        For a session still pending its authenticator code. A recovery code
+        also works. Served by a hand-written handler (excluded from code
+        generation).
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaCode"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/setup-links/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: completeSetupLink
+      summary: Pick a password with a one-time set-password link
+      description: >-
+        Signs the person in at once (docs/WEB.md §4). Served by a
+        hand-written handler (excluded from code generation).
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  description: At least 12 characters.
+      responses:
+        "200":
+          description: Signed in, or pending first-run MFA enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      summary: List people
+      tags: [people]
+      security:
+        - bearer: [users:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of people.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createUser
+      summary: Add a person
+      description: >-
+        Returns a one-time set-password link token, valid 24 hours
+        (docs/WEB.md §4). Their role can't exceed the caller's.
+      tags: [people]
+      security:
+        - bearer: [users:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+      responses:
+        "201":
+          description: The new person, with a one-time set-password link token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserCreated"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getUser
+      summary: Get a person
+      tags: [people]
+      security:
+        - bearer: [users:read]
+      responses:
+        "200":
+          description: The person.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateUser
+      summary: Change a person
+      description: >-
+        JSON Merge Patch: only the fields sent change. `disabled: true` ends
+        every session of theirs at once (docs/WEB.md §4).
+      tags: [people]
+      security:
+        - bearer: [users:write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/UserPatch"
+      responses:
+        "200":
+          description: The person as they now are.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: disableUser
+      summary: Disable a person
+      description: >-
+        Stops them signing in and ends every session of theirs at once
+        (docs/WEB.md §4). Disabling a disabled person succeeds and changes
+        nothing. Never deletes their history.
+      tags: [people]
+      security:
+        - bearer: [users:write]
+      responses:
+        "204":
+          description: Disabled.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/users/{id}/setup-link:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: createUserSetupLink
+      summary: Issue a new set-password link
+      description: A fresh one-time link (24 hours), for a new person or one who lost theirs.
+      tags: [people]
+      security:
+        - bearer: [users:write]
+      responses:
+        "200":
+          description: A one-time set-password link token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupLinkIssued"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/password:
+    post:
+      operationId: changeMyPassword
+      summary: Change my own password
+      description: Ends every session of mine, including this one (docs/WEB.md §4).
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChange"
+      responses:
+        "204":
+          description: Changed.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/mfa:
+    post:
+      operationId: beginMyMfaEnrollment
+      summary: Start turning on an authenticator app
+      description: >-
+        Returns a secret and its otpauth:// URI to scan; unconfirmed until
+        POST /me/mfa/confirm (docs/WEB.md §4).
+      tags: [people]
+      responses:
+        "200":
+          description: A pending authenticator secret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaEnrollment"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/mfa/confirm:
+    post:
+      operationId: confirmMyMfaEnrollment
+      summary: Confirm the authenticator app and turn MFA on
+      description: >-
+        Returns 10 recovery codes, shown once. If the caller's session was
+        still pending MFA, it's promoted to a full session.
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaCode"
+      responses:
+        "200":
+          description: MFA is on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaConfirmed"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /oauth/token:
     post:
       operationId: oauthToken
@@ -1155,6 +1442,25 @@ components:
           items:
             type: string
           description: e.g. `extensions:write`, `webhooks:write`.
+        pending:
+          type: boolean
+          description: >-
+            True for a signed-in person's session still waiting on its
+            authenticator code or first-run MFA enrollment (docs/WEB.md §4):
+            scopes is empty until then.
+        email:
+          type: string
+          description: A signed-in person's own email (type user only).
+        name:
+          type: string
+          description: A signed-in person's own name (type user only).
+        extension_id:
+          type: string
+          format: uuid
+          description: The extension a signed-in person answers on the web client, if they have one.
+        mfa_enabled:
+          type: boolean
+          description: Whether a signed-in person has turned on an authenticator app.
 
     EventType:
       type: object
@@ -2137,3 +2443,158 @@ components:
           description: Plain-language explanation. Never a stack trace.
         instance:
           type: string
+
+    SignIn:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    SessionStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [signed_in, mfa_verify_required, mfa_setup_required]
+          description: >-
+            `mfa_verify_required`: POST /session/mfa with a code from an
+            already-enrolled authenticator app. `mfa_setup_required`: the
+            account must enroll (POST /me/mfa) before it can do anything
+            else.
+
+    MfaCode:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: A 6-digit authenticator code, or a recovery code.
+
+    User:
+      type: object
+      required: [id, email, name, role, mfa_enabled, disabled, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        extension_id:
+          type: string
+          format: uuid
+        mfa_enabled:
+          type: boolean
+        disabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserCreate:
+      type: object
+      additionalProperties: false
+      required: [email, name, role]
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        role:
+          $ref: "#/components/schemas/Role"
+          description: Can't exceed the caller's own role.
+        extension_id:
+          type: string
+          format: uuid
+
+    UserPatch:
+      description: JSON Merge Patch; fields not sent stay as they are.
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        role:
+          $ref: "#/components/schemas/Role"
+        extension_id:
+          type: string
+          format: uuid
+        disabled:
+          type: boolean
+
+    UserCreated:
+      type: object
+      required: [user, setup_link_token]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        setup_link_token:
+          type: string
+          description: Shown once; build the link as https://meet.<domain>/setup/<token>.
+
+    UserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        next_cursor:
+          type: string
+
+    SetupLinkIssued:
+      type: object
+      required: [setup_link_token]
+      properties:
+        setup_link_token:
+          type: string
+          description: Shown once; build the link as https://meet.<domain>/setup/<token>.
+
+    PasswordChange:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          description: At least 12 characters.
+
+    MfaEnrollment:
+      type: object
+      required: [secret, otpauth_url]
+      properties:
+        secret:
+          type: string
+          description: Base32, for typing in by hand if the QR code can't be scanned.
+        otpauth_url:
+          type: string
+          description: otpauth://totp/... — encode this as a QR code.
+
+    MfaConfirmed:
+      type: object
+      required: [recovery_codes]
+      properties:
+        recovery_codes:
+          type: array
+          items:
+            type: string
+          description: 10 codes, shown once. Each works instead of an authenticator code, one time.
