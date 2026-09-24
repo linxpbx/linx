@@ -179,6 +179,9 @@ func scanAlert(row pgx.Row) (alert.Alert, error) {
 // currently open (justOpened, resetting stable_since), or a bump of
 // last_seen_at (and description, in case it changed) if one already is.
 // The partial unique index alert_open_key_idx makes this an atomic upsert.
+// If an already-notified alert becomes more severe (warning → critical),
+// its reminder is made due at once, so the escalation goes out on the
+// engine's next tick instead of waiting up to a day.
 func (s *Store) Fire(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string, now time.Time) (alert.Alert, bool, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -192,7 +195,13 @@ func (s *Store) Fire(ctx context.Context, tenant uuid.UUID, key, severity, title
 			first_seen_at, last_seen_at, stable_since)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $8, $8, $8)
 		ON CONFLICT (tenant_id, key) WHERE status = 'open' DO UPDATE SET
-			last_seen_at = $8, severity = $4, title = $5, message = $6, link = $7
+			last_seen_at = $8, severity = $4, title = $5, message = $6, link = $7,
+			last_reminder_at = CASE
+				WHEN alert.notified_at IS NOT NULL
+					AND array_position(ARRAY['info', 'warning', 'critical'], $4::text)
+						> array_position(ARRAY['info', 'warning', 'critical'], alert.severity)
+				THEN 'epoch'::timestamptz
+				ELSE alert.last_reminder_at END
 		RETURNING `+alertColumns+`, (xmax = 0) AS inserted`,
 		id, tenant, key, severity, title, message, linkArg, now)
 
@@ -275,20 +284,37 @@ func collectAlerts(rows pgx.Rows, err error) ([]alert.Alert, error) {
 	return out, rows.Err()
 }
 
-// alertNotifyColumn is the alert column Notify bumps for each kind, so a
-// later scan doesn't pick the same alert up again for the same reason.
-var alertNotifyColumn = map[string]string{
-	alert.DeliveryFired:    "notified_at",
-	alert.DeliveryReminder: "last_reminder_at",
-	alert.DeliveryResolved: "resolved_notified_at",
-}
-
+// Notify claims a's kind of notice with a compare-and-set on the alert row
+// before fanning out: the column is only bumped if the alert is still in
+// the state the scan saw (still open and never notified; still open and
+// not reminded since; resolved and not yet announced). If another engine
+// got there first, or the alert changed in between (e.g. resolved before
+// its first notice, which is the flap hold-back absorbing it), nothing is
+// queued.
 func (s *Store) Notify(ctx context.Context, a alert.Alert, kind string, due, held []uuid.UUID, now time.Time, maxAttempts int, ev *alert.WebhookEvent) error {
-	column, ok := alertNotifyColumn[kind]
-	if !ok {
+	var claim string
+	args := []any{a.ID, now}
+	switch kind {
+	case alert.DeliveryFired:
+		claim = `UPDATE alert SET notified_at = $2 WHERE id = $1 AND status = 'open' AND notified_at IS NULL`
+	case alert.DeliveryReminder:
+		claim = `UPDATE alert SET last_reminder_at = $2 WHERE id = $1 AND status = 'open'
+			AND last_reminder_at IS NOT DISTINCT FROM $3`
+		args = append(args, a.LastReminderAt)
+	case alert.DeliveryResolved:
+		claim = `UPDATE alert SET resolved_notified_at = $2 WHERE id = $1 AND status = 'resolved'
+			AND resolved_notified_at IS NULL`
+	default:
 		return fmt.Errorf("notify: unknown kind %q", kind)
 	}
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, claim, args...)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
 		for _, channel := range due {
 			if err := insertAlertDelivery(ctx, tx, a, channel, kind, alert.DeliveryPending, &now, maxAttempts, now); err != nil {
 				return err
@@ -298,9 +324,6 @@ func (s *Store) Notify(ctx context.Context, a alert.Alert, kind string, due, hel
 			if err := insertAlertDelivery(ctx, tx, a, channel, kind, alert.DeliveryHeld, nil, maxAttempts, now); err != nil {
 				return err
 			}
-		}
-		if _, err := tx.Exec(ctx, `UPDATE alert SET `+column+` = $2 WHERE id = $1`, a.ID, now); err != nil {
-			return err
 		}
 		if ev == nil {
 			return nil

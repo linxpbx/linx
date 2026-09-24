@@ -87,6 +87,20 @@ func TestCheckCertdFiresWhenExpiringSoon(t *testing.T) {
 	}
 }
 
+func TestCheckCertdWarnsAt21Days(t *testing.T) {
+	engine, st := testEngine(t)
+	tenant := uuid.Must(uuid.NewV7())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("linx_cert_expiry_timestamp_seconds{} " + strconv.FormatInt(time.Now().Add(15*24*time.Hour).Unix(), 10) + "\n"))
+	}))
+	defer srv.Close()
+	checkCertd(context.Background(), srv.Client(), srv.URL, engine, tenant, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	alerts, _ := st.ListAlerts(context.Background(), tenant, alert.StatusOpen, nil, 10)
+	if len(alerts) != 1 || alerts[0].Severity != alert.SeverityWarning {
+		t.Fatalf("alerts = %+v, want one warning at 15 days left", alerts)
+	}
+}
+
 func TestCheckCertdResolvesWhenHealthy(t *testing.T) {
 	engine, st := testEngine(t)
 	tenant := uuid.Must(uuid.NewV7())

@@ -1,6 +1,6 @@
 # Linx — Threat Model (STRIDE)
 
-Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phase 0b; API authentication rows updated in Phase 1 step 3 (2026-09-23). This document is updated at the end of every phase.
+Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phase 0b; API authentication rows updated in Phase 1 step 3 (2026-09-23); webhook, outbound, alert and `linx doctor` rows reviewed at the end of Phase 1A (2026-09-24, see "Phase 1A review" below). This document is updated at the end of every phase.
 
 ## Assets
 - Call and meeting media and signalling
@@ -79,9 +79,13 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 | Webhook secrets | **I** secret leaks from the API or logs | Shown once (create, rotate); stored sealed (AES-256-GCM bound to the endpoint row); never in list/get responses, audit details or log lines; URLs with a user name or password refused | 1 |
 | Stored integration secrets | **I** database dump leaks tokens | AES-256-GCM with a key held as a Docker secret, bound to the row (ADR-030) | 1 |
 | Admin alerts | **D** alert flood hides real problems | De-duplication by key, flap hold-back (5 min stable before the first send), reminders at most every 24 h, one digest after quiet hours (built: `internal/alert`) | 1 |
+| Admin alerts | **D**/**T** a notice sent twice, or "fired" sent for a problem that already cleared | Each notice is claimed with a compare-and-set on the alert row (still open and never notified, etc.) in the same transaction that queues it, so a stale scan or a second control plane queues nothing (tested) | 1 |
+| Admin alerts | **D** a problem getting worse goes unnoticed | A notified alert whose severity rises (e.g. certificate warning → critical) is re-sent on the next tick, not at the next 24 h reminder (tested) | 1 |
 | Alert channel settings | **I** channel URLs/tokens leak (Slack/Teams URLs, Telegram bot tokens, ntfy access tokens) | Sealed as one JSON object per channel (AES-256-GCM, ADR-030), same as a webhook secret; never returned by the API once saved, only usable through Test | 1 |
 | Alert channel URLs (ntfy/Gotify server, Slack/Teams/webhook URL) | **I**/**E** SSRF via an alert channel | Same `internal/safehttp` guard as webhooks: checked at save time and every send | 1 |
-| Certificate renewal alert source | **T** control plane trusts a spoofed `/metrics` response | Fixed hostname (`certd`, compose service DNS) on `linx-private` only, not admin-configurable; if wrong, the worst case is a missed or spurious alert, not a security bypass | 1 |
+| Certificate renewal alert source | **T** control plane trusts a spoofed `/metrics` response | Fixed hostname (`certd`, compose service DNS) on `linx-private` only, not admin-configurable; if wrong, the worst case is a missed or spurious alert, not a security bypass. Warning under 21 days left, critical under 7 — the same thresholds as `linx doctor` | 1 |
+| `linx doctor` | **I** the health check leaks secrets or changes data | Runs as root on the host only; reads the database with one read-only query through `docker exec psql` (local socket inside the Postgres container, no network credentials), secret files only by `stat` (size, owner, mode — never contents); open alerts shown by title and message, which never contain secrets | 1 |
+| `linx doctor` | **R**/**D** a broken install looks healthy | Checks every container (the control plane now has a Docker health check, `service healthcheck`, since the image has no shell), the schema version, that an API key and an alert channel exist, every open alert (critical = problem, exit code 1), and that each secret file exists, has the right size, is root-owned and not world-readable | 1 |
 | AI/MCP (later) | **E** prompt injection via untrusted content | Untrusted-data marking; write tools require human confirmation | 6 |
 
 ## Residual risks and open items
@@ -101,6 +105,23 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 - Disk/storage-nearly-full and DDNS-update-failure alert sources (docs/API.md §5) are not wired up: the control plane container has no filesystem of its own to check (`read_only: true`, no volumes) and no host-disk or DDNS-updater signal reaches it without either a Docker socket mount (against the "no Docker socket mounts" rule) or a new host mount / DDNS-updater feature. Revisit when either is designed.
 - The certificate renewal alert only reads `linx-certd`'s expiry and failure-count metrics; it can't tell a slow ACME provider from a broken DNS provider apart. The message points the admin at `linx doctor` and the certd logs rather than guessing further.
 - Alert channels are server-wide, like the outbound allowlist; with multi-tenancy they'll need a tenant scope.
+- A problem that clears and comes back more often than every 5 minutes never passes the flap hold-back, so it never alerts. Someone able to make a trunk flap could keep it quiet. Revisit with "flapping" as its own alert once trunks exist (Phase 1 trunk work).
+- An alert that fired while no channel existed reaches a channel added later only at its next 24 h reminder. `linx doctor` warns when no channel is turned on.
+- Alert rows (open and resolved history) aren't pruned; they grow slowly (one row per problem occurrence). Add retention with backups.
+
+## Phase 1A review (2026-09-24)
+Security review of the API foundation (docs/API.md §8 steps 1–5): authentication, webhooks, the SSRF guard, admin alerts, the database access code and the installer's secrets.
+
+**Checked and sound:** API keys and OAuth client secrets are 256-bit, stored as SHA-256 and compared in constant time, with unknown ids costing the same; revoked/expired/IP reasons are only told to a caller who proved the secret; JWTs are EdDSA-only with a pinned `kid` and every time claim required; OAuth clients are looked up on every call and tokens can only narrow the client's current scopes; the token's tenant must match the client's; `X-Forwarded-For` is only believed from configured proxies; every write and failed authentication is audited without blocking the response; every operation's scopes come from `api/openapi.yaml` and a test fails if one is missing; unknown JSON fields are refused. SQL is parameterised everywhere; the only table name built into SQL comes from a two-value whitelist. No log line prints a secret. The SSRF guard resolves once, checks every address (IPv4-mapped, NAT64 and 6to4 unwrapped) and dials only checked addresses; Linx's own networks, loopback and metadata can't be allowlisted. Webhook and alert channel secrets are sealed and bound to their row.
+
+**Found and fixed in this review:**
+1. The certificate alert fired at 14 days left, not the 21 (warning) / 7 (critical) days `linx doctor` uses and documents. Now the same.
+2. Alert notices weren't claimed atomically: an alert resolved between the engine's scan and its fan-out would send "fired" and then "resolved" for a problem the flap hold-back should have absorbed, and two control planes would both send. Now a compare-and-set claim (see the Admin alerts rows).
+3. An alert escalating from warning to critical waited up to 24 h to be re-sent. Now re-sent on the next tick.
+4. Alert channel settings had no length limits in the spec (only the 1 MiB body limit). Now 2048 for URLs, 512 for tokens, 64 for topics and chat ids.
+5. `linx doctor` couldn't tell whether the control plane was answering (no health check, no shell in the image). Added `service healthcheck` and a Compose health check, plus the doctor checks in the rows above.
+
+**Still open (accepted for now, listed above):** per-instance rate limits; no `Idempotency-Key`; webhook URLs stored in plain text; LAN receivers need a public CA certificate; disk/DDNS alert sources; alert flapping; server-wide allowlist and channels; portal sessions not built yet.
 - Asterisk and coturn can't see real client IPs on passthrough profiles. This is mitigated by pushing clients through WSS (where the control plane sees the IP) and by credential quotas on TURN.
 - Server-decrypted call types (PBX-anchored calls, recordings, trunks) are documented honestly in the user guide.
 - Dynamic IP with IP-auth trunks is unsupported (the wizard warns about this).

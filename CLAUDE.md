@@ -19,7 +19,8 @@ Detail lives in `docs/`: read only the part you need.
   - Step 3 done: authentication — `internal/auth` (keys, scopes/roles, EdDSA tokens, rate limits, middleware, `/oauth/token`), `internal/store` (Postgres), migration 0002, `/api-keys` + `/oauth-clients` endpoints, `linx api-key create|list|revoke`, `linx_jwt_signing_key` secret. Scopes are declared per operation in `openapi.yaml` (`security: [bearer: [...]]`) and enforced by the validator.
   - Step 4 done: webhooks — `internal/safehttp` (SSRF guard, shared by alert senders), `internal/webhook` (Standard Webhooks signer, sender, outbox worker, service), `internal/store/webhooks.go`, migration 0003, `/webhooks*`, `/webhook-deliveries/*`, `/outbound-allowlist`. Emit events with `webhook.NewEvent` + `store.InsertEvent` in the change's transaction. Worker's `OnDisabled` hook and `webhook.Service.OnEnabledChanged` are where step 5 fires/resolves the "webhook disabled" alert.
   - Step 5 done: admin alerts — `internal/alert` (channel config + 6 senders: ntfy, Gotify, Slack, Teams, Telegram, generic webhook; service; engine), `internal/store/alerts.go`, migration 0004, `/alert-channels*`, `/alerts`. `Fire`/`Resolve` are cheap in-process calls (see `services/control-plane/main.go`'s `webhookDisabledKey` and `certdpoll.go`); the engine's tick decides notify/remind/resolve timing, severity and quiet hours. Sources wired: webhook disabled, certificate renewal (polls `linx-certd`'s `/metrics` on `linx-private`, not through the SSRF guard — that's for admin URLs, not Linx's own services). Disk/storage and DDNS deferred: no filesystem/DDNS signal reaches the control plane yet (`docs/THREAT_MODEL.md`).
-  - Next: step 6, review + docs (security review, threat model pass, `linx doctor` checks, `docs/DEMO_PHASE1A.md`) — Opus.
+  - Step 6 done (2026-09-24): security review (findings and fixes in `docs/THREAT_MODEL.md` "Phase 1A review"), `linx doctor` now checks services, schema version, API keys, alert channels, open alerts and secret files (`internal/doctor/platform.go`; reads the DB via `docker exec linx-postgres psql`), control-plane Docker health check (`service healthcheck`), `docs/DEMO_PHASE1A.md`.
+  - Next: the owner runs `docs/DEMO_PHASE1A.md` on a fresh server. Then plan the next Phase 1 slice (Asterisk + Postgres realtime, or portal sign-in with OIDC/MFA) — Opus for the design.
 - Scope: server + Web + iOS/iPadOS only. No Android/macOS/Windows code.
 
 ## Stack (see ADRs)
@@ -51,11 +52,11 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 ## Commands
 - `make setup-dev` (npm ci), `make lint`, `make test` (quiet: failures and summary only)
 - `make tokens` after editing `design/tokens.json` (lint fails if generated files are stale; contrast is tested)
-- `make test-docker` (needs Docker; internal CA end to end)
+- `make test-docker` (needs Docker: internal CA end to end, and real-Postgres tests for migrations, store, webhooks, alerts and doctor's query)
 - `make build` (bin/ + web/dist/). Go module path: `linxpbx.com/linx`
 - `make security` (govulncheck, npm audit, licence allowlist), `make image SERVICE=control-plane`
 - CI: `.github/workflows/ci.yml` (amd64+arm64 tests, gitleaks, SBOM, Trivy, cosign-signed images to ghcr.io on master). Actions pinned by SHA; Dependabot updates them. First external Go dep must add a Go licence check.
-- `linx setup [--config FILE] [--dry-run]` (code: `cmd/linx/setup.go`, `internal/installer`, `internal/hostinfo`), `linx doctor` (code: `cmd/linx/doctor.go`, `internal/doctor`), `linx api-key` (code: `cmd/linx/apikey.go` → `docker exec` → `services/control-plane/apikey_cmd.go`)
+- `linx setup [--config FILE] [--dry-run]` (code: `cmd/linx/setup.go`, `internal/installer`, `internal/hostinfo`), `linx doctor` (code: `cmd/linx/doctor.go`, `internal/doctor`: certificates in `doctor.go`, everything else in `platform.go`), `linx api-key` (code: `cmd/linx/apikey.go` → `docker exec` → `services/control-plane/apikey_cmd.go`)
 
 ## Security rules (never break these)
 - Never disable cert verification, never use `--insecure`, never fall back to plaintext. Only exception: a provider trunk whose provider can't encrypt (ADR-023): TLS/SRTP tried first, admin confirms a warning; no warning over WireGuard.

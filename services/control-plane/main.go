@@ -5,7 +5,8 @@
 // (engine, six channels, first sources; docs/API.md §8).
 //
 // `control-plane api-key ...` is the server-side key tool that `linx api-key`
-// runs inside this container (apikey_cmd.go).
+// runs inside this container (apikey_cmd.go); `control-plane healthcheck` is
+// the container's Docker health check (healthcheck.go).
 package main
 
 import (
@@ -39,6 +40,9 @@ const certdPollInterval = 5 * time.Minute
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "api-key" {
 		os.Exit(runAPIKeyCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(runHealthcheck(os.Getenv, nil))
 	}
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", service)

@@ -86,15 +86,17 @@ const (
 	rerunSetup = "Run: sudo linx setup --config " + installer.ConfigPath
 )
 
-// Certificates checks the public certificate and the internal certificate
-// authority.
+// Certificates checks Docker, then the public certificate and the internal
+// certificate authority.
 func Certificates(ctx context.Context, env Env, cfg installer.Config) []Result {
-	var rs results
-	if _, err := env.Runner.Run(ctx, nil, "docker", "version", "--format", "{{.Server.Version}}"); err != nil {
-		rs.fail("Docker isn't running, so Linx can't run either.",
-			"Start it: sudo systemctl start docker. If it isn't installed, run: sudo linx setup")
+	if rs := docker(ctx, env); rs != nil {
 		return rs
 	}
+	return certificates(ctx, env, cfg)
+}
+
+func certificates(ctx context.Context, env Env, cfg installer.Config) []Result {
+	var rs results
 	rs = append(rs, publicCertificate(ctx, env, cfg)...)
 	rs = append(rs, internalCA(ctx, env)...)
 	return rs

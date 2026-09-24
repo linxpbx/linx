@@ -23,12 +23,14 @@ import (
 // Linx's own networks).
 const certdMetricsURL = "http://certd:8081/metrics"
 
-// certExpiryWarning: the deployed certificate is treated as "renewal is
-// failing" once it's this close to expiry (docs/API.md §5 "certificate
-// renewal failure"). Let's Encrypt certs are renewed starting around 30
-// days out, so still not renewed at 14 days means real trouble, not just
-// an ordinary retry.
-const certExpiryWarning = 14 * 24 * time.Hour
+// The deployed certificate is treated as "renewal is failing" at the same
+// thresholds `linx doctor` uses (internal/doctor): certificates renew 30
+// days before expiry, so under 21 days means renewal has been failing for
+// over a week (warning), and under 7 days is urgent (critical).
+const (
+	certExpiryWarning  = 21 * 24 * time.Hour
+	certExpiryCritical = 7 * 24 * time.Hour
+)
 
 const certAlertKey = "cert.renewal_failed"
 
@@ -69,11 +71,16 @@ func checkCertd(ctx context.Context, client *http.Client, url string, engine *al
 	if m.Expiry.IsZero() {
 		return // no certificate issued yet (fresh install): nothing to alert on
 	}
-	if time.Until(m.Expiry) < certExpiryWarning {
+	left := time.Until(m.Expiry)
+	if left < certExpiryWarning {
+		severity := alert.SeverityWarning
+		if left < certExpiryCritical {
+			severity = alert.SeverityCritical
+		}
 		msg := fmt.Sprintf(
-			"The certificate expires on %s and hasn't renewed yet (%d renewal attempts have failed since certd started). Check `linx doctor` and the certd container's logs.",
+			"The certificate expires on %s and hasn't renewed yet (%d renewal attempts have failed since certd started). Run `sudo linx doctor` and look at the certificate service's log: sudo docker logs --tail 50 linx-certd",
 			m.Expiry.Format("2 January 2006"), m.Failures)
-		if err := engine.Fire(ctx, tenant, certAlertKey, alert.SeverityCritical,
+		if err := engine.Fire(ctx, tenant, certAlertKey, severity,
 			"Certificate renewal is failing", msg, ""); err != nil && ctx.Err() == nil {
 			log.Error("firing certificate alert failed", "err", err)
 		}

@@ -344,6 +344,102 @@ func TestAlertsDocker(t *testing.T) {
 		}
 	})
 
+	t.Run("Notify is a claim: stale or repeated scans queue nothing", func(t *testing.T) {
+		channel := newChannel(t, true, nil)
+		defer s.DeleteChannel(ctx, tenant, channel.ID, audit) // its queued deliveries go with it
+		now := time.Now()
+		countFor := func(id uuid.UUID) int {
+			var n int
+			if err := pool.QueryRow(ctx, "SELECT count(*) FROM alert_delivery WHERE $1 = ANY (alert_ids)", id).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			return n
+		}
+
+		// Resolved between the scan and the fan-out: the flap hold-back
+		// absorbs it, so no "fired" (and later no "resolved") is sent.
+		flap, _, err := s.Fire(ctx, tenant, "test.flap:"+uuid.NewString(), alert.SeverityWarning, "T", "M", "", now.Add(-10*time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := s.Resolve(ctx, tenant, flap.Key, now); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Notify(ctx, flap, alert.DeliveryFired, []uuid.UUID{channel.ID}, nil, now, alert.MaxAttempts, nil); err != nil {
+			t.Fatal(err)
+		}
+		if n := countFor(flap.ID); n != 0 {
+			t.Fatalf("a resolved alert got %d fired deliveries", n)
+		}
+		due, err := s.DueForResolvedNotice(ctx, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if containsAlert(due, flap.ID) {
+			t.Fatal("an alert that was never notified is due for a resolved notice")
+		}
+
+		// Two engines (or two ticks) with the same scan result: one wins.
+		a, _, err := s.Fire(ctx, tenant, "test.twice:"+uuid.NewString(), alert.SeverityWarning, "T", "M", "", now.Add(-10*time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if err := s.Notify(ctx, a, alert.DeliveryFired, []uuid.UUID{channel.ID}, nil, now, alert.MaxAttempts, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if n := countFor(a.ID); n != 1 {
+			t.Fatalf("two Notify calls queued %d deliveries, want 1", n)
+		}
+	})
+
+	t.Run("escalation makes a reminder due at once", func(t *testing.T) {
+		channel := newChannel(t, true, nil)
+		defer s.DeleteChannel(ctx, tenant, channel.ID, audit) // its queued deliveries go with it
+		now := time.Now()
+		key := "test.escalate:" + uuid.NewString()
+		a, _, err := s.Fire(ctx, tenant, key, alert.SeverityWarning, "Cert", "21 days left", "", now.Add(-10*time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Notify(ctx, a, alert.DeliveryFired, []uuid.UUID{channel.ID}, nil, now, alert.MaxAttempts, nil); err != nil {
+			t.Fatal(err)
+		}
+		cutoff := now.Add(-alert.ReminderInterval)
+		// Same severity again: no early reminder.
+		if _, _, err := s.Fire(ctx, tenant, key, alert.SeverityWarning, "Cert", "20 days left", "", now.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if due, _ := s.DueForReminder(ctx, cutoff, 1000); containsAlert(due, a.ID) {
+			t.Fatal("a re-fire at the same severity made a reminder due")
+		}
+		// More severe: reminder due now, carrying the new severity.
+		if _, _, err := s.Fire(ctx, tenant, key, alert.SeverityCritical, "Cert", "6 days left", "", now.Add(2*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		due, err := s.DueForReminder(ctx, cutoff, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got *alert.Alert
+		for i := range due {
+			if due[i].ID == a.ID {
+				got = &due[i]
+			}
+		}
+		if got == nil || got.Severity != alert.SeverityCritical {
+			t.Fatalf("after escalating, reminder due = %+v", got)
+		}
+		// And the reminder claim works from that state.
+		if err := s.Notify(ctx, *got, alert.DeliveryReminder, []uuid.UUID{channel.ID}, nil, now.Add(3*time.Minute), alert.MaxAttempts, nil); err != nil {
+			t.Fatal(err)
+		}
+		if due, _ := s.DueForReminder(ctx, cutoff, 1000); containsAlert(due, a.ID) {
+			t.Fatal("still due for a reminder after one was sent")
+		}
+	})
+
 	t.Run("CleanupAlerts keeps 30 days", func(t *testing.T) {
 		channel := newChannel(t, true, nil)
 		now := time.Now()

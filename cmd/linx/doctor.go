@@ -34,8 +34,9 @@ func realDoctorEnv() doctorEnv {
 
 const doctorUsage = `Usage: sudo linx doctor
 
-Checks that Linx is working and says how to fix anything that isn't.
-Today it checks the certificates; more checks arrive with each release.
+Checks that Linx is working and says how to fix anything that isn't:
+its services, certificates, database, API access, alerts and secret files.
+It exits with 1 if it finds a problem (warnings alone exit with 0).
 `
 
 func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer, env doctorEnv) int {
@@ -62,19 +63,23 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer, env
 		return 1
 	}
 
-	fmt.Fprintln(stdout, "Certificates")
-	rs := doctor.Certificates(ctx, env.checks, cfg)
 	var problems, warnings int
-	for _, r := range rs {
-		fmt.Fprintf(stdout, "  %-8s %s\n", r.Level, r.Message)
-		if r.Fix != "" {
-			fmt.Fprintf(stdout, "  %-8s Fix: %s\n", "", r.Fix)
+	for i, sec := range doctor.Run(ctx, env.checks, cfg) {
+		if i > 0 {
+			fmt.Fprintln(stdout)
 		}
-		switch r.Level {
-		case installer.Fail:
-			problems++
-		case installer.Warn:
-			warnings++
+		fmt.Fprintln(stdout, sec.Name)
+		for _, r := range sec.Results {
+			fmt.Fprintf(stdout, "  %-8s %s\n", r.Level, r.Message)
+			if r.Fix != "" {
+				fmt.Fprintf(stdout, "  %-8s Fix: %s\n", "", r.Fix)
+			}
+			switch r.Level {
+			case installer.Fail:
+				problems++
+			case installer.Warn:
+				warnings++
+			}
 		}
 	}
 
