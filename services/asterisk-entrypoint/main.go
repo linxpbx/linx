@@ -30,8 +30,9 @@ func main() {
 	// location; it reads ODBCINI (the odbc.ini file) and ODBCSYSINI (the
 	// directory holding odbcinst.ini). Both must point at the rendered
 	// config: the container's real /etc has none, and the root filesystem
-	// is read-only.
-	env := append(os.Environ(), "ODBCINI="+cfg.ODBCIniPath(), "ODBCSYSINI="+cfg.ODBCSysIniDir())
+	// is read-only. OPENSSL_CONF likewise: it sets the TLS 1.2 floor.
+	env := append(os.Environ(), "ODBCINI="+cfg.ODBCIniPath(), "ODBCSYSINI="+cfg.ODBCSysIniDir(),
+		"OPENSSL_CONF="+cfg.OpenSSLConfPath())
 
 	argv := []string{asteriskBin, "-f"}
 	log.Info("exec asterisk", "argv", argv)

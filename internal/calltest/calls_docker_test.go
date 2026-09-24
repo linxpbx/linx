@@ -2,9 +2,13 @@ package calltest
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,7 +19,8 @@ import (
 
 // TestCallsDocker is docs/PBX.md §7's automated suite: sign in, wrong
 // password, a call, nobody answering, unknown number, a revoked device, a
-// network phones may not connect from — plus the echo test, calling yourself, and the call and device events the
+// network phones may not connect from, unencrypted audio, old TLS versions —
+// plus the echo test, calling yourself, and the call and device events the
 // control plane derives from Asterisk's ARI events.
 func TestCallsDocker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -143,6 +148,32 @@ func TestCallsDocker(t *testing.T) {
 
 	t.Run("outside the phone networks", func(t *testing.T) {
 		e.wait(e.sippOn(outsideNet, "outside", "register-forbidden.xml", alice))
+	})
+
+	t.Run("unencrypted audio refused", func(t *testing.T) {
+		e.run("plain-audio", "call-unencrypted.xml", alice, "-s", "*43")
+	})
+
+	t.Run("TLS 1.2 and 1.3 only", func(t *testing.T) {
+		roots := x509.NewCertPool()
+		root, err := os.ReadFile(filepath.Join(e.dir, "ca", "root_ca.crt"))
+		if err != nil || !roots.AppendCertsFromPEM(root) {
+			t.Fatalf("test CA root: %v", err)
+		}
+		addr := e.sipAddr()
+		for _, v := range []struct {
+			name    string
+			version uint16
+			want    bool
+		}{{"1.0", tls.VersionTLS10, false}, {"1.1", tls.VersionTLS11, false}, {"1.2", tls.VersionTLS12, true}, {"1.3", tls.VersionTLS13, true}} {
+			c, err := tls.Dial("tcp", addr, &tls.Config{ServerName: "asterisk", RootCAs: roots, MinVersion: v.version, MaxVersion: v.version})
+			if err == nil {
+				c.Close()
+			}
+			if got := err == nil; got != v.want {
+				t.Errorf("TLS %s: accepted = %v, want %v (%v)", v.name, got, v.want, err)
+			}
+		}
 	})
 
 	t.Run("revoked device", func(t *testing.T) {

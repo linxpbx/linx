@@ -109,11 +109,21 @@ func TestDeviceEndpoints(t *testing.T) {
 		r := e.do(http.MethodGet, path, admin, nil)
 		var out controlplaneapi.Device
 		r.json(t, &out)
-		if r.status != http.StatusOK || out.Enabled {
+		if r.status != http.StatusOK || out.Enabled || out.RevokedAt == nil {
 			t.Fatalf("after revoke: %d %+v", r.status, out)
 		}
 		if r := e.do(http.MethodDelete, path, admin, nil); r.status != http.StatusNoContent {
 			t.Fatalf("second revoke: %d %s", r.status, r.body)
+		}
+	})
+
+	t.Run("a revoked device stays revoked", func(t *testing.T) {
+		path := "/api/v1/devices/" + created.Device.Id.String()
+		if r := e.patch(path, admin, "", map[string]any{"enabled": true}); r.status != http.StatusConflict || r.problemCode(t) != "device_revoked" {
+			t.Fatalf("turning it back on: %d %s", r.status, r.body)
+		}
+		if r := e.do(http.MethodPost, path+"/reset-password", admin, nil); r.status != http.StatusConflict || r.problemCode(t) != "device_revoked" {
+			t.Fatalf("new password: %d %s", r.status, r.body)
 		}
 	})
 

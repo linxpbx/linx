@@ -153,6 +153,8 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		"--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--tmpfs", "/etc/asterisk", "--tmpfs", "/var/run/asterisk", "--tmpfs", "/tmp",
 		"--tmpfs", "/var/lib/asterisk:uid=100,gid=101,mode=0750",
+		// For this test process's own TLS checks (sipAddr).
+		"--publish", "127.0.0.1::5061",
 		"--volume", filepath.Join(d, "certs")+":/var/lib/linx/certs:ro",
 		"--volume", filepath.Join(d, "ca")+":/etc/linx/ca:ro",
 		"--volume", filepath.Join(d, "secrets", "linx_asterisk_db_password")+":/run/secrets/linx_asterisk_db_password:ro",
@@ -185,6 +187,12 @@ func (e *env) waitAsterisk() {
 // asteriskCLI runs an Asterisk console command.
 func (e *env) asteriskCLI(cmd string) string {
 	return docker(e.t, e.ctx, "exec", astName, "asterisk", "-rx", cmd)
+}
+
+// sipAddr is where this test process reaches Asterisk's SIP TLS port.
+func (e *env) sipAddr() string {
+	addr, _, _ := strings.Cut(docker(e.t, e.ctx, "port", astName, "5061/tcp"), "\n")
+	return addr
 }
 
 func (e *env) asteriskLogs() string {

@@ -122,12 +122,13 @@ func (s *Store) UpdateExtension(ctx context.Context, e pbx.Extension, audit auth
 	return out, err
 }
 
-// revokeDevicesOf disables every still-enabled device of extension (turning
-// the extension off, or deleting it, must stop them ringing at once) and
-// fires one device.revoked event per device it revoked.
+// revokeDevicesOf revokes every not-yet-revoked device of extension
+// (deleting it must stop them at once, and for good; a device that was only
+// turned off is revoked too) and fires one device.revoked event per device
+// it revoked.
 func revokeDevicesOf(ctx context.Context, tx pgx.Tx, extension uuid.UUID, at time.Time) error {
-	rows, err := tx.Query(ctx, `UPDATE device SET enabled = false, version = version + 1, updated_at = $2
-		WHERE extension_id = $1 AND enabled = true
+	rows, err := tx.Query(ctx, `UPDATE device SET enabled = false, revoked_at = $2, version = version + 1, updated_at = $2
+		WHERE extension_id = $1 AND revoked_at IS NULL
 		RETURNING `+deviceColumns, extension, at)
 	if err != nil {
 		return err
@@ -178,12 +179,12 @@ func (s *Store) DeleteExtension(ctx context.Context, tenant, id uuid.UUID, at ti
 	})
 }
 
-const deviceColumns = `id, tenant_id, extension_id, name, kind, sip_username, digest_hash, enabled,
+const deviceColumns = `id, tenant_id, extension_id, name, kind, sip_username, digest_hash, enabled, revoked_at,
 	online, last_registered_at, last_registered_from, version, created_at, updated_at`
 
 func scanDevice(row pgx.Row) (pbx.Device, error) {
 	var d pbx.Device
-	err := row.Scan(&d.ID, &d.TenantID, &d.ExtensionID, &d.Name, &d.Kind, &d.SIPUsername, &d.DigestHash, &d.Enabled,
+	err := row.Scan(&d.ID, &d.TenantID, &d.ExtensionID, &d.Name, &d.Kind, &d.SIPUsername, &d.DigestHash, &d.Enabled, &d.RevokedAt,
 		&d.Online, &d.LastRegisteredAt, &d.LastRegisteredFrom, &d.Version, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, pbx.ErrNotFound
@@ -249,19 +250,22 @@ func (s *Store) UpdateDevice(ctx context.Context, d pbx.Device, audit auth.Audit
 		var err error
 		out, err = scanDevice(tx.QueryRow(ctx, `UPDATE device SET
 				name = $4, digest_hash = $5, enabled = $6, version = version + 1, updated_at = $7
-			WHERE id = $1 AND tenant_id = $2 AND version = $3
+			WHERE id = $1 AND tenant_id = $2 AND version = $3 AND revoked_at IS NULL
 			RETURNING `+deviceColumns,
 			d.ID, d.TenantID, d.Version, d.Name, d.DigestHash, d.Enabled, d.UpdatedAt))
 		if errors.Is(err, pbx.ErrNotFound) {
-			var exists bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM device WHERE id = $1 AND tenant_id = $2)`,
-				d.ID, d.TenantID).Scan(&exists); err != nil {
+			var revoked *bool
+			if err := tx.QueryRow(ctx, `SELECT (SELECT revoked_at IS NOT NULL FROM device WHERE id = $1 AND tenant_id = $2)`,
+				d.ID, d.TenantID).Scan(&revoked); err != nil {
 				return err
 			}
-			if exists {
-				return pbx.ErrVersionChanged
+			switch {
+			case revoked == nil:
+				return pbx.ErrNotFound
+			case *revoked:
+				return pbx.ErrRevoked
 			}
-			return pbx.ErrNotFound
+			return pbx.ErrVersionChanged
 		}
 		if err != nil {
 			return err
@@ -279,7 +283,8 @@ func (s *Store) UpdateDevice(ctx context.Context, d pbx.Device, audit auth.Audit
 }
 
 // RevokeDevice locks the device row, so a concurrent revoke or extension
-// deletion can't race it, then disables it only if it wasn't already.
+// deletion can't race it, then revokes it only if it wasn't already. A
+// device that was only turned off is revoked too.
 func (s *Store) RevokeDevice(ctx context.Context, tenant, id uuid.UUID, at time.Time, audit auth.AuditEntry) (pbx.Device, error) {
 	var out pbx.Device
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
@@ -288,8 +293,8 @@ func (s *Store) RevokeDevice(ctx context.Context, tenant, id uuid.UUID, at time.
 			return err
 		}
 		out = cur
-		if cur.Enabled {
-			out, err = scanDevice(tx.QueryRow(ctx, `UPDATE device SET enabled = false, version = version + 1, updated_at = $3
+		if cur.RevokedAt == nil {
+			out, err = scanDevice(tx.QueryRow(ctx, `UPDATE device SET enabled = false, revoked_at = $3, version = version + 1, updated_at = $3
 				WHERE id = $1 AND tenant_id = $2 RETURNING `+deviceColumns, id, tenant, at))
 			if err != nil {
 				return err

@@ -15,7 +15,7 @@ import (
 )
 
 // newAPIHandler builds the /api/v1 handler (docs/API.md §2, §3). Outermost
-// first: body limit, authentication and rate limits, then validation
+// first: no-store, body limit, authentication and rate limits, then validation
 // against api/openapi.yaml (security requirements before anything else),
 // then the strict server. It fails if the embedded spec doesn't parse or
 // validate, since a broken spec means the whole API is broken.
@@ -42,5 +42,6 @@ func newAPIHandler(log *slog.Logger, store controlplaneapi.CredentialStore, auth
 	handler = apihttp.Validator(spec, authn.Authorize)(handler)
 	handler = authn.Middleware(handler)
 	handler = apihttp.LimitBody(handler)
+	handler = apihttp.NoStore(handler)
 	return handler, nil
 }

@@ -66,6 +66,9 @@ var errExtensionChanged = &apihttp.Error{Status: http.StatusPreconditionFailed, 
 var errDeviceChanged = &apihttp.Error{Status: http.StatusPreconditionFailed, Code: "etag_mismatch",
 	Detail: "This device was changed since you read it. Fetch it again and retry."}
 
+var errDeviceRevoked = &apihttp.Error{Status: http.StatusConflict, Code: "device_revoked",
+	Detail: "This device was revoked and can't be changed or turned back on. Add a new device instead."}
+
 // numberPattern matches migration 0005's CHECK on extension.number.
 var numberPattern = regexp.MustCompile(`^[0-9]{2,6}$`)
 
@@ -327,6 +330,9 @@ func (s *Service) UpdateDevice(ctx context.Context, id uuid.UUID, patch DevicePa
 	if err != nil {
 		return Device{}, err
 	}
+	if d.RevokedAt != nil {
+		return Device{}, errDeviceRevoked
+	}
 	if ifMatch != "" && !matchETag(ifMatch, d.Version) {
 		return Device{}, errDeviceChanged
 	}
@@ -351,6 +357,9 @@ func (s *Service) UpdateDevice(ctx context.Context, id uuid.UUID, patch DevicePa
 	updated, err := s.Store.UpdateDevice(ctx, d, a)
 	if errors.Is(err, ErrVersionChanged) {
 		return Device{}, errDeviceChanged
+	}
+	if errors.Is(err, ErrRevoked) {
+		return Device{}, errDeviceRevoked
 	}
 	if errors.Is(err, ErrNotFound) {
 		return Device{}, notFound("device")
@@ -379,6 +388,9 @@ func (s *Service) ResetDevicePassword(ctx context.Context, id uuid.UUID) (Creden
 	if err != nil {
 		return Credentials{}, err
 	}
+	if d.RevokedAt != nil {
+		return Credentials{}, errDeviceRevoked
+	}
 	_, a, err := audit(ctx, "device.reset_password", "device:"+id.String())
 	if err != nil {
 		return Credentials{}, err
@@ -389,6 +401,9 @@ func (s *Service) ResetDevicePassword(ctx context.Context, id uuid.UUID) (Creden
 	updated, err := s.Store.UpdateDevice(ctx, d, a)
 	if errors.Is(err, ErrVersionChanged) {
 		return Credentials{}, errDeviceChanged
+	}
+	if errors.Is(err, ErrRevoked) {
+		return Credentials{}, errDeviceRevoked
 	}
 	if errors.Is(err, ErrNotFound) {
 		return Credentials{}, notFound("device")

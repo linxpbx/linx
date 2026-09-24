@@ -19,9 +19,9 @@ func (s *Store) DeviceBySIPUsername(ctx context.Context, username string) (pbx.D
 	var number string
 	var d pbx.Device
 	err := s.pool.QueryRow(ctx, `SELECT d.id, d.tenant_id, d.extension_id, d.name, d.kind, d.sip_username, d.digest_hash,
-			d.enabled, d.online, d.last_registered_at, d.last_registered_from, d.version, d.created_at, d.updated_at, e.number
+			d.enabled, d.revoked_at, d.online, d.last_registered_at, d.last_registered_from, d.version, d.created_at, d.updated_at, e.number
 		FROM device d JOIN extension e ON e.id = d.extension_id WHERE d.sip_username = $1`, username).Scan(
-		&d.ID, &d.TenantID, &d.ExtensionID, &d.Name, &d.Kind, &d.SIPUsername, &d.DigestHash, &d.Enabled, &d.Online,
+		&d.ID, &d.TenantID, &d.ExtensionID, &d.Name, &d.Kind, &d.SIPUsername, &d.DigestHash, &d.Enabled, &d.RevokedAt, &d.Online,
 		&d.LastRegisteredAt, &d.LastRegisteredFrom, &d.Version, &d.CreatedAt, &d.UpdatedAt, &number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, "", pbx.ErrNotFound

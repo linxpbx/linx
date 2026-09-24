@@ -892,7 +892,9 @@ paths:
       description: >-
         JSON Merge Patch: only the fields sent change. Send `If-Match` with
         the device's `etag` to refuse the change (412) if someone else
-        changed it first. Turning a device off logs it out at once.
+        changed it first. Turning a device off logs it out at once; it can
+        be turned back on with the same login. A revoked device can't be
+        changed (409 `device_revoked`).
       tags: [devices]
       security:
         - bearer: [devices:write]
@@ -919,7 +921,10 @@ paths:
     delete:
       operationId: revokeDevice
       summary: Revoke a device
-      description: Takes effect immediately. Revoking a revoked device succeeds and changes nothing.
+      description: >-
+        Takes effect immediately and for good: a revoked device can never be
+        turned back on (add a new device instead). Revoking a revoked device
+        succeeds and changes nothing.
       tags: [devices]
       security:
         - bearer: [devices:write]
@@ -938,6 +943,7 @@ paths:
       description: >-
         The device's SIP username doesn't change; only its password, shown
         once in the response. The phone or app must be reconfigured with it.
+        Not for a revoked device (409 `device_revoked`).
       tags: [devices]
       security:
         - bearer: [devices:write]
@@ -1985,6 +1991,10 @@ components:
           description: The SIP login's public part (Asterisk's endpoint id); random, so it never reveals the extension.
         enabled:
           type: boolean
+        revoked_at:
+          type: string
+          format: date-time
+          description: When the device was revoked (it stays off for good). Absent if it wasn't.
         online:
           type: boolean
           description: Signed in right now (as the phone engine last reported; always false for a turned-off device).

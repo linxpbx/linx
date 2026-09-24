@@ -143,6 +143,9 @@ func (f *fakePbxStore) UpdateDevice(_ context.Context, d pbx.Device, a auth.Audi
 	if !ok || cur.TenantID != d.TenantID {
 		return pbx.Device{}, pbx.ErrNotFound
 	}
+	if cur.RevokedAt != nil {
+		return pbx.Device{}, pbx.ErrRevoked
+	}
 	if cur.Version != d.Version {
 		return pbx.Device{}, pbx.ErrVersionChanged
 	}
@@ -159,8 +162,8 @@ func (f *fakePbxStore) RevokeDevice(_ context.Context, tenant, id uuid.UUID, at 
 	if !ok || d.TenantID != tenant {
 		return pbx.Device{}, pbx.ErrNotFound
 	}
-	if d.Enabled {
-		d.Enabled, d.UpdatedAt = false, at
+	if d.RevokedAt == nil {
+		d.Enabled, d.RevokedAt, d.UpdatedAt = false, &at, at
 		d.Version++
 		f.devices[id] = d
 	}

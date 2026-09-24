@@ -20,7 +20,8 @@ New container `linx-asterisk`:
 | Runs as | User `asterisk` (non-root), read-only root filesystem, all capabilities dropped, `no-new-privileges`. Writable: a `asterisk-state` volume (its own small local database: registrations), `/tmp`, run dir. |
 | Config | `/etc/asterisk/*.conf` rendered at container start by a small Linx entrypoint (Go, same binary style as certd). Settings come from environment variables and Docker secrets, never edited by hand. |
 | Networks | `linx-private` (Postgres, control plane ↔ ARI) and `linx-public`. |
-| Ports (this slice) | `5061/tcp` SIP-TLS and `10000–10199/udp` encrypted audio, **reachable from your LAN only** (Asterisk ACL + nftables rule from `linx setup`). 100 calls at once. No 5060, ever. *As built (step 5):* see "Phone ports" below. |
+| Ports (this slice) | `5061/tcp` SIP-TLS and `10000–10199/udp` encrypted audio, **reachable from your LAN only** (Asterisk ACL + nftables rule from `linx setup`). About 50 calls between two phones at once (each phone's side of a call uses two audio ports; an echo test uses one side), corrected in the step 6 review. No 5060, ever. *As built (step 5):* see "Phone ports" below. |
+| TLS | 1.2 and 1.3 (`method=sslv23` with OpenSSL `MinProtocol = TLSv1.2` in a rendered `openssl.cnf`; PJSIP's `tlsv1_2` would refuse 1.3). Asterisk identifies itself as `Linx`, not its version. *(step 6)* |
 | Certificates | The public certificate from `linx-certd` (`certs` volume, read-only), so phones trust it without extra setup. Reload on renewal: `pjsip reload` of the TLS transport, filled into `docs/ops/CERT_RELOAD.md` once verified. |
 | Health | `asterisk -rx "core show uptime"` from the container's own console socket. |
 
@@ -62,7 +63,7 @@ The `asterisk` schema holds **views only**: `ps_endpoints`, `ps_aors`, `ps_auths
 ```
 GET/POST        /api/v1/extensions            GET/PATCH/DELETE /api/v1/extensions/{id}
 GET/POST        /api/v1/extensions/{id}/devices
-GET/PATCH/DELETE /api/v1/devices/{id}         (DELETE = revoke, login stops at once)
+GET/PATCH/DELETE /api/v1/devices/{id}         (DELETE = revoke: login stops at once, for good)
 POST            /api/v1/devices/{id}/reset-password   (new password, shown once)
 GET             /api/v1/calls/active                 (live calls, from ARI state)
 ```
@@ -70,6 +71,7 @@ GET             /api/v1/calls/active                 (live calls, from ARI state
 - Creating a device returns its SIP settings once: server `sip.<domain>`, port 5061, transport TLS, username, password, "encrypted audio: required (SRTP)". The response also carries a `sip:` settings text the owner can paste into a phone app.
 - Webhook events: `extension.created|updated|deleted`, `device.created|updated|revoked`, `device.registered|unregistered`, `call.started|answered|ended`.
 - Deleting an extension revokes its devices in the same transaction.
+- Revoking is permanent (`revoked_at`, migration 0008, step 6 review): a revoked device can't be re-enabled, changed or given a new password (409 `device_revoked`); add a new device instead. Turning a device off (`enabled: false`) is the reversible option.
 - `linx doctor`: Asterisk running and answering, realtime views readable by `linx_asterisk`, ARI connected, TLS certificate served on 5061 matches certd's, 5060 not listening, SIP/RTP ports reachable only from LAN.
 
 ## 6. Security in this slice
@@ -88,7 +90,7 @@ On a fresh Ubuntu 24.04 server: `linx doctor` all green; create extensions `101`
 3. **API:** `/extensions`, `/devices`, SIP credential generation (ADR-033), events, audit. *(Sonnet)*
 4. **Calls:** dialplan (ring-all, `*43`, not-available messages), ARI outbound websocket, ARI client, device online state, call events, `/calls/active`, SIPp suite in `make test-docker`. *(Opus: hardest integration)* — **done 2026-09-24** (`make test-calls`; CI runs it on the amd64 Asterisk image).
 5. **Setup and doctor:** `linx setup` renders LAN ACL + nftables + port publishing, installs the new secrets; `linx doctor` PBX checks. *(Sonnet)* — **done 2026-09-24** (see "Phone ports, as built" in §2; doctor's "Phone system" section).
-6. **Review + docs:** security review, threat model, `docs/DEMO_PHASE1B.md`. *(Opus)*
+6. **Review + docs:** security review, threat model, `docs/DEMO_PHASE1B.md`. *(Opus)* — **done 2026-09-24** (`docs/THREAT_MODEL.md` "Phase 1B review").
 
 ## 9. Next slices (not in this one)
 - **1C:** web client audio calls over WSS + coturn (TURN/TLS 443), DTLS-SRTP, registration lockout, public SIP-over-WSS through the edge. Phase 1 exit test "web-to-web with UDP blocked".

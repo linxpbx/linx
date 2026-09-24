@@ -28,6 +28,7 @@ var (
 	ErrNotFound       = errors.New("not found")
 	ErrVersionChanged = errors.New("changed since it was read")
 	ErrDuplicate      = errors.New("already exists")
+	ErrRevoked        = errors.New("revoked")
 )
 
 // Extension is a number people have, e.g. "101" (docs/PBX.md §1, §3).
@@ -51,6 +52,9 @@ type Device struct {
 	SIPUsername               string
 	DigestHash                string
 	Enabled                   bool
+	// RevokedAt is set for good when the device is revoked (DELETE, or its
+	// extension deleted): it can never be turned back on (migration 0008).
+	RevokedAt *time.Time
 	// Online is whether it's signed in right now, as Asterisk last reported
 	// (the call tracker keeps it current).
 	Online               bool

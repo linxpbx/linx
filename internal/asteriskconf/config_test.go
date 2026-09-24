@@ -83,7 +83,7 @@ func TestRender(t *testing.T) {
 
 	wantFiles := []string{"asterisk.conf", "logger.conf", "modules.conf", "manager.conf", "http.conf", "extensions.conf",
 		"pjsip.conf", "sorcery.conf", "extconfig.conf", "odbcinst.ini", "odbc.ini", "res_odbc.conf",
-		"ari.conf", "websocket_client.conf", "func_odbc.conf"}
+		"ari.conf", "websocket_client.conf", "func_odbc.conf", "openssl.cnf"}
 	for _, name := range wantFiles {
 		if _, err := os.Stat(filepath.Join(c.ConfDir, name)); err != nil {
 			t.Errorf("expected %s to be rendered: %v", name, err)
@@ -140,10 +140,20 @@ func TestRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"bind=0.0.0.0:5061", "cert_file=/var/lib/linx/certs/current/fullchain.pem", "priv_key_file=/var/lib/linx/certs/current/privkey.pem"} {
+	for _, want := range []string{"bind=0.0.0.0:5061", "cert_file=/var/lib/linx/certs/current/fullchain.pem", "priv_key_file=/var/lib/linx/certs/current/privkey.pem",
+		"method=sslv23\n", "user_agent=Linx\n"} {
 		if !strings.Contains(string(pjsip), want) {
 			t.Errorf("pjsip.conf missing %q:\n%s", want, pjsip)
 		}
+	}
+
+	// method=sslv23 is only safe with OpenSSL's floor at TLS 1.2.
+	openssl, err := os.ReadFile(c.OpenSSLConfPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(openssl), "MinProtocol = TLSv1.2\n") {
+		t.Errorf("openssl.cnf must set MinProtocol = TLSv1.2:\n%s", openssl)
 	}
 
 	asteriskConf, err := os.ReadFile(filepath.Join(c.ConfDir, "asterisk.conf"))

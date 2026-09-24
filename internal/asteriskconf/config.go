@@ -115,6 +115,10 @@ const ARIUser = "asterisk"
 func (c Config) ODBCIniPath() string   { return filepath.Join(c.ConfDir, "odbc.ini") }
 func (c Config) ODBCSysIniDir() string { return c.ConfDir }
 
+// OpenSSLConfPath is the OpenSSL configuration Render writes (openssl.cnf);
+// the entrypoint points OPENSSL_CONF at it.
+func (c Config) OpenSSLConfPath() string { return filepath.Join(c.ConfDir, "openssl.cnf") }
+
 // odbcDriverPath is where the runtime image's psqlODBC package installs its
 // driver, symlinked to this fixed, architecture-independent path by
 // deploy/docker/asterisk.Dockerfile.
@@ -173,6 +177,7 @@ func (c Config) Render() error {
 		"odbcinst.ini":          odbcinstIni,
 		"odbc.ini":              c.odbcIni(),
 		"res_odbc.conf":         c.resOdbcConf(dbPassword),
+		"openssl.cnf":           opensslConf,
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(c.ConfDir, name), []byte(content), 0o640); err != nil {
@@ -300,9 +305,31 @@ func (c Config) natSettings() (string, error) {
 	return s, nil
 }
 
+// opensslConf is OpenSSL's configuration for every TLS connection Asterisk
+// makes or accepts (phones on 5061, the ARI websocket to the control plane):
+// TLS 1.2 at least. The transport's method=sslv23 means "whatever OpenSSL
+// allows", so this file is what sets the floor. PJSIP's own tlsv1_2 method
+// would allow exactly TLS 1.2 and refuse 1.3 (checked against the image),
+// and PJSIP has no minimum-version setting.
+const opensslConf = `# Rendered by linx-asterisk-entrypoint.
+openssl_conf = openssl_init
+
+[openssl_init]
+ssl_conf = ssl_sect
+
+[ssl_sect]
+system_default = system_default_sect
+
+[system_default_sect]
+MinProtocol = TLSv1.2
+CipherString = DEFAULT:@SECLEVEL=2
+`
+
 // pjsipConf is the TLS transport and the ACL every incoming SIP request
 // passes (res_pjsip_acl, before authentication): the allowed networks, and
-// nothing else. No networks means every request is refused.
+// nothing else. No networks means every request is refused. user_agent
+// replaces Asterisk's default, which names its exact version in every
+// response.
 func (c Config) pjsipConf(nets []netip.Prefix, nat string) string {
 	acl := "deny=0.0.0.0/0.0.0.0\ndeny=::/0\n"
 	for _, p := range nets {
@@ -312,13 +339,18 @@ func (c Config) pjsipConf(nets []netip.Prefix, nat string) string {
 ; the asterisk schema's realtime views over ODBC (docs/PBX.md §3;
 ; sorcery.conf, extconfig.conf, res_odbc.conf) — nothing else belongs here.
 
+[global]
+type=global
+user_agent=Linx
+
 [transport-tls]
 type=transport
 protocol=tls
 bind=0.0.0.0:%d
 cert_file=%s
 priv_key_file=%s
-method=tlsv1_2
+; TLS 1.2 and 1.3; the floor is openssl.cnf's MinProtocol.
+method=sslv23
 %s
 [phone-networks]
 type=acl

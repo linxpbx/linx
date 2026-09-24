@@ -154,6 +154,29 @@ func TestPbxDocker(t *testing.T) {
 		if eventCount(t, "device.revoked") != 1 {
 			t.Error("revoking an already-revoked device fired a second event")
 		}
+
+		// Revoked is for good: no update (turning it back on, a new
+		// password) goes through, and the database itself refuses one.
+		revokedAgain.Enabled = true
+		if _, err := s.UpdateDevice(ctx, revokedAgain, audit("device.update")); err != pbx.ErrRevoked {
+			t.Fatalf("UpdateDevice on a revoked device = %v, want ErrRevoked", err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE device SET enabled = true WHERE id = $1`, d.ID); err == nil {
+			t.Fatal("the database let a revoked device be turned back on")
+		}
+	})
+
+	t.Run("revoking a turned-off device", func(t *testing.T) {
+		d := newDevice(newExtension("311").ID)
+		d.Enabled = false
+		off, err := s.UpdateDevice(ctx, d, audit("device.update"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		revoked, err := s.RevokeDevice(ctx, tenant, off.ID, time.Now(), audit("device.revoke"))
+		if err != nil || revoked.RevokedAt == nil {
+			t.Fatalf("RevokeDevice() = %+v, %v", revoked, err)
+		}
 	})
 
 	t.Run("deleting an extension revokes its devices and frees the number", func(t *testing.T) {
@@ -172,7 +195,7 @@ func TestPbxDocker(t *testing.T) {
 		}
 		for _, id := range []uuid.UUID{d1.ID, d2.ID} {
 			got, err := s.Device(ctx, tenant, id)
-			if err != nil || got.Enabled {
+			if err != nil || got.Enabled || got.RevokedAt == nil {
 				t.Fatalf("device %s after extension delete: %+v, %v", id, got, err)
 			}
 		}

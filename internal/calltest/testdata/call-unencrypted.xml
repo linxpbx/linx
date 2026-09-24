@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!-- Calls -s offering only unencrypted audio (RTP/AVP, no crypto line), which must be refused with 488. Variables: -s <number>; -set user <sip username>; -au/-ap for the login. -->
+<scenario name="call unencrypted">
+  <Global variables="user"/>
+  <send>
+    <![CDATA[
+      INVITE sip:[service]@linx SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: <sip:[$user]@linx>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@linx>
+      Call-ID: [call_id]
+      CSeq: 1 INVITE
+      Contact: <sip:[$user]@[local_ip]:[local_port];transport=tls>
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=- 1 1 IN IP[local_ip_type] [local_ip]
+      s=-
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/AVP 0
+      a=rtpmap:0 PCMU/8000
+      a=sendrecv
+    ]]>
+  </send>
+  <recv response="100" optional="true"/>
+  <recv response="401" auth="true"/>
+  <send>
+    <![CDATA[
+      ACK sip:[service]@linx SIP/2.0
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      Call-ID: [call_id]
+      CSeq: 1 ACK
+      Max-Forwards: 70
+      Content-Length: 0
+    ]]>
+  </send>
+  <send>
+    <![CDATA[
+      INVITE sip:[service]@linx SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: <sip:[$user]@linx>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@linx>
+      Call-ID: [call_id]
+      CSeq: 2 INVITE
+      Contact: <sip:[$user]@[local_ip]:[local_port];transport=tls>
+      [authentication]
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=- 1 1 IN IP[local_ip_type] [local_ip]
+      s=-
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/AVP 0
+      a=rtpmap:0 PCMU/8000
+      a=sendrecv
+    ]]>
+  </send>
+  <recv response="100" optional="true"/>
+  <recv response="488"/>
+  <send>
+    <![CDATA[
+      ACK sip:[service]@linx SIP/2.0
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      Call-ID: [call_id]
+      CSeq: 2 ACK
+      Max-Forwards: 70
+      Content-Length: 0
+    ]]>
+  </send>
+</scenario>
