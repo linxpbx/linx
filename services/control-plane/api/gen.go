@@ -135,6 +135,45 @@ func (e DeliveryStatus) Valid() bool {
 	}
 }
 
+// Defines values for DeviceCredentialsTransport.
+const (
+	Tls DeviceCredentialsTransport = "tls"
+)
+
+// Valid indicates whether the value is a known member of the DeviceCredentialsTransport enum.
+func (e DeviceCredentialsTransport) Valid() bool {
+	switch e {
+	case Tls:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeviceKind.
+const (
+	Desk      DeviceKind = "desk"
+	Ios       DeviceKind = "ios"
+	Softphone DeviceKind = "softphone"
+	Web       DeviceKind = "web"
+)
+
+// Valid indicates whether the value is a known member of the DeviceKind enum.
+func (e DeviceKind) Valid() bool {
+	switch e {
+	case Desk:
+		return true
+	case Ios:
+		return true
+	case Softphone:
+		return true
+	case Web:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OAuthErrorError.
 const (
 	InvalidClient          OAuthErrorError = "invalid_client"
@@ -467,7 +506,7 @@ type CredentialCreate struct {
 	// Role Defaults to the caller's role; can't be above it.
 	Role *Role `json:"role,omitempty"`
 
-	// Scopes Scopes to grant, each held by the caller. `all` means every non-sensitive scope the role and caller have; sensitive scopes (api_keys:write, oauth_clients:write, recordings:read, transcripts:read, calls:control) must be named.
+	// Scopes Scopes to grant, each held by the caller. `all` means every non-sensitive scope the role and caller have; sensitive scopes (api_keys:write, oauth_clients:write, recordings:read, transcripts:read, calls:control, devices:write) must be named.
 	Scopes []string `json:"scopes"`
 }
 
@@ -489,6 +528,78 @@ type DeliveryAttempt struct {
 // DeliveryStatus defines model for DeliveryStatus.
 type DeliveryStatus string
 
+// Device A phone or app that rings for an extension (docs/PBX.md §3).
+type Device struct {
+	CreatedAt time.Time `json:"created_at"`
+	Enabled   bool      `json:"enabled"`
+
+	// Etag Send as If-Match when changing it.
+	Etag        string             `json:"etag"`
+	ExtensionId openapi_types.UUID `json:"extension_id"`
+	Id          openapi_types.UUID `json:"id"`
+
+	// Kind Only `softphone` works in this slice (ADR-035); the others arrive with the web client and the iOS app.
+	Kind             DeviceKind `json:"kind"`
+	LastRegisteredAt *time.Time `json:"last_registered_at,omitempty"`
+
+	// LastRegisteredFrom The address it last registered from.
+	LastRegisteredFrom *string `json:"last_registered_from,omitempty"`
+	Name               string  `json:"name"`
+
+	// SipUsername The SIP login's public part (Asterisk's endpoint id); random, so it never reveals the extension.
+	SipUsername string    `json:"sip_username"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// DeviceCreate defines model for DeviceCreate.
+type DeviceCreate struct {
+	// Enabled Defaults to true.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Kind Defaults to `softphone`.
+	Kind *DeviceKind `json:"kind,omitempty"`
+
+	// Name e.g. "Mohammed's iPhone".
+	Name string `json:"name"`
+}
+
+// DeviceCredentials A device with its SIP login, shown once (ADR-033).
+type DeviceCredentials struct {
+	// Device A phone or app that rings for an extension (docs/PBX.md §3).
+	Device Device `json:"device"`
+
+	// Password Shown once; Linx stores only its digest hash. Store it somewhere safe.
+	Password string `json:"password"`
+
+	// Port 5061.
+	Port int `json:"port"`
+
+	// Server e.g. "sip.example.com".
+	Server string `json:"server"`
+
+	// SettingsText A plain-language summary of the above, ready to paste into a phone app.
+	SettingsText string                     `json:"settings_text"`
+	Transport    DeviceCredentialsTransport `json:"transport"`
+}
+
+// DeviceCredentialsTransport defines model for DeviceCredentials.Transport.
+type DeviceCredentialsTransport string
+
+// DeviceKind Only `softphone` works in this slice (ADR-035); the others arrive with the web client and the iOS app.
+type DeviceKind string
+
+// DeviceList defines model for DeviceList.
+type DeviceList struct {
+	Items      []Device `json:"items"`
+	NextCursor *string  `json:"next_cursor,omitempty"`
+}
+
+// DevicePatch JSON Merge Patch; fields not sent stay as they are.
+type DevicePatch struct {
+	Enabled *bool   `json:"enabled,omitempty"`
+	Name    *string `json:"name,omitempty"`
+}
+
 // EventType defines model for EventType.
 type EventType struct {
 	Description string `json:"description"`
@@ -503,6 +614,48 @@ type EventTypeList struct {
 
 	// NextCursor Pass as `?cursor=` to fetch the next page; absent on the last page.
 	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// Extension An extension (docs/PBX.md §3), e.g. "101".
+type Extension struct {
+	CreatedAt   time.Time `json:"created_at"`
+	DisplayName string    `json:"display_name"`
+	Email       *string   `json:"email,omitempty"`
+	Enabled     bool      `json:"enabled"`
+
+	// Etag Send as If-Match when changing it.
+	Etag string             `json:"etag"`
+	Id   openapi_types.UUID `json:"id"`
+
+	// Number 2 to 6 digits, unique.
+	Number    string    `json:"number"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ExtensionCreate defines model for ExtensionCreate.
+type ExtensionCreate struct {
+	DisplayName string  `json:"display_name"`
+	Email       *string `json:"email,omitempty"`
+
+	// Enabled Defaults to true.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Number 2 to 6 digits.
+	Number string `json:"number"`
+}
+
+// ExtensionList defines model for ExtensionList.
+type ExtensionList struct {
+	Items      []Extension `json:"items"`
+	NextCursor *string     `json:"next_cursor,omitempty"`
+}
+
+// ExtensionPatch JSON Merge Patch; fields not sent stay as they are.
+type ExtensionPatch struct {
+	DisplayName *string `json:"display_name,omitempty"`
+	Email       *string `json:"email,omitempty"`
+	Enabled     *bool   `json:"enabled,omitempty"`
+	Number      *string `json:"number,omitempty"`
 }
 
 // OAuthClient defines model for OAuthClient.
@@ -792,8 +945,38 @@ type ListApiKeysParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// UpdateDeviceParams defines parameters for UpdateDevice.
+type UpdateDeviceParams struct {
+	// IfMatch The resource's `etag`; the change is refused with 412 if it no longer matches.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // ListEventTypesParams defines parameters for ListEventTypes.
 type ListEventTypesParams struct {
+	// Limit Maximum items per page (docs/API.md §2).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous page's `next_cursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListExtensionsParams defines parameters for ListExtensions.
+type ListExtensionsParams struct {
+	// Limit Maximum items per page (docs/API.md §2).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous page's `next_cursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// UpdateExtensionParams defines parameters for UpdateExtension.
+type UpdateExtensionParams struct {
+	// IfMatch The resource's `etag`; the change is refused with 412 if it no longer matches.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ListExtensionDevicesParams defines parameters for ListExtensionDevices.
+type ListExtensionDevicesParams struct {
 	// Limit Maximum items per page (docs/API.md §2).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
@@ -844,6 +1027,18 @@ type UpdateAlertChannelApplicationMergePatchPlusJSONRequestBody = AlertChannelPa
 
 // CreateApiKeyJSONRequestBody defines body for CreateApiKey for application/json ContentType.
 type CreateApiKeyJSONRequestBody = CredentialCreate
+
+// UpdateDeviceApplicationMergePatchPlusJSONRequestBody defines body for UpdateDevice for application/merge-patch+json ContentType.
+type UpdateDeviceApplicationMergePatchPlusJSONRequestBody = DevicePatch
+
+// CreateExtensionJSONRequestBody defines body for CreateExtension for application/json ContentType.
+type CreateExtensionJSONRequestBody = ExtensionCreate
+
+// UpdateExtensionApplicationMergePatchPlusJSONRequestBody defines body for UpdateExtension for application/merge-patch+json ContentType.
+type UpdateExtensionApplicationMergePatchPlusJSONRequestBody = ExtensionPatch
+
+// CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
+type CreateDeviceJSONRequestBody = DeviceCreate
 
 // CreateOauthClientJSONRequestBody defines body for CreateOauthClient for application/json ContentType.
 type CreateOauthClientJSONRequestBody = CredentialCreate
@@ -904,9 +1099,42 @@ type ServerInterface interface {
 	// GetApiKey Get an API key
 	// (GET /api/v1/api-keys/{id})
 	GetApiKey(w http.ResponseWriter, r *http.Request, id Id)
+	// RevokeDevice Revoke a device
+	// (DELETE /api/v1/devices/{id})
+	RevokeDevice(w http.ResponseWriter, r *http.Request, id Id)
+	// GetDevice Get a device
+	// (GET /api/v1/devices/{id})
+	GetDevice(w http.ResponseWriter, r *http.Request, id Id)
+	// UpdateDevice Change a device
+	// (PATCH /api/v1/devices/{id})
+	UpdateDevice(w http.ResponseWriter, r *http.Request, id Id, params UpdateDeviceParams)
+	// ResetDevicePassword Issue a new SIP password
+	// (POST /api/v1/devices/{id}/reset-password)
+	ResetDevicePassword(w http.ResponseWriter, r *http.Request, id Id)
 	// ListEventTypes Webhook and admin-alert event types this server can emit
 	// (GET /api/v1/event-types)
 	ListEventTypes(w http.ResponseWriter, r *http.Request, params ListEventTypesParams)
+	// ListExtensions List extensions
+	// (GET /api/v1/extensions)
+	ListExtensions(w http.ResponseWriter, r *http.Request, params ListExtensionsParams)
+	// CreateExtension Add an extension
+	// (POST /api/v1/extensions)
+	CreateExtension(w http.ResponseWriter, r *http.Request)
+	// DeleteExtension Delete an extension
+	// (DELETE /api/v1/extensions/{id})
+	DeleteExtension(w http.ResponseWriter, r *http.Request, id Id)
+	// GetExtension Get an extension
+	// (GET /api/v1/extensions/{id})
+	GetExtension(w http.ResponseWriter, r *http.Request, id Id)
+	// UpdateExtension Change an extension
+	// (PATCH /api/v1/extensions/{id})
+	UpdateExtension(w http.ResponseWriter, r *http.Request, id Id, params UpdateExtensionParams)
+	// ListExtensionDevices List an extension's devices
+	// (GET /api/v1/extensions/{id}/devices)
+	ListExtensionDevices(w http.ResponseWriter, r *http.Request, id Id, params ListExtensionDevicesParams)
+	// CreateDevice Add a device
+	// (POST /api/v1/extensions/{id}/devices)
+	CreateDevice(w http.ResponseWriter, r *http.Request, id Id)
 	// GetMe Who am I, which scopes
 	// (GET /api/v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -1337,6 +1565,134 @@ func (siw *ServerInterfaceWrapper) GetApiKey(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// RevokeDevice operation middleware
+func (siw *ServerInterfaceWrapper) RevokeDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeDevice(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDevice operation middleware
+func (siw *ServerInterfaceWrapper) GetDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDevice(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateDevice operation middleware
+func (siw *ServerInterfaceWrapper) UpdateDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateDeviceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateDevice(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResetDevicePassword operation middleware
+func (siw *ServerInterfaceWrapper) ResetDevicePassword(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResetDevicePassword(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListEventTypes operation middleware
 func (siw *ServerInterfaceWrapper) ListEventTypes(w http.ResponseWriter, r *http.Request) {
 
@@ -1374,6 +1730,249 @@ func (siw *ServerInterfaceWrapper) ListEventTypes(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListEventTypes(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListExtensions operation middleware
+func (siw *ServerInterfaceWrapper) ListExtensions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListExtensionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListExtensions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateExtension operation middleware
+func (siw *ServerInterfaceWrapper) CreateExtension(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateExtension(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteExtension operation middleware
+func (siw *ServerInterfaceWrapper) DeleteExtension(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteExtension(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetExtension operation middleware
+func (siw *ServerInterfaceWrapper) GetExtension(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetExtension(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateExtension operation middleware
+func (siw *ServerInterfaceWrapper) UpdateExtension(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateExtensionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateExtension(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListExtensionDevices operation middleware
+func (siw *ServerInterfaceWrapper) ListExtensionDevices(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListExtensionDevicesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListExtensionDevices(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDevice operation middleware
+func (siw *ServerInterfaceWrapper) CreateDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDevice(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2089,6 +2688,17 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/alert-channels/{id}", wrapper.UpdateAlertChannel)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/alert-channels/{id}/test", wrapper.TestAlertChannel)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/alerts", wrapper.ListAlerts)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/extensions", wrapper.ListExtensions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/extensions", wrapper.CreateExtension)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/extensions/{id}", wrapper.DeleteExtension)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/extensions/{id}", wrapper.GetExtension)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/extensions/{id}", wrapper.UpdateExtension)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/extensions/{id}/devices", wrapper.ListExtensionDevices)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/extensions/{id}/devices", wrapper.CreateDevice)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/devices/{id}", wrapper.RevokeDevice)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/devices/{id}", wrapper.GetDevice)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/devices/{id}", wrapper.UpdateDevice)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/devices/{id}/reset-password", wrapper.ResetDevicePassword)
 
 	return m
 }
@@ -2615,6 +3225,178 @@ func (response GetApiKeydefaultApplicationProblemPlusJSONResponse) VisitGetApiKe
 	return err
 }
 
+type RevokeDeviceRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type RevokeDeviceResponseObject interface {
+	VisitRevokeDeviceResponse(w http.ResponseWriter) error
+}
+
+type RevokeDevice204Response struct {
+}
+
+func (response RevokeDevice204Response) VisitRevokeDeviceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeDevicedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response RevokeDevicedefaultApplicationProblemPlusJSONResponse) VisitRevokeDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDeviceRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type GetDeviceResponseObject interface {
+	VisitGetDeviceResponse(w http.ResponseWriter) error
+}
+
+type GetDevice200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetDevice200JSONResponse struct {
+	Body    Device
+	Headers GetDevice200ResponseHeaders
+}
+
+func (response GetDevice200JSONResponse) VisitGetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDevicedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetDevicedefaultApplicationProblemPlusJSONResponse) VisitGetDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateDeviceRequestObject struct {
+	Id     Id `json:"id"`
+	Params UpdateDeviceParams
+	Body   *UpdateDeviceApplicationMergePatchPlusJSONRequestBody
+}
+
+type UpdateDeviceResponseObject interface {
+	VisitUpdateDeviceResponse(w http.ResponseWriter) error
+}
+
+type UpdateDevice200ResponseHeaders struct {
+	ETag *string
+}
+
+type UpdateDevice200JSONResponse struct {
+	Body    Device
+	Headers UpdateDevice200ResponseHeaders
+}
+
+func (response UpdateDevice200JSONResponse) VisitUpdateDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateDevicedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdateDevicedefaultApplicationProblemPlusJSONResponse) VisitUpdateDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResetDevicePasswordRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type ResetDevicePasswordResponseObject interface {
+	VisitResetDevicePasswordResponse(w http.ResponseWriter) error
+}
+
+type ResetDevicePassword200JSONResponse DeviceCredentials
+
+func (response ResetDevicePassword200JSONResponse) VisitResetDevicePasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResetDevicePassworddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ResetDevicePassworddefaultApplicationProblemPlusJSONResponse) VisitResetDevicePasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListEventTypesRequestObject struct {
 	Params ListEventTypesParams
 }
@@ -2643,6 +3425,297 @@ type ListEventTypesdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ListEventTypesdefaultApplicationProblemPlusJSONResponse) VisitListEventTypesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExtensionsRequestObject struct {
+	Params ListExtensionsParams
+}
+
+type ListExtensionsResponseObject interface {
+	VisitListExtensionsResponse(w http.ResponseWriter) error
+}
+
+type ListExtensions200JSONResponse ExtensionList
+
+func (response ListExtensions200JSONResponse) VisitListExtensionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExtensionsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListExtensionsdefaultApplicationProblemPlusJSONResponse) VisitListExtensionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExtensionRequestObject struct {
+	Body *CreateExtensionJSONRequestBody
+}
+
+type CreateExtensionResponseObject interface {
+	VisitCreateExtensionResponse(w http.ResponseWriter) error
+}
+
+type CreateExtension201JSONResponse Extension
+
+func (response CreateExtension201JSONResponse) VisitCreateExtensionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExtensiondefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateExtensiondefaultApplicationProblemPlusJSONResponse) VisitCreateExtensionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteExtensionRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type DeleteExtensionResponseObject interface {
+	VisitDeleteExtensionResponse(w http.ResponseWriter) error
+}
+
+type DeleteExtension204Response struct {
+}
+
+func (response DeleteExtension204Response) VisitDeleteExtensionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteExtensiondefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteExtensiondefaultApplicationProblemPlusJSONResponse) VisitDeleteExtensionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetExtensionRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type GetExtensionResponseObject interface {
+	VisitGetExtensionResponse(w http.ResponseWriter) error
+}
+
+type GetExtension200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetExtension200JSONResponse struct {
+	Body    Extension
+	Headers GetExtension200ResponseHeaders
+}
+
+func (response GetExtension200JSONResponse) VisitGetExtensionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetExtensiondefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetExtensiondefaultApplicationProblemPlusJSONResponse) VisitGetExtensionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateExtensionRequestObject struct {
+	Id     Id `json:"id"`
+	Params UpdateExtensionParams
+	Body   *UpdateExtensionApplicationMergePatchPlusJSONRequestBody
+}
+
+type UpdateExtensionResponseObject interface {
+	VisitUpdateExtensionResponse(w http.ResponseWriter) error
+}
+
+type UpdateExtension200ResponseHeaders struct {
+	ETag *string
+}
+
+type UpdateExtension200JSONResponse struct {
+	Body    Extension
+	Headers UpdateExtension200ResponseHeaders
+}
+
+func (response UpdateExtension200JSONResponse) VisitUpdateExtensionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateExtensiondefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdateExtensiondefaultApplicationProblemPlusJSONResponse) VisitUpdateExtensionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExtensionDevicesRequestObject struct {
+	Id     Id `json:"id"`
+	Params ListExtensionDevicesParams
+}
+
+type ListExtensionDevicesResponseObject interface {
+	VisitListExtensionDevicesResponse(w http.ResponseWriter) error
+}
+
+type ListExtensionDevices200JSONResponse DeviceList
+
+func (response ListExtensionDevices200JSONResponse) VisitListExtensionDevicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExtensionDevicesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListExtensionDevicesdefaultApplicationProblemPlusJSONResponse) VisitListExtensionDevicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDeviceRequestObject struct {
+	Id   Id `json:"id"`
+	Body *CreateDeviceJSONRequestBody
+}
+
+type CreateDeviceResponseObject interface {
+	VisitCreateDeviceResponse(w http.ResponseWriter) error
+}
+
+type CreateDevice201JSONResponse DeviceCredentials
+
+func (response CreateDevice201JSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDevicedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateDevicedefaultApplicationProblemPlusJSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -3455,9 +4528,42 @@ type StrictServerInterface interface {
 	// GetApiKey Get an API key
 	// (GET /api/v1/api-keys/{id})
 	GetApiKey(ctx context.Context, request GetApiKeyRequestObject) (GetApiKeyResponseObject, error)
+	// RevokeDevice Revoke a device
+	// (DELETE /api/v1/devices/{id})
+	RevokeDevice(ctx context.Context, request RevokeDeviceRequestObject) (RevokeDeviceResponseObject, error)
+	// GetDevice Get a device
+	// (GET /api/v1/devices/{id})
+	GetDevice(ctx context.Context, request GetDeviceRequestObject) (GetDeviceResponseObject, error)
+	// UpdateDevice Change a device
+	// (PATCH /api/v1/devices/{id})
+	UpdateDevice(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error)
+	// ResetDevicePassword Issue a new SIP password
+	// (POST /api/v1/devices/{id}/reset-password)
+	ResetDevicePassword(ctx context.Context, request ResetDevicePasswordRequestObject) (ResetDevicePasswordResponseObject, error)
 	// ListEventTypes Webhook and admin-alert event types this server can emit
 	// (GET /api/v1/event-types)
 	ListEventTypes(ctx context.Context, request ListEventTypesRequestObject) (ListEventTypesResponseObject, error)
+	// ListExtensions List extensions
+	// (GET /api/v1/extensions)
+	ListExtensions(ctx context.Context, request ListExtensionsRequestObject) (ListExtensionsResponseObject, error)
+	// CreateExtension Add an extension
+	// (POST /api/v1/extensions)
+	CreateExtension(ctx context.Context, request CreateExtensionRequestObject) (CreateExtensionResponseObject, error)
+	// DeleteExtension Delete an extension
+	// (DELETE /api/v1/extensions/{id})
+	DeleteExtension(ctx context.Context, request DeleteExtensionRequestObject) (DeleteExtensionResponseObject, error)
+	// GetExtension Get an extension
+	// (GET /api/v1/extensions/{id})
+	GetExtension(ctx context.Context, request GetExtensionRequestObject) (GetExtensionResponseObject, error)
+	// UpdateExtension Change an extension
+	// (PATCH /api/v1/extensions/{id})
+	UpdateExtension(ctx context.Context, request UpdateExtensionRequestObject) (UpdateExtensionResponseObject, error)
+	// ListExtensionDevices List an extension's devices
+	// (GET /api/v1/extensions/{id}/devices)
+	ListExtensionDevices(ctx context.Context, request ListExtensionDevicesRequestObject) (ListExtensionDevicesResponseObject, error)
+	// CreateDevice Add a device
+	// (POST /api/v1/extensions/{id}/devices)
+	CreateDevice(ctx context.Context, request CreateDeviceRequestObject) (CreateDeviceResponseObject, error)
 	// GetMe Who am I, which scopes
 	// (GET /api/v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
@@ -3863,6 +4969,118 @@ func (sh *strictHandler) GetApiKey(w http.ResponseWriter, r *http.Request, id Id
 	}
 }
 
+// RevokeDevice operation middleware
+func (sh *strictHandler) RevokeDevice(w http.ResponseWriter, r *http.Request, id Id) {
+	var request RevokeDeviceRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeDevice(ctx, request.(RevokeDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeDeviceResponseObject); ok {
+		if err := validResponse.VisitRevokeDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDevice operation middleware
+func (sh *strictHandler) GetDevice(w http.ResponseWriter, r *http.Request, id Id) {
+	var request GetDeviceRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDevice(ctx, request.(GetDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDeviceResponseObject); ok {
+		if err := validResponse.VisitGetDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateDevice operation middleware
+func (sh *strictHandler) UpdateDevice(w http.ResponseWriter, r *http.Request, id Id, params UpdateDeviceParams) {
+	var request UpdateDeviceRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body UpdateDeviceApplicationMergePatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateDevice(ctx, request.(UpdateDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateDeviceResponseObject); ok {
+		if err := validResponse.VisitUpdateDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResetDevicePassword operation middleware
+func (sh *strictHandler) ResetDevicePassword(w http.ResponseWriter, r *http.Request, id Id) {
+	var request ResetDevicePasswordRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResetDevicePassword(ctx, request.(ResetDevicePasswordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResetDevicePassword")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResetDevicePasswordResponseObject); ok {
+		if err := validResponse.VisitResetDevicePasswordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListEventTypes operation middleware
 func (sh *strictHandler) ListEventTypes(w http.ResponseWriter, r *http.Request, params ListEventTypesParams) {
 	var request ListEventTypesRequestObject
@@ -3882,6 +5100,209 @@ func (sh *strictHandler) ListEventTypes(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListEventTypesResponseObject); ok {
 		if err := validResponse.VisitListEventTypesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListExtensions operation middleware
+func (sh *strictHandler) ListExtensions(w http.ResponseWriter, r *http.Request, params ListExtensionsParams) {
+	var request ListExtensionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListExtensions(ctx, request.(ListExtensionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListExtensions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListExtensionsResponseObject); ok {
+		if err := validResponse.VisitListExtensionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateExtension operation middleware
+func (sh *strictHandler) CreateExtension(w http.ResponseWriter, r *http.Request) {
+	var request CreateExtensionRequestObject
+
+	var body CreateExtensionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateExtension(ctx, request.(CreateExtensionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateExtension")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateExtensionResponseObject); ok {
+		if err := validResponse.VisitCreateExtensionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteExtension operation middleware
+func (sh *strictHandler) DeleteExtension(w http.ResponseWriter, r *http.Request, id Id) {
+	var request DeleteExtensionRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteExtension(ctx, request.(DeleteExtensionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteExtension")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteExtensionResponseObject); ok {
+		if err := validResponse.VisitDeleteExtensionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetExtension operation middleware
+func (sh *strictHandler) GetExtension(w http.ResponseWriter, r *http.Request, id Id) {
+	var request GetExtensionRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExtension(ctx, request.(GetExtensionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExtension")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetExtensionResponseObject); ok {
+		if err := validResponse.VisitGetExtensionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateExtension operation middleware
+func (sh *strictHandler) UpdateExtension(w http.ResponseWriter, r *http.Request, id Id, params UpdateExtensionParams) {
+	var request UpdateExtensionRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body UpdateExtensionApplicationMergePatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateExtension(ctx, request.(UpdateExtensionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateExtension")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateExtensionResponseObject); ok {
+		if err := validResponse.VisitUpdateExtensionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListExtensionDevices operation middleware
+func (sh *strictHandler) ListExtensionDevices(w http.ResponseWriter, r *http.Request, id Id, params ListExtensionDevicesParams) {
+	var request ListExtensionDevicesRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListExtensionDevices(ctx, request.(ListExtensionDevicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListExtensionDevices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListExtensionDevicesResponseObject); ok {
+		if err := validResponse.VisitListExtensionDevicesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateDevice operation middleware
+func (sh *strictHandler) CreateDevice(w http.ResponseWriter, r *http.Request, id Id) {
+	var request CreateDeviceRequestObject
+
+	request.Id = id
+
+	var body CreateDeviceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateDevice(ctx, request.(CreateDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateDeviceResponseObject); ok {
+		if err := validResponse.VisitCreateDeviceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4439,128 +5860,148 @@ func (sh *strictHandler) TestWebhook(w http.ResponseWriter, r *http.Request, id 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"7H39chu3sueroGZPlaU6I+ojds6JXFu7iuMk2jixj6VU/oi9IjjTJHE0BCYARjTXq6p9iH2H+x73Ue6T",
-	"3OoG5htDUrIox6du+Q+LJAYfjUb3rz/Q8zFK1CJXEqQ10enHaA48BU1/vrzkM/w/BZNokVuhZHQaXc6B",
-	"aTCq0Ak8MewGtBFKxmyqNDufHvzMbTIfRXFkkjksOD5vVzlEp5GxWshZdHt7G0c513wB1g/0otBG6f5Q",
-	"r3P+RwEs5zMhOX7HEmrJplotGGe5hhuhCoMtcC5jCR/slWszxjkI7OWPAvQqiiPJFzgN9/PaCcbReYrf",
-	"0+M5t/P6aZFGcaThj0JoSKNTqwto9jRVesFtdBoVBbUM9DwlCm2k6xgsn42fMzsHlsy5nAEThmmYFgZS",
-	"thR2zp4enzAxZcIyqVim5Aw0W2DnYKrFu+2s51/u0Ib1vxILYftz/Jl/EItiwYSFhWE5aKI820tVYg7P",
-	"3pyPFin793872R+ifUbdNodOYcqLzEanz47iaOG6j05PjvCTkO7TcUVHIS3MQDse0mByJQ0QC73RapLB",
-	"Av9MlLQgafY8zzOREOsc5q7FX/9pcCkfG3P4i4ZpdBr9t8P6JBy6X81h2S+N2CbGmWSgtdKh5WNr3wWO",
-	"cJaBpgnlWuWgrXCTngpt7JUBkFfcttgn5RYOrFhAn4di5MHNrBZH17Dq7+B3cJAWjihgmJ0LwzxhYgaj",
-	"2YiNrS7k9ShVS3n6rjg6+iqhLw5ESp9gPAqNlfH7LCQT8ro/xVdCXjOriPM1ZHDDpWU8XQhJ3BYcfwHG",
-	"8BkEmJn4RGU3kN5pagZuQAu72sQftLMXZWN80HJbmO0ec01v48gKm0H4JNay5ncnfHBbG/MrH65pUM0h",
-	"7jBYZ5veV8tWk39CYnEiNK8Xcy4lZP2dOWN5xhNgr4T8wAzI1Ph94fiY6R6EZyQH2iyfaOD2jntRPjNZ",
-	"BfcXJJ9kkDZ+myiVAZf0ow3psAuQKeOm0ldsOQfpxKyQMybs6FPOnZDpVvvv6fwTtr8leXd1b7ZzAjZA",
-	"nT8KAfZqrgq9kSn/gU1/pJa3cVTk6R13KsituDg/vc4S651rbXHc5JHWNPxubuLbF0pOBW06T1OBO86z",
-	"Nw0mnPLMQFeYfy8gSw2BGBKKievriWG4gj5nP2ecTfEZxqWyc9CuXWHANPT0iP2Cq2UabKElpEzJBJjh",
-	"N5Cy//h//x+bs0swFsVdMofkGpW5sSLL2FLpa9M/PzxJwJgrq65B9vla2umKuSaMmsQIEFCQWpWLhEmA",
-	"1DAlSYgu+IdXIGd2Hp0+Oz4JMDLP86GBflBW4FC1fnXjbdXvRNmhfi8hg5nmCzZR1vXI9gjs/c9vlf2e",
-	"I6H3txojmXN7JdI1I2ALJlIkPYoyZlWn46+fBvWCvgF9VehsgPpKM08c13TEvnMQB3eEza3NzenhITYd",
-	"mTnxG/79nJUnh02rHjrzOTl6+vfAjGhnBybjd50vYJu1BReFsFTIRC1QMC5hMlfqmv369hXbu8h4ch2z",
-	"S+ALs8/o4ADTkIC4wbbUZgYStEjKB/e3WdLtpvNN4mHj+e7onUoobCuWvRhpK5gumKp31uqiCU0aKuiz",
-	"6oMGsY89qK4+xw+mLTqSvy30Penfb7WtaR8lE7i4SmpQsi0h3XlNNAQsmdcyW9FR42zsmXNcCv1T4mQj",
-	"ZhL52PXA9sbLuYHkajQajfdjRoyN82WTFeGhEbuYq6UkCf+cGas0kDBXC1jOQaPUn4awa4d07cVuotlP",
-	"nrVAop30Ox36KI5mJD6iODJ4RHFMPKP0vxN+URz5RUfvezNqD/FKmIDlQgZg64+7bIofkGvNHbPWZvsW",
-	"IJhG3ESZN6WRfQcM8L8uXv/CfgY9A0aPP3ca3jCpLDMgUTXzFeJGO4cV4xpGbOy4e8y4TNm4cXzGsQOV",
-	"+FzMNDjkzA3jbDlXGQSg8cOIqL4A+rIEydptRbD0FkyRBXgyLTQhkSvHkF2XQRyRtd4XBW8yLuRBxuWs",
-	"QGeGBm6UxLM75SKD9DnjE9p8t51FkgCkkCLK68j8evXOALtKVArhqVTdhHasw/B120Gmf7BDuuvTedFg",
-	"w1JoCTlVKJC4RnlL+F9YkfBsWDZdVEZ22YnKQUa1rT/waKaWmTD2pbR61afXDmzTFqd9/GSTslxtIlId",
-	"xdFcGRtc6Q3PCghjuRfn371lmvyJSjPsocKHW5hzruPKrGt2P2zEhbmhuRf3gnQd2rZg5dE6ojRbPvtq",
-	"gyjrUMF1snlFD3Mimz32j+b2Ry8XP8EqhKwytYT0SuTtSfVtjI5I2MFJgQ+50GB24Qglrxea43fqvH5K",
-	"5MEZD7pccg1T8SF8/K5h9cSwvJhkIkE4oW3MxpmQH66cs7Vys8ZoVGhI1EwKA0MuKQ036vqOC9Mqg02s",
-	"9xbbkA9b5XAn5ghJDW8IeLr4GVSdxy0+XOcLavDIMJsP2xG5uPI+8bWnjnoZdKDjJk6LLMOdfCjM7yfm",
-	"Rhxe2YPIlGp1O1LzLzSkIK3g29rpXRezhCU7e3OO9EUN9fqssHOWZAKkDbjD2hKs01eaajAGDPZT6z2D",
-	"e7TgKzYBRsE0dDCN2MtFbleMOjSMS/K+DDP9gn84dz+eHPVp2RZmw04DJYGtgPuAplTL54xbtkClbJeK",
-	"fiIf4HYHuxRI7fF+Iz+XfULOTR/keRe9ePszMyuZvIs6LpltwP39JEjHBU/fIxFmmqOJBDyZszl6VCcr",
-	"F/XkWYb+szHPsjFbAJeGIXxcMankgQFphBU3wGgEegLnRYaYe5TN+Q2ey3ZLw/b8gTOnSy0sxEzxws6v",
-	"HI9VX6Ls1amQM3Oqgacxs5pLt4LyGxzGnCZKWq2yfbYojEWmwn1It2WfZ47c/tPxBnHqJaknauj8fQeZ",
-	"QCKdWQuLPCAv7qIq7mtS/TZ3W8jdJLwlFTMM4aG1xUpra0CpucDuFXxIQOd2QAgLbSx7yn76lqlpw/cI",
-	"+gmeX7MEvY1t1u+40c2Pl5dvmHugMgOdQ10DW3KDgffeUHWQuiPmbdSm6Lrt61s4OcjU2Ue1QRhHjrJR",
-	"HCVcJpBlA6bPyxuQ9pK+/bgeRm8pVVysGA/AaCGMgXS8Wc955m12FCJBNdeH0Hf1wjervI5bgBuD/prx",
-	"/3At/vsYhdUUMFyI3IYPU0C64gwl6QcEjkOR6q3VKKm9FySRHhK3U4fBuMgFrsAqdkjC8LCK5gzi+P/C",
-	"/qcfv1RAXvNBBc53hMkbfDwIzP1shlz198PYcdTU6pvI2zxuXYq1+ok7s92w5ocQYa257Qy30ygvw+r8",
-	"7fcv2Nd/e/oNRr5HJ30UXqGA2qV3wzORXuHQYGwUV99UZCy/IIaL4qiQpshzpZGxCBFe0RSriKsbI44Q",
-	"UCjNtchWV4XkN1xk6PoOaj165mq9gusQqBym/2iQaDnIs1x8p5JiUaacBW0dlyc4YElSL2/OWeq7cZFj",
-	"j4OFQWtoxL7XAAcoTxiGKUZRYDZvtJCJyPlAFBfZGKSl1K8KIncSG74KpOwEo+hzsp10PGSqMZGO1sm6",
-	"fnf4C0tAZELOnpdQXVL6BOJA9LiHfSBDFoaDKPDBgjRCSQ/sx3EV8Cu/WQ/Vu+fNguSVDt2of6zHXOXJ",
-	"QKJFccPk70gXszIWFgFuDonx8oQMWwONtMj+kf7m6bO/sfFQjuQ4nNbZjVmFUPSFxSPJFjyZCwkHaCzR",
-	"Fy5dEp8pkw1p6leIIIWchVMLU7BcZBvDNvAhz7jLEi6zbjhC9+QaDbckrCKENJbLJKzK60y+vt1TJez1",
-	"VJW2MZsXCy7rZZtiseB6VZoprl8iw2gdy3QdI7++PWeCfCvTFQamsS+/YQyfec7GfKIKezrJuLweu3iV",
-	"VNInDs+EsaAh3YxKPVuVeYVVNiFtdrUhIXZrhPLu6vZJ1YFU9iAVxhZ6wpZCpmqJBmOZAO2ysRAKZCrh",
-	"GUM0Fcg4ZGPyqo5LDw+fWtBsDDIdu7i+7xllIVtqnhuWI2BfiFSK2dyyPeLMk5PTo6ODo7+dHh0F2H6y",
-	"yrkxV1WgKpxgWP5cpkfCDUiWFkhzRvFRRvHRdobQcB7J+jxHGZDSr2pCNcZjINPKD0QrfBeN2Nsy/4jY",
-	"xo9FK+fWgsbu/vfe70fH738/Ovjm/f89+f3o4Kv3+6e/Hx08c1/9ZcDY1gFId/L0AKfCsvAEJzATspri",
-	"yclOp4ij/x8lA0fu/OyXMzc5/J3cOtWkXhbIEIfnKD8mRbZ2ehsQh2sYPE9vVdbSHk47XFHSbRRH5f9e",
-	"qWgg/KSDWOgSDbq3Ho8NQXCRBiVhD6D3WjQQm8tkwEHK55LKJWwG9XfgCOU8gQMDOXd5NqZyGEqutTvB",
-	"PkXQqucsbZwhnmX0q4cic5WlZvNGNNYQ2gtPQOeaCtjkncTMQSNXBNIeLyBRMjVs7xsvbvoap6JSn4Fx",
-	"yB7tvwWuiSvWL7o17VZfrRmX44cI85vPJAqorDJfEGSaKyFtV14/fZwM8U0urlQYOoN3GrN6yCWMhJ2g",
-	"5HdX0+kpG8+UhDHbazoqve8QUvb0+Gg/ZmP05iEQYnvO0Z16b6B3oFLC2jOW8pVLuByTAMBOfXbxdEoE",
-	"LcUFDul9hM5zSO3DptJjJdGjEnSnLADZyVtnXK6VVUzY5wwoLNP0/lMPd8PsngJXRniw190p8Dij0BrH",
-	"1oVEtOap7ndBgHER21ZOkMiAzYFndr7aPlJzF+cVeXvN3Zxj5cU4L7Kv1sWjzgggcaaVJfTs89aQHCpL",
-	"y/RHY1VuypzI7Rd690sEVRryFvYPtuwmoTT56yFvGHgp9yiZKp+YcLz5iJG9YKrU970fXl6yQ3rsgH7Z",
-	"L8OhSpecfscT2A5wdc9jMNP8TFbp8Zg8HtMlR1VYxsnVQPgLJ4TQe6l0isaBEzJbZJQ3eQdHX7PFZQgm",
-	"lDQMbu2MEgQNW/JVGcYtVVwgRu2CYAOW5H3UndvgIb9M6d44EOmYufuflcYxLG1cAGRKto7ykByqGSq4",
-	"11MhhZnfcQ3bikAV0DwvMVTsyRqjlAJjfTxwT2Fit5KMWLqkRC3BDz+K9JZixIcWjN1vcfE6L2w3rhrQ",
-	"Mgv+4Wr9ZpOv1jcJCmPSRJz5WF+t/ynZVEBKUaftxS+lHa+u1HQrWm93dbETobytUsm3c4mF5HijgwZz",
-	"t/iu4YaoSNyh+Macw875fgjffKfLHfrn/UgPOOndT/bn+lZuX0xNVEouMadSSkth78JymXKdMt8H6qIf",
-	"SYiZ07ZoIyjtxLFI3UV5QypCMg2W4Bqec3cGTMyM6go/Jux+7Q6mU2QsX+RjtverFHjF1Zll5LgTphQ5",
-	"+y7Zv3wMQRG3hUZ0P745jl0i34Qb+Pop+/HnsxcHFz+enTz72if2YW9jkY6q0UZIiXFMWiQHzXjiklUI",
-	"eMXMtO3g/RF7rVGkCyOfWDYruObSgneEtGEHt3wAAByYHBIxFcnzKuoAKY1e6fbeplYTXgOg3XbMeZ6D",
-	"dFPaTlCFfZ6XVY/4e+kzvlvSQeXMLCcfO7qsYdtHujsSPSBM3AgCPxGp3efOnqfmWzp/d0TMlaF2j3vH",
-	"7tn3m2Y0dI3kjwIKSEP6uzOOb7hmoN+EnV9UTrPOCgei3Zcbrp6RD2CFztOepGSZmGiu752WWinirRVI",
-	"hyLl49W1uz5t3JW8Qgu7usDevD/dOatCJkEZX9wLZUn7j240L1/JM8Jl6xq0y69spbZg1NWlYiHdjHX6",
-	"w/sY8YhKgDQcHiUy0HHr+NjQfHGVQuhOS3BvcT2FKaO7UBa2UNryLKZvljDxnkv3mRY+Zi9enZPecfqS",
-	"mNLNvzVJmmAmEvBOSh8wEkjd6CznyRwOTkZHdUmWxnd1XCuiCg9nb86jOPIFfqLT6BhbqBwkz0V0Gn01",
-	"OqaOcm7ntIuHPBeHN8eHFO448DEb+mUW4vRfYFnh9hG7AGsx2ZLt/fr2lYndvpl9lJQ+ClxeoscVqnLz",
-	"sFBPhKCoeUvMRO0KQ7+H2blucujq3dzGGxv6UkW37zv1Z06OjtbUnrlbzZne9ctQ8RlXeUdNXXCpjJCZ",
-	"kfN3+qI64XGqiTeq29THkshVHkh/IdUlvEbvcdk+munJ3hk+iiPLZ6Z+MHqP7ihlAvtfXZ0k/zyxuteZ",
-	"BLaonoIrWBCsvoD3y8kDwKhcAyTXkNYgcOmULS+B5RMzYt+Hr/vGrp5JeaPXhG7/OiCJ/EfZ4yhZR+wX",
-	"hcgTFrnCPT/FBpoiszxNcWgHH8th+mzrfEnN3fa1pcDYb1W62glDuUGj27bstrqA2x5LH+9wBmmIqy8p",
-	"r3JZkoztUZ0rYU1nP2J/dbu0Gnz7/V1xP+WJdNn/LE1JzzQPQIj/b+MByUi+CHcuMnBOxTaDfEff9xik",
-	"tUdPA7kdsFA3kD4qMdyYW9EjLtVBe7E/gF2/0t0I2CE2bJzaQEm8UO++2SG1ub3dDfFDcvgHsFsS/m5K",
-	"8TwlPZeH69V1LZ5TRq63hhgns8fVrvuEi/IxmVALHCh1PSN0oj8QNWBvZQRq7OritTNGXCE9d5tuWhho",
-	"VtTbe3p8so8Z/YiNyYubmfLHlIkSnPQk968UMuiw6x2J6+sA3r7fVuYTCQ5oN/56f35/40bdRvx/lgOH",
-	"O08VDZdMmD/b6QuKvheOlz5dFZBHmizFex3TIMi6cFXaGHbNfIU4V1yvLnJFR3LJUc1OfRkfF5hme0WO",
-	"jY+PSlfY/oj9hoWpfOCzcdLIRV2FoR04ytRsFsLrl2A+i6xvVI8YYEJNvz6q5nRh9PYGSbXchn22tK2G",
-	"7aWAoRQq21m53u9A8jI8cBt/gcbXllbXo1pbmCXu7ZAEpDe8zCY2ycUB3nTcilFiJmSSFRR58vdYaECX",
-	"PZCiG8agyk00WLO9YU43jr90k7y+gL2WLby3ageMUV5ZHTTEy6GbHFHu/rAR7msSoPT2ubbltFytQneb",
-	"FiMNE2CG3Ip8xoUcsXNr6gu33nHmWvp0/foO7xPj9EHQWHZBu4a9TN4+7vyWaT2dpSqylK70okq6Bshp",
-	"BGcQ7g9a17RxO7Kre3fdH9uqbhU8WGNPX8MqZrUt7VN6Kifx7rg1DJhowgiYPM+GWTYgxgIWc2fB/BoM",
-	"g+kUEsvEYgGp4BayFWbn3qhrcs5Usg0Zzd+ldaFCB/wpZjP3aU5tnqJOmjy12RSnoR6ZwG7UjQReY4gP",
-	"rPChBeoQz/ppP64U9Wb0BpLdA5s3GLmRYzWokuuoZ8Itz9Ssl0ZrmCkm+MiEZGEwqbaviKur0F+4Lm7f",
-	"D1+rjuvg8ado5IpDfNyLZAXFbQ6cxQfNnDo0rNydRVSHDFzF+5KXFoCx56ZsW8AgJ5yXwRvTUKZUOJiT",
-	"QxTSA4wdgTZKDt/Eo/YybQa4RCMpvnf4f4ZdHvz6kuKQH4BnmKvL8rLhg+zcXDG+YOfoaxLJnFXXnIf3",
-	"hYKFB46GD4OffV93h9CveXUD+As/u92r0WtPb5OLHx5Rt4u+DMLq1iQaDNNmj2GA/b33qPjD2LgL4wrf",
-	"MG47genLCtXeA5W/vS8iHwLQDd77F0XRgRIF60JTPjL/iGg6UJ5oGFI3+XUNuw4Junsj7Kbwo+BcI/2C",
-	"FA7P8IythhSPw6xdbvtc+HoLktcge0uSD8PttaveifAd4vB2tbVHl7gegm9N0E8D4z6VZVRSMajg31Cp",
-	"xucMd4ALSSWfjNffwQvy/d11w1zkkOx0dzu1KIZ2eItiE91NbO3RpW/lL2N3+1uPqQo7UYVMD3hZ2nSY",
-	"7lrckEirivihVqvq1SIi5ra0jNyPDowbkCloQ/e/NRWV2+Psl7OLmP2oFsDOjBHGcmn3EYchTD9YihT6",
-	"O0fAy8+3qsS620hFr4BsYA9fuhs42OThD6hf7lW1PcO4iO6H+faMN+hTndb+Xq/JBaK6umMEPLxTotgz",
-	"ABPSiBRclrTnDddm7/ibk9Hx13/HdLTDk6cxOz4a4b9nMZumR0enp4dfP92PfVYgfOCJrdmI7UluRnO1",
-	"gBHXOd/HkLNpMh1yEZUKmFTDjtgrpfIJvfwCM4f8QZBg6Z0tDpxlqkgZHgBMNm70hyahg/wTYL7GkoN8",
-	"1aVQ9/4Xl/mEBeguHNbgzOrCUOkW0GgVJtwG2Najti7jEk/tLL0oUMv50ROMWgtdA+Ae7eiEk4bwZ8ZL",
-	"XmpX4t50etZK0o3I7RdEr0pKSCxlvRqrclYYd1cXzRAHXuNgEtIahvpc6UjbkryZmuQbOibYQlh9Er4Y",
-	"uH3WUHk9rNC9T7RDddMdauDI+Mk//ImpijANAsFq7NrYalz2Kreu7Gd3G3aoqysMD5iZ8Y8CijLZFDWR",
-	"cyLu0d/Ne0775bsQXauykgLZ+3Gd8ESVxCioxnCH0yLzGapojLVusKN2mQAee3elEN+nqnQrASFonyEN",
-	"NvLnyWPzJ4r03fPogGA5oOvTStbHJMyYfR7bOi2+lfe6vcvwt3KYL9pd2Lz0uNZV2IuQPK64IkTcm8Og",
-	"kArKA0pCX+LhfPP64tKJA1OlajkgSNfinee/dAz2bwG5K1OBqBAL3C0a8DCOGNYbe+XhMMFl/2oVmlKN",
-	"Xyp0Xr+buJAZGG+flT+XrxoRpqyS27cd1uQIlNXLGlkCzfv2IQT8W3UXaReQt10N4pGxbv922Vq46+jU",
-	"9Fi2WWCHnstN8tPtaiORv5zt1mJ0I+p18NXp2Vp5ypQoUQGMTM2GkG+TkTZBXfdE+sh0dKNuTcV4E/p8",
-	"BNQ5xLHNU/2nSPzdAqVuS/XPmHw/mCZfzvlh8uTZZUHv8CJHS3nW1HTKXHF608ehmHWMD1iF/hB3bR/v",
-	"8vt+6KoVSzLgGlOOV/gFlt3HDOOBpPyah/+8+fite+aPnIq/5QH8c6bhr5eDZSL+J2qTw5pLtwz7X0Nu",
-	"2VdHVJhttL7yDCpb49514m3Ztfj9u3oqu8jU7tZy+dKStUMVXdbaCQ0BtFeWl7JzELrcDbP/uJbDZVsI",
-	"NwHJTn0cj+DZIA9Fs2KYMwnKd8EoTaK8em9JXXaukkH4e32nBC0fmQAb039j9wJ1Z2tgPhM3bAIgSxI6",
-	"x4ar0eCn4iPQI0b1o2ZgzbDn5My/hun4KD46OqLKKFR3ZL1fZLfWhhtqO4VxspvBh2/P/KiWbMHlqnnE",
-	"lqDBb8Fncs30KjjeURVQUUQ4cJbSAx+T0kLbZIljBtHJU18auXTQsYRrvaK3hFX1h4yrIVSBO+ycy7T9",
-	"ZV3TkSoitcqRYnDKLIVN5kzh51JC+vrs5VvROgeASOS5xNujuxf5m43fnrFX0zr+fDbvuTEFQhSaTMsO",
-	"vyNn7vCuYOl9HuEY41J2e0dUjevR4Pikm4NVV6It5q1y9RxQrE9gqjQ0DQIMvGLhQnbpvNdU5IaXJx2n",
-	"7B2klqo1tAYK2g14K/DxLN9t4y29mAfbq989rbRf7/4js+/my4od3m1kNkanH4fHpXGavnFK5hhNnY77",
-	"OMyxtsyI9OkfFQ5QOUhfMHkhZGHpxX9smvE8d+nF/s0JiEm8hWmUkqA9++DQLp0bXyqAYXxKTxh/fOdf",
-	"0i/Sd1HM3kXXsHJ/lO9Yd5+olI7701PKfciEvH4X3VLpsh2ChbL23q2HC32u7pZaWrGTDx98nVevEtJR",
-	"J4/6TPqCRY7Yisq89euz0FNuB6s3cm+xiVNfuYn6dvk93NBG4FV/Coy5fTBznrsaATWX/CvQk/hwkKBN",
-	"sTxMzjar1qU130Wn7F3kCmZhaU76q8ug2GQ0GhF/std2XhYEdIEnnqLwcS8/rOKO4LCH2y8CXXYOiy9j",
-	"N7DuOvtBSRhQFs8R8tBdMOfxEqb0UfU2si0T9yiGE1DZ+zTl/xwA",
+	"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",
+	"e5+W/P8GAA==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

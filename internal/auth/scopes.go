@@ -14,6 +14,8 @@ var Scopes = []string{
 	"api_keys:read", "api_keys:write",
 	"audit:read",
 	"calls:control",
+	"calls:read",
+	"devices:read", "devices:write",
 	"extensions:read", "extensions:write",
 	"oauth_clients:read", "oauth_clients:write",
 	"outbound_allowlist:read", "outbound_allowlist:write",
@@ -25,8 +27,9 @@ var Scopes = []string{
 // sensitiveScopes are never included in "all"; they must be named. Creating
 // keys or clients is as powerful as holding every scope, so both are here.
 // outbound_allowlist:write opens the server's LAN to outbound requests.
+// devices:write makes phone logins (docs/PBX.md §5), like api_keys:write.
 var sensitiveScopes = []string{
-	"api_keys:write", "calls:control", "oauth_clients:write", "outbound_allowlist:write", "recordings:read", "transcripts:read",
+	"api_keys:write", "calls:control", "devices:write", "oauth_clients:write", "outbound_allowlist:write", "recordings:read", "transcripts:read",
 }
 
 // ScopeAll asks for every non-sensitive scope the role allows.

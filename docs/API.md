@@ -65,7 +65,7 @@ Creating keys and clients over the API is not idempotent (`Idempotency-Key` isn'
 - **Secret rotation**: a new secret is issued; the old one keeps signing alongside it for 24 h (both signatures in the header).
 
 **Events** (brief list; each ships with the feature that produces it):
-`call.started`, `call.answered`, `call.ended`, `call.missed`, `voicemail.created`, `recording.ready`, `presence.changed`, `meeting.started`, `meeting.ended`, `device.enrolled`, `device.revoked`, `trunk.down`, `trunk.up`, plus `webhook.test` and `alert.fired`/`alert.resolved`.
+`call.started`, `call.answered`, `call.ended`, `call.missed`, `voicemail.created`, `recording.ready`, `presence.changed`, `meeting.started`, `meeting.ended`, `extension.created`/`updated`/`deleted`, `device.created`/`updated`/`revoked`/`registered`/`unregistered`, `trunk.down`, `trunk.up`, plus `webhook.test` and `alert.fired`/`alert.resolved`.
 Endpoints subscribe to a list of event types (or all). Recording and transcript contents are never in payloads, only IDs and links needing a scoped key.
 
 **Delivery**

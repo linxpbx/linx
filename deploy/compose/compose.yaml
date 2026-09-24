@@ -74,6 +74,8 @@ services:
       LINX_DB_PORT: "5432"
       LINX_DB_NAME: linx
       LINX_DB_USER: linx
+      # For device SIP settings, "sip.<domain>" (docs/PBX.md §5).
+      LINX_DOMAIN: ${LINX_DOMAIN:?set by linx setup}
       # Proxies whose X-Forwarded-For is believed (rate limits, IP
       # allowlists). Empty until the edge templates arrive with the profiles.
       LINX_TRUSTED_PROXIES: ""

@@ -26,6 +26,7 @@ import (
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/health"
+	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
 	"linxpbx.com/linx/internal/store"
@@ -120,6 +121,8 @@ func main() {
 	alerts := &alert.Service{Store: st, Sealer: sealer, Sender: alertSender, Policy: policy, Now: time.Now}
 	engine := &alert.Engine{Store: st, Sender: alertSender, Log: log}
 
+	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
+
 	// "webhook endpoint disabled" (docs/API.md §5): fired whether the
 	// worker turned it off automatically or an admin did, resolved once
 	// it's turned back on. The same key either way, so re-enabling always
@@ -172,7 +175,7 @@ func main() {
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)
