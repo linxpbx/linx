@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!-- Like call-message.xml, but offers Opus first (as Linphone does) and checks Asterisk answers with G.722, a codec it can play its messages in. Variables: -s <number>; -set user <sip username>; -au/-ap for the login. -->
+<scenario name="call offering Opus first, hear a message">
+  <Global variables="user"/>
+  <send>
+    <![CDATA[
+      INVITE sip:[service]@linx SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: <sip:[$user]@linx>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@linx>
+      Call-ID: [call_id]
+      CSeq: 1 INVITE
+      Contact: <sip:[$user]@[local_ip]:[local_port];transport=tls>
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=- 1 1 IN IP[local_ip_type] [local_ip]
+      s=-
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/SAVP 96 9 0
+      a=rtpmap:96 opus/48000/2
+      a=rtpmap:9 G722/8000
+      a=rtpmap:0 PCMU/8000
+      a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:WnD7c1ksDGs+dIefCEo8omPg4uO8DYIinNGL5yxQ
+      a=sendrecv
+    ]]>
+  </send>
+  <recv response="100" optional="true"/>
+  <recv response="401" auth="true"/>
+  <send>
+    <![CDATA[
+      ACK sip:[service]@linx SIP/2.0
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      Call-ID: [call_id]
+      CSeq: 1 ACK
+      Max-Forwards: 70
+      Content-Length: 0
+    ]]>
+  </send>
+  <send>
+    <![CDATA[
+      INVITE sip:[service]@linx SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: <sip:[$user]@linx>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@linx>
+      Call-ID: [call_id]
+      CSeq: 2 INVITE
+      Contact: <sip:[$user]@[local_ip]:[local_port];transport=tls>
+      [authentication]
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=- 1 1 IN IP[local_ip_type] [local_ip]
+      s=-
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/SAVP 96 9 0
+      a=rtpmap:96 opus/48000/2
+      a=rtpmap:9 G722/8000
+      a=rtpmap:0 PCMU/8000
+      a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:WnD7c1ksDGs+dIefCEo8omPg4uO8DYIinNGL5yxQ
+      a=sendrecv
+    ]]>
+  </send>
+  <recv response="100" optional="true"/>
+  <recv response="180" optional="true"/>
+  <recv response="183" optional="true"/>
+  <recv response="200" rrs="true">
+    <action>
+      <ereg regexp="m=audio [0-9]+ RTP/SAVP 9[ \r\n]" search_in="body" check_it="true" assign_to="g722"/>
+    </action>
+  </recv>
+  <Reference variables="g722"/>
+  <send>
+    <![CDATA[
+      ACK [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: <sip:[$user]@linx>;tag=[pid]SIPpTag00[call_number]
+      [last_To:]
+      Call-ID: [call_id]
+      [routes]
+      CSeq: 2 ACK
+      Max-Forwards: 70
+      Content-Length: 0
+    ]]>
+  </send>
+  <recv request="BYE"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+    ]]>
+  </send>
+</scenario>

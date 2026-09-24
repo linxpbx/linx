@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,12 @@ func TestCallsDocker(t *testing.T) {
 		offline := e.sipp("offline", "call-message.xml", alice, "-s", "103")
 		for _, c := range []string{echo, unknown, self, offline} {
 			e.wait(c)
+		}
+		// A phone offering Opus first (Linphone does) is answered in G.722,
+		// so it hears the message: Asterisk can't encode Opus.
+		e.run("opus-first", "call-message-opus.xml", alice, "-s", "556")
+		if logs := e.asteriskLogs(); strings.Contains(logs, "Playback failed") {
+			t.Errorf("a message didn't play:\n%s", logs)
 		}
 		for to, want := range map[string]string{
 			"*43": pbx.OutcomeEchoTest, "555": pbx.OutcomeNotInUse,

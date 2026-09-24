@@ -53,7 +53,7 @@ On a throwaway server, delete the root key backup so it doesn't warn: `sudo rm -
 sudo ./linx doctor
 ```
 - [ ] A **Phone system** heading, all `ok`: running and answering; reads the phone settings from the database and nothing else; connected to the API service; only encrypted phone connections (port 5061); ports open on the local network address only; phones get the current certificate; nothing offers port 5060; the firewall only lets phones connect from your local network; "Phones find this server at sip.lab.linxpbx.com".
-- [ ] The database line shows `schema version 8`. The only warnings are no API key and no alert channel, as in Phase 1A. (If the DNS line warns, the record from step 4 hasn't spread yet: wait a few minutes.)
+- [ ] The database line shows `schema version 9`. The only warnings are no API key and no alert channel, as in Phase 1A. (If the DNS line warns, the record from step 4 hasn't spread yet: wait a few minutes.)
 
 ## 6. API key and webhook
 A key that can make phone logins needs the sensitive scope `devices:write` by name:
@@ -76,9 +76,9 @@ api -X POST -H "$JSON" -d '{"number":"102","display_name":"Mac"}' $API/extension
 api -X POST -H "$JSON" -d '{"name":"My iPhone"}' $API/extensions/$(jq -r .id /tmp/e101.json)/devices | tee /tmp/d101.json | jq -r .settings_text
 api -X POST -H "$JSON" -d '{"name":"My Mac"}'    $API/extensions/$(jq -r .id /tmp/e102.json)/devices | tee /tmp/d102.json | jq -r .settings_text
 ```
-- [ ] Each device prints a settings block: Server `sip.lab.linxpbx.com`, Port `5061`, Transport `TLS`, a username like `d_k2m9x4qa`, a long password, "Encrypted audio: required (SRTP)".
-- [ ] `api $API/devices/$(jq -r .device.id /tmp/d101.json) | jq` shows the device **without** the password.
-- [ ] On webhook.site: `extension.created` twice and `device.created` twice, none containing a password.
+- [x] Each device prints a settings block: Server `sip.lab.linxpbx.com`, Port `5061`, Transport `TLS`, a username like `d_k2m9x4qa`, a long password, "Encrypted audio: required (SRTP)".
+- [x] `api $API/devices/$(jq -r .device.id /tmp/d101.json) | jq` shows the device **without** the password.
+- [x] On webhook.site: `extension.created` twice and `device.created` twice, none containing a password.
 
 (The files in `/tmp` hold the passwords: `rm /tmp/d10*.json` at the end.)
 
@@ -92,11 +92,11 @@ Both on your home Wi-Fi. In Linphone (iPhone: the first screen offers "Use SIP a
 ```
 api $API/extensions/$(jq -r .id /tmp/e101.json)/devices | jq '.items[] | {name, online, last_registered_from}'
 ```
-- [ ] Both apps show the account as connected (green), with no certificate warning.
-- [ ] The device shows `"online": true` and your phone's address; webhook.site has `device.registered`.
+- [x] Both apps show the account as connected (green), with no certificate warning.
+- [x] The device shows `"online": true` and your phone's address; webhook.site has `device.registered`.
 
 ## 9. Calls
-- [ ] **Echo test:** on the iPhone, dial `*43`. You hear yourself about half a second late. Hang up.
+- [x] **Echo test:** on the iPhone, dial `*43`. You hear yourself about half a second late. Hang up.
 - [ ] **Messages:** dial `555` (no such number): "the number you have dialled is not in service"-style message. Dial `101` from the iPhone itself: "nobody is available" message.
 - [ ] **A real call:** from the iPhone dial `102`. The Mac rings, shows "iPhone" / `101` as the caller; answer; both sides hear each other clearly for about 20 seconds; hang up.
 - [ ] While it's up: `api $API/calls/active | jq` shows one call, `state` `answered`, from `101` to `102`, and `"phone_engine_connected": true`.
