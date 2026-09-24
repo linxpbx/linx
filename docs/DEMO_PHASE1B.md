@@ -28,12 +28,12 @@ make test-docker   # real Postgres: migrations, store, webhooks, alerts, phone d
 make image SERVICE=asterisk   # about 15 minutes the first time
 make test-calls    # real Asterisk + SIPp phones over TLS: ends with "call suite: ok"
 ```
-- [ ] All finish without errors.
+- [x] All finish without errors.
 
 ## 3. CI on GitHub
 Open the repository → **Actions** → the latest **CI** run on master.
-- [ ] Every job is green, including `images (asterisk)` for amd64 and arm64 and the call suite.
-- [ ] Under **Packages**, `linx-asterisk` has an image tagged `sha-<that commit>`.
+- [x] Every job is green, including `images (asterisk)` for amd64 and arm64 and the call suite.
+- [x] Under **Packages**, `linx-asterisk` has an image tagged `sha-<that commit>`.
 
 ## 4. Install on a fresh server
 Follow steps 1–3 of [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md) with the commit CI just built, with one difference: when setup asks **"Use test certificates for now?"**, answer **n**, then give your email.

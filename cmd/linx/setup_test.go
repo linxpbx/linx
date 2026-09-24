@@ -137,6 +137,41 @@ func TestSetupKeepsSavedToken(t *testing.T) {
 	}
 }
 
+func TestAskDomainOffersSavedTokenForChangedDomain(t *testing.T) {
+	for _, tc := range []struct {
+		name, oldDomain, newDomain, provider string
+		input                                string // after the domain line
+		wantOffer, wantKeep                  bool
+	}{
+		// Corrected within the same zone: offered, and Enter keeps it.
+		{"same zone", "sip.lab.linxpbx.com", "lab.linxpbx.com", installer.DNSCloudflare, "\n\n\n", true, true},
+		// Another zone: offered, but Enter means paste a new one.
+		{"other zone", "lab.linxpbx.com", "pbx.example.com", installer.DNSCloudflare, "\n", true, false},
+		// Another provider: the token can't work there, so not offered.
+		{"other provider", "lab.linxpbx.com", "me.duckdns.org", installer.DNSCloudflare, "", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := testEnv("", map[string]string{installer.DNSTokenPath: "saved-token-xxxxxxxxxxxxxxxxxxx\n"})
+			asked := false
+			env.readSecret = func() (string, error) { asked = true; return "new-token-xxxxxxxxxxxxxxxxxxxxx", nil }
+			var out bytes.Buffer
+			p := &prompter{in: bufio.NewReader(strings.NewReader(tc.newDomain + "\n" + tc.input + "\n\n")), out: &out}
+			cfg := installer.Config{Domain: installer.DomainConfig{Name: tc.oldDomain, DNSProvider: tc.provider},
+				Certificates: installer.CertificateConfig{Staging: true}}
+			token, err := askDomain(p, &cfg, true, env)
+			if err != nil {
+				t.Fatalf("askDomain: %v\n%s", err, out.String())
+			}
+			if offered := strings.Contains(out.String(), "Keep the saved DNS token (saved for "+tc.oldDomain+")?"); offered != tc.wantOffer {
+				t.Errorf("offered = %v, want %v:\n%s", offered, tc.wantOffer, out.String())
+			}
+			if kept := token == "saved-token-xxxxxxxxxxxxxxxxxxx"; kept != tc.wantKeep || asked == kept {
+				t.Errorf("kept = %v (asked for a new one: %v), want kept %v", kept, asked, tc.wantKeep)
+			}
+		})
+	}
+}
+
 func TestSetupRefusesUnknownBuild(t *testing.T) {
 	env := testEnv("", map[string]string{"s.yaml": "version: 1\ndocker:\n  install: true\ndomain:\n  name: lab.linxpbx.com\n",
 		installer.DNSTokenPath: testToken})

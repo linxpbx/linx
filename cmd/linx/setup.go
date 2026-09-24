@@ -279,7 +279,7 @@ func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (stri
 
 	fmt.Fprint(p.out, "\nLinx needs a domain name. It creates addresses under it, like admin.<domain> and meet.<domain>,\n"+
 		"and gets a certificate for them so browsers and apps connect securely.\n")
-	oldDomain := cfg.Domain.Name
+	oldDomain, oldProvider := cfg.Domain.Name, cfg.Domain.DNSProvider
 	for {
 		d, err := p.text("Domain (e.g. pbx.example.com or yourname.duckdns.org)", cfg.Domain.Name)
 		if err != nil {
@@ -303,8 +303,18 @@ func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (stri
 		fmt.Fprintln(p.out, "Linx proves you own the domain by adding a temporary DNS record, so your DNS must be managed at Cloudflare.")
 	}
 
-	if saved != "" && cfg.Domain.Name == oldDomain {
-		keep, err := p.confirm("Keep the saved DNS token?", true)
+	// A changed domain can keep the token too (e.g. sip.lab.example.com
+	// corrected to lab.example.com: same Cloudflare zone, same token), so
+	// it's offered whenever the provider is the same. It defaults to yes
+	// only when the domain is unchanged or ends in the same last two labels;
+	// a token for another Cloudflare zone would fail at the certificate.
+	if saved != "" && (oldDomain == "" || cfg.Domain.DNSProvider == oldProvider) {
+		q, def := "Keep the saved DNS token?", true
+		if oldDomain != "" && cfg.Domain.Name != oldDomain {
+			q = "Keep the saved DNS token (saved for " + oldDomain + ")?"
+			def = baseDomain(cfg.Domain.Name) == baseDomain(oldDomain)
+		}
+		keep, err := p.confirm(q, def)
 		if err != nil {
 			return "", err
 		}
@@ -326,6 +336,16 @@ func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (stri
 		}
 		return strings.TrimSpace(t), p.askCertificates(cfg)
 	}
+}
+
+// baseDomain is a domain's last two labels ("lab.linxpbx.com" →
+// "linxpbx.com"): a guess at its DNS zone, only used to pick a default.
+func baseDomain(d string) string {
+	labels := strings.Split(d, ".")
+	if len(labels) <= 2 {
+		return d
+	}
+	return strings.Join(labels[len(labels)-2:], ".")
 }
 
 var dnsTokenHelp = map[string]string{
