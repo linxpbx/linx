@@ -1,6 +1,6 @@
 # Linx — Phone engine (Phase 1B)
 
-Status: **approved by the owner 2026-09-24** (ADR-031 to ADR-035).
+Status: **approved by the owner 2026-09-24** (ADR-031 to ADR-035). **Built, demo passed and approved as complete 2026-09-24** (`docs/DEMO_PHASE1B.md`).
 Second slice of Phase 1 (`docs/ROADMAP.md`). It gives Linx its calling engine: Asterisk runs in the stack, reads extensions and phones from Linx's database, and two phones can call each other. The web client, TURN, trunks and the admin portal are later slices and build on this one.
 
 ## 1. In plain words
