@@ -48,6 +48,13 @@ func TestStackPlan(t *testing.T) {
 	if astPw == nil || len(astPw.Data) == 0 || astPw.Mode != 0o440 || astPw.Gid != 65532 || astPw.DirMode != 0o700 {
 		t.Errorf("asterisk database password file = %+v", astPw)
 	}
+	ariPw := files[ARIPasswordPath]
+	if ariPw == nil || len(ariPw.Data) == 0 || ariPw.Mode != 0o440 || ariPw.Gid != 65532 || ariPw.DirMode != 0o700 {
+		t.Errorf("ARI password file = %+v", ariPw)
+	}
+	if string(ariPw.Data) == string(astPw.Data) {
+		t.Error("ARI password and asterisk database password are the same")
+	}
 	if f := files["/etc/linx/compose.yaml"]; f == nil || string(f.Data) != string(compose.File) {
 		t.Error("compose.yaml not installed from the embedded copy")
 	}

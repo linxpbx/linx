@@ -79,7 +79,26 @@ services:
       # Proxies whose X-Forwarded-For is believed (rate limits, IP
       # allowlists). Empty until the edge templates arrive with the profiles.
       LINX_TRUSTED_PROXIES: ""
-    secrets: [linx_db_password, linx_db_encryption_key, linx_jwt_signing_key, linx_asterisk_db_password]
+    secrets:
+      - linx_db_password
+      - linx_db_encryption_key
+      - linx_jwt_signing_key
+      - linx_asterisk_db_password
+      - linx_ari_password
+      - linx_ca_services_password
+    # Group 1000 (step-ca's): reads linx_ca_services_password, to get its
+    # own ARI certificate from the internal CA (ADR-034). Only that one CA
+    # secret is mounted here.
+    group_add: ["1000"]
+    volumes:
+      # The internal CA's public certificates only (root_ca.crt), never its
+      # keys or database: the rest of the volume stays with step-ca.
+      - type: volume
+        source: step-ca
+        target: /etc/linx/ca
+        read_only: true
+        volume:
+          subpath: certs
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,15 +109,24 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    networks: [linx-private, linx-public, linx-egress]
+    networks:
+      linx-private:
+        # Asterisk's ARI websocket connects to wss://linx-ari:8089 (ADR-034).
+        # An alias on this network only, so the name never resolves to the
+        # control plane's other networks; ARI also listens on this network's
+        # address only (services/control-plane/ari.go).
+        aliases: [linx-ari]
+      linx-public: {}
+      linx-egress: {}
     mem_limit: 256m
     pids_limit: 128
 
   # Phone engine (docs/PBX.md): Asterisk 22, pjsip. Reads extensions and
   # devices straight from Postgres, over ODBC, through the asterisk schema's
   # realtime views (role linx_asterisk, docs/PBX.md §3); no cache, so a
-  # revoked device stops at once. LAN-only SIP/RTP ports and the ARI
-  # websocket to control-plane arrive with steps 4 and 5.
+  # revoked device stops at once. Connects out to control-plane's ARI
+  # websocket (wss://linx-ari:8089, ADR-034); nothing here listens for ARI.
+  # LAN-only SIP/RTP port publishing arrives with step 5.
   asterisk:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-asterisk:${LINX_VERSION:?set by linx setup}
     container_name: linx-asterisk
@@ -112,10 +140,17 @@ services:
       LINX_DB_HOST: postgres
       LINX_DB_PORT: "5432"
       LINX_DB_NAME: linx
-    secrets: [linx_asterisk_db_password]
+    secrets: [linx_asterisk_db_password, linx_ari_password]
     volumes:
       - asterisk-state:/var/lib/asterisk
       - certs:/var/lib/linx/certs:ro
+      # To check the control plane's ARI certificate (see control-plane).
+      - type: volume
+        source: step-ca
+        target: /etc/linx/ca
+        read_only: true
+        volume:
+          subpath: certs
     tmpfs: [/etc/asterisk, /var/run/asterisk, /tmp]
     networks: [linx-private, linx-public]
     depends_on:
@@ -180,6 +215,15 @@ secrets:
   # Root-owned, group 65532, mode 0440.
   linx_asterisk_db_password:
     file: ./secrets/linx_asterisk_db_password
+  # What Asterisk presents to the control plane's ARI websocket (ADR-034).
+  # Root-owned, group 65532, mode 0440.
+  linx_ari_password:
+    file: ./secrets/linx_ari_password
+  # The internal CA's linx-services provisioner password: the control plane
+  # uses it to get its own 24 h ARI certificate. Root-owned, group 1000,
+  # mode 0440 (created with the CA by linx setup).
+  linx_ca_services_password:
+    file: ./secrets/linx_ca_services_password
 
 volumes:
   certd-state:

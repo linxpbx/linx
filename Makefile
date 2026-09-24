@@ -57,6 +57,13 @@ test-docker: ## Run tests that need Docker (internal CA, real Postgres)
 	@if out=$$(LINX_DOCKER_TESTS=1 go test -count=1 -run Docker ./internal/... 2>&1); then echo "docker tests: ok"; \
 	else echo "$$out" | grep -Ev '^(ok|\?) '; echo "docker tests: FAILED"; exit 1; fi
 
+.PHONY: test-calls
+test-calls: ## Phone engine call suite only: Asterisk + SIPp over TLS/SRTP (needs make image SERVICE=asterisk)
+	@if out=$$(LINX_DOCKER_TESTS=1 go test -count=1 -v -run TestCallsDocker ./internal/calltest/ 2>&1); then \
+		if echo "$$out" | grep -q -- "--- SKIP"; then echo "$$out" | grep -A2 -- "--- SKIP"; echo "call suite: SKIPPED"; exit 1; fi; \
+		echo "call suite: ok"; \
+	else echo "$$out" | grep -v '^=== ' | tail -80; echo "call suite: FAILED"; exit 1; fi
+
 .PHONY: test-web
 test-web:
 	@cd web && npm run --silent test

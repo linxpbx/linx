@@ -17,12 +17,21 @@ ARG ASTERISK_SHA256=3bd5ee040509a3d3cd9b1ba9520c18e6ec0a7e7981ca68c457dcd36ba3c5
 # keyserver.ubuntu.com and pinned here; deploy/docker/asterisk/asterisk-pubkey.asc
 # must export to this exact fingerprint.
 ARG ASTERISK_GPG_FINGERPRINT=F2FC93DB7587BD1FB49E045A5D984BE337191CE7
+# English prompts ("number not in service", "nobody is available"). Asterisk's
+# own sounds Makefile downloads these without checking anything, so we fetch
+# the tarball ourselves, pinned by SHA-256 (captured from a download whose
+# SHA-1 matched downloads.asterisk.org's published .sha1), and leave it where
+# the Makefile finds it.
+ARG CORE_SOUNDS=asterisk-core-sounds-en-gsm-1.6.1.tar.gz
+ARG CORE_SOUNDS_SHA256=d79c3d2044d41da8f363c447dfccc140be86b4fcc41b1ca5a60a80da52f24f2d
 
 # debian:bookworm-slim (multi-arch index digest)
 FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS asterisk-build
 ARG ASTERISK_VERSION
 ARG ASTERISK_SHA256
 ARG ASTERISK_GPG_FINGERPRINT
+ARG CORE_SOUNDS
+ARG CORE_SOUNDS_SHA256
 
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
       build-essential pkg-config bzip2 patch curl ca-certificates gnupg \
@@ -48,6 +57,9 @@ RUN gpg --with-colons --import-options show-only --import asterisk-pubkey.asc \
     && rm -rf "$GNUPGHOME"
 
 RUN tar xzf asterisk.tar.gz && mv "asterisk-${ASTERISK_VERSION}" asterisk
+ADD --checksum=sha256:${CORE_SOUNDS_SHA256} \
+    https://downloads.asterisk.org/pub/telephony/sounds/releases/${CORE_SOUNDS} \
+    asterisk/sounds/${CORE_SOUNDS}
 WORKDIR /usr/src/asterisk
 
 # --with-pjproject-bundled: Asterisk has no PJSIP support without it, and
@@ -76,7 +88,7 @@ RUN menuselect/menuselect \
       --disable-category MENUSELECT_BRIDGES --disable-category MENUSELECT_FORMATS \
       --disable-category MENUSELECT_CDR --disable-category MENUSELECT_CEL \
       --disable-category MENUSELECT_TESTS --disable-category MENUSELECT_AGIS \
-      --disable-category MENUSELECT_MOH \
+      --disable-category MENUSELECT_MOH --disable MOH-OPSOUND-WAV \
       --enable app_dial --enable app_echo --enable app_playback --enable app_verbose --enable app_stack \
       --enable res_rtp_asterisk \
       --enable res_ari --enable res_ari_applications --enable res_ari_asterisk \
@@ -102,7 +114,7 @@ RUN menuselect/menuselect \
       --enable ENABLE_SRTP_AES_192 --enable ENABLE_SRTP_AES_256 --enable ENABLE_SRTP_AES_GCM \
       --enable chan_pjsip \
       --enable codec_ulaw --enable codec_alaw --enable codec_g722 --enable codec_gsm --enable codec_resample \
-      --enable func_odbc --enable func_channel \
+      --enable func_odbc --enable func_channel --enable func_callerid \
       --enable pbx_config \
       --enable bridge_simple --enable bridge_native_rtp \
       --enable format_gsm --enable format_sln \
@@ -153,7 +165,14 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
 COPY --from=asterisk-build /usr/sbin/asterisk /usr/sbin/asterisk
 COPY --from=asterisk-build /usr/lib/asterisk /usr/lib/asterisk
 COPY --from=asterisk-build /usr/lib/libasterisk*.so* /usr/lib/
-COPY --from=asterisk-build --chown=asterisk:asterisk /var/lib/asterisk /var/lib/asterisk
+# Asterisk's data (sound prompts, ARI's REST model, docs) lives read-only in
+# the image, not in the asterisk-state volume mounted over /var/lib/asterisk:
+# a volume keeps its first copy forever, so an image update would never
+# reach it. internal/asteriskconf points astdatadir here.
+# Asterisk needs its XML docs at startup: without them it refuses to
+# register config options ("Stasis initialization failed").
+COPY --from=asterisk-build /var/lib/asterisk /usr/share/asterisk
+RUN install -d -o asterisk -g asterisk -m 0750 /var/lib/asterisk
 COPY --from=go-build /out/asterisk-entrypoint /usr/local/bin/asterisk-entrypoint
 
 RUN ldconfig

@@ -46,6 +46,7 @@ func secretsStat(override map[string]fs.FileInfo) func(string) (fs.FileInfo, err
 		installer.DBEncryptionKeyPath:    fakeFile{32, 0o440},
 		installer.JWTSigningKeyPath:      fakeFile{32, 0o440},
 		installer.AsteriskDBPasswordPath: fakeFile{32, 0o440},
+		installer.ARIPasswordPath:        fakeFile{32, 0o440},
 	}
 	for k, v := range override {
 		files[k] = v

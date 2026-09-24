@@ -951,6 +951,29 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/calls/active:
+    get:
+      operationId: listActiveCalls
+      summary: Calls in progress
+      description: >-
+        Live, from the phone engine's own view of its calls (docs/PBX.md §4).
+        Not paginated: a Linx server has at most a few dozen calls at once.
+        `phone_engine_connected` false means the control plane can't see
+        the phone engine right now, so the list may be out of date (calls
+        themselves keep working).
+      tags: [calls]
+      security:
+        - bearer: [calls:read]
+      responses:
+        "200":
+          description: The calls in progress, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveCallList"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /oauth/token:
     post:
       operationId: oauthToken
@@ -1887,10 +1910,65 @@ components:
       enum: [softphone, web, ios, desk]
       description: Only `softphone` works in this slice (ADR-035); the others arrive with the web client and the iOS app.
 
+    CallParty:
+      description: A device on one end of a call.
+      type: object
+      required: [extension, device_id, name]
+      properties:
+        extension:
+          type: string
+          description: The device's extension number.
+        device_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: The device's name.
+
+    ActiveCall:
+      type: object
+      required: [id, from, to, state, started_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The same id the call's webhook events carry.
+        from:
+          $ref: "#/components/schemas/CallParty"
+        to:
+          type: string
+          description: The number dialled.
+        state:
+          type: string
+          enum: [ringing, answered, system]
+          description: >-
+            `ringing`: devices are ringing (or about to). `answered`: a
+            device answered. `system`: Linx itself answered, for the echo
+            test or a spoken message ("not available", "not in use").
+        started_at:
+          type: string
+          format: date-time
+        answered_at:
+          type: string
+          format: date-time
+        answered_by:
+          $ref: "#/components/schemas/CallParty"
+
+    ActiveCallList:
+      type: object
+      required: [items, phone_engine_connected]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveCall"
+        phone_engine_connected:
+          type: boolean
+
     Device:
       description: A phone or app that rings for an extension (docs/PBX.md §3).
       type: object
-      required: [id, extension_id, name, kind, sip_username, enabled, created_at, updated_at, etag]
+      required: [id, extension_id, name, kind, sip_username, enabled, online, created_at, updated_at, etag]
       properties:
         id:
           type: string
@@ -1907,6 +1985,9 @@ components:
           description: The SIP login's public part (Asterisk's endpoint id); random, so it never reveals the extension.
         enabled:
           type: boolean
+        online:
+          type: boolean
+          description: Signed in right now (as the phone engine last reported; always false for a turned-off device).
         last_registered_at:
           type: string
           format: date-time

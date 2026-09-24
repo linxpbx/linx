@@ -26,6 +26,7 @@ Filled in as each component lands (Phase 1). Every method must be verified by ch
 | coturn | _Phase 1_ | |
 | LiveKit / livekit-sip | _Phase 1_ | |
 | Web/API (control plane) | _Phase 1_ (Go: re-read on `tls.Config.GetCertificate`) | No |
+| Control plane's ARI websocket (internal CA, not certd) | Its own 24 h step-ca certificate, re-issued in the process at two-thirds of its lifetime and served through `tls.Config.GetCertificate` (`internal/stepca`, Phase 1B step 4). Nothing to reload; Asterisk's open connection keeps working and the next reconnect sees the new certificate | No |
 
 ## Checking by hand
 - `docker compose logs certd`: shows "certificate deployed" or "certificate is current".

@@ -3,6 +3,7 @@ module linxpbx.com/linx
 go 1.27.1
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/go-acme/lego/v4 v4.35.2
 	github.com/go-jose/go-jose/v4 v4.1.4

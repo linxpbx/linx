@@ -16,7 +16,7 @@ const sipPort = 5061
 func toDevice(d pbx.Device) Device {
 	out := Device{
 		Id: d.ID, ExtensionId: d.ExtensionID, Name: d.Name, Kind: DeviceKind(d.Kind), SipUsername: d.SIPUsername,
-		Enabled: d.Enabled, LastRegisteredAt: d.LastRegisteredAt, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
+		Enabled: d.Enabled, Online: d.Online && d.Enabled, LastRegisteredAt: d.LastRegisteredAt, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 		Etag: pbx.ETag(d.Version),
 	}
 	if d.LastRegisteredFrom != nil {

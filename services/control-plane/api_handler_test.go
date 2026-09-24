@@ -39,6 +39,7 @@ type testEnv struct {
 	alStore  *fakeAlertStore
 	pbx      *pbx.Service
 	pbxStore *fakePbxStore
+	calls    *fakeCalls
 }
 
 // testResolver answers the host names the webhook tests use, so no test
@@ -92,7 +93,8 @@ func newTestEnv(t *testing.T) *testEnv {
 	pb := newFakePbxStore()
 	pbxSvc := &pbx.Service{Store: pb, Now: time.Now, Domain: "linx.example.com"}
 
-	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc)
+	calls := &fakeCalls{connected: true}
+	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, calls)
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}
@@ -102,7 +104,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return &testEnv{t: t, srv: srv, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al,
-		pbx: pbxSvc, pbxStore: pb}
+		pbx: pbxSvc, pbxStore: pb, calls: calls}
 }
 
 // newCredential stores a key or client made by the server-side CLI and

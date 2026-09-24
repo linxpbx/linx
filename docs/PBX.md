@@ -15,7 +15,7 @@ New container `linx-asterisk`:
 
 | Topic | Choice |
 |---|---|
-| Image | Built by Linx CI from the official Asterisk **22 LTS** release tarball (22.4 or later, for ARI outbound websockets). The tarball's signature is checked against Sangoma's published key, and its SHA-256 is pinned in the Dockerfile. Base: `debian:bookworm-slim`, pinned by digest. |
+| Image | Built by Linx CI from the official Asterisk **22 LTS** release tarball (22.5 or later, for ARI outbound websockets). The tarball's signature is checked against Sangoma's published key, and its SHA-256 is pinned in the Dockerfile. Base: `debian:bookworm-slim`, pinned by digest. |
 | Modules | Only what Linx uses (`menuselect`): PJSIP, SRTP, ODBC realtime, ARI, dialplan basics, `app_echo`, `func_odbc`, Opus/G.722/G.711 passthrough. No chan_sip, AGI, AMI-over-network, telephony cards or add-ons. |
 | Runs as | User `asterisk` (non-root), read-only root filesystem, all capabilities dropped, `no-new-privileges`. Writable: a `asterisk-state` volume (its own small local database: registrations), `/tmp`, run dir. |
 | Config | `/etc/asterisk/*.conf` rendered at container start by a small Linx entrypoint (Go, same binary style as certd). Settings come from environment variables and Docker secrets, never edited by hand. |
@@ -46,7 +46,9 @@ The `asterisk` schema holds **views only**: `ps_endpoints`, `ps_aors`, `ps_auths
   - device "last registered" and online state (`GET /devices` shows it),
   - webhook events `call.started`, `call.answered`, `call.ended` (from, to, duration; no audio, no content),
   - a place for Phase 2's push-wake (the dialplan will then hand extension calls to the app, as in ARCHITECTURE §4.2).
-- ARI's REST side listens on `linx-private` only, over TLS with a step-ca certificate. The ARI user's password is a new Docker secret `linx_ari_password` (a deviation from the "mTLS for ARI" plan: Asterisk's HTTP server can't check client certificates, same as step-ca, THREAT_MODEL residual risks).
+- **As built:** REST requests travel over the same websocket (ARI REST over websocket), so Asterisk's HTTP server stays off and nothing in the Asterisk container listens for ARI. The control plane serves `wss://linx-ari:8089/ari` on `linx-private` only (`linx-ari` is a network alias there, and the listener binds that network's address), with a 24 h certificate from step-ca's `linx-services` provisioner that renews itself; Asterisk checks it against the internal CA's root (compose mounts only the CA volume's `certs` folder) and presents `linx_ari_password`. Its REST access is a read-only ARI user (ADR-034 "As built").
+- **What the control plane derives:** device online state and `last_registered_at/from` from registration events (a phone whose TLS connection closes is signed out at once); calls from channel and `Dial` events. `call.started` → `call.answered` (only when a *device* answers; carries `answered_by`) → `call.ended` with `outcome` (`answered`, `missed`, `not_available`, `not_in_use`, `echo_test`) and `duration_seconds` (talk time), plus `call.missed` (same data) when devices rang and nobody answered. Every call event carries the same `id`, `from` (extension, device id, name) and `to` (the number dialled). `GET /calls/active` lists live calls with `state` `ringing`, `answered` or `system` (Linx itself answered: echo test or a message), plus `phone_engine_connected`. After a reconnect, the control plane reads Asterisk's channels and catches up: calls that ended meanwhile get their `call.ended`, calls that started meanwhile are tracked without a late `call.started`.
+- **Prompts:** English GSM prompts (`ss-noservice`, `vm-nobodyavail`), pinned by SHA-256 in the image. Asterisk can't encode Opus (passthrough only), so a phone that offers *only* Opus hears silence instead of a message; phones that also offer G.722 or G.711 (every common softphone) hear it. To check in the demo.
 - **Go libraries:** a small hand-written ARI client (REST with `net/http`, events over the websocket), plus `github.com/coder/websocket` (ISC), which the client WSS events channel will reuse later. The existing Go ARI library (`CyCoreSystems/ari`, Apache-2.0) pulls in NATS and a large dependency tree for features Linx doesn't need.
 
 ## 5. API in this slice
@@ -77,7 +79,7 @@ On a fresh Ubuntu 24.04 server: `linx doctor` all green; create extensions `101`
 1. **Asterisk image:** Dockerfile (signed-source build, minimal modules), config entrypoint, compose service, health check, CI build + Trivy + cosign, `docs/ops/CERT_RELOAD.md` row. *(Sonnet)*
 2. **Realtime data:** migration `0005`, `asterisk` schema views, `linx_asterisk` role + installer secret, ODBC config, a Docker test that Asterisk loads an endpoint from Postgres and can't read anything else. *(Sonnet)*
 3. **API:** `/extensions`, `/devices`, SIP credential generation (ADR-033), events, audit. *(Sonnet)*
-4. **Calls:** dialplan (ring-all, `*43`, not-available messages), ARI outbound websocket, ARI client, device online state, call events, `/calls/active`, SIPp suite in `make test-docker`. *(Opus: hardest integration)*
+4. **Calls:** dialplan (ring-all, `*43`, not-available messages), ARI outbound websocket, ARI client, device online state, call events, `/calls/active`, SIPp suite in `make test-docker`. *(Opus: hardest integration)* — **done 2026-09-24** (`make test-calls`; CI runs it on the amd64 Asterisk image).
 5. **Setup and doctor:** `linx setup` renders LAN ACL + nftables + port publishing, installs the new secrets; `linx doctor` PBX checks. *(Sonnet)*
 6. **Review + docs:** security review, threat model, `docs/DEMO_PHASE1B.md`. *(Opus)*
 

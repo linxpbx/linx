@@ -3,8 +3,8 @@
 // (API keys, OAuth client credentials, scopes, rate limits), webhooks
 // (outbox worker, SSRF-guarded delivery, delivery log) and admin alerts
 // (engine, six channels, first sources; docs/API.md §8). Phase 1B so far:
-// extensions/devices and the linx_asterisk realtime role Asterisk reads
-// over ODBC (docs/PBX.md §8 step 2).
+// extensions/devices, the linx_asterisk realtime role Asterisk reads over
+// ODBC, and the ARI app Asterisk connects out to (ari.go; docs/PBX.md §4).
 //
 // `control-plane api-key ...` is the server-side key tool that `linx api-key`
 // runs inside this container (apikey_cmd.go); `control-plane healthcheck` is
@@ -122,6 +122,8 @@ func main() {
 	engine := &alert.Engine{Store: st, Sender: alertSender, Log: log}
 
 	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
+	// The ARI app: device online state, call webhooks, /calls/active.
+	tracker := &pbx.CallTracker{Store: st, Log: log, Now: time.Now}
 
 	// "webhook endpoint disabled" (docs/API.md §5): fired whether the
 	// worker turned it off automatically or an admin did, resolved once
@@ -170,12 +172,20 @@ func main() {
 	runBackground(func(ctx context.Context) {
 		pollCertd(ctx, &http.Client{Timeout: 10 * time.Second}, engine, tenant, certdPollInterval, log)
 	})
+	stopARI, err := startARI(bgCtx, ariConfigFromEnv(os.Getenv), tracker, log, runBackground)
+	if err != nil {
+		log.Error("ARI setup failed", "err", err)
+		stopBackground()
+		bg.Wait()
+		os.Exit(1)
+	}
 	defer func() {
+		stopARI()
 		stopBackground()
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, tracker)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)

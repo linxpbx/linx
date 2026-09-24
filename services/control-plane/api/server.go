@@ -29,13 +29,21 @@ type Server struct {
 	webhooks *webhook.Service
 	alerts   *alert.Service
 	pbx      *pbx.Service
+	calls    CallSource
 	now      func() time.Time
+}
+
+// CallSource is the live call state /calls/active reports (the control
+// plane's pbx.CallTracker).
+type CallSource interface {
+	ActiveCalls() []pbx.ActiveCall
+	Connected() bool
 }
 
 // NewServer builds a Server. spec is served as-is at GET /openapi.json, so
 // callers must pass the same document the server was validated against.
-func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service) *Server {
-	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, now: time.Now}
+func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls CallSource) *Server {
+	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, calls: calls, now: time.Now}
 }
 
 func (s *Server) GetOpenapiSpec(_ context.Context, _ GetOpenapiSpecRequestObject) (GetOpenapiSpecResponseObject, error) {

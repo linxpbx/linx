@@ -12,10 +12,11 @@ import (
 	"linxpbx.com/linx/internal/hostinfo"
 )
 
-// Minimum Docker versions Linx supports.
+// Minimum Docker versions Linx supports. Compose 2.30 for volume subpath
+// mounts (compose.yaml mounts only the internal CA volume's certs folder).
 var (
 	MinEngine  = [3]int{27, 0, 0}
-	MinCompose = [3]int{2, 24, 0}
+	MinCompose = [3]int{2, 30, 0}
 )
 
 // dockerKey is Docker's apt signing key, pinned in the binary rather than

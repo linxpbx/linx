@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!-- Out-of-call scenario for register.xml: rings and never answers, until
+     Linx gives up (CANCEL). -->
+<scenario name="ring">
+  <Global variables="user"/>
+  <!-- Asterisk's keep-alive checks (qualify) land here too. -->
+  <recv request="OPTIONS" optional="true" next="options"/>
+  <recv request="INVITE">
+    <action>
+      <ereg regexp="([0-9]+) INVITE" search_in="hdr" header="CSeq:" assign_to="dummy,invcseq"/>
+    </action>
+  </recv>
+  <send>
+    <![CDATA[
+      SIP/2.0 180 Ringing
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag01[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:[$user]@[local_ip]:[local_port];transport=tls>
+      Content-Length: 0
+    ]]>
+  </send>
+  <recv request="CANCEL"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag01[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+    ]]>
+  </send>
+  <send>
+    <![CDATA[
+      SIP/2.0 487 Request Terminated
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag01[call_number]
+      [last_Call-ID:]
+      CSeq: [$invcseq] INVITE
+      Content-Length: 0
+    ]]>
+  </send>
+  <recv request="ACK"/>
+  <nop next="end"/>
+  <label id="options"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag02[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+    ]]>
+  </send>
+  <label id="end"/>
+  <Reference variables="dummy"/>
+</scenario>

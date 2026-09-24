@@ -1,0 +1,33 @@
+{
+  "brand": "Linx",
+  "color": {
+    "primary": { "cobalt": "#1F5FD6", "onDark": "#7FB0FF" },
+    "neutral": { "ink": "#17191E", "ink2": "#4A4F57", "ink3": "#626770", "ivory": "#F4F3EF", "surface": "#FFFFFF", "line": "#E2E0D9", "callScreen": "#14171C" },
+    "action": { "answer": "#1E8E4E", "end": "#C53030" },
+    "status": {
+      "available": "#1E8E4E",
+      "onCall": "#C53030",
+      "ringing": "#B7701A",
+      "inMeeting": "#1F5FD6",
+      "away": "#A88714",
+      "dnd": "#7340C4",
+      "reachableViaPush": "#5E7896",
+      "offline": "#8C9198"
+    }
+  },
+  "font": {
+    "display": "Instrument Sans",
+    "body": "IBM Plex Sans",
+    "mono": "IBM Plex Mono",
+    "arabic": "IBM Plex Sans Arabic"
+  },
+  "radius": { "sm": 8, "md": 12, "lg": 16, "xl": 20, "pill": 999 },
+  "logo": {
+    "markPaths": ["M28 14 Q72 50 28 86", "M72 14 Q28 50 72 86"],
+    "viewBox": "0 0 100 100",
+    "strokeWidth": 12,
+    "lineCap": "round",
+    "wordmark": "lin + mark as the x, Instrument Sans Bold, tight spacing",
+    "arabicName": "لِنكس"
+  }
+}

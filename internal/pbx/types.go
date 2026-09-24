@@ -51,10 +51,13 @@ type Device struct {
 	SIPUsername               string
 	DigestHash                string
 	Enabled                   bool
-	LastRegisteredAt          *time.Time
-	LastRegisteredFrom        *netip.Addr
-	Version                   int
-	CreatedAt, UpdatedAt      time.Time
+	// Online is whether it's signed in right now, as Asterisk last reported
+	// (the call tracker keeps it current).
+	Online               bool
+	LastRegisteredAt     *time.Time
+	LastRegisteredFrom   *netip.Addr
+	Version              int
+	CreatedAt, UpdatedAt time.Time
 }
 
 // Store is the database access extensions and devices need

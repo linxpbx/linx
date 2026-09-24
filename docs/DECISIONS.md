@@ -407,6 +407,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Calls keep ringing through a control-plane restart; only call webhooks pause. One new Go dependency. Phase 2 moves extension calls into the ARI app for push-wake, with the dialplan as the fallback when the app isn't connected.
 
+**As built (Phase 1B step 4, 2026-09-24).** Asterisk 22.5+ also carries ARI's REST requests over the same outbound websocket ("REST over websocket"), so Asterisk's HTTP server stays **off**: nothing in the Asterisk container listens for ARI at all, which removes the "ARI REST listener" this ADR planned. The TLS certificate therefore sits on the other end: the control plane serves `wss://linx-ari:8089/ari` with a 24 h certificate from step-ca's `linx-services` provisioner (`internal/stepca`, a small JWK-provisioner client on go-jose, renewed at two-thirds of its lifetime), and Asterisk checks it against the internal CA's root and the hostname. `linx-ari` is a network alias on `linx-private` only, and the listener binds that network's address only. Asterisk proves itself with `linx_ari_password` (HTTP Basic over that TLS). Its REST access is a read-only ARI user: the control plane can look at calls but not change them in this slice. Asterisk ≥ 22.5, not 22.4, is when outbound websockets arrived.
+
 ## ADR-035 — First test phones (owner decision, 2026-09-24)
 
 **Context.** The web client and TURN come in the next slice. The phone engine needs to be tested with real phones now.

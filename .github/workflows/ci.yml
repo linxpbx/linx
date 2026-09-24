@@ -175,7 +175,7 @@ jobs:
     name: images (asterisk, ${{ matrix.arch }})
     needs: [test, security]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write # push to ghcr.io by digest (master only)
@@ -219,6 +219,21 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+
+      # The phone engine's call suite (docs/PBX.md §7) against the image just
+      # built: real Asterisk and Postgres, SIPp phones over TLS + SRTP, and
+      # the control plane's ARI app (internal/calltest). The test job's
+      # `make test-docker` skips it, having no Asterisk image.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.arch == 'amd64'
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - name: Call suite
+        if: matrix.arch == 'amd64'
+        env:
+          LINX_ASTERISK_IMAGE: linx-asterisk:amd64
+        run: make test-calls
 
       - name: Log in to GitHub Container Registry
         if: env.PUBLISH == 'true'

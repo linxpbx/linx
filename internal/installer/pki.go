@@ -72,6 +72,7 @@ func PKIPlan(exists bool) PKISetup {
 		s.Plan = append(s.Plan, st)
 	}
 	if exists {
+		s.Plan = append(s.Plan, caCertsReadableStep())
 		return s
 	}
 
@@ -96,6 +97,17 @@ func PKIPlan(exists bool) PKISetup {
 		cmdStep("Make the root key backup readable by root only", "chown", "-R", "root:root", CABackupDir),
 	)
 	return s
+}
+
+// caCertsReadableStep lets Linx services read the CA's public certificates
+// (the root they verify internal TLS against). CAs made before Phase 1B had
+// them owner-only; ca-init.sh does this itself for new ones, so it's a no-op
+// there.
+func caCertsReadableStep() Step {
+	return cmdStep("Let the Linx services read the internal certificate authority's public certificates",
+		"docker", "run", "--rm", "--network", "none", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--volume", StepCAVolume+":/home/step", "--entrypoint", "sh", StepCAImage,
+		"-c", "chmod 0755 /home/step/certs && chmod 0644 /home/step/certs/*.crt")
 }
 
 var secretTitle = map[string]string{

@@ -35,6 +35,10 @@ const (
 	// both the control plane (to set the role's password) and Asterisk (to
 	// connect as it).
 	AsteriskDBPasswordPath = SecretsDir + "/linx_asterisk_db_password"
+	// ARIPasswordPath is the password Asterisk presents when it connects
+	// out to the control plane's ARI websocket (ADR-034; Docker secret
+	// linx_ari_password), read by both.
+	ARIPasswordPath = SecretsDir + "/linx_ari_password"
 	// nonrootGID is the distroless "nonroot" group that Linx service images
 	// run as. The DNS token is root-owned and readable by this group only.
 	nonrootGID = 65532
@@ -79,6 +83,9 @@ func StackPlan(c Config, dnsToken, imageTag string) StackSetup {
 	asteriskDBPasswordStep := fileStep("Save the phone system's database password (readable by root and the Linx services only)",
 		AsteriskDBPasswordPath, []byte(existingOrNewPassword(AsteriskDBPasswordPath)), 0o440, 0o700)
 	asteriskDBPasswordStep.File.Gid = nonrootGID
+	ariPasswordStep := fileStep("Save the phone system's control connection password (readable by root and the Linx services only)",
+		ARIPasswordPath, []byte(existingOrNewPassword(ARIPasswordPath)), 0o440, 0o700)
+	ariPasswordStep.File.Gid = nonrootGID
 	kind := "trusted certificate"
 	if c.Certificates.Staging {
 		kind = "test certificate"
@@ -91,6 +98,7 @@ func StackPlan(c Config, dnsToken, imageTag string) StackSetup {
 			dbKeyStep,
 			jwtKeyStep,
 			asteriskDBPasswordStep,
+			ariPasswordStep,
 			fileStep("Write the Linx services configuration", stackFile, compose.File, 0o644, 0o755),
 			fileStep("Write the Linx settings for "+c.Domain.Name, stackEnv, stackDotEnv(c, imageTag), 0o644, 0o755),
 			cmdStep("Download the Linx service images", "docker", append(dc, "pull", "--quiet")...),

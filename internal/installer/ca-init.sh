@@ -40,4 +40,7 @@ step ca provisioner add linx-devices --ca-config "$ca_config" --type JWK --creat
   --x509-min-dur 5m --x509-max-dur 168h --x509-default-dur 168h --ssh=false
 
 test ! -e secrets/root_ca_key
+# The public certificates are for every Linx service to read (compose.yaml
+# mounts just this folder); the umask above made them owner-only.
+chmod 0755 certs && chmod 0644 certs/*.crt
 cp /tmp/root_ca.crt /tmp/root_ca_key /backup/

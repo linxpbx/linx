@@ -179,12 +179,12 @@ func (s *Store) DeleteExtension(ctx context.Context, tenant, id uuid.UUID, at ti
 }
 
 const deviceColumns = `id, tenant_id, extension_id, name, kind, sip_username, digest_hash, enabled,
-	last_registered_at, last_registered_from, version, created_at, updated_at`
+	online, last_registered_at, last_registered_from, version, created_at, updated_at`
 
 func scanDevice(row pgx.Row) (pbx.Device, error) {
 	var d pbx.Device
 	err := row.Scan(&d.ID, &d.TenantID, &d.ExtensionID, &d.Name, &d.Kind, &d.SIPUsername, &d.DigestHash, &d.Enabled,
-		&d.LastRegisteredAt, &d.LastRegisteredFrom, &d.Version, &d.CreatedAt, &d.UpdatedAt)
+		&d.Online, &d.LastRegisteredAt, &d.LastRegisteredFrom, &d.Version, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, pbx.ErrNotFound
 	}

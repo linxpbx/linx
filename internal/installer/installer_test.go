@@ -111,7 +111,7 @@ func TestVersionLess(t *testing.T) {
 		want bool
 	}{
 		{"27.0.0", false}, {"28.1.1", false}, {"26.1.5", true}, {"20.10.24+dfsg1", true},
-		{"27.5.1-0ubuntu3~24.04.2", false}, {"v2.29.7", false}, {"2.3", true},
+		{"27.5.1-0ubuntu3~24.04.2", false}, {"v2.29.7", true}, {"v2.30.3", false}, {"2.3", true},
 	}
 	for _, tt := range tests {
 		min := MinEngine

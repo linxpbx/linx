@@ -47,13 +47,17 @@ func TestPKIPlanBootstrap(t *testing.T) {
 
 func TestPKIPlanExistingCA(t *testing.T) {
 	s := PKIPlan(true)
-	if s.Passphrase != "" || len(s.Plan) != 3 {
-		t.Errorf("existing CA: passphrase %q, %d steps; want only the 3 secrets", s.Passphrase, len(s.Plan))
+	if s.Passphrase != "" || len(s.Plan) != 4 {
+		t.Errorf("existing CA: passphrase %q, %d steps; want the 3 secrets and the certificate permissions", s.Passphrase, len(s.Plan))
 	}
-	for _, st := range s.Plan {
+	for _, st := range s.Plan[:3] {
 		if st.File == nil {
 			t.Errorf("unexpected step %q", st.Title)
 		}
+	}
+	if last := s.Plan[len(s.Plan)-1]; last.Cmd == nil || !strings.Contains(last.Cmd.String(), "chmod 0644 /home/step/certs/*.crt") ||
+		!strings.Contains(last.Cmd.String(), StepCAVolume+":/home/step") {
+		t.Errorf("last step should make the CA's certificates readable: %+v", last)
 	}
 }
 
