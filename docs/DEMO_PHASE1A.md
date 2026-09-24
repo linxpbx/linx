@@ -33,7 +33,11 @@ Open the repository → **Actions** → the latest **CI** run on master.
 - [ ] Under **Packages**, `linx-control-plane` has an image tagged `sha-<that commit>`.
 
 ## 4. Install on a fresh server
-Follow steps 1–3 of [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md) with the commit CI just built.
+Follow steps 1–3 of [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md) with the commit CI just built. Before running setup, check the server has that build (setup installs whatever version the program was built from):
+```
+./linx version    # shows the commit CI just built
+./linx help       # lists api-key
+```
 - [ ] Setup ends with "Linx is running" and "Test certificate issued for *.lab.linxpbx.com".
 ```
 sudo docker compose --file /etc/linx/compose.yaml ps
@@ -155,9 +159,9 @@ sudo docker exec linx-postgres psql -U linx -d linx -c \
 ```
 sudo docker stop linx-control-plane
 sudo ./linx doctor; echo "exit code $?"
-sudo docker compose --file /etc/linx/compose.yaml up --detach
+sudo ./linx doctor; echo "exit code $?"
 ```
-- [ ] It reports a `problem`: the API service isn't running (it's exited), with a `Fix:` line, and exit code 1. After `up`, within a minute doctor is all green again.
+- [ ] It reports a `problem`: the API service isn't running (it's exited), with a `Fix:` line, and exit code 1. After `up`, within a minute doctor is all green again. (Don't skip the `up` line: section 10 needs the API service running.)
 
 ## 10. Clean up
 ```
@@ -169,3 +173,5 @@ Then follow "Clean up" in [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md), delete t
 
 ## Results
 Add one line per run: date, server, commit, passed or what failed.
+
+- 2026-09-24, Ubuntu 24.04 VM (the Phase 0 server, cleaned and reused; Docker already installed), commit `a6effa3`: **passed.** Every check matched. `linx doctor` was all green with one API key and one alert channel; the signed test webhook arrived on webhook.site; the "webhook turned off" alert reached ntfy after the 5-minute hold-back and its resolved message followed; the database spot checks were all 0. Two operator slips on the way, not defects (both now called out above): the first setup used a `linx` built before step 3, and the API service stayed stopped after the doctor test until `up` was run. CI had been red for steps 4–6 without being noticed (a Linux-only test timing bug and two secret-scanner false positives); fixed in `a6effa3` before this run.
