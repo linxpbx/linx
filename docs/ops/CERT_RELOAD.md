@@ -22,7 +22,7 @@ Filled in as each component lands (Phase 1). Every method must be verified by ch
 
 | Component | Method | Drops calls? |
 |---|---|---|
-| Asterisk (PJSIP TLS/WSS) | _Phase 1_ | |
+| Asterisk (PJSIP TLS/WSS) | `pjsip.conf`'s transport points straight at `current/{fullchain,privkey}.pem` (`internal/asteriskconf`, Phase 1B step 1). A running container needs `pjsip reload` after renewal; nothing triggers that yet — a renewal only takes effect on the container's next restart until a watcher is added (later step) | _Not yet verified_ |
 | coturn | _Phase 1_ | |
 | LiveKit / livekit-sip | _Phase 1_ | |
 | Web/API (control plane) | _Phase 1_ (Go: re-read on `tls.Config.GetCertificate`) | No |

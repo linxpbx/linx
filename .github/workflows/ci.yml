@@ -88,7 +88,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [control-plane, certd]
+        include:
+          - { service: control-plane, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=control-plane" }
+          - { service: certd, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=certd" }
+          - { service: asterisk, dockerfile: deploy/docker/asterisk.Dockerfile, build-args: "" }
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/linx-${{ matrix.service }}
       PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
@@ -102,9 +105,9 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: deploy/docker/go-service.Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
-          build-args: SERVICE=${{ matrix.service }}
+          build-args: ${{ matrix.build-args }}
           load: true
           tags: linx-${{ matrix.service }}:scan
           cache-from: type=gha,scope=${{ matrix.service }}
@@ -141,10 +144,10 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: deploy/docker/go-service.Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           build-args: |
-            SERVICE=${{ matrix.service }}
+            ${{ matrix.build-args }}
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
           push: ${{ env.PUBLISH == 'true' }}

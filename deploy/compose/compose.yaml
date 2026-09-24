@@ -92,6 +92,35 @@ services:
     mem_limit: 256m
     pids_limit: 128
 
+  # Phone engine (docs/PBX.md): Asterisk 22, pjsip. Reads extensions and
+  # devices straight from Postgres through the asterisk schema's realtime
+  # views (linx_asterisk role, added Phase 1B step 2); no cache, so a
+  # revoked device stops at once. LAN-only SIP/RTP ports and the ARI
+  # websocket to control-plane arrive with steps 4 and 5 — this image just
+  # brings the container and its TLS transport up.
+  asterisk:
+    image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-asterisk:${LINX_VERSION:?set by linx setup}
+    container_name: linx-asterisk
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Reads the certs volume's privkey.pem (docs/ops/CERT_RELOAD.md).
+    group_add: ["65532"]
+    volumes:
+      - asterisk-state:/var/lib/asterisk
+      - certs:/var/lib/linx/certs:ro
+    tmpfs: [/etc/asterisk, /var/run/asterisk, /tmp]
+    networks: [linx-private, linx-public]
+    healthcheck:
+      test: [CMD, asterisk, -rx, "core show uptime"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 256m
+    pids_limit: 512
+
   # Internal certificate authority (ADR-011, docs/ops/INTERNAL_CA.md). linx
   # setup creates it in the linx-step-ca volume; the root key isn't on the server.
   step-ca:
@@ -142,6 +171,7 @@ volumes:
   certd-state:
   certs:
   postgres-data:
+  asterisk-state:
   step-ca:
     name: linx-step-ca
     external: true # created by linx setup
