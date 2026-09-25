@@ -7,7 +7,7 @@ A hand-run check that the web client (`docs/WEB.md` §8, steps 1–8) does what 
 The examples use `lab.linxpbx.com`, a server at `192.168.1.50` and Pangolin at `192.168.1.20`. Use your own.
 
 ## You need
-- Everything under "You need" in [`DEMO_PHASE1B.md`](DEMO_PHASE1B.md): the server on your home network (bridged VM), a Cloudflare token, Linphone on a second device, webhook.site open in a tab.
+- Everything under "You need" in [`DEMO_PHASE1B.md`](DEMO_PHASE1B.md): the server on your home network (bridged VM), a Cloudflare token, Linphone on a second device, webhook.site open in a tab. Use a **fresh** webhook.site address: a free one stops accepting requests after a limit (Linx then retries on its own schedule: 5 s, 5 min, 30 min, …).
 - **Your Pangolin at home**, with your router sending **TCP 443** to it, and a way to edit its files (SSH to the Pangolin machine).
 - **Router access**, to forward **UDP 443** (or 3478) to the Linx server.
 - **A laptop** (your Mac) with Chrome or Safari, and **a phone** (your iPhone) with Safari, whose Wi-Fi you can turn off (mobile data).
@@ -68,7 +68,7 @@ sudo linx doctor
 On your laptop (it reaches Linx through Pangolin like anyone outside):
 ```
 # on the server
-sudo linx api-key create --name "Demo" --role admin --scopes all,devices:write
+sudo linx api-key create --name "Demo" --role admin --scopes all,devices:write,users:write
 
 # on the laptop
 KEY='linx_...'
@@ -88,7 +88,7 @@ sudo linx user create --email you@example.com  --name "Laptop Person" --role adm
 sudo linx user create --email you+phone@example.com --name "Phone Person" --role user --extension 102
 ```
 - [ ] The alert channel and three extensions are created. Each `linx user create` prints a link `https://meet.lab.linxpbx.com/setup/…` that works once, for 24 hours.
-- [ ] Linphone (on the home Wi-Fi) signs in with the 103 settings exactly as in Phase 1B, SRTP mandatory.
+- [ ] Linphone (on the home Wi-Fi) signs in with the 103 settings exactly as in Phase 1B, **Media encryption: SRTP**, mandatory. (With "None", calls *to* Linphone work but its own calls fail: Linx refuses unencrypted audio, `Couldn't negotiate stream` in Asterisk's log.)
 
 ## 8. Sign in on the laptop (admin, with an authenticator)
 Open the **Laptop Person** link in Chrome on the laptop.
@@ -120,6 +120,16 @@ Turn the iPhone's **Wi-Fi off**. Send yourself the **Phone Person** link and ope
 - [ ] **Do not disturb:** set the laptop person to Do not disturb; the phone calls `101` and hears "nobody is available". Set it back.
 
 ## 11. UDP blocked on the laptop (TURN over TLS on 443)
+If the laptop is reached by remote desktop (UDP-based, e.g. Jump Desktop Fluid) or the browser is on an iPad, block UDP on the **server** from the phone's mobile address instead (`https://1.1.1.1/cdn-cgi/trace` on the phone shows it as `ip=`), and call with the phone on mobile data:
+```
+sudo nft add table inet linxdemo
+sudo nft add chain inet linxdemo pre '{ type filter hook prerouting priority -300; }'
+sudo nft add rule inet linxdemo pre ip saddr PHONE_IP meta l4proto udp counter drop
+# call; the phone's chip says Relayed; the counter is above 0:
+sudo nft list table inet linxdemo
+sudo nft delete table inet linxdemo
+```
+Otherwise, on the laptop:
 On the laptop, block every UDP packet except DNS:
 ```
 echo 'block drop out quick proto udp from any to any port != 53' | sudo pfctl -ef -
@@ -150,7 +160,7 @@ After the wait (a few minutes; up to the time it names), the phone person signs 
 
 ## 13. Signing out drops the line at once
 On the phone, open the menu and **Sign out** (not during a call).
-- [ ] On the laptop, Team shows 102 offline within a second or two, and webhook.site gets `device.revoked` for the phone's browser line.
+- [ ] On the laptop, Team shows 102 offline within a second or two (and, only with a webhook subscription as in Phase 1B's step 6, webhook.site gets `device.revoked` for the phone's browser line).
 - [ ] The laptop calls `102`: "nobody is available".
 
 The server ends it too, not just the page. Sign the phone person in again, then from the laptop disable them (id from `sudo linx user list`):
@@ -191,3 +201,5 @@ Remove the Linx block from Pangolin's `dynamic_config.yml` (put HTTP/3 back if y
 
 ## Results
 Add one line per run: date, server, commit, passed or what failed.
+
+- 2026-09-25, Ubuntu 24.04 VM (bridged, 192.168.1.212), `pbx.mym.ae` via Cloudflare with a trusted certificate, Pangolin at home (192.168.1.211, Traefik 3.7) behind a UniFi router; laptop person on an iPad (Safari), phone person on an iPhone (Safari, mobile data), Linphone on the iPhone: **passed** on commit `6310c39`. Every exit check: doctor all green through Pangolin; iPad ↔ iPhone both ways (iPhone "Relayed", iPad "Direct", 4–75 ms); browser ↔ Linphone both ways; `*43` in Opus; with UDP from the phone dropped on the server (24 packets), the call connected over TURN/TLS on 443 through Pangolin; the lockout, the "someone is guessing a password" alert delivered 5 minutes later and its resolved notice; disabling the person dropped the line at once; `sign_in_unfinished` for the authenticator-bypass check; headers, certificate passed through, web port refused to anyone but Pangolin, ports, secrets and audit log. Found and fixed during the run: newer Pangolin already has a `tcp:` section in `dynamic_config.yml`, so appending Linx's made a second and Traefik ignored the file (steps now say to merge; doctor recognises Traefik's placeholder certificate, `8f685ec`); a UniFi port-forward concern led to an optional UDP port for call audio (`a3866aa`, not needed in the end); a used set-password link showed the password form and only failed on submit, now "This link can't be used" at once (`6310c39`, owner request). Checklist corrections (this file): the API key needs `users:write` to disable a person; start with a fresh webhook.site address (the first hit its free limit: 429; Linx's retry to a new address delivered); Linphone must be set to SRTP, not None; a server-side UDP block when the laptop can't block UDP itself. Operator notes, not defects: four authenticator codes refused in a row once (the same entry worked before and after; cause not found); "Away" doesn't stop ringing, "Do not disturb" does. Improvements noted for after the demo: audit failed sign-ins and codes; `linx user unlock`; an expired half-finished sign-in returns to the password page, and "Start over" on the code page; enforce each authenticator code once (docs/WEB.md says so, not built); the browser suite gains a softphone → browser call.
