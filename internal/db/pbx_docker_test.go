@@ -86,16 +86,32 @@ func TestAsteriskRealtimeDocker(t *testing.T) {
 	}
 
 	// A browser's device (Phase 1C, migration 0011): the websocket and WebRTC
-	// media; the phone above keeps TLS and SDES. Opus first for both.
-	webExt := uuid.New()
+	// media; the phone above keeps TLS and SDES. Opus first for both. It
+	// belongs to a signed-in person's session (migration 0013).
+	webExt, webUser, webSession := uuid.New(), uuid.New(), uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO extension (id, tenant_id, number, display_name, created_at, updated_at)
 		VALUES ($1, $2, '102', 'Dana', $3, $3)`, webExt, tenant, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO device (id, tenant_id, extension_id, name, kind, sip_username, digest_hash, created_at, updated_at)
-		VALUES ($1, $2, $3, 'Browser', 'web', 'd_w3bw3bw3', '0123456789abcdef0123456789abcdef', $4, $4)`,
-		uuid.New(), tenant, webExt, now); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO app_user (id, tenant_id, email, name, role, extension_id, password_hash,
+		password_updated_at, created_at, updated_at) VALUES ($1, $2, 'dana@example.com', 'Dana', 'user', $3, 'x', $4, $4, $4)`,
+		webUser, tenant, webExt, now); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO user_session (id, tenant_id, user_id, role, token_hash, csrf_hash, mfa_verified,
+		created_at, expires_at, idle_expires_at, last_seen_at, user_agent) VALUES ($1, $2, $3, 'user', $6, $7, true, $4, $5, $5, $4, '')`,
+		webSession, tenant, webUser, now, now.Add(time.Hour), make([]byte, 32), make([]byte, 32)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO device (id, tenant_id, extension_id, name, kind, sip_username, digest_hash, user_session_id, created_at, updated_at)
+		VALUES ($1, $2, $3, 'Browser', 'web', 'd_w3bw3bw3', '0123456789abcdef0123456789abcdef', $4, $5, $5)`,
+		uuid.New(), tenant, webExt, webSession, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO device (id, tenant_id, extension_id, name, kind, sip_username, digest_hash, created_at, updated_at)
+		VALUES ($1, $2, $3, 'Browser', 'web', 'd_n0s3ss10', '0123456789abcdef0123456789abcdef', $4, $4)`,
+		uuid.New(), tenant, webExt, now); err == nil {
+		t.Error("a web device without a session was accepted")
 	}
 	endpoint := func(id string) string {
 		var row string
@@ -137,7 +153,53 @@ func TestAsteriskRealtimeDocker(t *testing.T) {
 		t.Error("a disabled device's endpoint is still readable")
 	}
 
-	for _, table := range []string{"tenant", "extension", "device", "api_key", "webhook_endpoint", "alert_channel"} {
+	// The web device is there only while its session is live, its person
+	// is enabled and still has that extension (migration 0013): each of
+	// these makes every view drop it, and undoing it brings it back.
+	visible := func() string {
+		var e, a, o, r int
+		if err := astPool.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM asterisk.ps_endpoints WHERE id = 'd_w3bw3bw3'),
+			(SELECT count(*) FROM asterisk.ps_auths WHERE id = 'd_w3bw3bw3'),
+			(SELECT count(*) FROM asterisk.ps_aors WHERE id = 'd_w3bw3bw3'),
+			(SELECT count(*) FROM asterisk.linx_ring_targets WHERE aor = 'd_w3bw3bw3')`).Scan(&e, &a, &o, &r); err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Sprint(e, a, o, r)
+	}
+	if got := visible(); got != "1 1 1 1" {
+		t.Fatalf("live web device: %s", got)
+	}
+	otherExt := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO extension (id, tenant_id, number, display_name, created_at, updated_at)
+		VALUES ($1, $2, '103', 'Other', $3, $3)`, otherExt, tenant, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ what, change, undo string }{
+		{"session signed out", `UPDATE user_session SET revoked_at = now() WHERE id = $1`, `UPDATE user_session SET revoked_at = NULL WHERE id = $1`},
+		{"session expired", `UPDATE user_session SET expires_at = now() - interval '1 s' WHERE id = $1`, `UPDATE user_session SET expires_at = now() + interval '1 h' WHERE id = $1`},
+		{"session idle", `UPDATE user_session SET idle_expires_at = now() - interval '1 s' WHERE id = $1`, `UPDATE user_session SET idle_expires_at = now() + interval '1 h' WHERE id = $1`},
+		{"session pending MFA", `UPDATE user_session SET mfa_verified = false WHERE id = $1`, `UPDATE user_session SET mfa_verified = true WHERE id = $1`},
+		{"person disabled", `UPDATE app_user SET disabled_at = now() WHERE id = (SELECT user_id FROM user_session WHERE id = $1)`,
+			`UPDATE app_user SET disabled_at = NULL WHERE id = (SELECT user_id FROM user_session WHERE id = $1)`},
+		{"person moved to another extension", `UPDATE app_user SET extension_id = '` + otherExt.String() + `' WHERE id = (SELECT user_id FROM user_session WHERE id = $1)`,
+			`UPDATE app_user SET extension_id = '` + webExt.String() + `' WHERE id = (SELECT user_id FROM user_session WHERE id = $1)`},
+	} {
+		if _, err := pool.Exec(ctx, c.change, webSession); err != nil {
+			t.Fatal(err)
+		}
+		if got := visible(); got != "0 0 0 0" {
+			t.Errorf("%s: web device still visible (%s)", c.what, got)
+		}
+		if _, err := pool.Exec(ctx, c.undo, webSession); err != nil {
+			t.Fatal(err)
+		}
+		if got := visible(); got != "1 1 1 1" {
+			t.Fatalf("after undoing %s: %s", c.what, got)
+		}
+	}
+
+	for _, table := range []string{"tenant", "extension", "device", "api_key", "webhook_endpoint", "alert_channel", "user_session", "app_user"} {
 		if _, err := astPool.Exec(ctx, "SELECT 1 FROM "+table+" LIMIT 1"); err == nil {
 			t.Errorf("linx_asterisk could read table %s directly; want permission denied", table)
 		}

@@ -19,6 +19,7 @@ import (
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/webhook"
 )
 
@@ -31,6 +32,7 @@ type Server struct {
 	pbx      *pbx.Service
 	calls    CallSource
 	accounts *auth.Accounts
+	turn     *turn.Issuer
 	now      func() time.Time
 }
 
@@ -43,8 +45,10 @@ type CallSource interface {
 
 // NewServer builds a Server. spec is served as-is at GET /openapi.json, so
 // callers must pass the same document the server was validated against.
-func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls CallSource, accounts *auth.Accounts) *Server {
-	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, calls: calls, accounts: accounts, now: time.Now}
+// turnIssuer makes relay credentials for browsers (nil: no relay, so
+// /me/web-phone and /me/turn-credentials answer 503).
+func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer) *Server {
+	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, calls: calls, accounts: accounts, turn: turnIssuer, now: time.Now}
 }
 
 func (s *Server) GetOpenapiSpec(_ context.Context, _ GetOpenapiSpecRequestObject) (GetOpenapiSpecResponseObject, error) {

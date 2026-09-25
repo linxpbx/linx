@@ -91,6 +91,8 @@ jobs:
         include:
           - { service: control-plane, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=control-plane" }
           - { service: certd, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=certd" }
+          # The official coturn image plus Linx's Go entrypoint (ADR-039).
+          - { service: coturn, dockerfile: deploy/docker/coturn.Dockerfile, build-args: "" }
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/linx-${{ matrix.service }}
       PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}

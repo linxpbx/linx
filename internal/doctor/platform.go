@@ -30,6 +30,7 @@ func Run(ctx context.Context, env Env, cfg installer.Config) []Section {
 		{"Certificates", certificates(ctx, env, cfg)},
 		{"Database, access and alerts", Database(ctx, env)},
 		{"Phone system", Phones(ctx, env, cfg)},
+		{"Calls from outside", Relay(ctx, env)},
 		{"Secrets", Secrets(env)},
 	}
 }
@@ -171,6 +172,7 @@ var secretFiles = []struct {
 	{installer.JWTSigningKeyPath, ed25519.SeedSize, "API token signing key"},
 	{installer.AsteriskDBPasswordPath, 0, "phone system database password"},
 	{installer.ARIPasswordPath, 0, "phone system control connection password"},
+	{installer.TURNSecretPath, 0, "call relay secret"},
 	{installer.CAServicesPasswordPath, 0, "service certificate password"},
 }
 

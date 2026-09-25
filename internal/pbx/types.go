@@ -55,6 +55,9 @@ type Device struct {
 	// RevokedAt is set for good when the device is revoked (DELETE, or its
 	// extension deleted): it can never be turned back on (migration 0008).
 	RevokedAt *time.Time
+	// UserSessionID is the signed-in browser session a web device belongs
+	// to (docs/WEB.md §5); nil for every other kind.
+	UserSessionID *uuid.UUID
 	// Online is whether it's signed in right now, as Asterisk last reported
 	// (the call tracker keeps it current).
 	Online               bool
@@ -89,4 +92,19 @@ type Store interface {
 	// the audit entry in the same transaction. It returns the device as it
 	// now stands.
 	RevokeDevice(ctx context.Context, tenant, id uuid.UUID, at time.Time, audit auth.AuditEntry) (Device, error)
+
+	// IssueWebDevice gives a browser session its phone line (docs/WEB.md
+	// §5): d, a new web device for d.UserSessionID, unless the session
+	// already has one for d.ExtensionID, which then keeps its username and
+	// gets a new password instead. digest gives the password's digest hash
+	// for whichever username that is. A line the session has for another
+	// extension is revoked. It returns the device as stored.
+	IssueWebDevice(ctx context.Context, d Device, digest func(username string) string, audit auth.AuditEntry) (Device, error)
+	// WebDeviceForSession is the session's current (not revoked) web device.
+	WebDeviceForSession(ctx context.Context, session uuid.UUID) (Device, error)
+	// RevokeDeadWebDevices revokes every web device Asterisk no longer
+	// accepts (its session ended, its person was disabled or moved to
+	// another extension, ...), with a device.revoked event each, and
+	// returns them.
+	RevokeDeadWebDevices(ctx context.Context, at time.Time) ([]Device, error)
 }

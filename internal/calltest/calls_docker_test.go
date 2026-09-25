@@ -16,9 +16,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"linxpbx.com/linx/internal/ari"
+	"linxpbx.com/linx/internal/calltest/sipws"
 	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/siprelay"
 )
 
 // TestCallsDocker is docs/PBX.md §7's automated suite: sign in, wrong
@@ -27,7 +31,9 @@ import (
 // plus the echo test, calling yourself, and the call and device events the
 // control plane derives from Asterisk's ARI events. Phase 1C adds Opus
 // callers hearing messages (ADR-041) and browsers' devices signing in over
-// the secure websocket on linx-sipws (docs/WEB.md §2).
+// the secure websocket on linx-sipws (docs/WEB.md §2), and through the
+// control plane's /sip relay (docs/WEB.md §5): session-bound lines, the
+// relay's refusals, and the audio addresses Asterisk offers them.
 func TestCallsDocker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -298,6 +304,102 @@ func TestCallsDocker(t *testing.T) {
 		wrong.password = pbx.NewDevicePassword()
 		if out := e.waitWS(e.wsphone("wrong", wrong, "-want-reject")); !strings.Contains(out, "refused 401") {
 			t.Errorf("wrong password:\n%s", out)
+		}
+	})
+
+	t.Run("browsers through the control plane's relay", func(t *testing.T) {
+		gail := e.newWebPhone("107", "Gail")
+		relay, audits := e.relay(500 * time.Millisecond)
+		mediaIP := docker(t, ctx, "inspect", "--format", "{{(index .NetworkSettings.Networks \""+mediaNet+"\").IPAddress}}", astName)
+
+		// Signs in through the relay, as a page does.
+		p, _ := e.relayPhone(relay, gail, gail.password)
+		if code, err := p.Register(ctx); err != nil || code != 200 {
+			t.Fatalf("sign-in through the relay: %d %v", code, err)
+		}
+		eventually(t, "Gail online", 15*time.Second, func() bool { return online(gail) })
+
+		// A call to her: Asterisk offers her browser its audio on the relay's
+		// network (linx-media) and on the LAN address, and nowhere else.
+		call := e.sipp("to-gail", "call-message.xml", alice, "-s", "107")
+		ictx, icancel := context.WithTimeout(ctx, 30*time.Second)
+		invite, err := p.WaitRequest(ictx, "INVITE")
+		icancel()
+		if err != nil {
+			t.Fatalf("waiting for the call: %v\n%s", err, e.asteriskLogs())
+		}
+		got := map[string]bool{}
+		for _, c := range sipws.Candidates(invite) {
+			got[c] = true
+		}
+		if len(got) != 2 || !got[mediaIP] || !got[lanAddr] {
+			t.Errorf("Asterisk offers browsers %v, want only %s (relay) and %s (LAN):\n%s", got, mediaIP, lanAddr, invite)
+		}
+		if !strings.Contains(invite, "UDP/TLS/RTP/SAVPF") || !strings.Contains(invite, "a=fingerprint:") {
+			t.Errorf("not a WebRTC offer:\n%s", invite)
+		}
+		if err := p.Reply(ctx, invite, "486 Busy Here"); err != nil {
+			t.Fatal(err)
+		}
+		e.wait(call) // declined: the caller hears "not available"
+
+		// Signing out ends the line: Asterisk no longer knows the device
+		// (its views check the session), and the relay drops the connection.
+		if err := e.store.RevokeSession(ctx, gail.session.ID, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		rctx, rcancel := context.WithTimeout(ctx, 10*time.Second)
+		defer rcancel()
+		if _, err := p.WaitRequest(rctx, "NONE"); websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+			t.Errorf("relay after sign-out: %v", err)
+		}
+		if out := e.waitWS(e.wsphone("gail-after", gail, "-want-reject")); !strings.Contains(out, "refused") {
+			t.Errorf("Asterisk still accepts a signed-out line:\n%s", out)
+		}
+		// Asterisk sends no "offline" for a device that's gone from its
+		// views; the control plane's sweep revoking the line clears it.
+		if _, err := e.store.RevokeDeadWebDevices(ctx, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if online(gail) {
+			t.Error("Gail still online after her line was revoked")
+		}
+
+		// Another device's name through the relay: refused before Asterisk.
+		hal := e.newWebPhone("108", "Hal")
+		p2, conn2 := e.relayPhone(relay, hal, hal.password)
+		if _, err := p2.RegisterAs(ctx, alice.dev.SIPUsername); err == nil {
+			t.Error("the relay passed another device's sign-in")
+		}
+		conn2.CloseNow()
+		if a := <-audits; a != siprelay.ReasonNotYourLine {
+			t.Errorf("audited %q", a)
+		}
+
+		// Wrong passwords: Asterisk refuses, and the third closes the line.
+		p3, conn3 := e.relayPhone(relay, hal, "not-the-password")
+		var codes []int
+		var closedErr error
+		for range 3 {
+			code, err := p3.Register(ctx)
+			if err != nil {
+				closedErr = err
+				break
+			}
+			codes = append(codes, code)
+		}
+		conn3.CloseNow()
+		if len(codes) != 2 || codes[0] != 401 || codes[1] != 401 || closedErr == nil {
+			t.Errorf("wrong passwords: answers %v, then %v; want 401, 401, closed", codes, closedErr)
+		}
+		if a := <-audits; a != siprelay.ReasonAuthFailures {
+			t.Errorf("audited %q", a)
+		}
+		// Hal's right password still works on a new connection.
+		p4, conn4 := e.relayPhone(relay, hal, hal.password)
+		defer conn4.CloseNow()
+		if code, err := p4.Register(ctx); err != nil || code != 200 {
+			t.Errorf("right password after the lockout: %d %v", code, err)
 		}
 	})
 

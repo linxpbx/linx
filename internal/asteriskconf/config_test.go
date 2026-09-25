@@ -33,24 +33,29 @@ func TestConfigFromEnvOverride(t *testing.T) {
 	}
 }
 
-// testIfaces are a container's addresses: loopback, two Docker networks,
-// linx-sipws (172.22.0.4, what testConfig's LookupHost resolves
-// linx-sipws to) and an IPv6 link-local address.
+// testIfaces are a container's addresses: loopback, two Docker networks
+// (172.20.0.5 holds the default route), linx-sipws (172.22.0.4, what
+// testConfig's LookupHost resolves linx-sipws to), linx-media (172.23.0.2,
+// likewise linx-asterisk-media) and an IPv6 link-local address.
 func testIfaces() ([]net.Addr, error) {
 	return []net.Addr{
 		&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
 		&net.IPNet{IP: net.ParseIP("172.20.0.5"), Mask: net.CIDRMask(16, 32)},
 		&net.IPNet{IP: net.ParseIP("172.21.0.3"), Mask: net.CIDRMask(16, 32)},
 		&net.IPNet{IP: net.ParseIP("172.22.0.4"), Mask: net.CIDRMask(24, 32)},
+		&net.IPNet{IP: net.ParseIP("172.23.0.2"), Mask: net.CIDRMask(28, 32)},
 		&net.IPNet{IP: net.ParseIP("fe80::1"), Mask: net.CIDRMask(64, 128)},
 	}, nil
 }
 
 func testLookup(host string) ([]netip.Addr, error) {
-	if host != "linx-sipws" {
-		return nil, errors.New("no such host")
+	switch host {
+	case "linx-sipws":
+		return []netip.Addr{netip.MustParseAddr("172.22.0.4")}, nil
+	case "linx-asterisk-media":
+		return []netip.Addr{netip.MustParseAddr("172.23.0.2")}, nil
 	}
-	return []netip.Addr{netip.MustParseAddr("172.22.0.4")}, nil
+	return nil, errors.New("no such host")
 }
 
 func testConfig(t *testing.T) Config {
@@ -65,25 +70,27 @@ func testConfig(t *testing.T) Config {
 		t.Fatal(err)
 	}
 	return Config{
-		ConfDir:         filepath.Join(root, "conf"),
-		VarDir:          filepath.Join(root, "var"),
-		RunDir:          filepath.Join(root, "run"),
-		ScratchDir:      filepath.Join(root, "scratch"),
-		CertsDir:        "/var/lib/linx/certs",
-		SIPPort:         5061,
-		DBHost:          "postgres",
-		DBPort:          "5432",
-		DBName:          "linx",
-		DBPasswordFile:  pwFile,
-		DataDir:         "/usr/share/asterisk",
-		ARIURL:          "wss://linx-ari:8089/ari",
-		ARIPasswordFile: ariFile,
-		CARootFile:      "/etc/linx/ca/root_ca.crt",
-		SIPNetworks:     "192.168.1.0/24",
-		SIPWSHost:       "linx-sipws",
-		SIPWSCertsDir:   "/var/lib/linx/sipws-certs",
-		InterfaceAddrs:  testIfaces,
-		LookupHost:      testLookup,
+		ConfDir:          filepath.Join(root, "conf"),
+		VarDir:           filepath.Join(root, "var"),
+		RunDir:           filepath.Join(root, "run"),
+		ScratchDir:       filepath.Join(root, "scratch"),
+		CertsDir:         "/var/lib/linx/certs",
+		SIPPort:          5061,
+		DBHost:           "postgres",
+		DBPort:           "5432",
+		DBName:           "linx",
+		DBPasswordFile:   pwFile,
+		DataDir:          "/usr/share/asterisk",
+		ARIURL:           "wss://linx-ari:8089/ari",
+		ARIPasswordFile:  ariFile,
+		CARootFile:       "/etc/linx/ca/root_ca.crt",
+		SIPNetworks:      "192.168.1.0/24",
+		SIPWSHost:        "linx-sipws",
+		SIPWSCertsDir:    "/var/lib/linx/sipws-certs",
+		MediaHost:        "linx-asterisk-media",
+		DefaultRouteAddr: func() (netip.Addr, error) { return netip.MustParseAddr("172.20.0.5"), nil },
+		InterfaceAddrs:   testIfaces,
+		LookupHost:       testLookup,
 	}
 }
 
@@ -362,5 +369,53 @@ func TestRenderRefuses(t *testing.T) {
 		if err := c.Render(); err == nil {
 			t.Errorf("password %q: rendered anyway", bad)
 		}
+	}
+}
+
+func TestRenderICE(t *testing.T) {
+	// A LAN: the published address stands in for the default-route one.
+	c := testConfig(t)
+	c.SIPAddress = "192.168.1.20"
+	if err := c.Render(); err != nil {
+		t.Fatal(err)
+	}
+	want := "strictrtp=yes\nicesupport=yes\n; Only the addresses below are offered to browsers.\n" +
+		"ice_deny=0.0.0.0/0\nice_deny=::/0\nice_permit=172.23.0.2/32\nice_permit=192.168.1.20/32\n" +
+		"\n[ice_host_candidates]\n172.20.0.5 => 192.168.1.20\n"
+	if got := read(t, c, "rtp.conf"); !strings.HasSuffix(got, want) {
+		t.Errorf("rtp.conf:\n%s\nwant it to end:\n%s", got, want)
+	}
+
+	// No LAN: browsers only ever reach it through the relay.
+	c = testConfig(t)
+	if err := c.Render(); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, c, "rtp.conf")
+	if !strings.Contains(got, "ice_permit=172.23.0.2/32\n") || strings.Count(got, "ice_permit") != 1 || strings.Contains(got, "ice_host_candidates") {
+		t.Errorf("no LAN: %s", got)
+	}
+
+	// The relay's side missing is an error, not a silent "offer everything".
+	c = testConfig(t)
+	c.MediaHost = "nowhere"
+	if err := c.Render(); err == nil {
+		t.Error("rendered with an unresolvable media host")
+	}
+	c.MediaHost = "none"
+	if err := c.Render(); err != nil || strings.Contains(read(t, c, "rtp.conf"), "ice_permit") {
+		t.Errorf("none: %v %s", err, read(t, c, "rtp.conf"))
+	}
+}
+
+func TestDefaultRouteInterface(t *testing.T) {
+	route := "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n" +
+		"eth1\t000014AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n" +
+		"eth0\t00000000\t010015AC\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+	if got, err := DefaultRouteInterface(route); err != nil || got != "eth0" {
+		t.Errorf("%q %v", got, err)
+	}
+	if _, err := DefaultRouteInterface(strings.SplitN(route, "eth0", 2)[0]); err == nil {
+		t.Error("found a default route in a table without one")
 	}
 }

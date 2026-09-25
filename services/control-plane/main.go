@@ -5,6 +5,8 @@
 // (engine, six channels, first sources; docs/API.md §8). Phase 1B so far:
 // extensions/devices, the linx_asterisk realtime role Asterisk reads over
 // ODBC, and the ARI app Asterisk connects out to (ari.go; docs/PBX.md §4).
+// Phase 1C so far: people's accounts and sessions (session.go), browsers'
+// phone lines and the /sip relay (sip.go; docs/WEB.md §5).
 //
 // `control-plane api-key ...` is the server-side key tool that `linx api-key`
 // runs inside this container (apikey_cmd.go); `control-plane healthcheck` is
@@ -30,8 +32,10 @@ import (
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
 	"linxpbx.com/linx/internal/store"
+	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/version"
 	"linxpbx.com/linx/internal/webhook"
+	controlplaneapi "linxpbx.com/linx/services/control-plane/api"
 )
 
 const service = "linx-control-plane"
@@ -39,6 +43,11 @@ const service = "linx-control-plane"
 // certdPollInterval is how often the certificate renewal alert source
 // checks linx-certd's status (docs/API.md §5).
 const certdPollInterval = 5 * time.Minute
+
+// webDeviceSweepInterval is how often browser phone lines whose session
+// ended on its own (expired) are marked revoked. Asterisk refuses them the
+// moment the session ends regardless (migration 0013).
+const webDeviceSweepInterval = 30 * time.Second
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "api-key" {
@@ -139,6 +148,35 @@ func main() {
 	accounts := &auth.Accounts{Store: st, Sealer: sealer, Alerts: engine, Failures: authn.Failures, Now: time.Now}
 
 	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
+
+	// Browsers' phone lines (docs/WEB.md §5): relay credentials, and the
+	// /sip relay to Asterisk's websocket, which drops a line the moment its
+	// session ends.
+	turnSecret, err := turn.LoadSecret(turn.SecretPathFromEnv(os.Getenv))
+	if err != nil {
+		log.Error("relay secret", "err", err)
+		os.Exit(1)
+	}
+	turnURLs, err := turn.URLsFromEnv(os.Getenv)
+	if err != nil {
+		log.Error("relay addresses", "err", err)
+		os.Exit(1)
+	}
+	turnIssuer := &turn.Issuer{Secret: turnSecret, URLs: turnURLs, Now: time.Now}
+	ariCfg := ariConfigFromEnv(os.Getenv)
+	relay, err := newSIPRelay(sipwsURLFromEnv(os.Getenv), ariCfg.CARootFile, st, log)
+	if err != nil {
+		log.Error("phone line relay", "err", err)
+		os.Exit(1)
+	}
+	accounts.SessionsEnded = func(ctx context.Context, user uuid.UUID, session *uuid.UUID) {
+		if session != nil {
+			relay.CloseSession(*session)
+		} else {
+			relay.CloseUser(user)
+		}
+		revokeDeadWebDevices(ctx, st, relay, log)
+	}
 	// The ARI app: device online state, call webhooks, /calls/active.
 	tracker := &pbx.CallTracker{Store: st, Log: log, Now: time.Now}
 
@@ -189,7 +227,8 @@ func main() {
 	runBackground(func(ctx context.Context) {
 		pollCertd(ctx, &http.Client{Timeout: 10 * time.Second}, engine, tenant, certdPollInterval, log)
 	})
-	stopARI, err := startARI(bgCtx, ariConfigFromEnv(os.Getenv), tracker, log, runBackground)
+	runBackground(func(ctx context.Context) { sweepWebDevices(ctx, st, relay, webDeviceSweepInterval, log) })
+	stopARI, err := startARI(bgCtx, ariCfg, tracker, log, runBackground)
 	if err != nil {
 		log.Error("ARI setup failed", "err", err)
 		stopBackground()
@@ -202,7 +241,7 @@ func main() {
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, tracker, accounts)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, tracker, accounts, turnIssuer)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)
@@ -213,6 +252,7 @@ func main() {
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	registerSessionHandlers(mux, authn, accounts, tenant)
+	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 
 	addr := os.Getenv("LINX_LISTEN_ADDR")
 	if addr == "" {

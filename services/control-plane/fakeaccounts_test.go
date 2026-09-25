@@ -340,3 +340,16 @@ func (f *fakeStore) TouchSession(_ context.Context, id uuid.UUID, lastSeen, idle
 	f.sessions[id] = s
 	return nil
 }
+
+// sessionLive is the fake's device_live rule (migration 0013) for a web
+// device's session: live, past MFA, and its person not disabled.
+func (f *fakeStore) sessionLive(id uuid.UUID) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.sessions[id]
+	if !ok || s.RevokedAt != nil || !s.MFAVerified || !time.Now().Before(s.ExpiresAt) {
+		return false
+	}
+	u, ok := f.users[s.UserID]
+	return ok && u.DisabledAt == nil
+}

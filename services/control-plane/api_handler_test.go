@@ -18,11 +18,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+	"github.com/google/uuid"
+
 	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/safehttp"
+	"linxpbx.com/linx/internal/siprelay"
+	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/webhook"
 	controlplaneapi "linxpbx.com/linx/services/control-plane/api"
 )
@@ -41,6 +46,10 @@ type testEnv struct {
 	pbxStore *fakePbxStore
 	calls    *fakeCalls
 	accounts *auth.Accounts
+	relay    *siprelay.Relay
+	// asterisk is where the /sip relay connects (a websocket URL); tests
+	// that use the relay set it.
+	asterisk string
 }
 
 // testResolver answers the host names the webhook tests use, so no test
@@ -97,18 +106,46 @@ func newTestEnv(t *testing.T) *testEnv {
 	calls := &fakeCalls{connected: true}
 	authn.Sessions = st
 	accounts := &auth.Accounts{Store: st, Sealer: sender.Sealer, Alerts: nil, Failures: authn.Failures, Now: time.Now}
-	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, calls, accounts)
+	turnIssuer := &turn.Issuer{Secret: []byte("test-turn-secret"), URLs: turn.DefaultURLs("linx.example.com"), Now: time.Now}
+	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, calls, accounts, turnIssuer)
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
+	}
+	env := &testEnv{t: t, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al,
+		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts}
+	sst := testSIPStore{fakeStore: st, fakePbxStore: pb}
+	pb.sessionLive = st.sessionLive
+	env.relay = &siprelay.Relay{
+		Dial: func(ctx context.Context) (*websocket.Conn, error) {
+			c, _, err := websocket.Dial(ctx, env.asterisk, &websocket.DialOptions{Subprotocols: []string{siprelay.Subprotocol}})
+			return c, err
+		},
+		Check: func(ctx context.Context, line siprelay.Line) error { return checkLine(ctx, sst, line, time.Now()) },
+		Log:   log,
+	}
+	accounts.SessionsEnded = func(ctx context.Context, user uuid.UUID, session *uuid.UUID) {
+		if session != nil {
+			env.relay.CloseSession(*session)
+		} else {
+			env.relay.CloseUser(user)
+		}
+		revokeDeadWebDevices(ctx, sst, env.relay, log)
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/", handler)
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	registerSessionHandlers(mux, authn, accounts, st.tenant)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return &testEnv{t: t, srv: srv, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al,
-		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts}
+	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, sst, env.relay))
+	env.srv = httptest.NewServer(mux)
+	t.Cleanup(env.srv.Close)
+	return env
+}
+
+// testSIPStore is the relay's store over the two fakes (the real one is a
+// single Postgres store).
+type testSIPStore struct {
+	*fakeStore
+	*fakePbxStore
 }
 
 // newCredential stores a key or client made by the server-side CLI and
@@ -632,7 +669,11 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	public := []string{"GetOpenapiSpec", "OauthToken", "CreateSession", "VerifySessionMfa", "CompleteSetupLink", "DeleteSession"}
 	// /me/mfa* and /me/password act on the caller's own account, whatever
 	// kind of credential it is signed in with (docs/WEB.md §4), like GetMe.
-	anyCredential := []string{"GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword"}
+	// /me/web-phone and /me/turn-credentials are the signed-in person's own
+	// phone line and relay access, refused to anything but a finished
+	// sign-in (docs/WEB.md §5).
+	anyCredential := []string{"GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
+		"IssueMyWebPhone", "GetMyTurnCredentials"}
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
 			sec := spec.Security

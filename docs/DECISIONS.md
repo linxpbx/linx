@@ -463,6 +463,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Remote audio always relays through the server; no public IP or audio ports to configure; a dynamic IP only affects DNS. coturn can't see real client addresses behind a passthrough, so quotas and short credentials do the work.
 
+**As built (Phase 1C step 4).** The image is `linx-coturn`: the official image unchanged plus a small Go entrypoint that renders the configuration (Asterisk's `linx-media` address is only known at run time, and the secret must stay off the command line), reloads the certificate with `SIGUSR2`, and restarts coturn if Asterisk's address changes. It listens on unprivileged 3478/5349 inside the container and runs with no capabilities (the image's file capability for low ports is removed); each front door maps 443.
+
 ## ADR-040 — Front doors (owner decision on scope, 2026-09-24)
 
 **Context.** The owner wants Linx to work behind any reverse proxy (Pangolin, nginx, …) or plain port forwarding, and NAT-friendly in every case. ARCHITECTURE §3 lists profiles A–G.

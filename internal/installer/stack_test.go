@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"linxpbx.com/linx/deploy/compose"
+	"linxpbx.com/linx/internal/turn"
 )
 
 func TestStackPlan(t *testing.T) {
@@ -56,6 +57,10 @@ func TestStackPlan(t *testing.T) {
 	}
 	if string(ariPw.Data) == string(astPw.Data) {
 		t.Error("ARI password and asterisk database password are the same")
+	}
+	turnSecret := files[TURNSecretPath]
+	if turnSecret == nil || turn.CheckSecret(string(turnSecret.Data)) != nil || turnSecret.Mode != 0o440 || turnSecret.Gid != 65532 {
+		t.Errorf("relay secret file = %+v", turnSecret)
 	}
 	if f := files["/etc/linx/compose.yaml"]; f == nil || string(f.Data) != string(compose.File) {
 		t.Error("compose.yaml not installed from the embedded copy")

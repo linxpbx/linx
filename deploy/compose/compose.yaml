@@ -86,6 +86,8 @@ services:
       - linx_asterisk_db_password
       - linx_ari_password
       - linx_ca_services_password
+      # Signs browsers' relay credentials (docs/WEB.md §5).
+      - linx_turn_secret
     # Group 1000 (step-ca's): reads linx_ca_services_password, to get its
     # own ARI certificate from the internal CA (ADR-034). Only that one CA
     # secret is mounted here.
@@ -126,6 +128,39 @@ services:
     mem_limit: 256m
     pids_limit: 128
 
+  # The relay for browsers away from home (ADR-039, docs/WEB.md §2): TURN
+  # over UDP (3478) and TLS (5349, certd's certificate), relaying to
+  # Asterisk's audio on linx-media and to nothing else (its entrypoint
+  # renders coturn's allowed peer from Asterisk's address there). Only
+  # credentials the control plane signed with linx_turn_secret work. The
+  # front door reaches it on linx-public (docs/WEB.md §3); no port is
+  # published on the server yet.
+  coturn:
+    image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-coturn:${LINX_VERSION:?set by linx setup}
+    container_name: linx-coturn
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      LINX_DOMAIN: ${LINX_DOMAIN:?set by linx setup}
+    secrets: [linx_turn_secret]
+    volumes:
+      - certs:/var/lib/linx/certs:ro
+    tmpfs: [/tmp]
+    networks:
+      linx-public: {}
+      linx-media: {}
+    depends_on: [asterisk]
+    healthcheck:
+      test: [CMD, /usr/local/bin/coturn-entrypoint, healthcheck]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 128m
+    pids_limit: 64
+
   # Phone engine (docs/PBX.md): Asterisk 22, pjsip. Reads extensions and
   # devices straight from Postgres, over ODBC, through the asterisk schema's
   # realtime views (role linx_asterisk, docs/PBX.md §3); no cache, so a
@@ -133,6 +168,8 @@ services:
   # websocket (wss://linx-ari:8089, ADR-034); nothing here listens for ARI.
   # Browsers: a secure SIP websocket on linx-sipws only, which only the
   # control plane's /sip relay reaches (docs/WEB.md §2); never published.
+  # Their audio comes straight from the LAN, or through coturn on
+  # linx-media.
   # Phones: SIP over TLS and encrypted audio, published on the server's LAN
   # address only and accepted from the LAN only (docs/PBX.md §6: Asterisk's
   # ACL, and linx setup's nftables table). Never 5060. The audio range must
@@ -187,6 +224,10 @@ services:
         # The name the websocket's certificate is for, on this network only:
         # the entrypoint binds the websocket to the address it resolves to.
         aliases: [linx-sipws]
+      linx-media:
+        # How coturn finds Asterisk's audio, on this network only; Asterisk
+        # offers browsers this address (and the LAN one) and nothing else.
+        aliases: [linx-asterisk-media]
     depends_on:
       postgres:
         condition: service_healthy
@@ -258,6 +299,10 @@ secrets:
   # mode 0440 (created with the CA by linx setup).
   linx_ca_services_password:
     file: ./secrets/linx_ca_services_password
+  # The control plane signs browsers' relay credentials with it; coturn
+  # checks them with it (ADR-039). Root-owned, group 65532, mode 0440.
+  linx_turn_secret:
+    file: ./secrets/linx_turn_secret
 
 volumes:
   certd-state:
@@ -294,4 +339,9 @@ networks:
   # nothing else: no other container, no route out.
   linx-sipws:
     name: linx-sipws
+    internal: true
+  # Browser audio between coturn and Asterisk, and nothing else: no other
+  # container, no route out (docs/WEB.md §2).
+  linx-media:
+    name: linx-media
     internal: true

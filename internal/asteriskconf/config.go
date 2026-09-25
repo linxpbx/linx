@@ -76,11 +76,21 @@ type Config struct {
 	// issues it from the internal CA and writes it there (a memory-only
 	// volume); Asterisk never holds a CA credential.
 	SIPWSCertsDir string
+	// MediaHost is the name coturn reaches Asterisk's audio by (docs/WEB.md
+	// §2): a network alias compose.yaml gives Asterisk on linx-media only.
+	// Asterisk offers browsers that address for audio (the relay's side),
+	// plus SIPAddress for browsers on the LAN, and nothing else. "none"
+	// offers browsers only SIPAddress.
+	MediaHost string
+	// DefaultRouteAddr is the container's address on the network holding
+	// its default route: the one Docker publishes the audio ports through.
+	// Nil means reading /proc/net/route.
+	DefaultRouteAddr func() (netip.Addr, error)
 	// InterfaceAddrs lists the container's own addresses, which become
 	// local_net (no address rewriting towards them). Nil means
 	// net.InterfaceAddrs.
 	InterfaceAddrs func() ([]net.Addr, error)
-	// LookupHost resolves SIPWSHost. Nil means the system resolver, retried
+	// LookupHost resolves SIPWSHost and MediaHost. Nil means the system resolver, retried
 	// for a few seconds while Docker's DNS catches up with a new container.
 	LookupHost func(host string) ([]netip.Addr, error)
 }
@@ -105,6 +115,10 @@ const SIPWSPath = "/ws"
 // Asterisk on linx-sipws.
 const DefaultSIPWSHost = "linx-sipws"
 
+// DefaultMediaHost is MediaHost's default: the alias compose.yaml gives
+// Asterisk on linx-media, which coturn also resolves (allowed-peer-ip).
+const DefaultMediaHost = "linx-asterisk-media"
+
 // ConfigFromEnv reads the configuration from the environment, defaulting
 // every path to the layout compose.yaml mounts.
 func ConfigFromEnv(getenv func(string) string) Config {
@@ -127,6 +141,7 @@ func ConfigFromEnv(getenv func(string) string) Config {
 		SIPAddress:      strings.TrimSpace(getenv("LINX_SIP_ADDRESS")),
 		SIPWSHost:       envOr(getenv, "LINX_SIPWS_HOST", DefaultSIPWSHost),
 		SIPWSCertsDir:   envOr(getenv, "LINX_SIPWS_CERTS_DIR", "/var/lib/linx/sipws-certs"),
+		MediaHost:       envOr(getenv, "LINX_MEDIA_HOST", DefaultMediaHost),
 	}
 }
 
@@ -193,6 +208,10 @@ func (c Config) Render() error {
 	if err != nil {
 		return fmt.Errorf("LINX_SIPWS_HOST %q: %w", c.SIPWSHost, err)
 	}
+	ice, err := c.iceSettings()
+	if err != nil {
+		return err
+	}
 
 	files := map[string]string{
 		"asterisk.conf":         c.asteriskConf(),
@@ -205,7 +224,7 @@ func (c Config) Render() error {
 		"extensions.conf":       extensionsConf,
 		"func_odbc.conf":        funcOdbcConf,
 		"pjsip.conf":            c.pjsipConf(nets, nat, ws),
-		"rtp.conf":              rtpConf,
+		"rtp.conf":              rtpConf(ice),
 		"sorcery.conf":          sorceryConf,
 		"extconfig.conf":        extconfigConf,
 		"odbcinst.ini":          odbcinstIni,
@@ -345,11 +364,17 @@ func (c Config) sipwsNetwork() (netip.Prefix, error) {
 	if c.SIPWSHost == "none" {
 		return netip.Prefix{}, nil
 	}
+	return c.ownNetwork(c.SIPWSHost)
+}
+
+// ownNetwork is the container's address, with its prefix, that host (an
+// alias Docker gives this container on one network) resolves to.
+func (c Config) ownNetwork(host string) (netip.Prefix, error) {
 	lookup := c.LookupHost
 	if lookup == nil {
 		lookup = lookupWithRetry
 	}
-	ips, err := lookup(c.SIPWSHost)
+	ips, err := lookup(host)
 	if err != nil {
 		return netip.Prefix{}, err
 	}
@@ -453,14 +478,99 @@ type=acl
 		nat, wss, acl)
 }
 
-// rtpConf pins audio to the port range compose.yaml publishes. strictrtp
+// iceSettings are the addresses Asterisk offers browsers for audio (ICE
+// host candidates, docs/WEB.md §2): its linx-media address, which only
+// coturn reaches (browsers away from home, through the relay), and the
+// LAN address the audio ports are published on (browsers at home, direct),
+// which stands in for its address on the network Docker publishes them
+// through. Every other address it has (linx-private, linx-sipws, ...) is
+// left out: no browser could reach it, and offering it only tells the
+// world how the server is laid out. No STUN or TURN of its own either:
+// Asterisk never needs to find its public address.
+func (c Config) iceSettings() (string, error) {
+	var permit []netip.Addr
+	var mapping string
+	if c.MediaHost != "none" {
+		media, err := c.ownNetwork(c.MediaHost)
+		if err != nil {
+			return "", fmt.Errorf("LINX_MEDIA_HOST %q: %w", c.MediaHost, err)
+		}
+		permit = append(permit, media.Addr())
+	}
+	if lan, err := netip.ParseAddr(c.SIPAddress); err == nil && !lan.IsLoopback() && !lan.IsUnspecified() {
+		route := c.DefaultRouteAddr
+		if route == nil {
+			route = defaultRouteAddr
+		}
+		local, err := route()
+		if err != nil {
+			return "", fmt.Errorf("finding the address the audio ports are published through: %w", err)
+		}
+		permit = append(permit, lan)
+		mapping = fmt.Sprintf("%s => %s\n", local, lan)
+	}
+	s := "icesupport=yes\n; Only the addresses below are offered to browsers.\nice_deny=0.0.0.0/0\nice_deny=::/0\n"
+	for _, a := range permit {
+		s += "ice_permit=" + netip.PrefixFrom(a, a.BitLen()).String() + "\n"
+	}
+	if mapping != "" {
+		s += "\n[ice_host_candidates]\n" + mapping
+	}
+	return s, nil
+}
+
+// defaultRouteAddr reads the default route's interface from
+// /proc/net/route and returns that interface's IPv4 address.
+func defaultRouteAddr() (netip.Addr, error) {
+	b, err := os.ReadFile("/proc/net/route")
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	name, err := DefaultRouteInterface(string(b))
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(n.IP); ok && ip.Unmap().Is4() {
+				return ip.Unmap(), nil
+			}
+		}
+	}
+	return netip.Addr{}, fmt.Errorf("interface %s has no IPv4 address", name)
+}
+
+// DefaultRouteInterface returns the interface of the default route in a
+// /proc/net/route file.
+func DefaultRouteInterface(procNetRoute string) (string, error) {
+	for _, line := range strings.Split(procNetRoute, "\n")[1:] {
+		f := strings.Fields(line)
+		if len(f) >= 8 && f[1] == "00000000" && f[7] == "00000000" {
+			return f[0], nil
+		}
+	}
+	return "", errors.New("no default route")
+}
+
+// rtpConf pins audio to the port range compose.yaml publishes, and sets
+// which addresses browsers are offered (ice, from iceSettings). strictrtp
 // only accepts audio from the address a call's audio actually comes from.
-var rtpConf = fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint.
+func rtpConf(ice string) string {
+	return fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint.
 [general]
 rtpstart=%d
 rtpend=%d
 strictrtp=yes
-`, RTPStart, RTPEnd)
+%s`, RTPStart, RTPEnd, ice)
+}
 
 // sorceryConf points PJSIP's endpoint/auth/aor objects at the realtime
 // engine instead of pjsip.conf (docs/PBX.md §3, ADR-032). "ps_endpoints" etc.

@@ -9,11 +9,14 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,16 +27,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"linxpbx.com/linx/internal/ari"
 	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/calltest/sipws"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/db/dbtest"
 	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/siprelay"
 	"linxpbx.com/linx/internal/store"
 )
 
@@ -47,7 +53,16 @@ const (
 	// sipwsNet stands in for linx-sipws: Asterisk's browser websocket
 	// listens there only, and wsphone (in place of the control plane's
 	// relay) connects from there.
-	sipwsNet   = prefix + "-sipws"
+	sipwsNet = prefix + "-sipws"
+	// mediaNet stands in for linx-media: coturn's side of browser audio,
+	// the address Asterisk offers browsers besides the LAN one.
+	mediaNet = prefix + "-media"
+	// fwdName forwards a published port to Asterisk's browser websocket, so
+	// this test process can stand in for the control plane's relay.
+	fwdName = prefix + "-fwd"
+	// lanAddr stands in for the server's LAN address (LINX_SIP_ADDRESS),
+	// which Asterisk offers browsers at home (TEST-NET-1: never routed).
+	lanAddr    = "192.0.2.10"
 	pgName     = prefix + "-postgres"
 	astName    = prefix + "-asterisk"
 	ariPass    = "test-ari-password"
@@ -78,6 +93,8 @@ type phone struct {
 	ext      pbx.Extension
 	dev      pbx.Device
 	password string
+	// session is a web device's signed-in session (newWebPhone).
+	session auth.UserSession
 }
 
 func docker(t *testing.T, ctx context.Context, args ...string) string {
@@ -117,13 +134,14 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		for _, id := range strings.Fields(string(out)) {
 			exec.Command("docker", "rm", "--force", id).Run()
 		}
-		exec.Command("docker", "network", "rm", netName, outsideNet, sipwsNet).Run()
+		exec.Command("docker", "network", "rm", netName, outsideNet, sipwsNet, mediaNet).Run()
 	}
 	cleanup()
 	t.Cleanup(cleanup)
 	docker(t, ctx, "network", "create", netName)
 	docker(t, ctx, "network", "create", outsideNet)
 	docker(t, ctx, "network", "create", "--internal", sipwsNet)
+	docker(t, ctx, "network", "create", "--internal", mediaNet)
 	subnet := docker(t, ctx, "network", "inspect", "--format", "{{(index .IPAM.Config 0).Subnet}}", netName)
 
 	pool := dbtest.Start(t, ctx, pgName)
@@ -140,6 +158,7 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 	e.tenant = tenant
 	e.writeFiles()
 	e.buildWSPhone()
+	e.buildTool("tcpfwd")
 	if err := db.EnsureAsteriskRole(ctx, pool, filepath.Join(e.dir, "secrets", "linx_asterisk_db_password")); err != nil {
 		t.Fatal(err)
 	}
@@ -187,12 +206,27 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		"--volume", filepath.Join(d, "secrets", "linx_ari_password")+":/run/secrets/linx_ari_password:ro",
 		"--env", "LINX_ARI_URL=wss://host.docker.internal:"+strconv.Itoa(port)+"/ari",
 		"--env", "LINX_SIP_NETWORKS="+subnet,
+		"--env", "LINX_SIP_ADDRESS="+lanAddr,
 		asteriskImage())
 	docker(t, ctx, "network", "connect", "--alias", "asterisk", outsideNet, astName)
 	docker(t, ctx, "network", "connect", "--alias", asteriskconf.DefaultSIPWSHost, sipwsNet, astName)
+	docker(t, ctx, "network", "connect", "--alias", asteriskconf.DefaultMediaHost, mediaNet, astName)
 	docker(t, ctx, "start", astName)
 	e.waitAsterisk()
+
+	// The forwarder: published for this process, on linx-sipws for Asterisk.
+	docker(t, ctx, "create", "--name", fwdName, "--network", netName, "--publish", "127.0.0.1::8089",
+		"--volume", filepath.Join(d, "tcpfwd")+":/tcpfwd:ro", "--entrypoint", "/tcpfwd/tcpfwd", sippImage)
+	docker(t, ctx, "network", "connect", sipwsNet, fwdName)
+	docker(t, ctx, "start", fwdName)
 	return e
+}
+
+// sipwsAddr is where this test process reaches Asterisk's browser
+// websocket (through the forwarder); its certificate is for linx-sipws.
+func (e *env) sipwsAddr() string {
+	addr, _, _ := strings.Cut(docker(e.t, e.ctx, "port", fwdName, "8089/tcp"), "\n")
+	return addr
 }
 
 // waitAsterisk waits until Asterisk answers its console and has loaded
@@ -309,28 +343,51 @@ func (e *env) run(name, scenario string, p phone, extra ...string) {
 	e.wait(e.sipp(name, scenario, p, extra...))
 }
 
-// newWebPhone creates an extension with one web device (a browser's line,
-// which the control plane creates at sign-in from step 4 on).
+// newWebPhone creates an extension, a person who has it, a signed-in
+// session of theirs and that session's web device: a browser's line, as
+// POST /me/web-phone makes it (docs/WEB.md §5).
 func (e *env) newWebPhone(number, name string) phone {
 	e.t.Helper()
-	p := e.newPhone(number, name)
-	if _, err := e.pool.Exec(e.ctx, `UPDATE device SET kind = 'web' WHERE id = $1`, p.dev.ID); err != nil {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ext := pbx.Extension{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, Number: number, DisplayName: name,
+		Enabled: true, Version: 1, CreatedAt: now, UpdatedAt: now}
+	if err := e.store.CreateExtension(e.ctx, ext, e.audit("extension.create")); err != nil {
 		e.t.Fatal(err)
 	}
-	p.dev.Kind = pbx.KindWeb
-	return p
+	u := auth.User{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, Email: strings.ToLower(name) + "@linx.test", Name: name,
+		Role: auth.RoleUser, ExtensionID: &ext.ID, PasswordHash: "unused", PasswordUpdatedAt: now, Version: 1, CreatedAt: now, UpdatedAt: now}
+	if err := e.store.CreateUser(e.ctx, u, e.audit("user.create")); err != nil {
+		e.t.Fatal(err)
+	}
+	sess := auth.UserSession{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, UserID: u.ID, Role: u.Role,
+		TokenHash: auth.HashSecret(auth.NewSecret()), CSRFHash: auth.HashSecret(auth.NewSecret()), MFAVerified: true,
+		CreatedAt: now, ExpiresAt: now.Add(time.Hour), IdleExpiresAt: now.Add(time.Hour), LastSeenAt: now}
+	if err := e.store.CreateSession(e.ctx, sess); err != nil {
+		e.t.Fatal(err)
+	}
+	pw := pbx.NewDevicePassword()
+	d := pbx.Device{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, ExtensionID: ext.ID, Name: "Web browser", Kind: pbx.KindWeb,
+		SIPUsername: pbx.NewSIPUsername(), Enabled: true, UserSessionID: &sess.ID, Version: 1, CreatedAt: now, UpdatedAt: now}
+	dev, err := e.store.IssueWebDevice(e.ctx, d, func(user string) string { return pbx.DigestHash(user, pw) }, e.audit("device.web_phone"))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return phone{number: number, ext: ext, dev: dev, password: pw, session: sess}
 }
 
 // buildWSPhone builds wsphone for the containers' platform, to run in the
 // SIPp image (it's static).
-func (e *env) buildWSPhone() {
+func (e *env) buildWSPhone() { e.buildTool("wsphone") }
+
+// buildTool builds ./name into e.dir/name/name for the containers.
+func (e *env) buildTool(name string) {
 	e.t.Helper()
-	cmd := exec.CommandContext(e.ctx, "go", "build", "-trimpath", "-o", filepath.Join(e.dir, "wsphone", "wsphone"), "./wsphone")
+	cmd := exec.CommandContext(e.ctx, "go", "build", "-trimpath", "-o", filepath.Join(e.dir, name, name), "./"+name)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		e.t.Fatalf("building wsphone: %v\n%s", err, out)
+		e.t.Fatalf("building %s: %v\n%s", name, err, out)
 	}
-	os.Chmod(filepath.Join(e.dir, "wsphone"), 0o755)
+	os.Chmod(filepath.Join(e.dir, name), 0o755)
 }
 
 // wsphone starts wsphone for a device on sipwsNet and returns its container
@@ -486,4 +543,70 @@ func eventually(t *testing.T, what string, timeout time.Duration, cond func() bo
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// relay is the control plane's /sip relay (internal/siprelay) in this test
+// process, in front of Asterisk's real websocket (through the forwarder).
+// Its periodic check reads the session from the database like the control
+// plane's does. It returns the relay's address and the reasons it audits.
+func (e *env) relay(checkEvery time.Duration) (string, chan string) {
+	e.t.Helper()
+	root, err := os.ReadFile(filepath.Join(e.dir, "ca", "root_ca.crt"))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(root)
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
+		RootCAs: roots, ServerName: asteriskconf.DefaultSIPWSHost, MinVersion: tls.VersionTLS12}}}
+	url := "wss://" + e.sipwsAddr() + asteriskconf.SIPWSPath
+	audits := make(chan string, 8)
+	r := &siprelay.Relay{
+		Dial: func(ctx context.Context) (*websocket.Conn, error) {
+			c, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: client, Subprotocols: []string{siprelay.Subprotocol}})
+			return c, err
+		},
+		Check: func(ctx context.Context, l siprelay.Line) error {
+			s, err := e.store.SessionByTokenHash(ctx, l.SessionTokenHash)
+			if err == nil && s.RevokedAt != nil {
+				err = errors.New("signed out")
+			}
+			return err
+		},
+		Audit:         func(_ context.Context, _ siprelay.Line, reason string) { audits <- reason },
+		CheckInterval: checkEvery,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		sess, err := uuid.Parse(req.URL.Query().Get("session"))
+		if err != nil {
+			http.Error(w, "session", http.StatusBadRequest)
+			return
+		}
+		s, err := e.store.SessionByTokenHash(req.Context(), []byte(req.URL.Query().Get("hash")))
+		if err != nil || s.ID != sess {
+			http.Error(w, "session", http.StatusUnauthorized)
+			return
+		}
+		d, err := e.store.WebDeviceForSession(req.Context(), s.ID)
+		if err != nil {
+			http.Error(w, "no line", http.StatusConflict)
+			return
+		}
+		r.Serve(w, req, siprelay.Line{TenantID: s.TenantID, UserID: s.UserID, SessionID: s.ID, SessionTokenHash: s.TokenHash, Username: d.SIPUsername})
+	}))
+	e.t.Cleanup(srv.Close)
+	return "ws" + strings.TrimPrefix(srv.URL, "http"), audits
+}
+
+// relayPhone opens p's session's line through the relay at addr, as its
+// page would, and returns a sipws phone on it signing in with password.
+func (e *env) relayPhone(addr string, p phone, password string) (*sipws.Phone, *websocket.Conn) {
+	e.t.Helper()
+	q := "?session=" + p.session.ID.String() + "&hash=" + neturl.QueryEscape(string(p.session.TokenHash))
+	c, _, err := websocket.Dial(e.ctx, addr+q, &websocket.DialOptions{Subprotocols: []string{siprelay.Subprotocol}})
+	if err != nil {
+		e.t.Fatalf("opening the line through the relay: %v", err)
+	}
+	e.t.Cleanup(func() { c.CloseNow() })
+	return sipws.New(c, p.dev.SIPUsername, password), c
 }

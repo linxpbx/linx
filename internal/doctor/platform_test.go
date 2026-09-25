@@ -21,6 +21,7 @@ func platformFixture(t *testing.T, state string) *fixture {
 	f.runner[psqlCmd+platformQuery] = state + "\n"
 	f.env.Stat = secretsStat(nil)
 	addPhones(t, f)
+	addRelay(f)
 	return f
 }
 
@@ -48,6 +49,7 @@ func secretsStat(override map[string]fs.FileInfo) func(string) (fs.FileInfo, err
 		installer.JWTSigningKeyPath:      fakeFile{32, 0o440},
 		installer.AsteriskDBPasswordPath: fakeFile{32, 0o440},
 		installer.ARIPasswordPath:        fakeFile{32, 0o440},
+		installer.TURNSecretPath:         fakeFile{52, 0o440},
 		installer.CAServicesPasswordPath: fakeFile{32, 0o440},
 	}
 	for k, v := range override {
@@ -80,7 +82,7 @@ func TestRunAllGreen(t *testing.T) {
 	for _, s := range secs {
 		names = append(names, s.Name)
 	}
-	if got := strings.Join(names, ","); got != "Services,Certificates,Database, access and alerts,Phone system,Secrets" {
+	if got := strings.Join(names, ","); got != "Services,Certificates,Database, access and alerts,Phone system,Calls from outside,Secrets" {
 		t.Errorf("sections = %s", got)
 	}
 	want(t, rs, installer.OK, "The database is running and answering")

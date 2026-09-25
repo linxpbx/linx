@@ -8,7 +8,7 @@ SHELL := /bin/bash
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X linxpbx.com/linx/internal/version.Version=$(VERSION) -X linxpbx.com/linx/internal/version.Commit=$(COMMIT)
-GO_BINS := cmd/linx services/control-plane services/certd services/asterisk-entrypoint
+GO_BINS := cmd/linx services/control-plane services/certd services/asterisk-entrypoint services/coturn-entrypoint
 
 .PHONY: help
 help: ## Show available commands
@@ -79,10 +79,10 @@ security: ## Known-vulnerability scan (Go + npm) and licence allowlist
 	@go run ./tools/licensecheck
 
 .PHONY: image
-image: ## Build a local image, e.g. make image SERVICE=control-plane (or certd, asterisk)
-	@if [ "$(SERVICE)" = "asterisk" ]; then \
-		docker buildx build -q -f deploy/docker/asterisk.Dockerfile \
-			--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --load -t linx-asterisk:dev . >/dev/null; \
+image: ## Build a local image, e.g. make image SERVICE=control-plane (or certd, asterisk, coturn)
+	@if [ "$(SERVICE)" = "asterisk" ] || [ "$(SERVICE)" = "coturn" ]; then \
+		docker buildx build -q -f deploy/docker/$(SERVICE).Dockerfile \
+			--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --load -t linx-$(SERVICE):dev . >/dev/null; \
 	else \
 		docker buildx build -q -f deploy/docker/go-service.Dockerfile --build-arg SERVICE=$(SERVICE) \
 			--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --load -t linx-$(SERVICE):dev . >/dev/null; \

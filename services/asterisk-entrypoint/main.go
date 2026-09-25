@@ -1,7 +1,7 @@
 // Command asterisk-entrypoint renders Asterisk's configuration from
 // environment variables (internal/asteriskconf), starts asterisk, and stays
 // beside it to reload its TLS certificates when they're renewed
-// (certwatch.go): the phones' one from linx-certd, and the browser
+// (internal/certs.Watcher): the phones' one from linx-certd, and the browser
 // websocket's one from the control plane. It forwards docker stop's SIGTERM to Asterisk and exits
 // with Asterisk's exit status.
 package main
@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"linxpbx.com/linx/internal/asteriskconf"
+	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/version"
 )
 
@@ -58,13 +59,18 @@ func main() {
 		}
 		interval = d
 	}
-	watchers := []*certWatcher{{certsDir: cfg.CertsDir, reload: reloadModule("res_pjsip.so"), log: log.With("cert", "phones")}}
+	// Asterisk reads current/{fullchain,privkey}.pem only when the module
+	// using it loads; reloading that module makes it read them again without
+	// dropping connected phones or calls (checked against the real image:
+	// PJSIP's transport and the web server's open websockets stay up, only
+	// the certificate changes).
+	watchers := []*certs.Watcher{{Dir: cfg.CertsDir, Reload: reloadModule("res_pjsip.so"), Log: log.With("cert", "phones")}}
 	if cfg.SIPWSHost != "none" {
-		watchers = append(watchers, &certWatcher{certsDir: cfg.SIPWSCertsDir, reload: reloadModule("http"),
-			log: log.With("cert", "browser websocket")})
+		watchers = append(watchers, &certs.Watcher{Dir: cfg.SIPWSCertsDir, Reload: reloadModule("http"),
+			Log: log.With("cert", "browser websocket")})
 	}
 	for _, w := range watchers {
-		w.start()
+		w.Start()
 	}
 
 	// Signals Docker sends are forwarded to Asterisk; Asterisk's own exit
@@ -82,7 +88,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	for _, w := range watchers {
-		go w.run(ctx, interval)
+		go w.Run(ctx, interval)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()

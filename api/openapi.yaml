@@ -1267,6 +1267,51 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/me/web-phone:
+    post:
+      operationId: issueMyWebPhone
+      summary: Get this browser's phone line
+      description: >-
+        For a signed-in browser session only (docs/WEB.md §5). Creates the
+        session's web device for the caller's extension the first time, and
+        gives it a new password every time after (the page keeps it in
+        memory only, so a reloaded page has lost it). The password is shown
+        this once. The line works only through this server's `/sip` relay
+        and only while this session lasts: signing out, or anything else that
+        ends the session, ends the line at once. Also returns relay (TURN)
+        credentials, as GET /me/turn-credentials does. 409 `no_extension` if
+        the caller has no extension, `extension_unavailable` if it's off or
+        deleted.
+      tags: [people]
+      responses:
+        "200":
+          description: The phone line, with its password shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebPhone"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/turn-credentials:
+    get:
+      operationId: getMyTurnCredentials
+      summary: Fresh relay (TURN) credentials
+      description: >-
+        For a signed-in person (docs/WEB.md §5). Valid for an hour; ask for
+        new ones before `expires_at`. Use them as an RTCIceServer: `urls`,
+        `username`, `credential`.
+      tags: [people]
+      responses:
+        "200":
+          description: Relay credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TurnCredentials"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /oauth/token:
     post:
       operationId: oauthToken
@@ -2588,6 +2633,53 @@ components:
         otpauth_url:
           type: string
           description: otpauth://totp/... — encode this as a QR code.
+
+    WebPhone:
+      description: A browser session's phone line (docs/WEB.md §5).
+      type: object
+      required: [device_id, sip_username, password, sip_uri, websocket_path, display_name, extension, turn]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        sip_username:
+          type: string
+          description: The line's SIP username (also its digest authentication username).
+        password:
+          type: string
+          description: Shown once. Keep it in the page's memory only, never in storage.
+        sip_uri:
+          type: string
+          description: e.g. "sip:d_Ab12Cd34@sip.example.com".
+        websocket_path:
+          type: string
+          const: /sip
+          description: Open wss://<this page's own host>/sip with subprotocol "sip".
+        display_name:
+          type: string
+        extension:
+          type: string
+          description: The extension number this line answers for, e.g. "101".
+        turn:
+          $ref: "#/components/schemas/TurnCredentials"
+
+    TurnCredentials:
+      description: Credentials for Linx's relay, as an RTCIceServer (ADR-039).
+      type: object
+      required: [urls, username, credential, expires_at]
+      properties:
+        urls:
+          type: array
+          items:
+            type: string
+          description: e.g. ["turn:turn.example.com:443?transport=udp", "turns:turn.example.com:443?transport=tcp"].
+        username:
+          type: string
+        credential:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
 
     MfaConfirmed:
       type: object

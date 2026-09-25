@@ -27,6 +27,18 @@ type Accounts struct {
 	// so failed sign-ins share that budget.
 	Failures *Limiters
 	Now      func() time.Time
+	// SessionsEnded, if set, hears about sessions ended on purpose: one
+	// (signing out: session is set) or all of a person's (disabled, or their
+	// password or role changed: session is nil). Anything riding on a
+	// session, like the /sip relay's phone line, closes at once instead of
+	// at its next check (docs/WEB.md §4).
+	SessionsEnded func(ctx context.Context, user uuid.UUID, session *uuid.UUID)
+}
+
+func (a *Accounts) sessionsEnded(ctx context.Context, user uuid.UUID, session *uuid.UUID) {
+	if a.SessionsEnded != nil {
+		a.SessionsEnded(ctx, user, session)
+	}
 }
 
 var errNoPrincipalAuth = errors.New("no principal on the request: authentication middleware is missing")
@@ -283,6 +295,7 @@ func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch
 		if err := a.Store.RevokeUserSessions(ctx, id, now); err != nil {
 			return out, err
 		}
+		a.sessionsEnded(ctx, id, nil)
 	}
 	return out, nil
 }
@@ -297,6 +310,9 @@ func (a *Accounts) DisableUser(ctx context.Context, id uuid.UUID) (User, error) 
 	u, err := a.Store.DisableUser(ctx, caller.TenantID, id, a.Now().UTC(), audit)
 	if errors.Is(err, ErrNotFound) {
 		return User{}, notFound("person")
+	}
+	if err == nil {
+		a.sessionsEnded(ctx, id, nil)
 	}
 	return u, err
 }
@@ -655,7 +671,11 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 	if err != nil {
 		return err
 	}
-	return a.Store.SetPassword(ctx, u.TenantID, u.ID, hash, a.Now().UTC(), true, audit)
+	if err := a.Store.SetPassword(ctx, u.TenantID, u.ID, hash, a.Now().UTC(), true, audit); err != nil {
+		return err
+	}
+	a.sessionsEnded(ctx, u.ID, nil)
+	return nil
 }
 
 // SignOut revokes the caller's session (docs/WEB.md §4).
@@ -664,5 +684,9 @@ func (a *Accounts) SignOut(ctx context.Context) error {
 	if !ok {
 		return notASession()
 	}
-	return a.Store.RevokeSession(ctx, sess.ID, a.Now().UTC())
+	if err := a.Store.RevokeSession(ctx, sess.ID, a.Now().UTC()); err != nil {
+		return err
+	}
+	a.sessionsEnded(ctx, sess.UserID, &sess.ID)
+	return nil
 }

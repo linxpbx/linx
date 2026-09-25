@@ -69,6 +69,9 @@ var errDeviceChanged = &apihttp.Error{Status: http.StatusPreconditionFailed, Cod
 var errDeviceRevoked = &apihttp.Error{Status: http.StatusConflict, Code: "device_revoked",
 	Detail: "This device was revoked and can't be changed or turned back on. Add a new device instead."}
 
+var errWebDevice = &apihttp.Error{Status: http.StatusConflict, Code: "device_is_web",
+	Detail: "This is a browser's phone line: it gets a new password each time that browser signs in, and ends when it signs out."}
+
 // numberPattern matches migration 0005's CHECK on extension.number.
 var numberPattern = regexp.MustCompile(`^[0-9]{2,6}$`)
 
@@ -390,6 +393,9 @@ func (s *Service) ResetDevicePassword(ctx context.Context, id uuid.UUID) (Creden
 	}
 	if d.RevokedAt != nil {
 		return Credentials{}, errDeviceRevoked
+	}
+	if d.Kind == KindWeb {
+		return Credentials{}, errWebDevice
 	}
 	_, a, err := audit(ctx, "device.reset_password", "device:"+id.String())
 	if err != nil {

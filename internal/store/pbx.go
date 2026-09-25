@@ -134,7 +134,7 @@ func (s *Store) UpdateExtension(ctx context.Context, e pbx.Extension, audit auth
 // turned off is revoked too) and fires one device.revoked event per device
 // it revoked.
 func revokeDevicesOf(ctx context.Context, tx pgx.Tx, extension uuid.UUID, at time.Time) error {
-	rows, err := tx.Query(ctx, `UPDATE device SET enabled = false, revoked_at = $2, version = version + 1, updated_at = $2
+	rows, err := tx.Query(ctx, `UPDATE device SET enabled = false, online = false, revoked_at = $2, version = version + 1, updated_at = $2
 		WHERE extension_id = $1 AND revoked_at IS NULL
 		RETURNING `+deviceColumns, extension, at)
 	if err != nil {
@@ -187,12 +187,12 @@ func (s *Store) DeleteExtension(ctx context.Context, tenant, id uuid.UUID, at ti
 }
 
 const deviceColumns = `id, tenant_id, extension_id, name, kind, sip_username, digest_hash, enabled, revoked_at,
-	online, last_registered_at, last_registered_from, version, created_at, updated_at`
+	user_session_id, online, last_registered_at, last_registered_from, version, created_at, updated_at`
 
 func scanDevice(row pgx.Row) (pbx.Device, error) {
 	var d pbx.Device
 	err := row.Scan(&d.ID, &d.TenantID, &d.ExtensionID, &d.Name, &d.Kind, &d.SIPUsername, &d.DigestHash, &d.Enabled, &d.RevokedAt,
-		&d.Online, &d.LastRegisteredAt, &d.LastRegisteredFrom, &d.Version, &d.CreatedAt, &d.UpdatedAt)
+		&d.UserSessionID, &d.Online, &d.LastRegisteredAt, &d.LastRegisteredFrom, &d.Version, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, pbx.ErrNotFound
 	}
@@ -301,7 +301,7 @@ func (s *Store) RevokeDevice(ctx context.Context, tenant, id uuid.UUID, at time.
 		}
 		out = cur
 		if cur.RevokedAt == nil {
-			out, err = scanDevice(tx.QueryRow(ctx, `UPDATE device SET enabled = false, revoked_at = $3, version = version + 1, updated_at = $3
+			out, err = scanDevice(tx.QueryRow(ctx, `UPDATE device SET enabled = false, online = false, revoked_at = $3, version = version + 1, updated_at = $3
 				WHERE id = $1 AND tenant_id = $2 RETURNING `+deviceColumns, id, tenant, at))
 			if err != nil {
 				return err

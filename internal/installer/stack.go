@@ -9,6 +9,7 @@ import (
 
 	"linxpbx.com/linx/deploy/compose"
 	"linxpbx.com/linx/internal/asteriskconf"
+	"linxpbx.com/linx/internal/turn"
 )
 
 const (
@@ -40,6 +41,10 @@ const (
 	// out to the control plane's ARI websocket (ADR-034; Docker secret
 	// linx_ari_password), read by both.
 	ARIPasswordPath = SecretsDir + "/linx_ari_password"
+	// TURNSecretPath is the secret the control plane signs browsers' relay
+	// credentials with and coturn checks them with (ADR-039; Docker secret
+	// linx_turn_secret).
+	TURNSecretPath = SecretsDir + "/linx_turn_secret"
 	// nonrootGID is the distroless "nonroot" group that Linx service images
 	// run as. The DNS token is root-owned and readable by this group only.
 	nonrootGID = 65532
@@ -88,6 +93,9 @@ func StackPlan(c Config, dnsToken, imageTag string, lan LAN) StackSetup {
 	ariPasswordStep := fileStep("Save the phone system's control connection password (readable by root and the Linx services only)",
 		ARIPasswordPath, []byte(existingOrNewPassword(ARIPasswordPath)), 0o440, 0o700)
 	ariPasswordStep.File.Gid = nonrootGID
+	turnSecretStep := fileStep("Save the call relay's secret (readable by root and the Linx services only)",
+		TURNSecretPath, []byte(existingOrNewTURNSecret(TURNSecretPath)), 0o440, 0o700)
+	turnSecretStep.File.Gid = nonrootGID
 	kind := "trusted certificate"
 	if c.Certificates.Staging {
 		kind = "test certificate"
@@ -101,6 +109,7 @@ func StackPlan(c Config, dnsToken, imageTag string, lan LAN) StackSetup {
 			jwtKeyStep,
 			asteriskDBPasswordStep,
 			ariPasswordStep,
+			turnSecretStep,
 			fileStep("Write the Linx services configuration", stackFile, compose.File, 0o644, 0o755),
 			fileStep("Write the Linx settings for "+c.Domain.Name, stackEnv, stackDotEnv(c, imageTag, lan), 0o644, 0o755),
 			cmdStep("Download the Linx service images", "docker", append(dc, "pull", "--quiet")...),
@@ -151,6 +160,16 @@ func ValidateDNSToken(t string) error {
 		return fmt.Errorf("that doesn't look like a DNS provider token (%d characters)", len(t))
 	}
 	return nil
+}
+
+// existingOrNewTURNSecret returns the relay secret already saved at path,
+// or a new one: 52 base32 characters (260 bits), which coturn's
+// configuration holds as they are.
+func existingOrNewTURNSecret(path string) string {
+	if b, err := os.ReadFile(path); err == nil && turn.CheckSecret(strings.TrimSpace(string(b))) == nil {
+		return strings.TrimSpace(string(b))
+	}
+	return rand.Text() + rand.Text()
 }
 
 // existingOrNewKeyBytes returns n random bytes, or the ones already saved at

@@ -20,6 +20,9 @@ type fakePbxStore struct {
 	extensions map[uuid.UUID]pbx.Extension
 	devices    map[uuid.UUID]pbx.Device
 	audits     []auth.AuditEntry
+	// sessionLive stands in for migration 0013's device_live view: which
+	// sessions' web devices are still live (nil: all).
+	sessionLive func(session uuid.UUID) bool
 }
 
 var _ pbx.Store = (*fakePbxStore)(nil)
@@ -169,6 +172,57 @@ func (f *fakePbxStore) RevokeDevice(_ context.Context, tenant, id uuid.UUID, at 
 	}
 	f.audits = append(f.audits, a)
 	return d, nil
+}
+
+func (f *fakePbxStore) IssueWebDevice(_ context.Context, d pbx.Device, digest func(string) string, a auth.AuditEntry) (pbx.Device, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for id, cur := range f.devices {
+		if cur.UserSessionID == nil || *cur.UserSessionID != *d.UserSessionID || cur.RevokedAt != nil {
+			continue
+		}
+		if cur.ExtensionID == d.ExtensionID && cur.Enabled {
+			cur.DigestHash, cur.UpdatedAt = digest(cur.SIPUsername), d.UpdatedAt
+			cur.Version++
+			f.devices[id] = cur
+			f.audits = append(f.audits, a)
+			return cur, nil
+		}
+		at := d.UpdatedAt
+		cur.Enabled, cur.RevokedAt = false, &at
+		f.devices[id] = cur
+	}
+	d.DigestHash = digest(d.SIPUsername)
+	f.devices[d.ID] = d
+	f.audits = append(f.audits, a)
+	return d, nil
+}
+
+func (f *fakePbxStore) WebDeviceForSession(_ context.Context, session uuid.UUID) (pbx.Device, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, d := range f.devices {
+		if d.UserSessionID != nil && *d.UserSessionID == session && d.RevokedAt == nil {
+			return d, nil
+		}
+	}
+	return pbx.Device{}, pbx.ErrNotFound
+}
+
+func (f *fakePbxStore) RevokeDeadWebDevices(_ context.Context, at time.Time) ([]pbx.Device, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []pbx.Device
+	for id, d := range f.devices {
+		if d.Kind != pbx.KindWeb || d.RevokedAt != nil || f.sessionLive == nil || f.sessionLive(*d.UserSessionID) {
+			continue
+		}
+		d.Enabled, d.RevokedAt = false, &at
+		d.Version++
+		f.devices[id] = d
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 func (f *fakePbxStore) auditActions() []string {
