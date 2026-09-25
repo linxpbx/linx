@@ -16,7 +16,9 @@ import (
 
 // serveEcho serves the caller's address as the server sees it, through the
 // front-door listener, trusting only `trusted`.
-func serveEcho(t *testing.T, trusted string) string {
+func serveEcho(t *testing.T, trusted string) string { return serveEchoPP(t, trusted, true) }
+
+func serveEchoPP(t *testing.T, trusted string, useProxyProtocol bool) string {
 	t.Helper()
 	ips, err := auth.NewClientIPResolver(trusted)
 	if err != nil {
@@ -29,7 +31,7 @@ func serveEcho(t *testing.T, trusted string) string {
 	srv := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, r.RemoteAddr)
 	})}
-	go srv.Serve(proxyListener(ips)(ln))
+	go srv.Serve(proxyListener(ips, useProxyProtocol)(ln))
 	t.Cleanup(func() { srv.Close() })
 	return ln.Addr().String()
 }
@@ -77,5 +79,13 @@ func TestFrontDoorProxyProtocol(t *testing.T) {
 	}
 	if got := get(t, direct, "203.0.113.7"); got != "" {
 		t.Errorf("an untrusted peer claimed another address: server saw %q", got)
+	}
+	// Behind an HTTP-only proxy (X-Forwarded-For), nobody may send one.
+	http := serveEchoPP(t, "127.0.0.1", false)
+	if got := get(t, http, ""); !strings.HasPrefix(got, "127.0.0.1:") {
+		t.Errorf("HTTP proxy without a header: server saw %q", got)
+	}
+	if got := get(t, http, "203.0.113.7"); got != "" {
+		t.Errorf("a PROXY header was accepted with PROXY protocol off: %q", got)
 	}
 }

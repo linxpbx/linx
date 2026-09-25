@@ -34,6 +34,7 @@ func realDoctorEnv() doctorEnv {
 			ReadFile:     os.ReadFile,
 			TURNOverTLS:  doctor.TURNOverTLS,
 			STUNPing:     doctor.STUNPing,
+			HTTPSGet:     doctor.HTTPSGet,
 		},
 	}
 }

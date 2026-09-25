@@ -318,7 +318,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	c := Config{Version: 1, Docker: DockerConfig{Install: true}, ContainerUI: ContainerUIPortainer, ResourceProfile: ProfileLite,
 		Domain:       DomainConfig{Name: "lab.linxpbx.com", DNSProvider: DNSCloudflare},
 		Certificates: CertificateConfig{Staging: false, Wildcard: false, Email: "ops+pbx@example.com"},
-		FrontDoor:    FrontDoorConfig{Kind: FrontDoorPangolin, PangolinAddress: "192.168.1.30"}}
+		FrontDoor:    FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30"}}
 	got, err := ParseConfig(bytes.NewReader(c.Marshal()))
 	if err != nil {
 		t.Fatal(err)

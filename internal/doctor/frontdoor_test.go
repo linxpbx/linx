@@ -19,11 +19,13 @@ const nftFrontDoor = "nft -j list set inet linx front_door"
 func addFrontDoor(f *fixture) {
 	fk := &frontDoorFakes{}
 	f.frontDoor = fk
-	f.cfg.FrontDoor = installer.FrontDoorConfig{Kind: installer.FrontDoorPangolin, PangolinAddress: "192.168.1.30"}
+	f.cfg.FrontDoor = installer.FrontDoorConfig{Kind: installer.FrontDoorPangolin, ProxyAddress: "192.168.1.30"}
 	f.runner[nftFrontDoor] = `{"nftables": [{"set": {"family": "inet", "name": "front_door", "table": "linx", "type": "ipv4_addr", "elem": ["192.168.1.30"]}}]}`
 	phoneLeaf, phoneDNS := f.env.TLSLeaf, f.env.LookupIP
 	f.env.TLSLeaf = func(ctx context.Context, addr, name string, roots *x509.CertPool) (*x509.Certificate, error) {
-		if addr != "192.168.1.30:443" {
+		switch addr {
+		case "192.168.1.30:443", "192.168.1.20:443", "192.168.1.20:5349": // proxy, linx-sni at home, coturn's TLS
+		default:
 			return phoneLeaf(ctx, addr, name, roots)
 		}
 		if fk.notPassedThrough == name {
@@ -35,6 +37,9 @@ func addFrontDoor(f *fixture) {
 	f.env.LookupIP = func(ctx context.Context, host string) ([]netip.Addr, error) {
 		for _, h := range installer.PublicHosts {
 			if host == h+".lab.example.com" && host != fk.notInDNS {
+				if fk.dnsAddr != "" {
+					return []netip.Addr{netip.MustParseAddr(fk.dnsAddr)}, nil
+				}
 				return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
 			}
 		}
@@ -53,6 +58,15 @@ func addFrontDoor(f *fixture) {
 		}
 		return fk.turnErr
 	}
+	f.env.HTTPSGet = func(_ context.Context, addr, name, path string, roots *x509.CertPool) (int, []byte, error) {
+		if addr != "192.168.1.30:443" || path != "/healthz" || roots != nil {
+			return 0, nil, errors.New("unexpected request")
+		}
+		if fk.proxyDown {
+			return 502, []byte("Bad Gateway"), nil
+		}
+		return 200, []byte(`{"service":"linx-control-plane","status":"ok"}`), nil
+	}
 	f.env.STUNPing = func(_ context.Context, addr string) error {
 		fk.stunAddr = addr
 		return fk.stunErr
@@ -61,6 +75,8 @@ func addFrontDoor(f *fixture) {
 
 type frontDoorFakes struct {
 	notPassedThrough, notInDNS string
+	dnsAddr                    string
+	proxyDown                  bool
 	turnErr, stunErr           error
 	turnAddr, turnName         string
 	turnUser, stunAddr         string
@@ -106,9 +122,41 @@ func TestFrontDoorPangolin(t *testing.T) {
 
 func TestFrontDoorNone(t *testing.T) {
 	f := platformFixture(t, healthyState)
-	f.cfg.FrontDoor = installer.FrontDoorConfig{Kind: installer.FrontDoorHomeOnly}
+	f.cfg.FrontDoor = installer.FrontDoorConfig{Kind: installer.FrontDoorNone}
 	rs := FrontDoor(context.Background(), f.env, f.cfg)
 	if worst(rs) != installer.Warn || !strings.Contains(dump(rs), "no front door chosen") {
-		t.Errorf("home only:\n%s", dump(rs))
+		t.Errorf("no front door:\n%s", dump(rs))
+	}
+}
+
+func TestFrontDoorHTTPProxy(t *testing.T) {
+	f := platformFixture(t, healthyState)
+	f.cfg.FrontDoor = installer.FrontDoorConfig{Kind: installer.FrontDoorHTTPProxy, ProxyAddress: "192.168.1.30"}
+	rs := FrontDoor(context.Background(), f.env, f.cfg)
+	if worst(rs) != installer.OK || !strings.Contains(dump(rs), "meet.lab.example.com reaches Linx through your proxy (192.168.1.30).") {
+		t.Fatalf("healthy HTTP-only proxy:\n%s", dump(rs))
+	}
+	if f.frontDoor.turnAddr != "192.168.1.20:5349" {
+		t.Errorf("relay over TLS went to %s, want its own port", f.frontDoor.turnAddr)
+	}
+	f.frontDoor.proxyDown = true
+	if rs := FrontDoor(context.Background(), f.env, f.cfg); !strings.Contains(dump(rs), "doesn't answer as Linx (status 502)") {
+		t.Errorf("proxy not forwarding:\n%s", dump(rs))
+	}
+}
+
+func TestFrontDoorHomeOnly(t *testing.T) {
+	f := platformFixture(t, healthyState)
+	f.cfg.FrontDoor = installer.FrontDoorConfig{Kind: installer.FrontDoorHomeOnly}
+	f.runner[inspect+"linx-sni"] = "running \n"
+	f.frontDoor.dnsAddr = "192.168.1.20"
+	rs := FrontDoor(context.Background(), f.env, f.cfg)
+	if worst(rs) != installer.OK || !strings.Contains(dump(rs), "point at this server (192.168.1.20), for use at home") ||
+		strings.Contains(dump(rs), "UDP port") {
+		t.Fatalf("home only:\n%s", dump(rs))
+	}
+	f.frontDoor.dnsAddr = "203.0.113.9"
+	if rs := FrontDoor(context.Background(), f.env, f.cfg); worst(rs) != installer.Fail {
+		t.Errorf("home only with public DNS:\n%s", dump(rs))
 	}
 }

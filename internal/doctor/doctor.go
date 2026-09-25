@@ -48,6 +48,9 @@ type Env struct {
 	// TURNOverTLS allocates a relay address over TLS at addr, for
 	// serverName (verified against roots), with long-term credentials.
 	TURNOverTLS func(ctx context.Context, addr, serverName string, roots *x509.CertPool, user, pass string) error
+	// HTTPSGet fetches path over TLS at addr for serverName (checked
+	// against roots, nil: the system's).
+	HTTPSGet func(ctx context.Context, addr, serverName, path string, roots *x509.CertPool) (int, []byte, error)
 	// STUNPing asks a STUN server at addr (UDP) for an answer.
 	STUNPing func(ctx context.Context, addr string) error
 }

@@ -48,7 +48,7 @@ func metricsBody(t *testing.T, m *certs.Manager) string {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	rec := httptest.NewRecorder()
-	certs.MetricsHandler(m).ServeHTTP(rec, req)
+	certs.MetricsHandler(m, nil).ServeHTTP(rec, req)
 	b, err := io.ReadAll(rec.Body)
 	if err != nil {
 		t.Fatal(err)

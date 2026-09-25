@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -292,7 +293,12 @@ func main() {
 	lcancel()
 	runBackground(func(ctx context.Context) { refreshTrustedProxies(ctx, ips, log) })
 
-	if err := server.Serve(log, server.Entry{Server: https, Wrap: proxyListener(ips)}, server.Entry{Server: plain}); err != nil {
+	useProxyProtocol, err := strconv.ParseBool(envOr(os.Getenv, "LINX_PROXY_PROTOCOL", "true"))
+	if err != nil {
+		log.Error("LINX_PROXY_PROTOCOL: want true or false", "err", err)
+		os.Exit(1)
+	}
+	if err := server.Serve(log, server.Entry{Server: https, Wrap: proxyListener(ips, useProxyProtocol)}, server.Entry{Server: plain}); err != nil {
 		log.Error("server stopped", "err", err)
 		stopBackground()
 		bg.Wait()

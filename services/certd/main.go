@@ -7,8 +7,10 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"slices"
@@ -29,6 +31,7 @@ const service = "linx-certd"
 func main() {
 	once := flag.Bool("once", false, "check and renew once, then exit")
 	records := flag.String("records", "", "point these host names (comma-separated, e.g. meet,api,turn) at this network's public address, then exit")
+	address := flag.String("address", "", "with -records: point them at this address instead (home only)")
 	flag.Parse()
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", service)
@@ -41,7 +44,12 @@ func main() {
 		os.Exit(2)
 	}
 	if *records != "" {
-		os.Exit(pointRecords(cfg, strings.Split(*records, ","), log))
+		os.Exit(pointRecords(cfg, strings.Split(*records, ","), *address, log))
+	}
+	follower, err := followerFromEnv(cfg, os.Getenv, log)
+	if err != nil {
+		log.Error("invalid configuration", "err", err)
+		os.Exit(2)
 	}
 	dns, err := certs.DNSProvider(cfg)
 	if err != nil {
@@ -67,10 +75,13 @@ func main() {
 	}
 
 	go m.Run(ctx)
+	if follower != nil {
+		go follower.Run(ctx)
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", health.Handler(service))
-	mux.Handle("/metrics", certs.MetricsHandler(m))
+	mux.Handle("/metrics", certs.MetricsHandler(m, follower))
 
 	addr := os.Getenv("LINX_LISTEN_ADDR")
 	if addr == "" {
@@ -82,29 +93,60 @@ func main() {
 	}
 }
 
-// pointRecords is -records: only Linx's own host names are accepted.
-func pointRecords(cfg certs.Config, hosts []string, log *slog.Logger) int {
+// checkHosts accepts only Linx's own host names.
+func checkHosts(hosts []string) error {
 	for _, h := range hosts {
 		if !slices.Contains(certs.Hostnames, h) {
-			log.Error("not one of Linx's host names", "host", h, "known", certs.Hostnames)
-			return 2
+			return fmt.Errorf("%q isn't one of Linx's host names %v", h, certs.Hostnames)
 		}
+	}
+	return nil
+}
+
+func parseAddress(s string) (netip.Addr, error) {
+	if s == "" {
+		return netip.Addr{}, nil
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil || !a.Is4() {
+		return netip.Addr{}, fmt.Errorf("%q isn't an IPv4 address", s)
+	}
+	return a, nil
+}
+
+// pointRecords is -records.
+func pointRecords(cfg certs.Config, hosts []string, address string, log *slog.Logger) int {
+	fixed, err := parseAddress(address)
+	if err == nil {
+		err = checkHosts(hosts)
+	}
+	if err != nil {
+		log.Error("-records", "err", err)
+		return 2
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	c := certs.NewRecordsClient()
-	ip, err := c.PublicIPv4(ctx)
-	if err != nil {
-		log.Error("public address", "err", err)
-		return 1
-	}
-	res, err := c.PointRecords(ctx, cfg, hosts, ip)
-	for _, r := range res {
-		log.Info("DNS record", "name", r.Name, "result", r.Outcome)
-	}
-	if err != nil {
+	f := &certs.Follower{Client: certs.NewRecordsClient(), Config: cfg, Hosts: hosts, Fixed: fixed, Log: log}
+	if err := f.Check(ctx); err != nil {
 		log.Error("DNS records", "err", err)
 		return 1
 	}
 	return 0
+}
+
+// followerFromEnv is the IP follower when LINX_DNS_RECORDS is set.
+func followerFromEnv(cfg certs.Config, getenv func(string) string, log *slog.Logger) (*certs.Follower, error) {
+	v := strings.TrimSpace(getenv("LINX_DNS_RECORDS"))
+	if v == "" {
+		return nil, nil
+	}
+	hosts := strings.Split(v, ",")
+	if err := checkHosts(hosts); err != nil {
+		return nil, fmt.Errorf("LINX_DNS_RECORDS: %w", err)
+	}
+	fixed, err := parseAddress(strings.TrimSpace(getenv("LINX_DNS_ADDRESS")))
+	if err != nil {
+		return nil, fmt.Errorf("LINX_DNS_ADDRESS: %w", err)
+	}
+	return &certs.Follower{Client: certs.NewRecordsClient(), Config: cfg, Hosts: hosts, Fixed: fixed, Log: log.With("component", "dns")}, nil
 }

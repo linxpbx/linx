@@ -141,14 +141,21 @@ LINX_SIP_NETWORKS=%s
 # coturn's TLS port (5349) are published for it (127.0.0.1: nowhere), and
 # where coturn's UDP and Linx's own port 443 router are published.
 LINX_TRUSTED_PROXIES=%s
+LINX_PROXY_PROTOCOL=%t
 LINX_WEB_ADDRESS=%s
 LINX_TURN_UDP_ADDRESS=%s
 LINX_TURN_UDP_PORT=%d
+LINX_TURN_URLS=%s
 LINX_SNI_ADDRESS=%s
 COMPOSE_PROFILES=%s
+# The public names linx-certd keeps pointed at this network's public address
+# (or at LINX_DNS_ADDRESS, when set), following it when it changes.
+LINX_DNS_RECORDS=%s
+LINX_DNS_ADDRESS=%s
 `, ConfigPath, imageTag, c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Email, c.Certificates.Staging, c.Certificates.Wildcard,
 		lan.BindAddress(), asteriskconf.FormatSIPNetworks(lan.Networks()),
-		c.FrontDoor.Kind, fd.TrustedProxies, fd.WebAddress, fd.TURNUDPAddress, fd.TURNUDPPort, fd.SNIAddress, fd.ComposeProfiles)
+		c.FrontDoor.Kind, fd.TrustedProxies, fd.ProxyProtocol, fd.WebAddress, fd.TURNUDPAddress, fd.TURNUDPPort, fd.TURNURLs,
+		fd.SNIAddress, fd.ComposeProfiles, dnsRecords(c), fd.DNSAddress)
 }
 
 // certNames describes internal/certs.Config.Names for the plan and summary.
@@ -196,4 +203,13 @@ func existingOrNewKeyBytes(path string, n int) []byte {
 		panic(err) // crypto/rand.Read only fails if the OS can't provide randomness
 	}
 	return b
+}
+
+// dnsRecords is LINX_DNS_RECORDS: the public names, once there's a front
+// door ("" otherwise: certd leaves DNS alone).
+func dnsRecords(c Config) string {
+	if c.FrontDoor.Kind == FrontDoorNone || c.FrontDoor.Kind == "" {
+		return ""
+	}
+	return strings.Join(PublicHosts, ",")
 }

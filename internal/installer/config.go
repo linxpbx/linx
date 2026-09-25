@@ -79,7 +79,7 @@ func DefaultConfig() Config {
 		Version: 1, ContainerUI: ContainerUINone, ResourceProfile: ProfileAuto,
 		Domain:       DomainConfig{DNSProvider: DNSCloudflare},
 		Certificates: CertificateConfig{Staging: true, Wildcard: true},
-		FrontDoor:    FrontDoorConfig{Kind: FrontDoorHomeOnly},
+		FrontDoor:    FrontDoorConfig{Kind: FrontDoorNone},
 	}
 }
 
@@ -180,15 +180,17 @@ certificates:
   wildcard: %t
   # Contact for certificate expiry notices. Required when staging is false.
   email: %q
-# What sits in front of Linx on the internet (calls from outside your home):
-# pangolin (Pangolin on another machine at home), linx-443 (nothing: Linx
-# takes port 443 itself) or home-only (nothing yet).
+# What sits in front of Linx on the internet (docs/WEB.md §3): pangolin,
+# nginx (nginx or HAProxy on port 443), http-proxy (Caddy, Nginx Proxy
+# Manager, ...), linx-443 (nothing: Linx takes port 443 itself), home-only
+# (Linx answers on this home network only) or none.
 front_door:
   kind: %s
-  # For pangolin: the home-network address of the machine Pangolin runs on.
-  pangolin_address: %q
+  # For pangolin, nginx and http-proxy: the home-network address of the
+  # machine it runs on (this server's own, if it runs here).
+  proxy_address: %q
 `, c.Version, c.Docker.Install, c.ContainerUI, c.ResourceProfile,
 		c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Staging, c.Certificates.Wildcard, c.Certificates.Email,
-		c.FrontDoor.Kind, c.FrontDoor.PangolinAddress)
+		c.FrontDoor.Kind, c.FrontDoor.ProxyAddress)
 	return b.Bytes()
 }

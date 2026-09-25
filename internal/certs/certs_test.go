@@ -371,7 +371,7 @@ func TestMetrics(t *testing.T) {
 	m := testManager(t, true, time.Now())
 	m.stats = Stats{NotAfter: time.Unix(1790000000, 0), Issuer: IssuerLEStaging, Failures: 2}
 	rec := httptest.NewRecorder()
-	MetricsHandler(m).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	MetricsHandler(m, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := rec.Body.String()
 	for _, want := range []string{
 		`linx_cert_expiry_timestamp_seconds{names="*.pbx.example.com",issuer="letsencrypt-staging"} 1790000000`,

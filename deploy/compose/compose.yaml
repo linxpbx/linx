@@ -17,6 +17,11 @@ services:
       LINX_ACME_EMAIL: ${LINX_ACME_EMAIL:-}
       LINX_ACME_STAGING: ${LINX_ACME_STAGING:-true}
       LINX_CERT_WILDCARD: ${LINX_CERT_WILDCARD:-true}
+      # Public names certd keeps pointed at this network's public address,
+      # following it when it changes (or at LINX_DNS_ADDRESS, home only).
+      # Empty: certd leaves DNS records alone.
+      LINX_DNS_RECORDS: ${LINX_DNS_RECORDS:-}
+      LINX_DNS_ADDRESS: ${LINX_DNS_ADDRESS:-}
     secrets: [linx_dns_token]
     volumes:
       - certd-state:/var/lib/linx/state
@@ -82,6 +87,11 @@ services:
       # send the visitor's address in a PROXY protocol header on 8443
       # (Pangolin's address, or linx-sni); set by linx setup.
       LINX_TRUSTED_PROXIES: ${LINX_TRUSTED_PROXIES:-}
+      # false for an HTTP-only proxy, which sends X-Forwarded-For instead.
+      LINX_PROXY_PROTOCOL: ${LINX_PROXY_PROTOCOL:-true}
+      # The relay's addresses as browsers reach them; empty is
+      # turn.<domain> on 443 (an HTTP-only proxy's TLS relay is on 5349).
+      LINX_TURN_URLS: ${LINX_TURN_URLS:-}
     secrets:
       - linx_db_password
       - linx_db_encryption_key

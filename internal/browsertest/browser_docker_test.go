@@ -57,17 +57,34 @@ const (
 // Front doors the suite runs behind (docs/WEB.md §3), each with its own
 // stack: Pangolin's Traefik with the file linx setup generates, and Linx's
 // own port 443 router (linx-sni). LINX_FRONT_DOORS picks some.
-var frontDoors = []string{installer.FrontDoorPangolin, installer.FrontDoorLinx443}
+var frontDoors = []string{installer.FrontDoorPangolin, installer.FrontDoorNginx, installer.FrontDoorHTTPProxy, installer.FrontDoorLinx443}
 
 // traefikImage is the Traefik Pangolin runs (its installer's traefik:v3.7).
 const traefikImage = "traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0"
 
-// pangolinAddress is the test's stand-in Pangolin's fixed address.
-const pangolinAddress = "172.29.201.30"
+// The stand-in proxies' fixed addresses (LINX_TRUSTED_PROXIES).
+const (
+	pangolinAddress = "172.29.201.30"
+	nginxAddress    = "172.29.201.31"
+	caddyAddress    = "172.29.201.32"
+)
 
-// relayURLs: TURN over TLS on 443 through the front door, by name; UDP
-// straight to coturn (at home, the router's UDP 443 forward).
-const relayURLs = "turn:coturn:3478?transport=udp,turns:turn.linx.test:443?transport=tcp"
+// nginx:1.28.3-alpine (with the stream and ssl_preread modules) and
+// caddy:2.11.4-alpine: the owner's own proxies, stood in for.
+const (
+	nginxImage = "nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236"
+	caddyImage = "caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b"
+)
+
+// relayURLs: TURN over TLS on 443 through the front door, by name (on
+// coturn's own 5349 behind an HTTP-only proxy); UDP straight to coturn (at
+// home, the router's UDP 443 forward).
+func relayURLs(door string) string {
+	if door == installer.FrontDoorHTTPProxy {
+		return "turn:coturn:3478?transport=udp,turns:turn.linx.test:5349?transport=tcp"
+	}
+	return "turn:coturn:3478?transport=udp,turns:turn.linx.test:443?transport=tcp"
+}
 
 // override is what the test changes in compose.yaml: no certd (the test
 // deploys its own certificate), relay addresses, the control plane's HTTPS
@@ -79,7 +96,7 @@ func override(door string) string {
     profiles: [disabled]
   control-plane:
     environment:
-      LINX_TURN_URLS: "` + relayURLs + `"
+      LINX_TURN_URLS: "` + relayURLs(door) + `"
     ports: ["127.0.0.1::8443"]
 `
 	switch door {
@@ -92,6 +109,32 @@ func override(door string) string {
       linx-public:
         ipv4_address: ` + pangolinAddress + `
         aliases: [meet.linx.test, api.linx.test, turn.linx.test]
+`
+	case installer.FrontDoorNginx:
+		s += `  owners-nginx:
+    image: ` + nginxImage + `
+    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
+    # It looks the containers up when it starts (a real install names IPs).
+    depends_on: [control-plane, coturn]
+    networks:
+      linx-public:
+        ipv4_address: ` + nginxAddress + `
+        aliases: [meet.linx.test, api.linx.test, turn.linx.test]
+`
+	case installer.FrontDoorHTTPProxy:
+		s += `  owners-caddy:
+    image: ` + caddyImage + `
+    volumes:
+      - "./Caddyfile:/etc/caddy/Caddyfile:ro"
+      - "./tls:/tls:ro"
+    networks:
+      linx-public:
+        ipv4_address: ` + caddyAddress + `
+        aliases: [meet.linx.test, api.linx.test]
+  coturn:
+    networks:
+      linx-public:
+        aliases: [turn.linx.test]
 `
 	case installer.FrontDoorLinx443:
 		s += `  sni:
@@ -331,12 +374,12 @@ func (h *harness) start() {
 	env := fmt.Sprintf("LINX_IMAGE_PREFIX=%s\nLINX_VERSION=test\nLINX_DOMAIN=%s\nLINX_DNS_PROVIDER=cloudflare\n"+
 		"LINX_SIP_ADDRESS=127.0.0.1\nLINX_SIP_NETWORKS=%s\n", imagePrefix, domain, publicSubnet)
 	services := []string{"postgres", "step-ca", "control-plane", "asterisk", "coturn"}
+	linx := netip.MustParseAddr("192.0.2.1") // replaced by container names below
 	switch h.door {
 	case installer.FrontDoorPangolin:
 		// Exactly what setup generates for the owner, pointed at the
 		// containers instead of a LAN address (at home both sit behind
 		// that one address).
-		linx := netip.MustParseAddr("192.0.2.1")
 		block := string(installer.PangolinTraefik(domain, linx))
 		block = strings.NewReplacer("192.0.2.1:8443", "control-plane:8443", "192.0.2.1:5349", "coturn:5349").Replace(block)
 		tdir := filepath.Join(h.dir, "traefik")
@@ -345,6 +388,26 @@ func (h *harness) start() {
 		must(t, os.WriteFile(filepath.Join(tdir, "dynamic_config.yml"), []byte(pangolinDynamic(block)), 0o644))
 		env += "LINX_TRUSTED_PROXIES=" + pangolinAddress + "\n"
 		services = append(services, "pangolin-traefik")
+	case installer.FrontDoorNginx:
+		// The generated stream block, pointed at the containers (so nginx
+		// needs Docker's DNS for its map), in a minimal nginx.conf.
+		block := string(installer.NginxStream(domain, linx))
+		block = strings.NewReplacer("192.0.2.1:8443", "control-plane:8443", "192.0.2.1:5349", "coturn:5349",
+			"stream {\n", "stream {\n    resolver 127.0.0.11;\n").Replace(block)
+		must(t, os.WriteFile(filepath.Join(h.dir, "nginx.conf"), []byte("events {}\n"+block), 0o644))
+		env += "LINX_TRUSTED_PROXIES=" + nginxAddress + "\n"
+		services = append(services, "owners-nginx")
+	case installer.FrontDoorHTTPProxy:
+		// The generated site block, pointed at the container, trusting the
+		// test's CA for Linx's certificate (a real install has a trusted
+		// one), and serving the browsers the test certificate.
+		block := string(installer.CaddyConfig(domain, linx))
+		block = strings.NewReplacer("https://192.0.2.1:8443", "https://control-plane:8443",
+			"tls_server_name meet.linx.test\n", "tls_server_name meet.linx.test\n\t\t\ttls_trust_pool file /tls/root_ca.crt\n",
+			"meet.linx.test, api.linx.test {\n", "meet.linx.test, api.linx.test {\n\ttls /tls/client.pem /tls/client.key\n").Replace(block)
+		must(t, os.WriteFile(filepath.Join(h.dir, "Caddyfile"), []byte("{\n\tauto_https disable_redirects\n}\n"+block), 0o644))
+		env += "LINX_TRUSTED_PROXIES=" + caddyAddress + "\nLINX_PROXY_PROTOCOL=false\n"
+		services = append(services, "owners-caddy")
 	case installer.FrontDoorLinx443:
 		must(t, os.WriteFile(filepath.Join(h.dir, "haproxy.cfg"), installer.HAProxyConfig(domain), 0o644))
 		env += "LINX_TRUSTED_PROXIES=" + installer.SNIContainerName + "\nCOMPOSE_PROFILES=" + installer.FrontDoorLinx443 + "\n"

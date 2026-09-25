@@ -70,7 +70,7 @@ func TestPhonesPlan(t *testing.T) {
 
 	// nft installed, Docker already set up.
 	r := &fakeRunner{answers: map[string]string{"nft --version": "nftables v1.0.9"}}
-	p, err := PhonesPlan(context.Background(), r, lan, nil, readFiles(map[string]string{DockerDaemonConfig: `{"userland-proxy": false}`}))
+	p, err := PhonesPlan(context.Background(), r, lan, FrontDoorSettings{}, readFiles(map[string]string{DockerDaemonConfig: `{"userland-proxy": false}`}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestPhonesPlan(t *testing.T) {
 	}
 
 	// No nft, fresh Docker.
-	p, err = PhonesPlan(context.Background(), &fakeRunner{}, lan, nil, readFiles(nil))
+	p, err = PhonesPlan(context.Background(), &fakeRunner{}, lan, FrontDoorSettings{}, readFiles(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestPhonesPlan(t *testing.T) {
 
 func TestFirewallRuleset(t *testing.T) {
 	lan := LAN{Address: netip.MustParseAddr("192.168.1.20"), Network: netip.MustParsePrefix("192.168.1.0/24")}
-	rs := string(FirewallRuleset(lan, []netip.Addr{netip.MustParseAddr("192.168.1.30")}))
+	rs := string(FirewallRuleset(lan, FrontDoorSettings{WebClients: []netip.Addr{netip.MustParseAddr("192.168.1.30")}}))
 	for _, want := range []string{
 		"table inet linx\ndelete table inet linx\n", // replaced atomically, never flushes anything else
 		"elements = { 192.168.1.0/24 }",
@@ -126,10 +126,15 @@ func TestFirewallRuleset(t *testing.T) {
 			t.Errorf("ruleset missing %q:\n%s", want, rs)
 		}
 	}
+	// Behind an HTTP-only proxy the router forwards 5349 from the internet.
+	open := string(FirewallRuleset(lan, FrontDoorSettings{WebClients: []netip.Addr{netip.MustParseAddr("192.168.1.30")}, TURNTLSOpen: true}))
+	if !strings.Contains(open, "tcp dport 8443 ip saddr @front_door accept") || strings.Contains(open, "5349") && strings.Contains(open, "dport { 8443, 5349 }") {
+		t.Errorf("relay TLS port still guarded:\n%s", open)
+	}
 	if strings.Contains(rs, "flush ruleset") {
 		t.Error("ruleset must never flush other tables")
 	}
-	if none := string(FirewallRuleset(LAN{}, nil)); strings.Contains(none, "elements") || !strings.Contains(none, "counter drop") {
+	if none := string(FirewallRuleset(LAN{}, FrontDoorSettings{})); strings.Contains(none, "elements") || !strings.Contains(none, "counter drop") {
 		t.Errorf("no-LAN ruleset:\n%s", none)
 	}
 }

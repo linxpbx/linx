@@ -22,13 +22,18 @@ import (
 // proxyHeaderTimeout bounds how long a connection may take to send it.
 const proxyHeaderTimeout = 5 * time.Second
 
-// proxyListener wraps the HTTPS port's listener.
-func proxyListener(ips *auth.ClientIPResolver) func(net.Listener) net.Listener {
+// proxyListener wraps the HTTPS port's listener. With useProxyProtocol off
+// (LINX_PROXY_PROTOCOL=false: an HTTP-only proxy, which sends
+// X-Forwarded-For instead), a PROXY header is refused from everyone.
+func proxyListener(ips *auth.ClientIPResolver, useProxyProtocol bool) func(net.Listener) net.Listener {
 	return func(ln net.Listener) net.Listener {
 		return &proxyproto.Listener{
 			Listener:          ln,
 			ReadHeaderTimeout: proxyHeaderTimeout,
 			ConnPolicy: func(o proxyproto.ConnPolicyOptions) (proxyproto.Policy, error) {
+				if !useProxyProtocol {
+					return proxyproto.REJECT, nil
+				}
 				return proxyPolicy(ips, o.Upstream), nil
 			},
 		}
