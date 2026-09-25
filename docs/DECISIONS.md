@@ -46,6 +46,13 @@ Status values: `Proposed` (awaiting owner approval), `Accepted`, `Superseded by 
 | 039 | TURN relay | Official coturn image, HMAC credentials (1 h), UDP/TLS 443, relays to Asterisk only | Accepted (owner, 2026-09-24) |
 | 040 | Front doors | Every profile supported, NAT-friendly, 443 only; Pangolin and Linx-takes-443 built first | Accepted (owner, 2026-09-24) |
 | 041 | Opus transcoding | Wazo's open-source `codec_opus` built into the Asterisk image; G.722 fallback | Accepted (owner, 2026-09-24) |
+| 042 | Working from China | TLS 443 only, a real certificate, no unusual protocols; a relay VPS only if a test from China fails | Accepted (owner, 2026-09-25) |
+| 043 | Trunk configuration | Control plane renders trunks into a memory-only file for Asterisk and reloads over ARI; provider passwords sealed, never in views | Proposed (1D draft, 2026-09-26) |
+| 044 | Outbound numbering and routing | libphonenumber data (nyaruka/phonenumbers) written to tables; a SQL function decides each call, read by the dialplan | Proposed (1D draft, 2026-09-26) |
+| 045 | Trunk certificates | Public CAs with the name checked, or a certificate/CA the admin pins; never off | Proposed (1D draft, 2026-09-26) |
+| 046 | WireGuard agent | `linx-wireguard` joins Asterisk's network namespace with `NET_ADMIN`; wgctrl-go + netlink; split tunnel | Proposed (1D draft, 2026-09-26) |
+| 047 | Firewall for IP-authenticated trunks | Host systemd timer keeps Linx's nftables address sets in step with trunks | Proposed (1D draft, 2026-09-26) |
+| 048 | Toll-fraud defaults | No trunk-to-trunk; international off, premium blocked, emergency always; 2 outside calls per extension; alerts | Proposed (1D draft, 2026-09-26) |
 
 ---
 
@@ -499,3 +506,57 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** (a) now, with no China-specific protocol or disguise. Keep Linx's public traffic looking like an ordinary website: TLS on 443 only, a real certificate, no custom or unusual protocols on the public side (this also argues against the custom tunnel of ADR-007/008 unless it's WebSocket over TLS as ADR-008 specifies). Build (b) only if a test from inside China shows (a) is blocked or unusable. Nobody can guarantee access: the owner keeps an ordinary roaming call as a fallback.
 
 **Consequences.** Every public feature must work over TLS on 443 alone (UDP is an optimisation, never required). Phase 2: the iOS app turns CallKit off when the device's region is China (linx-build-prompt.md) and rings with its own in-app screen there instead; `TEST_MATRIX.md` gets China rows (hotel Wi-Fi and a Chinese SIM's mobile data: sign in, `*43`, call home both ways, "Relayed" over TLS 443, push ringing through APNs). A short "before you travel to China" test checklist is written when the owner next plans a trip.
+
+## ADR-043 — Trunk configuration (proposed, Phase 1D draft, 2026-09-26)
+
+**Context.** Asterisk must sign in to providers with their passwords, so these can't be one-way hashes like device logins (ADR-033). Devices come from realtime views (ADR-032), but a password in a view is readable in the database, and PJSIP outbound registrations need a reload to appear anyway. Design: `docs/TRUNKS.md` §4.
+
+**Options.** (a) Realtime views with the password in clear. (b) Decrypt inside the database (pgcrypto) with the key given to Postgres. (c) The control plane opens the sealed secret and renders `pjsip_trunks.conf` into a memory-only volume shared only with Asterisk, then reloads `res_pjsip` over ARI.
+
+**Decision.** (c). Passwords stay sealed at rest (ADR-030). The SIP ACL moves into the same file, because PJSIP requires a request to pass every ACL object, so LAN, browser and trunk addresses must be one list. Asterisk waits for the file at start and keeps the last one if the control plane is down.
+
+**Consequences.** Trunk changes take a reload (seconds; registrations and live calls survive, as 1B's certificate reload showed). The file lives only in memory (tmpfs), readable by Asterisk's group.
+
+## ADR-044 — Outbound numbering and routing (proposed, Phase 1D draft, 2026-09-26)
+
+**Context.** People dial numbers the way they would on a mobile. Linx must tell local, mobile, national, international, toll-free, premium and emergency numbers apart for the chosen country, decide who may call what and pick the line, and outgoing calls should keep working while the control plane restarts (ADR-034). Design: `docs/TRUNKS.md` §5.
+
+**Options.** (a) Decide in the control plane over ARI (outgoing calls stop while it restarts). (b) Hand-written dial patterns per country (unmaintainable). (c) `github.com/nyaruka/phonenumbers` (MIT, Go port of Google's libphonenumber) writes the country's rules into tables; a SQL function (PostgreSQL regular expressions accept libphonenumber's patterns) makes the decision; the dialplan calls it with `func_odbc`.
+
+**Decision.** (c). A Docker test compares the SQL function with the Go library on thousands of numbers per country. Emergency numbers from libphonenumber's short-number data plus a built-in list per country. Extension numbers can't clash with prefixes or emergency numbers. `linx route test` uses the same function.
+
+**Consequences.** Numbering data updates with the library (Dependabot). `linx_asterisk` gains `EXECUTE` on one function and `SELECT` on the rule tables. Only countries we test are offered at first (UAE; others added with their test corpus).
+
+## ADR-045 — Trunk certificates (proposed, Phase 1D draft, 2026-09-26)
+
+**Context.** Many providers and LAN devices (the owner's UCM6304) use certificates from their own CA. The security rules never allow switching certificate checks off. Design: `docs/TRUNKS.md` §6.
+
+**Decision.** Trunks over TLS are checked against the public CAs with the provider's name, or against a certificate or CA the admin pins after comparing its fingerprint (shown at `linx trunk add`). Asterisk checks per transport, so trunks share one TLS client transport whose CA list is the public CAs plus every pinned one; the name is always checked. Unencrypted trunks only per ADR-023.
+
+**Consequences.** A pinned certificate that the provider replaces breaks the trunk until the admin approves the new one (doctor warns before a pinned certificate expires). Pinning a CA for one trunk lets it vouch for other trunks' names too; accepted, since the admin chose to trust it.
+
+## ADR-046 — WireGuard agent (proposed, Phase 1D draft, 2026-09-26)
+
+**Context.** ADR-024 chose kernel WireGuard with `NET_ADMIN` in one small service. Asterisk's traffic to a provider must go through the tunnel, but Asterisk must not get `NET_ADMIN`, and Docker can't give one container routes to another's interface. Design: `docs/TRUNKS.md` §7.
+
+**Options.** (a) A router container Asterisk routes through (Asterisk would need `NET_ADMIN` to add the route). (b) WireGuard on the host (the control plane can't manage the host). (c) `linx-wireguard` joins Asterisk's network namespace (`network_mode: service:asterisk`) and holds `NET_ADMIN` there only.
+
+**Decision.** (c), with `golang.zx2c4.com/wireguard/wgctrl` (MIT) and `github.com/vishvananda/netlink` (Apache-2.0). Profiles are rendered by the control plane into the agent's memory-only volume; the agent writes handshake status back. It re-applies everything when Asterisk restarts (a new namespace).
+
+**Consequences.** One more privileged container, scoped to Asterisk's namespace. Needs the host's `wireguard` kernel module (setup loads it). Step 5 must prove recovery after an Asterisk restart.
+
+## ADR-047 — Firewall for IP-authenticated trunks (proposed, Phase 1D draft, 2026-09-26)
+
+**Context.** Providers that send calls from fixed addresses need 5061 (5060 for ADR-023 trunks) and the audio ports open to exactly those addresses. The host firewall (`inet linx`, 1B) is installed by `linx setup` as root; nothing in a container may change the host. Design: `docs/TRUNKS.md` §3, §8.
+
+**Decision.** `linx-firewall-sync`, a root systemd timer on the host (every minute), asks the control plane for the address lists through `docker exec` (the same trust as `linx user`) and updates only the elements of Linx's own nftables sets, never rules. Registration trunks need nothing (replies to Linx's own connections).
+
+**Consequences.** Up to a minute before a new IP-authenticated trunk can call in. Doctor checks the sets match.
+
+## ADR-048 — Toll-fraud defaults (proposed, Phase 1D draft, 2026-09-26)
+
+**Context.** Phone systems connected to paid lines are a target for fraud (calls to expensive international or premium numbers). The build brief asks for international dialling off by default, per-extension limits and alerts. Design: `docs/TRUNKS.md` §9.
+
+**Decision.** Calls from a trunk land in a context that can only reach DIDs (no trunk-to-trunk, by construction); outside calls only from signed-in devices and browser lines; international off and premium blocked until turned on per permission level; emergency always allowed and never limited; at most 2 outside calls at once per extension plus each trunk's limit; alerts for every emergency call, unusual international calling (over 30 minutes or 10 calls an hour) and a country called for the first time. `trunks:write` and `routing:write` are sensitive scopes.
+
+**Consequences.** No spend limits in money yet (no rates); the volume alerts stand in for them.
