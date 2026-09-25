@@ -17,7 +17,15 @@ var (
 	prodAllowed = set("MIT", "MIT-0", "ISC", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0",
 		"0BSD", "BlueOak-1.0.0", "CC0-1.0", "Unlicense")
 	devExtra = set("MPL-2.0", "CC-BY-4.0", "Python-2.0")
+	// fontAllowed is for font packages only (fontPackage): the SIL Open
+	// Font Licence, the standard free-font licence, covers the font files
+	// and nothing else in the app (ADR-014, owner decision 2026-09-25).
+	fontAllowed = set("OFL-1.1")
 )
+
+// fontPackage reports whether an npm package is a font (Fontsource ships
+// each font as its own package of font files and CSS).
+func fontPackage(name string) bool { return strings.HasPrefix(name, "@fontsource/") }
 
 type lockfile struct {
 	Packages map[string]struct {
@@ -45,7 +53,8 @@ func main() {
 		if p == "" || pkg.Link {
 			continue // root project or workspace link
 		}
-		if !allowed(pkg.License, pkg.Dev) {
+		name := p[strings.LastIndex(p, "node_modules/")+len("node_modules/"):]
+		if !allowed(pkg.License, pkg.Dev) && !(fontPackage(name) && fontAllowed[pkg.License]) {
 			scope := "prod"
 			if pkg.Dev {
 				scope = "dev"

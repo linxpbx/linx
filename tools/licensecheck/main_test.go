@@ -48,3 +48,12 @@ func TestClassifyLicence(t *testing.T) {
 		}
 	}
 }
+
+func TestFontsOnlyForFonts(t *testing.T) {
+	if allowed("OFL-1.1", false) || allowed("OFL-1.1", true) {
+		t.Error("OFL-1.1 allowed for any package")
+	}
+	if !fontPackage("@fontsource/ibm-plex-sans") || fontPackage("ibm-plex-sans-lookalike") || fontPackage("fontsource-evil") {
+		t.Error("fontPackage matches the wrong packages")
+	}
+}

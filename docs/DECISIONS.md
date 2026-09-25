@@ -215,6 +215,8 @@ Redis 7.4+ is no longer under a BSD licence. Valkey (BSD, Linux Foundation) is a
 
 It is permissive and App-Store-compatible, and it includes a patent grant. The GPL components (Asterisk, HAProxy) run as separate processes that talk over the network, with no linking, so there's no licence conflict. Every bundled iOS/web dependency must be permissively licensed (MIT/BSD/Apache/ISC). CI enforces this with a licence allowlist check on the SBOM.
 
+**Fonts (owner decision, 2026-09-25).** Font files may use the SIL Open Font Licence (OFL-1.1), the standard licence for free fonts: it lets the fonts be bundled and shipped with any app, and covers only the font files. The licence check allows it for `@fontsource/*` packages only (IBM Plex Sans/Mono, Instrument Sans, self-hosted: no request to Google Fonts).
+
 ## ADR-015 — Name "Linx": clash check
 
 Findings (web search, 2026-09-23):
