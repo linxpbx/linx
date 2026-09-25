@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -23,7 +24,7 @@ const (
 	// FrontDoorPangolin: Pangolin on the home network (the router forwards
 	// TCP 443 to it) passes meet., api. and turn. through by name (a block
 	// for its Traefik that Linx generates). The router forwards UDP 443
-	// straight to Linx.
+	// (or turn_udp_port) straight to Linx.
 	FrontDoorPangolin = "pangolin"
 	// FrontDoorNginx: nginx or HAProxy already on port 443, on this server
 	// or another one at home, passes the names through (generated stream
@@ -67,6 +68,33 @@ type FrontDoorConfig struct {
 	// own, if it runs here): the only address allowed to reach Linx's web
 	// port, and whose PROXY headers or X-Forwarded-For Linx believes.
 	ProxyAddress string `yaml:"proxy_address"`
+	// TURNUDPPort is, for those same front doors, the UDP port the router
+	// forwards to Linx for call audio (0: 443). Some routers (UniFi) won't
+	// forward UDP 443 to one machine while TCP 443 goes to another; 3478,
+	// the usual port for this, works instead.
+	TURNUDPPort int `yaml:"turn_udp_port,omitempty"`
+}
+
+// UDPPort is the public UDP port for call audio.
+func (f FrontDoorConfig) UDPPort() int {
+	if f.TURNUDPPort == 0 {
+		return PublicPort
+	}
+	return f.TURNUDPPort
+}
+
+// ValidateTURNUDPPort checks a UDP port for call audio: 443, or an
+// unprivileged one Linx doesn't already use on the home network.
+func ValidateTURNUDPPort(p int) error {
+	switch {
+	case p == PublicPort:
+		return nil
+	case p < 1024 || p > 65535:
+		return fmt.Errorf("%d: use 443, or a port from 1024 to 65535 (3478 is the usual one)", p)
+	case p == 5060, p == 5061, p == TURNTLSPort, p == WebPort, p >= 10000 && p <= 10199:
+		return fmt.Errorf("%d: Linx already uses that port (3478 is the usual one)", p)
+	}
+	return nil
 }
 
 // NeedsProxyAddress reports whether kind is another program at an address.
@@ -83,6 +111,14 @@ func (f FrontDoorConfig) Validate() error {
 		}
 	} else if f.ProxyAddress != "" {
 		return fmt.Errorf("proxy_address: only used with kind %s", strings.Join(proxyKinds, ", "))
+	}
+	if f.TURNUDPPort != 0 {
+		if !NeedsProxyAddress(f.Kind) {
+			return fmt.Errorf("turn_udp_port: only used with kind %s", strings.Join(proxyKinds, ", "))
+		}
+		if err := ValidateTURNUDPPort(f.TURNUDPPort); err != nil {
+			return fmt.Errorf("turn_udp_port: %w", err)
+		}
 	}
 	return nil
 }
@@ -152,11 +188,15 @@ func FrontDoorFor(c Config, lan LAN) FrontDoorSettings {
 		p, _ := netip.ParseAddr(c.FrontDoor.ProxyAddress)
 		s.TrustedProxies = p.String()
 		s.WebAddress, s.WebClients = lan.BindAddress(), []netip.Addr{p}
-		s.TURNUDPAddress, s.TURNUDPPort = lan.BindAddress(), PublicPort
+		s.TURNUDPAddress, s.TURNUDPPort = lan.BindAddress(), c.FrontDoor.UDPPort()
+		tlsPort := PublicPort
 		if c.FrontDoor.Kind == FrontDoorHTTPProxy {
 			s.ProxyProtocol, s.TURNTLSOpen = false, true
+			tlsPort = TURNTLSPort
+		}
+		if s.TURNUDPPort != PublicPort || tlsPort != PublicPort {
 			host := "turn." + c.Domain.Name
-			s.TURNURLs = fmt.Sprintf("turn:%s:%d?transport=udp,turns:%s:%d?transport=tcp", host, PublicPort, host, TURNTLSPort)
+			s.TURNURLs = fmt.Sprintf("turn:%s:%d?transport=udp,turns:%s:%d?transport=tcp", host, s.TURNUDPPort, host, tlsPort)
 		}
 	case FrontDoorLinx443:
 		s.TrustedProxies = SNIContainerName
@@ -206,7 +246,7 @@ func StepsFile(kind string) string {
 // network's public address, or the home address for home-only), to run
 // once it's up.
 func FrontDoorPlan(c Config, lan LAN) (files, dns Plan) {
-	d, linx := c.Domain.Name, lan.BindAddress()
+	d, linx, udp := c.Domain.Name, lan.BindAddress(), c.FrontDoor.UDPPort()
 	write := func(title, path string, data []byte) Step {
 		return fileStep(title+" ("+path+")", path, data, 0o644, 0o755)
 	}
@@ -214,18 +254,18 @@ func FrontDoorPlan(c Config, lan LAN) (files, dns Plan) {
 	case FrontDoorPangolin:
 		files = Plan{
 			write("Write the Pangolin settings to add", PangolinTraefikFile, PangolinTraefik(d, linx)),
-			write("Write the Pangolin steps", PangolinStepsFile, []byte(PangolinSteps(d, linx))),
+			write("Write the Pangolin steps", PangolinStepsFile, []byte(PangolinSteps(d, linx, udp))),
 		}
 	case FrontDoorNginx:
 		files = Plan{
 			write("Write the nginx settings to add", NginxStreamFile, NginxStream(d, linx)),
 			write("Write the HAProxy settings to add", HAProxySnippetFile, HAProxySnippet(d, linx)),
-			write("Write the nginx/HAProxy steps", NginxStepsFile, []byte(NginxSteps(d, linx))),
+			write("Write the nginx/HAProxy steps", NginxStepsFile, []byte(NginxSteps(d, linx, udp))),
 		}
 	case FrontDoorHTTPProxy:
 		files = Plan{
 			write("Write the Caddy settings to add", CaddyFile, CaddyConfig(d, linx)),
-			write("Write the proxy steps", HTTPProxyStepsFile, []byte(HTTPProxySteps(d, linx))),
+			write("Write the proxy steps", HTTPProxyStepsFile, []byte(HTTPProxySteps(d, linx, udp))),
 		}
 	case FrontDoorLinx443, FrontDoorHomeOnly:
 		files = Plan{write("Write the port 443 router's settings", HAProxyConfigFile, HAProxyConfig(d))}
@@ -292,7 +332,16 @@ tcp:
 
 // PangolinSteps is what the owner does on the Pangolin machine and the
 // router, in plain words.
-func PangolinSteps(domain string, linx netip.Addr) string {
+func PangolinSteps(domain string, linx netip.Addr, udpPort int) string {
+	http3 := `2. Recommended, in the same folder: in traefik_config.yml, remove the
+   "http3:" lines (and the "advertisedPort: 443" under them) from the
+   websecure entry point, then restart Traefik (docker restart traefik).
+   Otherwise browsers visiting your other Pangolin sites try UDP 443,
+   which your router now sends to Linx, and wait a moment before falling
+   back.`
+	if udpPort != PublicPort {
+		http3 = `2. Nothing to change for HTTP/3: call audio uses UDP ` + strconv.Itoa(udpPort) + `, not 443.`
+	}
 	return fmt.Sprintf(`Linx behind Pangolin: what to do (generated by linx setup)
 ============================================================
 
@@ -308,23 +357,19 @@ Pangolin tells Linx each visitor's real address.
    You don't create resources for Linx in Pangolin's dashboard: this file is
    all Pangolin needs. (Pangolin's own resources keep working as before.)
 
-2. Recommended, in the same folder: in traefik_config.yml, remove the
-   "http3:" lines (and the "advertisedPort: 443" under them) from the
-   websecure entry point, then restart Traefik (docker restart traefik).
-   Otherwise browsers visiting your other Pangolin sites try UDP 443,
-   which your router now sends to Linx, and wait a moment before falling
-   back.
+%[4]s
 
 3. On your router, keep TCP 443 going to the Pangolin machine, and forward
-   UDP 443 to this Linx server, %[3]s. That's how calls from outside send
-   their audio when the network allows it (otherwise it goes over TCP 443
-   through Pangolin, which works everywhere but is a little less smooth).
+   UDP %[5]d to this Linx server, %[3]s (same port on both sides). That's
+   how calls from outside send their audio when the network allows it
+   (otherwise it goes over TCP 443 through Pangolin, which works everywhere
+   but is a little less smooth).
 
 4. DNS: setup pointed meet., api. and turn.%[1]s at your home's public
-   address (or left them alone if they already point there).
+   address, and keeps them there if it changes.
 
 5. Check everything: sudo linx doctor ("Calls from outside").
-`, domain, PangolinTraefikFile, linx)
+`, domain, PangolinTraefikFile, linx, http3, udpPort)
 }
 
 // HAProxyConfig is linx-sni's configuration (Linx takes 443 and home-only, ADR-009): TCP
@@ -426,7 +471,7 @@ backend linx_turn
 }
 
 // NginxSteps is what the owner does on the nginx/HAProxy machine and router.
-func NginxSteps(domain string, linx netip.Addr) string {
+func NginxSteps(domain string, linx netip.Addr, udpPort int) string {
 	return fmt.Sprintf(`Linx behind nginx or HAProxy: what to do (generated by linx setup)
 =================================================================
 
@@ -451,11 +496,11 @@ HAProxy
 
 Then, either way:
   4. On your router, keep TCP 443 going to that machine, and forward
-     UDP 443 to this Linx server, %[5]s (smoother call audio from outside).
+     UDP %[6]d to this Linx server, %[5]s (smoother call audio from outside).
   5. DNS: setup pointed meet., api. and turn.%[1]s at your home's public
      address, and keeps them there if it changes.
   6. Check everything: sudo linx doctor ("Calls from outside").
-`, domain, NginxStreamFile, nginxSitesHop, HAProxySnippetFile, linx)
+`, domain, NginxStreamFile, nginxSitesHop, HAProxySnippetFile, linx, udpPort)
 }
 
 // CaddyConfig is the site block for Caddy: HTTPS to Linx, checking Linx's
@@ -479,7 +524,7 @@ meet.%[1]s, api.%[1]s {
 }
 
 // HTTPProxySteps is what the owner does for a proxy that only does websites.
-func HTTPProxySteps(domain string, linx netip.Addr) string {
+func HTTPProxySteps(domain string, linx netip.Addr, udpPort int) string {
 	return fmt.Sprintf(`Linx behind a proxy that only does websites: what to do (generated by linx setup)
 ===============================================================================
 
@@ -512,11 +557,11 @@ Anything else
 On your router
   Keep TCP 443 going to your proxy. Forward to this Linx server (%[3]s):
     - TCP 5349 (the call relay over TLS: your proxy can't pass it on 443)
-    - UDP 443 (smoother call audio)
+    - UDP %[5]d (smoother call audio)
 
 DNS: setup pointed meet., api. and turn.%[1]s at your home's public address,
 and keeps them there if it changes.
 
 Check everything: sudo linx doctor ("Calls from outside").
-`, domain, CaddyFile, linx, WebPort)
+`, domain, CaddyFile, linx, WebPort, udpPort)
 }

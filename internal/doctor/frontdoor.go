@@ -150,7 +150,7 @@ func relayOverTLS(ctx context.Context, env Env, rs *results, addr, name string, 
 	rs.ok("The call relay works over TLS on port 443 through " + door + " (for networks that allow only web traffic).")
 }
 
-// relayUDP checks coturn answers where the router's UDP 443 forward lands.
+// relayUDP checks coturn answers where the router's UDP forward lands.
 func relayUDP(ctx context.Context, env Env, rs *results, s installer.FrontDoorSettings, kind string) {
 	a := s.TURNUDPAddress
 	if a.IsUnspecified() {
@@ -165,8 +165,8 @@ func relayUDP(ctx context.Context, env Env, rs *results, s installer.FrontDoorSe
 	if kind == installer.FrontDoorLinx443 && !a.IsPrivate() && !a.IsLoopback() {
 		who = "the"
 	}
-	rs.ok(fmt.Sprintf("The call relay answers on UDP port %d (%s). Calls get their smoothest audio once %s forward of UDP 443 lands here; Linx can't see the router from inside.",
-		s.TURNUDPPort, a, who))
+	rs.ok(fmt.Sprintf("The call relay answers on UDP port %d (%s). Calls get their smoothest audio once %s forward of UDP %d lands here; Linx can't see the router from inside.",
+		s.TURNUDPPort, a, who, s.TURNUDPPort))
 }
 
 // publicDNS checks the public names resolve to one address: a public one,

@@ -49,6 +49,30 @@ func TestFrontDoorFor(t *testing.T) {
 		t.Errorf("pangolin: %+v", p)
 	}
 
+	// A router that won't split port 443 by protocol (UniFi): call audio on
+	// UDP 3478, advertised to browsers; the relay over TLS stays on 443.
+	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30", TURNUDPPort: 3478}
+	if err := cfg.FrontDoor.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if u := FrontDoorFor(cfg, lan); u.TURNUDPPort != 3478 || u.TURNUDPAddress != lan.Address ||
+		u.TURNURLs != "turn:turn.lab.example.com:3478?transport=udp,turns:turn.lab.example.com:443?transport=tcp" {
+		t.Errorf("pangolin, UDP 3478: %+v", u)
+	}
+	if steps := PangolinSteps("lab.example.com", lan.Address, 3478); !strings.Contains(steps, "UDP 3478 to this Linx server") ||
+		strings.Contains(steps, "remove the") {
+		t.Errorf("pangolin steps, UDP 3478:\n%s", steps)
+	}
+	for _, bad := range []FrontDoorConfig{
+		{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30", TURNUDPPort: 80},
+		{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30", TURNUDPPort: 10050},
+		{Kind: FrontDoorLinx443, TURNUDPPort: 3478},
+	} {
+		if bad.Validate() == nil {
+			t.Errorf("accepted %+v", bad)
+		}
+	}
+
 	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorLinx443}
 	l := FrontDoorFor(cfg, lan)
 	if l.TrustedProxies != SNIContainerName || l.SNIAddress != lan.Address || l.TURNUDPPort != 443 ||
@@ -97,7 +121,7 @@ func TestFrontDoorFiles(t *testing.T) {
 	if strings.Contains(tr, "insecureSkipVerify") {
 		t.Error("the Traefik file must never turn certificate checks off")
 	}
-	steps := PangolinSteps("lab.example.com", linx)
+	steps := PangolinSteps("lab.example.com", linx, 443)
 	for _, want := range []string{PangolinTraefikFile, "UDP 443 to this Linx server, 192.168.1.20", "http3", "sudo linx doctor"} {
 		if !strings.Contains(steps, want) {
 			t.Errorf("steps missing %q", want)
@@ -158,10 +182,10 @@ func TestFrontDoorFilesMore(t *testing.T) {
 			t.Errorf("Caddyfile missing %q:\n%s", want, cd)
 		}
 	}
-	if strings.Contains(cd, "insecure") || strings.Contains(HTTPProxySteps("x.example.com", linx), "proxy_ssl_verify off") {
+	if strings.Contains(cd, "insecure") || strings.Contains(HTTPProxySteps("x.example.com", linx, 443), "proxy_ssl_verify off") {
 		t.Error("an HTTP proxy's settings must keep checking Linx's certificate")
 	}
-	if !strings.Contains(HTTPProxySteps("lab.example.com", linx), "TCP 5349") {
+	if !strings.Contains(HTTPProxySteps("lab.example.com", linx, 443), "TCP 5349") {
 		t.Error("HTTP proxy steps don't mention forwarding 5349")
 	}
 

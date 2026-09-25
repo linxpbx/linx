@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/term"
@@ -580,6 +581,7 @@ func askFrontDoor(p *prompter, cfg *installer.Config, ask bool, lan installer.LA
 		}
 		if k != cfg.FrontDoor.Kind || !installer.NeedsProxyAddress(k) {
 			cfg.FrontDoor.ProxyAddress = ""
+			cfg.FrontDoor.TURNUDPPort = 0
 		}
 		cfg.FrontDoor.Kind = k
 		if installer.NeedsProxyAddress(k) && lan.OK() {
@@ -596,6 +598,27 @@ func askFrontDoor(p *prompter, cfg *installer.Config, ask bool, lan installer.LA
 					continue
 				}
 				cfg.FrontDoor.ProxyAddress = strings.TrimSpace(a)
+				break
+			}
+			fmt.Fprint(p.out, "\nCall audio from outside comes in on a UDP port your router forwards straight to Linx. Use 443 if\n"+
+				"your router lets UDP 443 go to Linx while TCP 443 goes to "+what+"; some (UniFi) don't, so use 3478 then.\n")
+			for {
+				a, err := p.text("UDP port for call audio", strconv.Itoa(cfg.FrontDoor.UDPPort()))
+				if err != nil {
+					return err
+				}
+				n, err := strconv.Atoi(strings.TrimSpace(a))
+				if err == nil {
+					err = installer.ValidateTURNUDPPort(n)
+				}
+				if err != nil {
+					fmt.Fprintln(p.out, "  Give a port number, like 443 or 3478.")
+					continue
+				}
+				cfg.FrontDoor.TURNUDPPort = n
+				if n == installer.PublicPort {
+					cfg.FrontDoor.TURNUDPPort = 0
+				}
 				break
 			}
 		}

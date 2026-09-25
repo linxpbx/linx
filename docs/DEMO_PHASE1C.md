@@ -9,14 +9,14 @@ The examples use `lab.linxpbx.com`, a server at `192.168.1.50` and Pangolin at `
 ## You need
 - Everything under "You need" in [`DEMO_PHASE1B.md`](DEMO_PHASE1B.md): the server on your home network (bridged VM), a Cloudflare token, Linphone on a second device, webhook.site open in a tab.
 - **Your Pangolin at home**, with your router sending **TCP 443** to it, and a way to edit its files (SSH to the Pangolin machine).
-- **Router access**, to forward **UDP 443** to the Linx server.
+- **Router access**, to forward **UDP 443** (or 3478) to the Linx server.
 - **A laptop** (your Mac) with Chrome or Safari, and **a phone** (your iPhone) with Safari, whose Wi-Fi you can turn off (mobile data).
 - The images `linx-certd`, `linx-control-plane`, `linx-asterisk` **and** `linx-coturn` published by CI for the commit you build.
 - An authenticator app on your phone (Google Authenticator, 1Password, Authy, …): the laptop person is an admin, and admins must use one.
 - A trusted certificate (not a test one), as in Phase 1B: browsers and phones refuse test certificates.
 
 ## 1. Docs
-- [ ] `docs/WEB.md`, ADR-036 to ADR-041 in `docs/DECISIONS.md` and the "Phase 1C review" in `docs/THREAT_MODEL.md` read sensibly to you.
+- [x] `docs/WEB.md`, ADR-036 to ADR-041 in `docs/DECISIONS.md` and the "Phase 1C review" in `docs/THREAT_MODEL.md` read sensibly to you.
 
 ## 2. On your computer
 ```
@@ -31,17 +31,17 @@ make image SERVICE=asterisk && make image SERVICE=control-plane && make image SE
 make test-calls    # SIPp phones and the relay: ends with "call suite: ok"
 make test-browser  # two Chromiums behind four front doors, one with UDP blocked
 ```
-- [ ] All finish without errors. (`make test-browser` takes a while: it runs the whole stack four times.)
+- [x] All finish without errors. (`make test-browser` takes a while: it runs the whole stack four times.)
 
 ## 3. CI on GitHub
 Open the repository → **Actions** → the latest **CI** run on master.
-- [ ] Every job is green, including the call suite and the browser call suite in the amd64 Asterisk job, and `images (coturn)` for amd64 and arm64.
-- [ ] Under **Packages**, `linx-coturn` and `linx-control-plane` have an image tagged `sha-<that commit>`.
+- [x] Every job is green, including the call suite and the browser call suite in the amd64 Asterisk job, and `images (coturn)` for amd64 and arm64.
+- [x] Under **Packages**, `linx-coturn` and `linx-control-plane` have an image tagged `sha-<that commit>`.
 
 ## 4. Install on a fresh server
-Follow steps 1–3 of [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md) with the commit CI just built. Answer **n** to "Use test certificates for now?" and give your email. When setup asks **"What sits in front of Linx on the internet?"**, choose **Pangolin**, and give the Pangolin machine's home address (`192.168.1.20`).
-- [ ] Setup ends with "Linx is running", "Trusted certificate issued for *.lab.linxpbx.com", and a **Calls from outside** block naming `/etc/linx/front-door/PANGOLIN.txt`.
-- [ ] It reports the DNS records: `meet.`, `api.` and `turn.lab.linxpbx.com` created (or already pointing) at your home's public address. In Cloudflare they're grey-cloud (DNS only) with the comment "Linx (linx setup)".
+Follow steps 1–3 of [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md) with the commit CI just built. Answer **n** to "Use test certificates for now?" and give your email. When setup asks **"What sits in front of Linx on the internet?"**, choose **Pangolin**, and give the Pangolin machine's home address (`192.168.1.20`). For **"UDP port for call audio"** answer `443`, or `3478` if your router (UniFi, for one) won't send UDP 443 to Linx while TCP 443 goes to Pangolin.
+- [x] Setup ends with "Linx is running", "Trusted certificate issued for *.lab.linxpbx.com", and a **Calls from outside** block naming `/etc/linx/front-door/PANGOLIN.txt`.
+- [x] It reports the DNS records: `meet.`, `api.` and `turn.lab.linxpbx.com` created (or already pointing) at your home's public address. In Cloudflare they're grey-cloud (DNS only) with the comment "Linx (linx setup)".
 
 Add the `sip.lab` record for Linphone as in Phase 1B (A record → `192.168.1.50`, DNS only).
 
@@ -53,15 +53,15 @@ sudo cat /etc/linx/front-door/pangolin-dynamic-config.yml
 Do the steps it lists:
 1. On the Pangolin machine, append the second file's contents to `config/traefik/dynamic_config.yml`.
 2. In `traefik_config.yml` remove the `http3:` lines (and `advertisedPort: 443`) and `docker restart traefik`.
-3. On the router, forward **UDP 443** to `192.168.1.50`. TCP 443 stays with Pangolin.
+3. On the router, forward **UDP 443** (or the port you chose, e.g. 3478, same port on both sides) to `192.168.1.50`. TCP 443 stays with Pangolin.
 
-- [ ] Your other Pangolin sites still work.
+- [x] Your other Pangolin sites still work.
 
 ## 6. `linx doctor`
 ```
 sudo linx doctor
 ```
-- [ ] Everything is `ok`, including **Phone system** and **Calls from outside**: each of `meet.`, `api.` and `turn.` reaches Linx through Pangolin with Linx's own certificate; a relay connection works over TLS on 443; the relay answers on UDP 443; the names point at your public address; only Pangolin may reach the web port.
+- [ ] Everything is `ok`, including **Phone system** and **Calls from outside**: each of `meet.`, `api.` and `turn.` reaches Linx through Pangolin with Linx's own certificate; a relay connection works over TLS on 443; the relay answers on UDP 443 (or your port); the names point at your public address; only Pangolin may reach the web port.
 - [ ] The database line shows `schema version 14`. The only warnings are no API key and no alert channel.
 
 ## 7. Key, alert channel, extensions, people
@@ -178,7 +178,7 @@ sudo ls -l /etc/linx/secrets | grep -E 'turn|ari|sipws|ca_services'
 sudo docker exec linx-postgres psql -U linx -d linx -tAc \
   "SELECT action, count(*) FROM audit_log WHERE action LIKE 'sip.relay%' OR action LIKE 'user.%' GROUP BY 1 ORDER BY 1"
 ```
-- [ ] 8443 and 5349 listen on the LAN address, UDP 443 is coturn's, 5061 LAN only, nothing on 5060.
+- [ ] 8443 and 5349 listen on the LAN address, UDP 443 (or your port) is coturn's, 5061 LAN only, nothing on 5060.
 - [ ] `linx_turn_secret` is there with the others, root-owned, not world-readable.
 - [ ] The audit log shows the people changes (`user.create`, `user.password_set`, `user.mfa_enabled`, …).
 
@@ -187,7 +187,7 @@ sudo docker exec linx-postgres psql -U linx -d linx -tAc \
 rm /tmp/e103.json /tmp/d103.json
 sudo linx api-key revoke "${KEY:0:17}"
 ```
-Remove the Linx block from Pangolin's `dynamic_config.yml` (put HTTP/3 back if you want it), remove the router's UDP 443 forward, delete the Linphone account, the `meet.`/`api.`/`turn.`/`sip.lab` DNS records, then follow "Clean up" in [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md) and delete the Cloudflare token.
+Remove the Linx block from Pangolin's `dynamic_config.yml` (put HTTP/3 back if you want it), remove the router's UDP forward, delete the Linphone account, the `meet.`/`api.`/`turn.`/`sip.lab` DNS records, then follow "Clean up" in [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md) and delete the Cloudflare token.
 
 ## Results
 Add one line per run: date, server, commit, passed or what failed.
