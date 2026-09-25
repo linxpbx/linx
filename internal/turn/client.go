@@ -1,6 +1,8 @@
-package turnconf
+package turn
 
 import (
+	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/rand"
@@ -14,9 +16,17 @@ import (
 	"time"
 )
 
-// A minimal TURN client (RFC 5766/8656) for the Docker test: allocate with
-// long-term credentials, create a permission, send and receive data. Just
-// enough to check what coturn allows; browsers use their own.
+// A minimal TURN client (RFC 5766/8656): allocate with long-term
+// credentials, create a permission, send and receive data. Just enough for
+// linx doctor to prove a relay works through the front door, and for the
+// coturn Docker test to check what coturn allows; browsers use their own.
+
+// STUN (RFC 5389) message types and magic cookie.
+const (
+	stunBindingRequest = 0x0001
+	stunBindingSuccess = 0x0101
+	stunMagicCookie    = 0x2112A442
+)
 
 const (
 	methodAllocate         = 0x003
@@ -131,42 +141,43 @@ func parseXorAddr(b []byte) netip.AddrPort {
 	return netip.AddrPortFrom(netip.AddrFrom4(ip), port)
 }
 
-// turnError is a STUN error response's code (401, 403, 486, ...).
-type turnError int
+// Error is a STUN error response's code (401, 403, 486, ...).
+type Error int
 
-func (e turnError) Error() string { return fmt.Sprintf("TURN error %d", int(e)) }
+func (e Error) Error() string { return fmt.Sprintf("TURN error %d", int(e)) }
 
-// turnClient talks TURN over one connection: UDP, or TCP/TLS (where STUN
-// messages are self-delimiting).
-type turnClient struct {
-	conn         net.Conn
-	stream       bool
-	user, pass   string
+// Client talks TURN over one connection: UDP, or TCP/TLS (Stream, where
+// STUN messages are self-delimiting).
+type Client struct {
+	Conn         net.Conn
+	Stream       bool
+	User, Pass   string
 	realm, nonce []byte
-	Relayed      netip.AddrPort
+	// Relayed is the relay address Allocate got.
+	Relayed netip.AddrPort
 }
 
-func (c *turnClient) key() []byte {
-	s := md5.Sum([]byte(c.user + ":" + string(c.realm) + ":" + c.pass))
+func (c *Client) key() []byte {
+	s := md5.Sum([]byte(c.User + ":" + string(c.realm) + ":" + c.Pass))
 	return s[:]
 }
 
-func (c *turnClient) read() (stunMsg, error) {
-	c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if !c.stream {
+func (c *Client) read() (stunMsg, error) {
+	c.Conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if !c.Stream {
 		b := make([]byte, 2048)
-		n, err := c.conn.Read(b)
+		n, err := c.Conn.Read(b)
 		if err != nil {
 			return stunMsg{}, err
 		}
 		return decodeStun(b[:n])
 	}
 	h := make([]byte, 20)
-	if _, err := io.ReadFull(c.conn, h); err != nil {
+	if _, err := io.ReadFull(c.Conn, h); err != nil {
 		return stunMsg{}, err
 	}
 	body := make([]byte, binary.BigEndian.Uint16(h[2:]))
-	if _, err := io.ReadFull(c.conn, body); err != nil {
+	if _, err := io.ReadFull(c.Conn, body); err != nil {
 		return stunMsg{}, err
 	}
 	return decodeStun(append(h, body...))
@@ -175,17 +186,17 @@ func (c *turnClient) read() (stunMsg, error) {
 // request sends method with attrs, authenticated once the server has sent
 // its realm and nonce (retrying once on the first 401), and returns the
 // success response or a turnError.
-func (c *turnClient) request(method uint16, attrs ...stunAttr) (stunMsg, error) {
+func (c *Client) request(method uint16, attrs ...stunAttr) (stunMsg, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		m := stunMsg{typ: msgType(method, 0), attrs: attrs}
 		rand.Read(m.tid[:])
 		var key []byte
 		if c.realm != nil {
-			m.attrs = append(append([]stunAttr{}, attrs...), stunAttr{attrUsername, []byte(c.user)},
+			m.attrs = append(append([]stunAttr{}, attrs...), stunAttr{attrUsername, []byte(c.User)},
 				stunAttr{attrRealm, c.realm}, stunAttr{attrNonce, c.nonce})
 			key = c.key()
 		}
-		if _, err := c.conn.Write(m.encode(key)); err != nil {
+		if _, err := c.Conn.Write(m.encode(key)); err != nil {
 			return stunMsg{}, err
 		}
 		for {
@@ -208,13 +219,14 @@ func (c *turnClient) request(method uint16, attrs ...stunAttr) (stunMsg, error) 
 				c.realm, c.nonce = resp.get(attrRealm), resp.get(attrNonce)
 				break
 			}
-			return resp, turnError(code)
+			return resp, Error(code)
 		}
 	}
-	return stunMsg{}, turnError(401)
+	return stunMsg{}, Error(401)
 }
 
-func (c *turnClient) allocate() error {
+// Allocate asks for a relay address (UDP).
+func (c *Client) Allocate() error {
 	resp, err := c.request(methodAllocate, stunAttr{attrRequestedTranspt, []byte{17, 0, 0, 0}})
 	if err != nil {
 		return err
@@ -223,16 +235,17 @@ func (c *turnClient) allocate() error {
 	return nil
 }
 
-func (c *turnClient) permit(peer netip.AddrPort) error {
+// Permit lets peer send through the relay.
+func (c *Client) Permit(peer netip.AddrPort) error {
 	_, err := c.request(methodCreatePermission, stunAttr{attrXorPeerAddress, xorAddr(peer)})
 	return err
 }
 
-// echo sends data to peer through the relay and waits for it to come back.
-func (c *turnClient) echo(peer netip.AddrPort, data []byte) ([]byte, error) {
+// Echo sends data to peer through the relay and waits for it to come back.
+func (c *Client) Echo(peer netip.AddrPort, data []byte) ([]byte, error) {
 	m := stunMsg{typ: msgType(methodSend, 1), attrs: []stunAttr{{attrXorPeerAddress, xorAddr(peer)}, {attrData, data}}}
 	rand.Read(m.tid[:])
-	if _, err := c.conn.Write(m.encode(nil)); err != nil {
+	if _, err := c.Conn.Write(m.encode(nil)); err != nil {
 		return nil, err
 	}
 	for {
@@ -244,4 +257,38 @@ func (c *turnClient) echo(peer netip.AddrPort, data []byte) ([]byte, error) {
 			return resp.get(attrData), nil
 		}
 	}
+}
+
+// Ping sends a STUN binding request to addr (UDP) and waits for the
+// answer: proof a STUN/TURN server is listening there.
+func Ping(ctx context.Context, addr string) error {
+	var d net.Dialer
+	c, err := d.DialContext(ctx, "udp", addr)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	req := make([]byte, 20)
+	binary.BigEndian.PutUint16(req[0:], stunBindingRequest)
+	binary.BigEndian.PutUint32(req[4:], stunMagicCookie)
+	if _, err := rand.Read(req[8:20]); err != nil {
+		return err
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(3 * time.Second)
+	}
+	c.SetDeadline(deadline)
+	if _, err := c.Write(req); err != nil {
+		return err
+	}
+	resp := make([]byte, 1500)
+	n, err := c.Read(resp)
+	if err != nil {
+		return err
+	}
+	if n < 20 || binary.BigEndian.Uint16(resp[0:]) != stunBindingSuccess || !bytes.Equal(resp[8:20], req[8:20]) {
+		return errors.New("no STUN answer")
+	}
+	return nil
 }

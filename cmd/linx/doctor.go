@@ -31,6 +31,9 @@ func realDoctorEnv() doctorEnv {
 			LAN:          installer.DetectLAN,
 			LookupIP:     doctor.LookupIP,
 			TLSLeaf:      doctor.DialTLSLeaf,
+			ReadFile:     os.ReadFile,
+			TURNOverTLS:  doctor.TURNOverTLS,
+			STUNPing:     doctor.STUNPing,
 		},
 	}
 }

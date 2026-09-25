@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"linxpbx.com/linx/internal/certs"
+	"linxpbx.com/linx/internal/turn"
 )
 
 func testConfig(t *testing.T) Config {
@@ -118,7 +119,7 @@ func TestHealthy(t *testing.T) {
 			}
 			if n >= 20 {
 				resp := append([]byte(nil), buf[:20]...)
-				binary.BigEndian.PutUint16(resp[0:], stunBindingSuccess)
+				binary.BigEndian.PutUint16(resp[0:], 0x0101) // STUN binding success
 				udp.WriteTo(resp, from)
 			}
 		}
@@ -152,7 +153,7 @@ func TestHealthy(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	deploy(served)
-	if err := stunPing(ctx, udp.LocalAddr().String()); err != nil {
+	if err := turn.Ping(ctx, udp.LocalAddr().String()); err != nil {
 		t.Errorf("STUN: %v", err)
 	}
 	if err := certs.ServesCurrent(ctx, ln.Addr().String(), "turn.example.com", dir); err != nil {
@@ -167,7 +168,7 @@ func TestHealthy(t *testing.T) {
 	closed.Close()
 	short, cancel2 := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel2()
-	if err := stunPing(short, addr); err == nil {
+	if err := turn.Ping(short, addr); err == nil {
 		t.Error("STUN answered by nothing")
 	}
 }

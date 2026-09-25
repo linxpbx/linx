@@ -153,29 +153,29 @@ func TestCoturnDocker(t *testing.T) {
 	issuer := &turn.Issuer{Secret: []byte(secret), Now: time.Now}
 	peer := netip.AddrPortFrom(peerIP, dtEchoUDP)
 
-	udpClient := func(user, pass string) *turnClient {
+	udpClient := func(user, pass string) *turn.Client {
 		t.Helper()
 		c, err := net.Dial("udp", udpAddr)
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { c.Close() })
-		return &turnClient{conn: c, user: user, pass: pass}
+		return &turn.Client{Conn: c, User: user, Pass: pass}
 	}
 
 	t.Run("relays to the phone system", func(t *testing.T) {
 		cred := issuer.Issue(person)
 		c := udpClient(cred.Username, cred.Password)
-		if err := c.allocate(); err != nil {
+		if err := c.Allocate(); err != nil {
 			t.Fatalf("allocate: %v\n%s", err, logs())
 		}
 		if !c.Relayed.IsValid() || c.Relayed.Port() < RelayMin || c.Relayed.Port() > RelayMax {
 			t.Errorf("relayed address %v", c.Relayed)
 		}
-		if err := c.permit(peer); err != nil {
+		if err := c.Permit(peer); err != nil {
 			t.Fatalf("permission for the phone system: %v", err)
 		}
-		got, err := c.echo(peer, []byte("hello, asterisk"))
+		got, err := c.Echo(peer, []byte("hello, asterisk"))
 		if err != nil || string(got) != "hello, asterisk" {
 			t.Fatalf("echo: %q %v", got, err)
 		}
@@ -184,7 +184,7 @@ func TestCoturnDocker(t *testing.T) {
 	t.Run("and to nothing else", func(t *testing.T) {
 		cred := issuer.Issue(person)
 		c := udpClient(cred.Username, cred.Password)
-		if err := c.allocate(); err != nil {
+		if err := c.Allocate(); err != nil {
 			t.Fatal(err)
 		}
 		for what, p := range map[string]netip.AddrPort{
@@ -196,7 +196,7 @@ func TestCoturnDocker(t *testing.T) {
 			"loopback":          netip.MustParseAddrPort("127.0.0.1:3478"),
 			"multicast":         netip.MustParseAddrPort("224.0.0.1:5000"),
 		} {
-			if err := c.permit(p); err != turnError(403) {
+			if err := c.Permit(p); err != turn.Error(403) {
 				t.Errorf("%s (%v): %v, want 403", what, p, err)
 			}
 		}
@@ -212,7 +212,7 @@ func TestCoturnDocker(t *testing.T) {
 			"another secret":   {other.Username, other.Password},
 			"no expiry prefix": {person.String(), turn.Password([]byte(secret), person.String())},
 		} {
-			if err := udpClient(cred[0], cred[1]).allocate(); err != turnError(401) {
+			if err := udpClient(cred[0], cred[1]).Allocate(); err != turn.Error(401) {
 				t.Errorf("%s: %v, want 401", what, err)
 			}
 		}
@@ -223,16 +223,16 @@ func TestCoturnDocker(t *testing.T) {
 		var err error
 		for i := 0; i <= UserQuota && err == nil; i++ {
 			cred := issuer.Issue(someone)
-			err = udpClient(cred.Username, cred.Password).allocate()
+			err = udpClient(cred.Username, cred.Password).Allocate()
 			if i < UserQuota && err != nil {
 				t.Fatalf("allocation %d: %v", i+1, err)
 			}
 		}
-		if err != turnError(486) {
+		if err != turn.Error(486) {
 			t.Errorf("allocation %d: %v, want 486 (quota reached)", UserQuota+1, err)
 		}
 		cred := issuer.Issue(uuid.New())
-		if err := udpClient(cred.Username, cred.Password).allocate(); err != nil {
+		if err := udpClient(cred.Username, cred.Password).Allocate(); err != nil {
 			t.Errorf("someone else's allocation: %v", err)
 		}
 	})
@@ -254,14 +254,14 @@ func TestCoturnDocker(t *testing.T) {
 			t.Errorf("serves certificate %v, want 10", s)
 		}
 		cred := issuer.Issue(person)
-		c := &turnClient{conn: conn, stream: true, user: cred.Username, pass: cred.Password}
-		if err := c.allocate(); err != nil {
+		c := &turn.Client{Conn: conn, Stream: true, User: cred.Username, Pass: cred.Password}
+		if err := c.Allocate(); err != nil {
 			t.Fatal(err)
 		}
-		if err := c.permit(peer); err != nil {
+		if err := c.Permit(peer); err != nil {
 			t.Fatal(err)
 		}
-		if got, err := c.echo(peer, []byte("over tls")); err != nil || string(got) != "over tls" {
+		if got, err := c.Echo(peer, []byte("over tls")); err != nil || string(got) != "over tls" {
 			t.Fatalf("echo: %q %v", got, err)
 		}
 		if _, err := dialTLS(&tls.Config{MinVersion: tls.VersionTLS10, MaxVersion: tls.VersionTLS11}); err == nil {
@@ -273,10 +273,10 @@ func TestCoturnDocker(t *testing.T) {
 		// A relayed session open across the renewal carries on.
 		cred := issuer.Issue(person)
 		c := udpClient(cred.Username, cred.Password)
-		if err := c.allocate(); err != nil {
+		if err := c.Allocate(); err != nil {
 			t.Fatal(err)
 		}
-		if err := c.permit(peer); err != nil {
+		if err := c.Permit(peer); err != nil {
 			t.Fatal(err)
 		}
 		deploy(11)
@@ -295,7 +295,7 @@ func TestCoturnDocker(t *testing.T) {
 			}
 			time.Sleep(300 * time.Millisecond)
 		}
-		if got, err := c.echo(peer, []byte("still here")); err != nil || !bytes.Equal(got, []byte("still here")) {
+		if got, err := c.Echo(peer, []byte("still here")); err != nil || !bytes.Equal(got, []byte("still here")) {
 			t.Errorf("relay after renewal: %q %v", got, err)
 		}
 		if err := healthy(); err != nil {

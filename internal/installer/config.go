@@ -31,6 +31,7 @@ type Config struct {
 	ResourceProfile string            `yaml:"resource_profile"`
 	Domain          DomainConfig      `yaml:"domain"`
 	Certificates    CertificateConfig `yaml:"certificates"`
+	FrontDoor       FrontDoorConfig   `yaml:"front_door"`
 }
 
 // DomainConfig is the base domain and where its DNS is managed. The DNS
@@ -78,6 +79,7 @@ func DefaultConfig() Config {
 		Version: 1, ContainerUI: ContainerUINone, ResourceProfile: ProfileAuto,
 		Domain:       DomainConfig{DNSProvider: DNSCloudflare},
 		Certificates: CertificateConfig{Staging: true, Wildcard: true},
+		FrontDoor:    FrontDoorConfig{Kind: FrontDoorHomeOnly},
 	}
 }
 
@@ -118,6 +120,9 @@ func (c Config) Validate() error {
 	}
 	if err := ValidateEmail(c.Certificates.Email, c.Certificates.Staging); err != nil {
 		errs = append(errs, fmt.Errorf("certificates.email: %w", err))
+	}
+	if err := c.FrontDoor.Validate(); err != nil {
+		errs = append(errs, fmt.Errorf("front_door.%w", err))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("setup.yaml: %w", err)
@@ -175,7 +180,15 @@ certificates:
   wildcard: %t
   # Contact for certificate expiry notices. Required when staging is false.
   email: %q
+# What sits in front of Linx on the internet (calls from outside your home):
+# pangolin (Pangolin on another machine at home), linx-443 (nothing: Linx
+# takes port 443 itself) or home-only (nothing yet).
+front_door:
+  kind: %s
+  # For pangolin: the home-network address of the machine Pangolin runs on.
+  pangolin_address: %q
 `, c.Version, c.Docker.Install, c.ContainerUI, c.ResourceProfile,
-		c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Staging, c.Certificates.Wildcard, c.Certificates.Email)
+		c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Staging, c.Certificates.Wildcard, c.Certificates.Email,
+		c.FrontDoor.Kind, c.FrontDoor.PangolinAddress)
 	return b.Bytes()
 }

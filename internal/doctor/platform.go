@@ -30,7 +30,7 @@ func Run(ctx context.Context, env Env, cfg installer.Config) []Section {
 		{"Certificates", certificates(ctx, env, cfg)},
 		{"Database, access and alerts", Database(ctx, env)},
 		{"Phone system", Phones(ctx, env, cfg)},
-		{"Calls from outside", Relay(ctx, env)},
+		{"Calls from outside", append(Relay(ctx, env), FrontDoor(ctx, env, cfg)...)},
 		{"Secrets", Secrets(env)},
 	}
 }

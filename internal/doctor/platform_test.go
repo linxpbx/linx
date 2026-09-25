@@ -22,6 +22,7 @@ func platformFixture(t *testing.T, state string) *fixture {
 	f.env.Stat = secretsStat(nil)
 	addPhones(t, f)
 	addRelay(f)
+	addFrontDoor(f)
 	return f
 }
 

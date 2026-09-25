@@ -178,7 +178,14 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		fmt.Fprintln(stdout, "\nThis server isn't on a local network (its address is public), so phones can't connect yet.\n"+
 			"Connecting from anywhere arrives in a later Linx update, with protection against password guessing.")
 	}
-	pp, err := installer.PhonesPlan(ctx, env.runner, lan, env.readFile)
+	// 4b. Calls from outside: what sits in front of Linx (docs/WEB.md §3).
+	if err := askFrontDoor(p, &cfg, ask, lan); err != nil {
+		if errors.Is(err, errSetupRefused) {
+			return 1
+		}
+		return inputError(stderr, err)
+	}
+	pp, err := installer.PhonesPlan(ctx, env.runner, lan, installer.FrontDoorFor(cfg, lan).WebClients, env.readFile)
 	if err != nil {
 		fmt.Fprintln(stderr, "Can't set up the phone connections:", err)
 		return 1
@@ -219,9 +226,13 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	pki := installer.PKIPlan(action != installer.DockerInstall && installer.CAExists(ctx, env.runner))
 	plan = append(plan, pki.Plan...)
 
-	// 8. The Linx services: first certificate, then start everything.
+	// 8. The Linx services: first certificate, then start everything; the
+	// front door's files first and its DNS names once they're up.
+	fdFiles, fdDNS := installer.FrontDoorPlan(cfg, lan)
+	plan = append(plan, fdFiles...)
 	stack := installer.StackPlan(cfg, token, imageTag, lan)
 	plan = append(plan, stack.Plan...)
+	plan = append(plan, fdDNS...)
 
 	plan = append(plan, installer.CLIPlan(env.executable, env.resolve)...)
 	plan = append(plan, installer.Step{Title: "Save your answers to " + installer.ConfigPath, File: &installer.File{
@@ -269,6 +280,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		printPortainer(stdout, portainer)
 	}
 	printPhones(stdout, cfg, lan)
+	printFrontDoor(stdout, cfg, lan)
 	if pki.Passphrase != "" {
 		printCABackup(stdout, pki.Passphrase)
 	}
@@ -552,5 +564,65 @@ func (p *prompter) choose(q string, options []string, labels map[string]string, 
 			return options[n-1], nil
 		}
 		fmt.Fprintln(p.out, "Please enter one of the numbers shown.")
+	}
+}
+
+// errSetupRefused means setup already explained why it stops.
+var errSetupRefused = errors.New("setup refused")
+
+// askFrontDoor asks what sits in front of Linx on the internet.
+func askFrontDoor(p *prompter, cfg *installer.Config, ask bool, lan installer.LAN) error {
+	if ask {
+		fmt.Fprint(p.out, "\nFor calls from outside your home, people's browsers reach Linx through port 443.\n")
+		k, err := p.choose("What sits in front of Linx on the internet?", installer.FrontDoors, installer.FrontDoorDescription, cfg.FrontDoor.Kind)
+		if err != nil {
+			return err
+		}
+		cfg.FrontDoor.Kind = k
+		if k != installer.FrontDoorPangolin {
+			cfg.FrontDoor.PangolinAddress = ""
+		}
+		if k == installer.FrontDoorPangolin && lan.OK() {
+			for {
+				a, err := p.text("The Pangolin machine's address on your home network (e.g. 192.168.1.30)", cfg.FrontDoor.PangolinAddress)
+				if err != nil {
+					return err
+				}
+				if err := installer.ValidatePangolinAddress(a); err != nil {
+					fmt.Fprintln(p.out, "  "+err.Error())
+					continue
+				}
+				cfg.FrontDoor.PangolinAddress = strings.TrimSpace(a)
+				break
+			}
+		}
+	}
+	if cfg.FrontDoor.Kind == installer.FrontDoorPangolin && !lan.OK() {
+		fmt.Fprintln(p.out, "Pangolin on your home network needs this server on the same network, and it isn't on one.\n"+
+			"Choose linx-443 (Linx takes port 443 itself) instead, or run setup on the home server.")
+		return errSetupRefused
+	}
+	return nil
+}
+
+// printFrontDoor tells the owner what to do outside this server.
+func printFrontDoor(w io.Writer, cfg installer.Config, lan installer.LAN) {
+	switch cfg.FrontDoor.Kind {
+	case installer.FrontDoorPangolin:
+		fmt.Fprintf(w, "\nCalls from outside go through your Pangolin (%s). Two things to do there and on your router;\n"+
+			"the steps are in %s:\n"+
+			"  1. Add %s to the end of Pangolin's config/traefik/dynamic_config.yml.\n"+
+			"  2. On your router, forward UDP port 443 to this server (%s). TCP 443 stays with Pangolin.\n"+
+			"Then check with: sudo linx doctor\n",
+			cfg.FrontDoor.PangolinAddress, installer.PangolinStepsFile, installer.PangolinTraefikFile, lan.Address)
+	case installer.FrontDoorLinx443:
+		where := "this server"
+		if lan.OK() {
+			where = "this server (" + lan.Address.String() + ")"
+		}
+		fmt.Fprintf(w, "\nLinx now answers on port 443 itself. If a router is in front, forward TCP and UDP port 443 to %s.\n"+
+			"Then check with: sudo linx doctor\n", where)
+	default:
+		fmt.Fprintln(w, "\nCalls from outside your home aren't set up yet. Run setup again and pick a front door when you want them.")
 	}
 }

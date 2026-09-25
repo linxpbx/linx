@@ -16,6 +16,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,26 +54,53 @@ const (
 	shellImage = "postgres:18@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae"
 )
 
+// Front doors the suite runs behind (docs/WEB.md §3), each with its own
+// stack: Pangolin's Traefik with the file linx setup generates, and Linx's
+// own port 443 router (linx-sni). LINX_FRONT_DOORS picks some.
+var frontDoors = []string{installer.FrontDoorPangolin, installer.FrontDoorLinx443}
+
+// traefikImage is the Traefik Pangolin runs (its installer's traefik:v3.7).
+const traefikImage = "traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0"
+
+// pangolinAddress is the test's stand-in Pangolin's fixed address.
+const pangolinAddress = "172.29.201.30"
+
+// relayURLs: TURN over TLS on 443 through the front door, by name; UDP
+// straight to coturn (at home, the router's UDP 443 forward).
+const relayURLs = "turn:coturn:3478?transport=udp,turns:turn.linx.test:443?transport=tcp"
+
 // override is what the test changes in compose.yaml: no certd (the test
-// deploys its own certificate), the names browsers use for the control
-// plane and coturn, relay addresses on coturn's own ports (the front door
-// that maps 443 to them comes in step 6), and the control plane's HTTPS
-// port on this machine's loopback, for the test's own API calls.
-const override = `services:
+// deploys its own certificate), relay addresses, the control plane's HTTPS
+// port on this machine's loopback for the test's own API calls, and the
+// front door answering for the public names.
+func override(door string) string {
+	s := `services:
   certd:
     profiles: [disabled]
   control-plane:
     environment:
-      LINX_TURN_URLS: "turn:turn.linx.test:3478?transport=udp,turns:turn.linx.test:5349?transport=tcp"
+      LINX_TURN_URLS: "` + relayURLs + `"
     ports: ["127.0.0.1::8443"]
+`
+	switch door {
+	case installer.FrontDoorPangolin:
+		s += `  pangolin-traefik:
+    image: ` + traefikImage + `
+    command: [--configFile=/etc/traefik/traefik_config.yml]
+    volumes: ["./traefik:/etc/traefik:ro"]
     networks:
       linx-public:
-        aliases: [meet.linx.test]
-  coturn:
+        ipv4_address: ` + pangolinAddress + `
+        aliases: [meet.linx.test, api.linx.test, turn.linx.test]
+`
+	case installer.FrontDoorLinx443:
+		s += `  sni:
     networks:
       linx-public:
-        aliases: [turn.linx.test]
-volumes:
+        aliases: [linx-sni, meet.linx.test, api.linx.test, turn.linx.test]
+`
+	}
+	return s + `volumes:
   certs:
     name: ` + certsVolume + `
     external: true
@@ -82,8 +110,50 @@ networks:
       config:
         - subnet: ` + publicSubnet + `
 `
+}
+
+// pangolinStatic is Pangolin's installer traefik_config.yml, minus what a
+// test can't have (ACME, its dashboard, the badger plugin) and minus HTTP/3
+// (the Pangolin steps say to turn it off). Its global insecureSkipVerify is
+// kept on purpose: Linx's passthrough mustn't depend on it.
+const pangolinStatic = `providers:
+  file:
+    filename: "/etc/traefik/dynamic_config.yml"
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: "30m"
+serversTransport:
+  insecureSkipVerify: true
+log:
+  level: "INFO"
+`
+
+// pangolinDynamic stands in for Pangolin's own dynamic_config.yml (an HTTP
+// router of its own on websecure), with Linx's generated block appended as
+// the owner does.
+func pangolinDynamic(linxBlock string) string {
+	return `http:
+  routers:
+    pangolin-dashboard:
+      rule: "Host(` + "`pangolin.linx.test`" + `)"
+      service: pangolin-dashboard
+      entryPoints: [websecure]
+      tls: {}
+  services:
+    pangolin-dashboard:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:3002"
+` + linxBlock
+}
 
 type harness struct {
+	door    string
 	t       *testing.T
 	ctx     context.Context
 	dir     string
@@ -143,17 +213,27 @@ func TestBrowserCallsDocker(t *testing.T) {
 	if _, err := os.Stat("../../web/node_modules/@playwright/test"); err != nil {
 		t.Skip("web dependencies aren't installed: run make setup-dev")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-	h := &harness{t: t, ctx: ctx, dir: t.TempDir()}
-	for svc, img := range images {
-		h.docker("tag", img, imagePrefix+"/linx-"+svc+":test")
+	if v := os.Getenv("LINX_FRONT_DOORS"); v != "" {
+		frontDoors = strings.Split(v, ",")
 	}
 	if !imageExists(sippImage) {
-		h.docker("buildx", "build", "-q", "-f", "../../deploy/docker/sipp-test.Dockerfile", "--load", "-t", sippImage, "../..")
+		out, err := exec.Command("docker", "buildx", "build", "-q", "-f", "../../deploy/docker/sipp-test.Dockerfile", "--load", "-t", sippImage, "../..").CombinedOutput()
+		if err != nil {
+			t.Fatalf("building SIPp: %v\n%s", err, tail(string(out), 20))
+		}
 	}
-	h.start()
-	h.provision(t)
+	for _, door := range frontDoors {
+		t.Run(door, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			defer cancel()
+			h := &harness{door: door, t: t, ctx: ctx, dir: t.TempDir()}
+			for svc, img := range images {
+				h.docker("tag", img, imagePrefix+"/linx-"+svc+":test")
+			}
+			h.start()
+			h.provision(t)
+		})
+	}
 }
 
 func (h *harness) start() {
@@ -247,13 +327,32 @@ func (h *harness) start() {
 		y = strings.ReplaceAll(y, " name: linx-"+n+"\n", " name: "+netPrefix+n+"\n")
 	}
 	must(t, os.WriteFile(filepath.Join(h.dir, "compose.yaml"), []byte(y), 0o644))
-	must(t, os.WriteFile(filepath.Join(h.dir, "override.yaml"), []byte(override), 0o644))
+	must(t, os.WriteFile(filepath.Join(h.dir, "override.yaml"), []byte(override(h.door)), 0o644))
 	env := fmt.Sprintf("LINX_IMAGE_PREFIX=%s\nLINX_VERSION=test\nLINX_DOMAIN=%s\nLINX_DNS_PROVIDER=cloudflare\n"+
 		"LINX_SIP_ADDRESS=127.0.0.1\nLINX_SIP_NETWORKS=%s\n", imagePrefix, domain, publicSubnet)
+	services := []string{"postgres", "step-ca", "control-plane", "asterisk", "coturn"}
+	switch h.door {
+	case installer.FrontDoorPangolin:
+		// Exactly what setup generates for the owner, pointed at the
+		// containers instead of a LAN address (at home both sit behind
+		// that one address).
+		linx := netip.MustParseAddr("192.0.2.1")
+		block := string(installer.PangolinTraefik(domain, linx))
+		block = strings.NewReplacer("192.0.2.1:8443", "control-plane:8443", "192.0.2.1:5349", "coturn:5349").Replace(block)
+		tdir := filepath.Join(h.dir, "traefik")
+		must(t, os.Mkdir(tdir, 0o755))
+		must(t, os.WriteFile(filepath.Join(tdir, "traefik_config.yml"), []byte(pangolinStatic), 0o644))
+		must(t, os.WriteFile(filepath.Join(tdir, "dynamic_config.yml"), []byte(pangolinDynamic(block)), 0o644))
+		env += "LINX_TRUSTED_PROXIES=" + pangolinAddress + "\n"
+		services = append(services, "pangolin-traefik")
+	case installer.FrontDoorLinx443:
+		must(t, os.WriteFile(filepath.Join(h.dir, "haproxy.cfg"), installer.HAProxyConfig(domain), 0o644))
+		env += "LINX_TRUSTED_PROXIES=" + installer.SNIContainerName + "\nCOMPOSE_PROFILES=" + installer.FrontDoorLinx443 + "\n"
+		services = append(services, "sni")
+	}
 	must(t, os.WriteFile(filepath.Join(h.dir, ".env"), []byte(env), 0o644))
 
-	h.docker(append(h.compose, "up", "--detach", "--wait", "--wait-timeout", "180",
-		"postgres", "step-ca", "control-plane", "asterisk", "coturn")...)
+	h.docker(append(append(h.compose, "up", "--detach", "--wait", "--wait-timeout", "180"), services...)...)
 
 	port := h.docker("port", "linx-control-plane", "8443/tcp")
 	port = port[strings.LastIndex(port, ":")+1:]
@@ -419,12 +518,13 @@ func (h *harness) provision(t *testing.T) {
 	}
 
 	// The browsers: Playwright's own image on linx-public, running
-	// web/e2e/calls.spec.ts against https://meet.linx.test:8443.
+	// web/e2e/calls.spec.ts against https://meet.linx.test, through the
+	// front door on 443.
 	web, _ := filepath.Abs("../../web")
 	cmd := exec.CommandContext(h.ctx, "docker", "run", "--rm", "--name", "linx-browser-test-playwright",
 		"--network", netPrefix+"public", "--ipc", "host", "--init",
 		"--volume", web+":/web", "--workdir", "/web",
-		"--env", "LINX_BASE_URL=https://meet."+domain+":8443",
+		"--env", "LINX_BASE_URL=https://meet."+domain,
 		"--env", "LINX_TEST_SPKI="+os.Getenv("LINX_TEST_SPKI"),
 		"--env", "LINX_SETUP_A="+aisha, "--env", "LINX_SETUP_B="+omar,
 		"--env", "CI=1",

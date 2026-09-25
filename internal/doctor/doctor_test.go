@@ -116,6 +116,8 @@ type fixture struct {
 	runner hostRunner
 	env    Env
 	cfg    installer.Config
+	// frontDoor is the front door's fakes, once addFrontDoor has run.
+	frontDoor *frontDoorFakes
 }
 
 func newFixture(t *testing.T, staging bool, leafNotAfter time.Time, dnsNames ...string) *fixture {
@@ -153,7 +155,7 @@ func newFixture(t *testing.T, staging bool, leafNotAfter time.Time, dnsNames ...
 	if staging {
 		env.Roots, env.StagingRoots = x509.NewCertPool(), pool
 	}
-	return &fixture{r, env, cfg}
+	return &fixture{runner: r, env: env, cfg: cfg}
 }
 
 func (f *fixture) run() []Result {

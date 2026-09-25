@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
@@ -288,8 +289,50 @@ func TestClientIP(t *testing.T) {
 			t.Errorf("%s: got %s, want %s", tt.name, got, tt.want)
 		}
 	}
-	if _, err := NewClientIPResolver("not-an-ip"); err == nil {
-		t.Fatal("bad trusted proxy accepted")
+	for _, bad := range []string{"not an ip", "10.0.0.0/33", "-linx", "linx_sni"} {
+		if _, err := NewClientIPResolver(bad); err == nil {
+			t.Errorf("bad trusted proxy %q accepted", bad)
+		}
+	}
+}
+
+// A trusted proxy given by name (the Linx-takes-443 HAProxy container) is
+// trusted at the addresses its name resolves to, and only after Refresh.
+func TestClientIPTrustedByName(t *testing.T) {
+	r, err := NewClientIPResolver("linx-sni, 192.168.1.30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Names(); len(got) != 1 || got[0] != "linx-sni" {
+		t.Fatalf("Names() = %v", got)
+	}
+	haproxy := netip.MustParseAddr("172.18.0.9")
+	if r.Trusted(haproxy) {
+		t.Fatal("trusted a name before looking it up")
+	}
+	addr := haproxy
+	lookup := func(_ context.Context, host string) ([]netip.Addr, error) {
+		if host != "linx-sni" {
+			t.Errorf("looked up %q", host)
+		}
+		if !addr.IsValid() {
+			return nil, errors.New("no such host")
+		}
+		return []netip.Addr{addr}, nil
+	}
+	if err := r.Refresh(context.Background(), lookup); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Trusted(haproxy) || !r.Trusted(netip.MustParseAddr("192.168.1.30")) || r.Trusted(netip.MustParseAddr("172.18.0.10")) {
+		t.Fatal("wrong addresses trusted after Refresh")
+	}
+	// The container went away: its old address is no longer trusted.
+	addr = netip.Addr{}
+	if err := r.Refresh(context.Background(), lookup); err == nil {
+		t.Error("a failed lookup wasn't reported")
+	}
+	if r.Trusted(haproxy) {
+		t.Error("still trusting the address of a name that no longer resolves")
 	}
 }
 

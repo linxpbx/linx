@@ -475,6 +475,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** One design, several small generators, each with a Docker test. Pangolin's TURN/TLS-on-443 depends on a Traefik passthrough file routing to a raw TCP resource, to be proved in the build; if it can't be done, TURN/TLS gets its own port there and the owner is told.
 
+**As built (2026-09-25, step 6).** Pangolin's Traefik skips backend certificate checks for every resource (by design, in Pangolin's generated config), so front doors pass `meet.`/`api.` through by name like `turn.`, undecrypted, and send the visitor's address with PROXY protocol v2; Linx requires it from the trusted front door and refuses it from anyone else. TURN/TLS on 443 through Pangolin works (proved by the browser suite with Pangolin's Traefik). The owner's Pangolin is at home without Newt, so its UDP 443 is forwarded by the router straight to Linx (docs/WEB.md §3).
+
 ## ADR-041 — Opus transcoding (owner decision, 2026-09-24)
 
 **Context.** Asterisk 22 ships no Opus encoder or `.opus` file format. Sangoma's `codec_opus` is a closed binary for x86-64 only. Without an encoder, Linx's messages are silent to Opus-only callers, and web calls would fall back to G.722 (migration 0009).

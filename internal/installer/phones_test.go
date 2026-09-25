@@ -70,7 +70,7 @@ func TestPhonesPlan(t *testing.T) {
 
 	// nft installed, Docker already set up.
 	r := &fakeRunner{answers: map[string]string{"nft --version": "nftables v1.0.9"}}
-	p, err := PhonesPlan(context.Background(), r, lan, readFiles(map[string]string{DockerDaemonConfig: `{"userland-proxy": false}`}))
+	p, err := PhonesPlan(context.Background(), r, lan, nil, readFiles(map[string]string{DockerDaemonConfig: `{"userland-proxy": false}`}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestPhonesPlan(t *testing.T) {
 	}
 
 	// No nft, fresh Docker.
-	p, err = PhonesPlan(context.Background(), &fakeRunner{}, lan, readFiles(nil))
+	p, err = PhonesPlan(context.Background(), &fakeRunner{}, lan, nil, readFiles(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestPhonesPlan(t *testing.T) {
 
 func TestFirewallRuleset(t *testing.T) {
 	lan := LAN{Address: netip.MustParseAddr("192.168.1.20"), Network: netip.MustParsePrefix("192.168.1.0/24")}
-	rs := string(FirewallRuleset(lan))
+	rs := string(FirewallRuleset(lan, []netip.Addr{netip.MustParseAddr("192.168.1.30")}))
 	for _, want := range []string{
 		"table inet linx\ndelete table inet linx\n", // replaced atomically, never flushes anything else
 		"elements = { 192.168.1.0/24 }",
@@ -116,6 +116,11 @@ func TestFirewallRuleset(t *testing.T) {
 		"fib daddr type local udp dport 10000-10199 ip saddr @phone_networks accept",
 		"fib daddr type local tcp dport { 5060, 5061 } counter drop",
 		"fib daddr type local udp dport { 5060, 10000-10199 } counter drop",
+		// The front door (Pangolin at 192.168.1.30) alone reaches the web
+		// port and the relay's TLS port.
+		"set front_door {\n\t\ttype ipv4_addr\n\t\telements = { 192.168.1.30 }\n\t}",
+		"fib daddr type local tcp dport { 8443, 5349 } ip saddr @front_door accept",
+		"fib daddr type local tcp dport { 8443, 5349 } counter drop",
 	} {
 		if !strings.Contains(rs, want) {
 			t.Errorf("ruleset missing %q:\n%s", want, rs)
@@ -124,7 +129,7 @@ func TestFirewallRuleset(t *testing.T) {
 	if strings.Contains(rs, "flush ruleset") {
 		t.Error("ruleset must never flush other tables")
 	}
-	if none := string(FirewallRuleset(LAN{})); strings.Contains(none, "elements") || !strings.Contains(none, "counter drop") {
+	if none := string(FirewallRuleset(LAN{}, nil)); strings.Contains(none, "elements") || !strings.Contains(none, "counter drop") {
 		t.Errorf("no-LAN ruleset:\n%s", none)
 	}
 }

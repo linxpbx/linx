@@ -17,7 +17,9 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"sync"
 	"time"
@@ -281,7 +283,16 @@ func main() {
 	healthMux.Handle("/healthz", health.Handler(service))
 	plain := server.New(envOr(os.Getenv, "LINX_HEALTH_ADDR", defaultHealthAddr), healthMux)
 
-	if err := server.Serve(log, https, plain); err != nil {
+	// Trusted front doors given by name (LINX_TRUSTED_PROXIES) are looked
+	// up before the first connection and every 30 s after.
+	lctx, lcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = ips.Refresh(lctx, func(ctx context.Context, host string) ([]netip.Addr, error) {
+		return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	})
+	lcancel()
+	runBackground(func(ctx context.Context) { refreshTrustedProxies(ctx, ips, log) })
+
+	if err := server.Serve(log, server.Entry{Server: https, Wrap: proxyListener(ips)}, server.Entry{Server: plain}); err != nil {
 		log.Error("server stopped", "err", err)
 		stopBackground()
 		bg.Wait()

@@ -43,6 +43,13 @@ type Env struct {
 	// TLSLeaf connects to addr over TLS, verifies the certificate for
 	// serverName against roots (nil: the system's) and returns it.
 	TLSLeaf func(ctx context.Context, addr, serverName string, roots *x509.CertPool) (*x509.Certificate, error)
+	// ReadFile reads a file on this server (the relay secret).
+	ReadFile func(string) ([]byte, error)
+	// TURNOverTLS allocates a relay address over TLS at addr, for
+	// serverName (verified against roots), with long-term credentials.
+	TURNOverTLS func(ctx context.Context, addr, serverName string, roots *x509.CertPool, user, pass string) error
+	// STUNPing asks a STUN server at addr (UDP) for an answer.
+	STUNPing func(ctx context.Context, addr string) error
 }
 
 // Let's Encrypt's staging roots (https://letsencrypt.org/docs/staging-environment/).

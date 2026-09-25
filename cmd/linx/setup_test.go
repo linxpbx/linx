@@ -59,9 +59,10 @@ func testEnv(stdin string, files map[string]string) setupEnv {
 }
 
 func TestSetupInteractiveDryRun(t *testing.T) {
-	// Answers: accept profile, install Docker, choose Portainer, a bad then a
-	// good domain, (token), keep test certificates, skip the email.
-	env := testEnv("\ny\n2\n*.bad\nlab.linxpbx.com\n\n\n", nil)
+	// Answers: accept profile, install Docker, Pangolin in front (a bad then
+	// a good address), choose Portainer, a bad then a good domain, (token),
+	// keep test certificates, skip the email.
+	env := testEnv("\ny\n1\n8.8.8.8\n192.168.1.30\n2\n*.bad\nlab.linxpbx.com\n\n\n", nil)
 	var out, errOut bytes.Buffer
 	code := runSetup(context.Background(), []string{"--dry-run"}, &out, &errOut, env)
 	if code != 0 {
@@ -84,7 +85,11 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 		"Edit zone DNS",
 		"Save the DNS token",
 		"Get a test certificate for *.lab.linxpbx.com",
+		"isn't a home-network address",
+		"Write the Pangolin settings to add (/etc/linx/front-door/pangolin-dynamic-config.yml)",
 		"Start the Linx services",
+		"Point meet.lab.linxpbx.com, api.lab.linxpbx.com, turn.lab.linxpbx.com at this network's public address (DNS)",
+		"$ docker compose --file /etc/linx/compose.yaml run --rm certd -records meet,api,turn",
 		"Install the linx command as /usr/local/bin/linx",
 		"Save your answers",
 		"Dry run: nothing was changed.",

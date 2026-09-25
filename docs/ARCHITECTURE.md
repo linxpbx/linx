@@ -98,7 +98,7 @@ Public UDP 5060/TCP 5060 is never exposed. Plaintext SIP is allowed only for exp
 
 The same renderer runs on re-setup and shows a diff before applying, with an automatic config backup first.
 
-- **A** (Pangolin/Traefik, dynamic IP, NAT): web hosts become Pangolin HTTP resources, with `meet.`, `api.` and `provision.` set to **public** and `admin.` behind SSO. A generated file in Pangolin's Traefik dynamic-config directory adds `HostSNI` TCP routers with `tls.passthrough: true` on `websecure` for `sip.` and `turn.`. UDP 443 is port-forwarded straight to coturn. The installer checks that HTTP/3 is disabled on the Traefik entrypoint.
+- **A** (Pangolin/Traefik, dynamic IP, NAT): a generated block for Pangolin's Traefik file provider adds `HostSNI` TCP routers with `tls.passthrough: true` on `websecure` for `meet.`, `api.` (with PROXY protocol v2 to Linx) and `turn.`; Pangolin's HTTP resources aren't used, because Pangolin never checks a backend's certificate (docs/WEB.md §3 "As built"). UDP 443 is port-forwarded straight to coturn. HTTP/3 should be off on the Traefik entrypoint.
 - **B** (existing nginx/HAProxy/Caddy): generates an `ssl_preread` SNI map plus HTTP server blocks.
 - **C** (standalone 443): the `linx-sni` HAProxy owns 443 and sends PROXY v2 to services that support it.
 - **D/E** (standard ports, VPS): native ports, no SNI router, no DDNS on E.
