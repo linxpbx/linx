@@ -1,0 +1,64 @@
+/* Tailwind, with shadcn/ui's theme names mapped onto the Linx design tokens
+   (tokens.css, generated from design/tokens.json). No colour is defined
+   here: every one is a --linx-* token. */
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-background: var(--linx-color-bg);
+  --color-foreground: var(--linx-color-text);
+  --color-card: var(--linx-color-surface);
+  --color-card-foreground: var(--linx-color-text);
+  --color-popover: var(--linx-color-surface);
+  --color-popover-foreground: var(--linx-color-text);
+  --color-primary: var(--linx-color-brand-fill);
+  --color-primary-foreground: var(--linx-color-on-brand);
+  --color-secondary: var(--linx-color-bg);
+  --color-secondary-foreground: var(--linx-color-text);
+  --color-muted: var(--linx-color-bg);
+  --color-muted-foreground: var(--linx-color-text-muted);
+  --color-accent: var(--linx-color-bg);
+  --color-accent-foreground: var(--linx-color-text);
+  --color-destructive: var(--linx-color-end);
+  --color-destructive-foreground: var(--linx-color-on-end);
+  --color-border: var(--linx-color-border);
+  --color-input: var(--linx-color-border);
+  --color-ring: var(--linx-color-accent);
+
+  /* Linx's own names. */
+  --color-link: var(--linx-color-accent);
+  --color-sidebar: var(--linx-color-surface-dark);
+  --color-sidebar-foreground: var(--linx-color-on-surface-dark);
+  --color-link-on-dark: var(--linx-color-accent-on-dark);
+  --color-call: var(--linx-color-call);
+  --color-call-foreground: var(--linx-color-on-call);
+  --color-hangup: var(--linx-color-end);
+  --color-hangup-foreground: var(--linx-color-on-end);
+  --color-status-available: var(--linx-status-available);
+  --color-status-busy: var(--linx-status-busy);
+  --color-status-ringing: var(--linx-status-ringing);
+  --color-status-away: var(--linx-status-away);
+  --color-status-dnd: var(--linx-status-dnd);
+  --color-status-push: var(--linx-status-push);
+  --color-status-offline: var(--linx-status-offline);
+  --color-status-meeting: var(--linx-status-meeting);
+
+  --font-sans: var(--linx-font-body);
+  --font-display: var(--linx-font-display);
+  --font-mono: var(--linx-font-mono);
+
+  --radius-sm: var(--linx-radius-sm);
+  --radius-md: var(--linx-radius-md);
+  --radius-lg: var(--linx-radius-lg);
+  --radius-xl: var(--linx-radius-lg);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}

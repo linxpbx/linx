@@ -55,13 +55,24 @@ func (w *Watcher) Check(ctx context.Context) {
 	w.loaded = v
 }
 
-// Run checks every interval until ctx ends.
+// firstCertCheck is how often Run checks while the service has no
+// certificate loaded yet: a service that started before its certificate was
+// written (Asterisk's browser websocket, whose certificate the control plane
+// issues at its own start) gets it within seconds, not a whole interval.
+const firstCertCheck = 2 * time.Second
+
+// Run checks every interval (every firstCertCheck until a certificate is
+// loaded) until ctx ends.
 func (w *Watcher) Run(ctx context.Context, interval time.Duration) {
-	t := time.NewTicker(interval)
-	defer t.Stop()
 	for {
+		wait := interval
+		if w.loaded == "" && firstCertCheck < wait {
+			wait = firstCertCheck
+		}
+		t := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return
 		case <-t.C:
 			w.Check(ctx)

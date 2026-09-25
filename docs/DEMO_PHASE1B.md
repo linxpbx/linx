@@ -61,8 +61,10 @@ A key that can make phone logins needs the sensitive scope `devices:write` by na
 sudo ./linx api-key create --name "Demo" --role admin --scopes all,devices:write
 sudo apt-get install -y jq
 KEY='linx_...'        # paste the key between the quotes
-api()  { sudo docker run --rm --network linx-public curlimages/curl:8.11.1 -sS -H "Authorization: Bearer $KEY" "$@"; }
-API=http://linx-control-plane:8080/api/v1
+# Since Phase 1C the API answers only over HTTPS on 8443, with certd's (trusted) certificate.
+api()  { sudo docker run --rm --network linx-public curlimages/curl:8.11.1 -sS \
+           --connect-to meet.lab.linxpbx.com:443:linx-control-plane:8443 -H "Authorization: Bearer $KEY" "$@"; }
+API=https://meet.lab.linxpbx.com/api/v1
 JSON='Content-Type: application/json'
 HOOK_URL='https://webhook.site/...'    # your address from webhook.site
 api -X POST -H "$JSON" -d "{\"url\":\"$HOOK_URL\",\"description\":\"Demo\"}" $API/webhooks | jq .webhook.id

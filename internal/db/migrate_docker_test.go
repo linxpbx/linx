@@ -21,8 +21,8 @@ func TestMigrateDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 13 {
-		t.Errorf("Migrate() version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("Migrate() version = %d, want 14", version)
 	}
 
 	for _, table := range []string{"tenant", "audit_log", "schema_migrations", "api_key", "oauth_client", "token_revocation",
@@ -45,7 +45,7 @@ func TestMigrateDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version2 != 13 {
-		t.Errorf("second Migrate() version = %d, want 13", version2)
+	if version2 != 14 {
+		t.Errorf("second Migrate() version = %d, want 14", version2)
 	}
 }

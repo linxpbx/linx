@@ -53,6 +53,8 @@ func testEnv(stdin string, files map[string]string) setupEnv {
 		},
 		readSecret: func() (string, error) { return testToken, nil },
 		commit:     testCommit,
+		executable: "/home/owner/linx",
+		resolve:    func(p string) (string, error) { return p, nil },
 	}
 }
 
@@ -83,6 +85,7 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 		"Save the DNS token",
 		"Get a test certificate for *.lab.linxpbx.com",
 		"Start the Linx services",
+		"Install the linx command as /usr/local/bin/linx",
 		"Save your answers",
 		"Dry run: nothing was changed.",
 	} {

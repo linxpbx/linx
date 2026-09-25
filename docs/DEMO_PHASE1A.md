@@ -63,8 +63,12 @@ Keep it in the shell for the rest of the demo, and set up two helpers (`jq` read
 ```
 sudo apt-get install -y jq
 KEY='linx_...'        # paste the key between the quotes
-api()  { sudo docker run --rm --network linx-public curlimages/curl:8.11.1 -sS -H "Authorization: Bearer $KEY" "$@"; }
-API=http://linx-control-plane:8080/api/v1
+# Since Phase 1C the API answers only over HTTPS on 8443, with certd's certificate. This demo uses a
+# Let's Encrypt test certificate, so curl is given Let's Encrypt's test roots to check it against.
+curl -sS https://letsencrypt.org/certs/staging/letsencrypt-stg-root-x1.pem https://letsencrypt.org/certs/staging/letsencrypt-stg-root-x2.pem > /tmp/le-staging.pem
+api()  { sudo docker run --rm --network linx-public -v /tmp/le-staging.pem:/ca.pem:ro curlimages/curl:8.11.1 -sS --cacert /ca.pem \
+           --connect-to meet.lab.linxpbx.com:443:linx-control-plane:8443 -H "Authorization: Bearer $KEY" "$@"; }
+API=https://meet.lab.linxpbx.com/api/v1
 ```
 ```
 api $API/me | jq

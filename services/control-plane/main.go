@@ -6,7 +6,8 @@
 // extensions/devices, the linx_asterisk realtime role Asterisk reads over
 // ODBC, and the ARI app Asterisk connects out to (ari.go; docs/PBX.md §4).
 // Phase 1C so far: people's accounts and sessions (session.go), browsers'
-// phone lines and the /sip relay (sip.go; docs/WEB.md §5).
+// phone lines and the /sip relay (sip.go; docs/WEB.md §5), the web client
+// itself on HTTPS 8443 (ADR-037) and the Team list's live updates (team.go).
 //
 // `control-plane api-key ...` is the server-side key tool that `linx api-key`
 // runs inside this container (apikey_cmd.go); `control-plane healthcheck` is
@@ -25,6 +26,7 @@ import (
 
 	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/health"
@@ -34,6 +36,7 @@ import (
 	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/version"
+	"linxpbx.com/linx/internal/webapp"
 	"linxpbx.com/linx/internal/webhook"
 	controlplaneapi "linxpbx.com/linx/services/control-plane/api"
 )
@@ -179,6 +182,10 @@ func main() {
 	}
 	// The ARI app: device online state, call webhooks, /calls/active.
 	tracker := &pbx.CallTracker{Store: st, Log: log, Now: time.Now}
+	// The Team list and its live updates (docs/WEB.md §6).
+	team := &pbx.Team{Store: st, Calls: tracker}
+	hub := newTeamHub(team, log)
+	tracker.OnChange, team.OnChange = hub.Changed, hub.Changed
 
 	// "webhook endpoint disabled" (docs/API.md §5): fired whether the
 	// worker turned it off automatically or an admin did, resolved once
@@ -228,6 +235,7 @@ func main() {
 		pollCertd(ctx, &http.Client{Timeout: 10 * time.Second}, engine, tenant, certdPollInterval, log)
 	})
 	runBackground(func(ctx context.Context) { sweepWebDevices(ctx, st, relay, webDeviceSweepInterval, log) })
+	runBackground(hub.Run)
 	stopARI, err := startARI(bgCtx, ariCfg, tracker, log, runBackground)
 	if err != nil {
 		log.Error("ARI setup failed", "err", err)
@@ -241,7 +249,7 @@ func main() {
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, tracker, accounts, turnIssuer)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, tracker, accounts, turnIssuer, team)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)
@@ -253,15 +261,40 @@ func main() {
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	registerSessionHandlers(mux, authn, accounts, tenant)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
+	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
+	// Everything else is the web client (ADR-037).
+	mux.Handle("/", webapp.Handler(os.DirFS(envOr(os.Getenv, "LINX_WEB_DIR", webapp.DefaultDir))))
 
-	addr := os.Getenv("LINX_LISTEN_ADDR")
-	if addr == "" {
-		addr = ":8080"
+	// One HTTPS port for the page, the API and /sip (ADR-037), with
+	// linx-certd's certificate, picked up again whenever it's renewed. Until
+	// certd has the first certificate, connections fail their handshake
+	// (and the logs say why) while everything else runs.
+	cert := &certs.ServingCert{Dir: envOr(os.Getenv, "LINX_CERTS_DIR", defaultCertsDir)}
+	if _, err := cert.Current(); err != nil {
+		log.Warn("no TLS certificate yet; HTTPS connections fail until linx-certd deploys one", "err", err)
 	}
-	if err := server.Run(addr, mux, log); err != nil {
+	https := server.New(envOr(os.Getenv, "LINX_LISTEN_ADDR", ":8443"), webapp.Headers(mux))
+	https.TLSConfig = server.TLSConfig(cert.GetCertificate)
+	// Plain HTTP only on the container's own loopback, only for the Docker
+	// health check (healthcheck.go): nothing else can reach it.
+	healthMux := http.NewServeMux()
+	healthMux.Handle("/healthz", health.Handler(service))
+	plain := server.New(envOr(os.Getenv, "LINX_HEALTH_ADDR", defaultHealthAddr), healthMux)
+
+	if err := server.Serve(log, https, plain); err != nil {
 		log.Error("server stopped", "err", err)
 		stopBackground()
 		bg.Wait()
 		os.Exit(1)
 	}
+}
+
+// defaultCertsDir is where compose mounts linx-certd's certificates.
+const defaultCertsDir = "/var/lib/linx/certs"
+
+func envOr(getenv func(string) string, key, def string) string {
+	if v := getenv(key); v != "" {
+		return v
+	}
+	return def
 }

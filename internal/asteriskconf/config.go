@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -449,11 +450,16 @@ func (c Config) pjsipConf(nets []netip.Prefix, nat string, ws netip.Prefix) stri
 	wss := ""
 	if ws.IsValid() {
 		acl += "permit=" + ws.Masked().String() + "\n"
-		// The websocket itself is http.conf's TLS listener: a websocket
-		// transport binds nothing, so bind only makes "pjsip show
-		// transports" show where it really listens (instead of its default,
-		// 0.0.0.0:5060).
-		wss = "\n[transport-wss]\ntype=transport\nprotocol=wss\nbind=" + netip.AddrPortFrom(ws.Addr(), SIPWSPort).String() + "\n"
+		// The websocket itself is http.conf's TLS listener, on linx-sipws
+		// only: a websocket transport binds nothing. Its bind still
+		// matters, though: Asterisk binds a call's audio to its transport's
+		// address. It must be "any", so audio to the relay leaves from
+		// Asterisk's linx-media address (coturn accepts nothing else) and
+		// audio to a browser at home from its published LAN side; pinned to
+		// the linx-sipws address, every reply went out with that address
+		// and the relay dropped it. The port keeps "pjsip show transports"
+		// (and linx doctor) showing 8089.
+		wss = "\n[transport-wss]\ntype=transport\nprotocol=wss\nbind=0.0.0.0:" + strconv.Itoa(SIPWSPort) + "\n"
 	}
 	return fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint. Endpoints, AORs and auths come from
 ; the asterisk schema's realtime views over ODBC (docs/PBX.md §3;

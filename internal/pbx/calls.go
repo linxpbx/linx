@@ -69,6 +69,10 @@ type CallTracker struct {
 	Store CallStore
 	Log   *slog.Logger
 	Now   func() time.Time
+	// OnChange, if set, is called after any event that may have changed a
+	// call or a device's online state (the Team list's live updates). It
+	// must not block.
+	OnChange func()
 
 	mu        sync.Mutex
 	connected bool
@@ -131,6 +135,7 @@ func (t *CallTracker) Serve(ctx context.Context, c *ari.Conn) {
 		t.mu.Lock()
 		t.connected = false
 		t.mu.Unlock()
+		t.changed()
 	}()
 
 	for ev := range c.Events() {
@@ -138,6 +143,7 @@ func (t *CallTracker) Serve(ctx context.Context, c *ari.Conn) {
 			// Asterisk only answers REST requests once the app is
 			// registered; catch up on calls that changed while we were away.
 			t.resync(ctx, c)
+			t.changed()
 			continue
 		}
 		t.handle(ctx, ev)
@@ -175,6 +181,15 @@ func (t *CallTracker) handle(ctx context.Context, ev ari.Event) {
 		t.observe(ev.Channel)
 	case "ChannelDestroyed":
 		t.destroyed(ctx, ev, at)
+	default:
+		return
+	}
+	t.changed()
+}
+
+func (t *CallTracker) changed() {
+	if t.OnChange != nil {
+		t.OnChange()
 	}
 }
 

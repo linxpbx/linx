@@ -3,6 +3,7 @@
 :root {
   color-scheme: light;
   --linx-color-accent: #1F5FD6;
+  --linx-color-accent-on-dark: #7FB0FF;
   --linx-color-bg: #F4F3EF;
   --linx-color-border: #E3E1DA;
   --linx-color-brand-fill: #1F5FD6;
@@ -45,6 +46,7 @@
   :root:not([data-theme="light"]) {
     color-scheme: dark;
     --linx-color-accent: #7FB0FF;
+    --linx-color-accent-on-dark: #7FB0FF;
     --linx-color-bg: #17191E;
     --linx-color-border: #343842;
     --linx-color-brand-fill: #1F5FD6;
@@ -72,6 +74,7 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --linx-color-accent: #7FB0FF;
+  --linx-color-accent-on-dark: #7FB0FF;
   --linx-color-bg: #17191E;
   --linx-color-border: #343842;
   --linx-color-brand-fill: #1F5FD6;

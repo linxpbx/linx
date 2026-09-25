@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "shadcn": {
+      "command": "npx",
+      "args": ["--yes", "shadcn@4.21.0", "mcp"],
+      "cwd": "web"
+    }
+  }
+}

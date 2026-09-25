@@ -20,7 +20,7 @@ import (
 // against api/openapi.yaml (security requirements before anything else),
 // then the strict server. It fails if the embedded spec doesn't parse or
 // validate, since a broken spec means the whole API is broken.
-func newAPIHandler(log *slog.Logger, store controlplaneapi.CredentialStore, authn *auth.Authenticator, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls controlplaneapi.CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer) (http.Handler, error) {
+func newAPIHandler(log *slog.Logger, store controlplaneapi.CredentialStore, authn *auth.Authenticator, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls controlplaneapi.CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team) (http.Handler, error) {
 	spec, err := controlplaneapi.GetSpec()
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func newAPIHandler(log *slog.Logger, store controlplaneapi.CredentialStore, auth
 	spec.Servers = nil
 
 	strict := controlplaneapi.NewStrictHandlerWithOptions(
-		controlplaneapi.NewServer(spec, store, webhooks, alerts, pbxSvc, calls, accounts, turnIssuer),
+		controlplaneapi.NewServer(spec, store, webhooks, alerts, pbxSvc, calls, accounts, turnIssuer, team),
 		nil,
 		controlplaneapi.StrictHTTPServerOptions{
 			ResponseErrorHandlerFunc: apihttp.ResponseErrorHandler(log),

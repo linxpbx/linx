@@ -20,13 +20,13 @@ var (
 
 const userColumns = `id, tenant_id, email, name, role, extension_id, password_hash, password_updated_at,
 	mfa_secret_enc, mfa_pending_secret_enc, mfa_enabled, recovery_code_hashes, failed_attempts, locked_until,
-	failure_window_start, failure_window_count, disabled_at, version, created_at, updated_at`
+	failure_window_start, failure_window_count, disabled_at, version, created_at, updated_at, presence`
 
 func scanUser(row pgx.Row) (auth.User, error) {
 	var u auth.User
 	err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Role, &u.ExtensionID, &u.PasswordHash, &u.PasswordUpdatedAt,
 		&u.MFASecretEnc, &u.MFAPendingSecretEnc, &u.MFAEnabled, &u.RecoveryCodeHashes, &u.FailedAttempts, &u.LockedUntil,
-		&u.FailureWindowStart, &u.FailureWindowCount, &u.DisabledAt, &u.Version, &u.CreatedAt, &u.UpdatedAt)
+		&u.FailureWindowStart, &u.FailureWindowCount, &u.DisabledAt, &u.Version, &u.CreatedAt, &u.UpdatedAt, &u.Presence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return u, auth.ErrNotFound
 	}

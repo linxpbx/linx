@@ -37,7 +37,10 @@ type User struct {
 	FailureWindowStart *time.Time
 	FailureWindowCount int
 
-	DisabledAt           *time.Time
+	DisabledAt *time.Time
+	// Presence is the person's chosen status: available, away or dnd
+	// (migration 0014). Read-only here; pbx.Team sets it.
+	Presence             string
 	Version              int
 	CreatedAt, UpdatedAt time.Time
 }

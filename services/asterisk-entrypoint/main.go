@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -31,6 +32,31 @@ const asteriskBin = "/usr/sbin/asterisk"
 // happen 30 days before expiry, so a minute is plenty;
 // LINX_CERT_CHECK_INTERVAL overrides it for tests.
 const certCheckInterval = time.Minute
+
+// sipwsCertWait is how long Asterisk's start waits for the browser
+// websocket's certificate.
+const sipwsCertWait = 2 * time.Minute
+
+// waitForCertificate waits up to limit for dir/current/fullchain.pem.
+func waitForCertificate(dir string, limit time.Duration, log *slog.Logger) bool {
+	path := filepath.Join(dir, certs.CurrentLink, certs.FullchainFile)
+	deadline := time.Now().Add(limit)
+	logged := false
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		if time.Now().After(deadline) {
+			log.Warn("no browser websocket certificate yet; starting without it (browsers can't call until Asterisk restarts)", "path", path)
+			return false
+		}
+		if !logged {
+			log.Info("waiting for the control plane to write the browser websocket certificate", "path", path)
+			logged = true
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", service)
@@ -68,6 +94,14 @@ func main() {
 	if cfg.SIPWSHost != "none" {
 		watchers = append(watchers, &certs.Watcher{Dir: cfg.SIPWSCertsDir, Reload: reloadModule("http"),
 			Log: log.With("cert", "browser websocket")})
+	}
+	// Asterisk's web server (the browser websocket) doesn't start if its
+	// certificate is missing when Asterisk starts, and a later reload
+	// doesn't bring it back. The control plane writes that certificate
+	// moments after it starts, so wait for it; if it never comes, start
+	// anyway: phones on the LAN don't need it.
+	if cfg.SIPWSHost != "none" {
+		waitForCertificate(cfg.SIPWSCertsDir, sipwsCertWait, log)
 	}
 	for _, w := range watchers {
 		w.Start()

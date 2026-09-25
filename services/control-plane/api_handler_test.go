@@ -47,6 +47,8 @@ type testEnv struct {
 	calls    *fakeCalls
 	accounts *auth.Accounts
 	relay    *siprelay.Relay
+	team     *fakeTeamStore
+	hub      *teamHub
 	// asterisk is where the /sip relay connects (a websocket URL); tests
 	// that use the relay set it.
 	asterisk string
@@ -107,12 +109,16 @@ func newTestEnv(t *testing.T) *testEnv {
 	authn.Sessions = st
 	accounts := &auth.Accounts{Store: st, Sealer: sender.Sealer, Alerts: nil, Failures: authn.Failures, Now: time.Now}
 	turnIssuer := &turn.Issuer{Secret: []byte("test-turn-secret"), URLs: turn.DefaultURLs("linx.example.com"), Now: time.Now}
-	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, calls, accounts, turnIssuer)
+	teamStore := &fakeTeamStore{presence: map[uuid.UUID]string{}}
+	team := &pbx.Team{Store: teamStore, Calls: calls}
+	hub := newTeamHub(team, log)
+	team.OnChange = hub.Changed
+	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, calls, accounts, turnIssuer, team)
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}
 	env := &testEnv{t: t, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al,
-		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts}
+		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts, team: teamStore, hub: hub}
 	sst := testSIPStore{fakeStore: st, fakePbxStore: pb}
 	pb.sessionLive = st.sessionLive
 	env.relay = &siprelay.Relay{
@@ -136,6 +142,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	registerSessionHandlers(mux, authn, accounts, st.tenant)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, sst, env.relay))
+	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
 	env.srv = httptest.NewServer(mux)
 	t.Cleanup(env.srv.Close)
 	return env
@@ -671,9 +678,10 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	// kind of credential it is signed in with (docs/WEB.md §4), like GetMe.
 	// /me/web-phone and /me/turn-credentials are the signed-in person's own
 	// phone line and relay access, refused to anything but a finished
-	// sign-in (docs/WEB.md §5).
+	// sign-in (docs/WEB.md §5). /me/presence is the signed-in person's own
+	// status, likewise refused to anything else.
 	anyCredential := []string{"GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
-		"IssueMyWebPhone", "GetMyTurnCredentials"}
+		"IssueMyWebPhone", "GetMyTurnCredentials", "SetMyPresence"}
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
 			sec := spec.Security

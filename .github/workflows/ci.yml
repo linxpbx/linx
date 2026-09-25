@@ -89,7 +89,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { service: control-plane, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=control-plane" }
+          - { service: control-plane, dockerfile: deploy/docker/control-plane.Dockerfile, build-args: "" }
           - { service: certd, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=certd" }
           # The official coturn image plus Linx's Go entrypoint (ADR-039).
           - { service: coturn, dockerfile: deploy/docker/coturn.Dockerfile, build-args: "" }
@@ -177,7 +177,7 @@ jobs:
     name: images (asterisk, ${{ matrix.arch }})
     needs: [test, security]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write # push to ghcr.io by digest (master only)
@@ -236,6 +236,44 @@ jobs:
         env:
           LINX_ASTERISK_IMAGE: linx-asterisk:amd64
         run: make test-calls
+
+      # The web client's browser call suite (docs/WEB.md §8 step 5): the
+      # whole compose stack with this Asterisk image and local builds of the
+      # control plane (with the web client) and coturn, two headless
+      # Chromiums in Playwright's container (internal/browsertest).
+      - name: Build control plane for the browser suite
+        if: matrix.arch == 'amd64'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/control-plane.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: linx-control-plane:ci
+          cache-from: type=gha,scope=control-plane
+      - name: Build coturn for the browser suite
+        if: matrix.arch == 'amd64'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/coturn.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: linx-coturn:ci
+          cache-from: type=gha,scope=coturn
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: matrix.arch == 'amd64'
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Browser call suite
+        if: matrix.arch == 'amd64'
+        env:
+          LINX_ASTERISK_IMAGE: linx-asterisk:amd64
+          LINX_CONTROL_PLANE_IMAGE: linx-control-plane:ci
+          LINX_COTURN_IMAGE: linx-coturn:ci
+        run: make setup-dev && make test-browser
 
       - name: Log in to GitHub Container Registry
         if: env.PUBLISH == 'true'

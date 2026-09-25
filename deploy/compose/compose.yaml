@@ -57,10 +57,12 @@ services:
     mem_limit: 512m
     pids_limit: 128
 
-  # REST API, webhooks, ARI app, provisioning, push gateway (docs/API.md).
-  # Reaches Postgres on linx-private; reached by the edge on linx-public
-  # (nothing routes to it yet: the SNI router/edge templates arrive with the
-  # deployment profiles); sends webhooks out through linx-egress. Webhook
+  # The web client, REST API, /sip relay, webhooks, ARI app, provisioning,
+  # push gateway (docs/API.md, docs/WEB.md). HTTPS on 8443 only (ADR-037);
+  # plain HTTP just on its own loopback, for the health check. Reaches
+  # Postgres on linx-private; reached by the front door on linx-public
+  # (nothing publishes 8443 yet: the front-door steps do, docs/WEB.md §3);
+  # sends webhooks out through linx-egress. Webhook
   # requests never reach any of these three networks (internal/safehttp).
   control-plane:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-control-plane:${LINX_VERSION:?set by linx setup}
@@ -103,6 +105,10 @@ services:
           subpath: certs
       # Writes Asterisk's browser-websocket certificate here (docs/WEB.md §2).
       - sipws-certs:/var/lib/linx/sipws-certs
+      # linx-certd's certificate, for HTTPS on 8443 (ADR-037): the web
+      # client, the API and /sip. Picked up again on renewal by itself. This
+      # image's user (65532) is certd's, so it can read privkey.pem.
+      - certs:/var/lib/linx/certs:ro
     depends_on:
       postgres:
         condition: service_healthy

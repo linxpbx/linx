@@ -1,0 +1,11 @@
+{
+  "name": "Linx",
+  "short_name": "Linx",
+  "description": "Your calls. Your server.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#17191E",
+  "theme_color": "#1F5FD6",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

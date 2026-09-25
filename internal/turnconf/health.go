@@ -4,16 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/binary"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"time"
+
+	"linxpbx.com/linx/internal/certs"
 )
 
 // STUN (RFC 5389) message types and magic cookie, for the health check.
@@ -31,7 +28,7 @@ func Healthy(ctx context.Context, host, realm, certsDir string) error {
 	if err := stunPing(ctx, net.JoinHostPort(host, fmt.Sprint(ListenPort))); err != nil {
 		return fmt.Errorf("UDP port: %w", err)
 	}
-	if err := servesCurrent(ctx, net.JoinHostPort(host, fmt.Sprint(TLSPort)), "turn."+realm, certsDir); err != nil {
+	if err := certs.ServesCurrent(ctx, net.JoinHostPort(host, fmt.Sprint(TLSPort)), "turn."+realm, certsDir); err != nil {
 		return fmt.Errorf("TLS port: %w", err)
 	}
 	return nil
@@ -67,30 +64,4 @@ func stunPing(ctx context.Context, addr string) error {
 		return errors.New("no STUN answer")
 	}
 	return nil
-}
-
-// servesCurrent completes a TLS handshake that trusts only the deployed
-// certificate itself (as its own root), so it succeeds only if that exact
-// certificate is served, valid for name.
-func servesCurrent(ctx context.Context, addr, name, certsDir string) error {
-	b, err := os.ReadFile(filepath.Join(certsDir, "current", "fullchain.pem"))
-	if err != nil {
-		return err
-	}
-	block, _ := pem.Decode(b)
-	if block == nil {
-		return errors.New("no certificate deployed")
-	}
-	leaf, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return err
-	}
-	roots := x509.NewCertPool()
-	roots.AddCert(leaf)
-	d := tls.Dialer{Config: &tls.Config{RootCAs: roots, ServerName: name, MinVersion: tls.VersionTLS12}}
-	c, err := d.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return fmt.Errorf("doesn't serve the current certificate: %w", err)
-	}
-	return c.Close()
 }

@@ -294,7 +294,7 @@ func TestRenderSIPWebsocket(t *testing.T) {
 		}
 	}
 	pjsip := read(t, c, "pjsip.conf")
-	for _, want := range []string{"[transport-wss]\ntype=transport\nprotocol=wss\nbind=172.22.0.4:8089\n", "permit=192.168.1.0/24\npermit=172.22.0.0/24\n"} {
+	for _, want := range []string{"[transport-wss]\ntype=transport\nprotocol=wss\nbind=0.0.0.0:8089\n", "permit=192.168.1.0/24\npermit=172.22.0.0/24\n"} {
 		if !strings.Contains(pjsip, want) {
 			t.Errorf("pjsip.conf missing %q:\n%s", want, pjsip)
 		}

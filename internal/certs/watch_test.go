@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestWatcher(t *testing.T) {
@@ -60,5 +61,26 @@ func TestWatcher(t *testing.T) {
 	w.Check(ctx) // and only once
 	if reloads != 1 || w.loaded != "v2" {
 		t.Fatalf("after renewal: %d reloads, loaded %q", reloads, w.loaded)
+	}
+}
+
+// A service that started before its first certificate existed picks it up
+// within seconds, not a whole interval.
+func TestWatcherFirstCertificateSoon(t *testing.T) {
+	dir := t.TempDir()
+	reloaded := make(chan struct{}, 1)
+	w := &Watcher{Dir: dir, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Reload: func(context.Context) error { reloaded <- struct{}{}; return nil }}
+	w.Start()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx, time.Hour)
+	if err := os.Symlink("v1", filepath.Join(dir, "current")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reloaded:
+	case <-time.After(firstCertCheck + 3*time.Second):
+		t.Fatal("the first certificate wasn't picked up within seconds")
 	}
 }

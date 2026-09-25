@@ -1312,6 +1312,73 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/me/presence:
+    put:
+      operationId: setMyPresence
+      summary: Set my status
+      description: >-
+        Available, Away or Do not disturb (the account menu's "Set status").
+        Do not disturb also stops the person's extension ringing: callers
+        hear "not available". Queues `presence.changed` when it changes.
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [presence]
+              properties:
+                presence:
+                  $ref: "#/components/schemas/Presence"
+      responses:
+        "204":
+          description: Saved.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/team:
+    get:
+      operationId: listTeam
+      summary: The Team list
+      description: >-
+        Every extension with the name of the person on it and what they're
+        doing now (docs/ui/WEB_SCREENS_PHASE1C.md §6), sorted by name. For
+        live updates open the websocket at `/api/v1/team/live` instead.
+      tags: [team]
+      security:
+        - bearer: [team:read]
+      responses:
+        "200":
+          description: The Team list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/team/live:
+    get:
+      operationId: watchTeam
+      summary: The Team list, live (websocket)
+      description: >-
+        A websocket (subprotocol `linx.team.v1`) that sends the whole Team
+        list as a TeamList JSON message at once and again whenever it
+        changes. It never reads anything the client sends. Signed-in
+        browser sessions only, from this server's own page (Origin must
+        match); it closes when the session ends. API clients use GET /team.
+        Served by a hand-written handler (excluded from code generation).
+      tags: [team]
+      security:
+        - bearer: [team:read]
+      responses:
+        "101":
+          description: Switching to the websocket.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /oauth/token:
     post:
       operationId: oauthToken
@@ -1506,6 +1573,11 @@ components:
         mfa_enabled:
           type: boolean
           description: Whether a signed-in person has turned on an authenticator app.
+        extension:
+          type: string
+          description: The number of that extension, e.g. "101".
+        presence:
+          $ref: "#/components/schemas/Presence"
 
     EventType:
       type: object
@@ -2662,6 +2734,42 @@ components:
           description: The extension number this line answers for, e.g. "101".
         turn:
           $ref: "#/components/schemas/TurnCredentials"
+
+    Presence:
+      description: A person's chosen status. `dnd` (Do not disturb) also stops their extension ringing.
+      type: string
+      enum: [available, away, dnd]
+
+    TeamMember:
+      type: object
+      required: [extension, name, status]
+      properties:
+        extension:
+          type: string
+          description: The extension number, e.g. "101".
+        name:
+          type: string
+          description: The person on this extension, or the extension's own name when nobody is.
+        status:
+          type: string
+          enum: [on_call, ringing, dnd, away, available, offline]
+          description: >-
+            What they're doing now: on a call or ringing beats their chosen
+            status; `available` and `away` need a phone signed in, or it's
+            `offline`.
+        since:
+          type: string
+          format: date-time
+          description: For `on_call` and `ringing`, when the call was answered or started ringing.
+
+    TeamList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamMember"
 
     TurnCredentials:
       description: Credentials for Linx's relay, as an RTCIceServer (ADR-039).

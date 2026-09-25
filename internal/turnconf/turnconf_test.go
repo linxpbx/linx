@@ -19,6 +19,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"linxpbx.com/linx/internal/certs"
 )
 
 func testConfig(t *testing.T) Config {
@@ -153,11 +155,11 @@ func TestHealthy(t *testing.T) {
 	if err := stunPing(ctx, udp.LocalAddr().String()); err != nil {
 		t.Errorf("STUN: %v", err)
 	}
-	if err := servesCurrent(ctx, ln.Addr().String(), "turn.example.com", dir); err != nil {
+	if err := certs.ServesCurrent(ctx, ln.Addr().String(), "turn.example.com", dir); err != nil {
 		t.Errorf("current certificate: %v", err)
 	}
 	deploy(newCert(t, "*.example.com")) // renewed, but not reloaded
-	if err := servesCurrent(ctx, ln.Addr().String(), "turn.example.com", dir); err == nil {
+	if err := certs.ServesCurrent(ctx, ln.Addr().String(), "turn.example.com", dir); err == nil {
 		t.Error("healthy while serving an old certificate")
 	}
 	closed, _ := net.ListenPacket("udp", "127.0.0.1:0")

@@ -33,6 +33,7 @@ type Server struct {
 	calls    CallSource
 	accounts *auth.Accounts
 	turn     *turn.Issuer
+	team     *pbx.Team
 	now      func() time.Time
 }
 
@@ -47,8 +48,8 @@ type CallSource interface {
 // callers must pass the same document the server was validated against.
 // turnIssuer makes relay credentials for browsers (nil: no relay, so
 // /me/web-phone and /me/turn-credentials answer 503).
-func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer) *Server {
-	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, calls: calls, accounts: accounts, turn: turnIssuer, now: time.Now}
+func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team) *Server {
+	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, calls: calls, accounts: accounts, turn: turnIssuer, team: team, now: time.Now}
 }
 
 func (s *Server) GetOpenapiSpec(_ context.Context, _ GetOpenapiSpecRequestObject) (GetOpenapiSpecResponseObject, error) {
@@ -93,6 +94,7 @@ func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponse
 			if u, err := s.accounts.GetUser(ctx, uid); err == nil {
 				me.Email, me.Name, me.MfaEnabled = &u.Email, &u.Name, &u.MFAEnabled
 				me.ExtensionId = u.ExtensionID
+				s.meExtras(ctx, &me, u.ExtensionID, u.Presence)
 			}
 		}
 	}

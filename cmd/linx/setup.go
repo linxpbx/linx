@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -31,6 +32,10 @@ type setupEnv struct {
 	// readSecret reads a line from the terminal without echoing it.
 	readSecret func() (string, error)
 	commit     string // build commit; picks the service image tag
+	// executable is this linx binary's path, which setup installs as
+	// /usr/local/bin/linx ("" if unknown).
+	executable string
+	resolve    func(string) (string, error)
 }
 
 func realSetupEnv() setupEnv {
@@ -48,8 +53,18 @@ func realSetupEnv() setupEnv {
 			b, err := term.ReadPassword(int(os.Stdin.Fd()))
 			return string(b), err
 		},
-		commit: version.Commit,
+		commit:     version.Commit,
+		executable: executablePath(),
+		resolve:    filepath.EvalSymlinks,
 	}
+}
+
+func executablePath() string {
+	p, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return p
 }
 
 const setupUsage = `Usage: sudo linx setup [--config FILE] [--dry-run]
@@ -208,6 +223,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	stack := installer.StackPlan(cfg, token, imageTag, lan)
 	plan = append(plan, stack.Plan...)
 
+	plan = append(plan, installer.CLIPlan(env.executable, env.resolve)...)
 	plan = append(plan, installer.Step{Title: "Save your answers to " + installer.ConfigPath, File: &installer.File{
 		Path: installer.ConfigPath, Data: cfg.Marshal(), Mode: 0o600, DirMode: 0o755,
 	}})
