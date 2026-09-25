@@ -28,6 +28,9 @@ func addFrontDoor(f *fixture) {
 		default:
 			return phoneLeaf(ctx, addr, name, roots)
 		}
+		if fk.traefikDefault {
+			return nil, errors.New("tls: failed to verify certificate: x509: certificate is valid for 2512b50e.6fe70149.traefik.default, not " + name)
+		}
 		if fk.notPassedThrough == name {
 			return &x509.Certificate{Raw: []byte("Pangolin's own certificate")}, nil
 		}
@@ -76,7 +79,7 @@ func addFrontDoor(f *fixture) {
 type frontDoorFakes struct {
 	notPassedThrough, notInDNS string
 	dnsAddr                    string
-	proxyDown                  bool
+	proxyDown, traefikDefault  bool
 	turnErr, stunErr           error
 	turnAddr, turnName         string
 	turnUser, stunAddr         string
@@ -102,6 +105,9 @@ func TestFrontDoorPangolin(t *testing.T) {
 		want   string
 	}{
 		{"not passed through", func(_ *fixture, fk *frontDoorFakes) { fk.notPassedThrough = "api.lab.example.com" }, "api.lab.example.com through Pangolin (192.168.1.30) answers with another certificate"},
+		// Traefik didn't load the block (two tcp: sections in its file):
+		// it answers every name with its own placeholder certificate.
+		{"Traefik didn't load Linx's block", func(_ *fixture, fk *frontDoorFakes) { fk.traefikDefault = true }, "Pangolin's Traefik has no route for this name: it didn't load Linx's settings"},
 		{"relay refused", func(_ *fixture, fk *frontDoorFakes) { fk.turnErr = errors.New("TURN error 401") }, "The call relay doesn't work over TLS through Pangolin"},
 		{"no UDP", func(_ *fixture, fk *frontDoorFakes) { fk.stunErr = errors.New("timeout") }, "doesn't answer on UDP port 443"},
 		{"not in DNS", func(_ *fixture, fk *frontDoorFakes) { fk.notInDNS = "turn.lab.example.com" }, "These names aren't in DNS yet: turn.lab.example.com"},
@@ -113,8 +119,12 @@ func TestFrontDoorPangolin(t *testing.T) {
 			f := platformFixture(t, healthyState)
 			tc.break_(f, f.frontDoor)
 			rs := FrontDoor(context.Background(), f.env, f.cfg)
-			if worst(rs) != installer.Fail || !strings.Contains(dump(rs), tc.want) {
-				t.Errorf("want a failure %q, got:\n%s", tc.want, dump(rs))
+			text := dump(rs)
+			for _, r := range rs {
+				text += r.Fix + "\n"
+			}
+			if worst(rs) != installer.Fail || !strings.Contains(text, tc.want) {
+				t.Errorf("want a failure %q, got:\n%s", tc.want, text)
 			}
 		})
 	}

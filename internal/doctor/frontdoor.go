@@ -91,7 +91,7 @@ func FrontDoor(ctx context.Context, env Env, cfg installer.Config) []Result {
 		got, err := env.TLSLeaf(ctx, a, name, roots)
 		switch {
 		case err != nil:
-			rs.fail(fmt.Sprintf("%s doesn't reach Linx through %s (%v).", name, door, err), fix)
+			rs.fail(fmt.Sprintf("%s doesn't reach Linx through %s (%v).", name, door, err), traefikFix(err, fd.Kind, fix))
 		case !bytes.Equal(got.Raw, leaf.Raw):
 			rs.fail(fmt.Sprintf("%s through %s answers with another certificate, not Linx's: it isn't passed through to Linx.", name, door), fix)
 		default:
@@ -107,6 +107,18 @@ func FrontDoor(ctx context.Context, env Env, cfg installer.Config) []Result {
 		frontDoorFirewall(ctx, env, &rs, settings.WebClients, door)
 	}
 	return rs
+}
+
+// traefikFix names the usual cause when Pangolin's Traefik answers with its
+// own placeholder certificate: it has no route for the name, because it
+// didn't load Linx's block (most often a second "tcp:" in its file).
+func traefikFix(err error, kind, fix string) string {
+	if kind != installer.FrontDoorPangolin || !strings.Contains(err.Error(), "traefik.default") {
+		return fix
+	}
+	return "Pangolin's Traefik has no route for this name: it didn't load Linx's settings. On the Pangolin machine run " +
+		"docker logs traefik 2>&1 | grep -i dynamic_config (a \"tcp\" key \"already defined\" means the file has two tcp: sections: " +
+		"merge them as " + installer.PangolinStepsFile + " says). Then run linx doctor again."
 }
 
 func frontDoorFix(kind string) string {
