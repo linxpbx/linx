@@ -64,5 +64,13 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - Calendar and contacts sync, CRM lookup, n8n/Home Assistant/MQTT, MCP server.
 - Migration tools can be pulled forward if the 3CX cut-over is needed sooner.
 
+## Last task before production — `linx watch` (owner decision, 2026-09-25)
+A watcher on the server that spots problems and gets a fix proposed, which the owner approves. Built after everything else planned for the first production release.
+- **Watch (on the server, no AI):** a small background service checks what `linx doctor` checks, open alerts, crashed or restarting containers and error lines in the Linx services' logs. Only a *new* problem counts (each is fingerprinted, so a repeat isn't reported twice), with a daily cap on reports.
+- **Report:** a short summary with secrets removed (passwords, tokens, SIP logins, keys) and only the few log lines that matter. It is sent as a GitHub issue (a token that can only create issues) and as an alert through the admin's existing channel. Never raw logs; nothing inbound; no Docker socket; it changes nothing on the server.
+- **Fix (Claude, on demand only):** a Claude run starts only when a report arrives (never on a timer), one at a time, and works from the issue, CLAUDE.md and the code index to keep it cheap. It opens a pull request with the fix and a test; CI runs.
+- **Approve:** nothing changes until the owner merges. The fix reaches the server through the normal build and update.
+- **Trigger it yourself:** the admin portal gets "Check now" (runs the checks at once) and "Report a problem" (a short description of your own, sent the same way); `linx watch --now` does the same from the server.
+
 ## Phase 7 — Additional clients (owner go-ahead only)
 - Android, macOS and Windows. Each must pass the same ringing and low-bandwidth release blockers.
