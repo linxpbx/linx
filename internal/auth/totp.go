@@ -75,14 +75,20 @@ func normalizeTOTPCode(code string) string {
 }
 
 // ValidTOTPCode reports whether code matches secret at now, allowing for
-// totpSkewSteps of clock drift either way. Each accepted code is only ever
-// checked against a small, fixed set of counters (no state kept here), so
-// callers that must refuse code reuse track the last accepted counter
-// themselves; Linx doesn't do that in this slice (ADR-036 doesn't ask for it).
+// totpSkewSteps of clock drift either way.
 func ValidTOTPCode(secret []byte, code string, now time.Time) bool {
+	_, ok := MatchTOTPCode(secret, code, now)
+	return ok
+}
+
+// MatchTOTPCode is ValidTOTPCode that also returns the step (30-second
+// counter) the code belongs to. Nothing is kept here: callers make each
+// code single-use by accepting only a step later than the last one they
+// accepted (UserStore.UseTOTPStep).
+func MatchTOTPCode(secret []byte, code string, now time.Time) (step int64, ok bool) {
 	code = normalizeTOTPCode(code)
 	if len(code) != totpDigits {
-		return false
+		return 0, false
 	}
 	counter := uint64(now.Unix()) / uint64(totpStep.Seconds())
 	for d := -totpSkewSteps; d <= totpSkewSteps; d++ {
@@ -96,10 +102,10 @@ func ValidTOTPCode(secret []byte, code string, now time.Time) bool {
 			c += uint64(d)
 		}
 		if subtle.ConstantTimeCompare([]byte(totpCode(secret, c)), []byte(code)) == 1 {
-			return true
+			return int64(c), true
 		}
 	}
-	return false
+	return 0, false
 }
 
 // recoveryCodeCount and recoveryCodeGroupLen: 10 codes (ADR-036), each 10

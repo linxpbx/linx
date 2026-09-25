@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 // fakeAccountStore is an in-memory UserStore for testing Accounts without a
 // database (internal/store is tested against a real one, in Docker tests).
 type fakeAccountStore struct {
+	audits   []AuditEntry
 	users    map[uuid.UUID]User
 	links    map[string]SetupLink // by token hash, hex-ish (string of bytes)
 	sessions map[uuid.UUID]UserSession
@@ -128,7 +131,7 @@ func (f *fakeAccountStore) SetMFASecret(_ context.Context, _, user uuid.UUID, se
 	return nil
 }
 
-func (f *fakeAccountStore) ConfirmMFA(_ context.Context, _, user uuid.UUID, hashes [][]byte, _ time.Time, _ AuditEntry) error {
+func (f *fakeAccountStore) ConfirmMFA(_ context.Context, _, user uuid.UUID, hashes [][]byte, step int64, _ time.Time, _ AuditEntry) error {
 	u, ok := f.users[user]
 	if !ok {
 		return ErrNotFound
@@ -136,14 +139,15 @@ func (f *fakeAccountStore) ConfirmMFA(_ context.Context, _, user uuid.UUID, hash
 	u.MFASecretEnc, u.MFAPendingSecretEnc = u.MFAPendingSecretEnc, nil
 	u.MFAEnabled = true
 	u.RecoveryCodeHashes = hashes
+	u.MFALastStep = &step
 	f.users[user] = u
 	return nil
 }
 
-func (f *fakeAccountStore) ConsumeRecoveryCode(_ context.Context, _, user uuid.UUID, hash []byte) error {
+func (f *fakeAccountStore) ConsumeRecoveryCode(_ context.Context, _, user uuid.UUID, hash []byte) (bool, error) {
 	u, ok := f.users[user]
 	if !ok {
-		return ErrNotFound
+		return false, ErrNotFound
 	}
 	out := make([][]byte, 0, len(u.RecoveryCodeHashes))
 	for _, h := range u.RecoveryCodeHashes {
@@ -151,9 +155,23 @@ func (f *fakeAccountStore) ConsumeRecoveryCode(_ context.Context, _, user uuid.U
 			out = append(out, h)
 		}
 	}
+	found := len(out) < len(u.RecoveryCodeHashes)
 	u.RecoveryCodeHashes = out
 	f.users[user] = u
-	return nil
+	return found, nil
+}
+
+func (f *fakeAccountStore) UseTOTPStep(_ context.Context, _, user uuid.UUID, step int64) (bool, error) {
+	u, ok := f.users[user]
+	if !ok {
+		return false, ErrNotFound
+	}
+	if u.MFALastStep != nil && *u.MFALastStep >= step {
+		return false, nil
+	}
+	u.MFALastStep = &step
+	f.users[user] = u
+	return true, nil
 }
 
 func (f *fakeAccountStore) RecordLoginSuccess(_ context.Context, _, user uuid.UUID, _ time.Time) error {
@@ -276,7 +294,10 @@ func (f *fakeAccountStore) TouchCredential(context.Context, string, uuid.UUID, n
 	return nil
 }
 func (f *fakeAccountStore) TokenRevoked(context.Context, string) (bool, error) { return false, nil }
-func (f *fakeAccountStore) Audit(context.Context, AuditEntry) error            { return nil }
+func (f *fakeAccountStore) Audit(_ context.Context, e AuditEntry) error {
+	f.audits = append(f.audits, e)
+	return nil
+}
 
 func (f *fakeAccountStore) TouchSession(_ context.Context, id uuid.UUID, lastSeen, idleExpires time.Time, ip netip.Addr) error {
 	s, ok := f.sessions[id]
@@ -466,7 +487,9 @@ func TestFullSignInFlow(t *testing.T) {
 		t.Fatalf("status = %q, want mfa_verify_required", signIn.Status)
 	}
 	verifyCtx := WithSession(ctx, signIn.Session)
-	code2 := totpCode(rawSecret, uint64(a.Now().Unix())/30)
+	// The next step's code (within the ±1 step allowed): the enrollment
+	// code's own step is used up.
+	code2 := totpCode(rawSecret, uint64(a.Now().Unix())/30+1)
 	if err := a.VerifyMFA(verifyCtx, code2); err != nil {
 		t.Fatalf("VerifyMFA: %v", err)
 	}
@@ -687,7 +710,7 @@ func TestMFAReEnrollmentDoesNotDisableExisting(t *testing.T) {
 		t.Fatalf("status = %q, want mfa_verify_required (MFA should still be required)", signIn.Status)
 	}
 	verifyCtx := WithSession(ctx, signIn.Session)
-	if err := a.VerifyMFA(verifyCtx, totpCode(rawSecret1, uint64(a.Now().Unix())/30)); err != nil {
+	if err := a.VerifyMFA(verifyCtx, totpCode(rawSecret1, uint64(a.Now().Unix())/30+1)); err != nil {
 		t.Fatalf("the original confirmed secret should still verify: %v", err)
 	}
 }
@@ -891,4 +914,169 @@ func TestGuessingAlertFires(t *testing.T) {
 	if got := st.users[u.ID].FailedAttempts; got != 5 {
 		t.Errorf("tries during the wait lengthened it: %d counted failures", got)
 	}
+}
+
+// TestAuthenticatorCodeWorksOnce: an authenticator code (including the one
+// typed to turn MFA on) and a recovery code each sign in once.
+func TestAuthenticatorCodeWorksOnce(t *testing.T) {
+	a, _, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	ip := netip.MustParseAddr("198.51.100.20")
+	const email, password = "once@example.com", "a passphrase for single use"
+	_, secret := enrolledUser(t, a, adminCtx, email, RoleAdmin, password)
+	// enrolledUser confirmed with this step's code.
+	step := uint64(a.Now().Unix()) / 30
+
+	verify := func(code string) error {
+		t.Helper()
+		out, err := a.SignIn(ctx, tenant, email, password, ip, "ua")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a.VerifyMFA(WithSession(ctx, out.Session), code)
+	}
+	wantCode(t, verify(totpCode(secret, step)), "mfa_code_used")
+	next := totpCode(secret, step+1)
+	if err := verify(next); err != nil {
+		t.Fatalf("a fresh code: %v", err)
+	}
+	wantCode(t, verify(next), "mfa_code_used")
+	// An older step than the last one accepted is refused too.
+	wantCode(t, verify(totpCode(secret, step)), "mfa_code_used")
+}
+
+func TestRecoveryCodeWorksOnce(t *testing.T) {
+	a, st, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	ip := netip.MustParseAddr("198.51.100.21")
+	const email, password = "recovery@example.com", "a passphrase for recovery"
+	u, _ := enrolledUser(t, a, adminCtx, email, RoleUser, password)
+	codes, hashes, err := NewRecoveryCodes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := st.users[u.ID]
+	stored.RecoveryCodeHashes = hashes
+	st.users[u.ID] = stored
+
+	for i, want := range []string{"", "mfa_code_invalid"} {
+		out, err := a.SignIn(ctx, tenant, email, password, ip, "ua")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = a.VerifyMFA(WithSession(ctx, out.Session), codes[0])
+		if want == "" {
+			if err != nil {
+				t.Fatalf("try %d: %v", i, err)
+			}
+			continue
+		}
+		wantCode(t, err, want)
+	}
+}
+
+func TestSignInAudited(t *testing.T) {
+	a, st, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	ip := netip.MustParseAddr("198.51.100.22")
+	const email, password = "audited@example.com", "the audited passphrase"
+	u, secret := enrolledUser(t, a, adminCtx, email, RoleUser, password)
+	st.audits = nil
+
+	_, _ = a.SignIn(ctx, tenant, "nobody@example.com", "typed into the wrong box", ip, "ua")
+	_, _ = a.SignIn(ctx, tenant, email, "not the right passphrase", ip, "ua")
+	out, err := a.SignIn(ctx, tenant, email, password, ip, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessCtx := WithClientIP(WithSession(ctx, out.Session), ip)
+	_ = a.VerifyMFA(sessCtx, "000000x")
+	if err := a.VerifyMFA(sessCtx, totpCode(secret, uint64(a.Now().Unix())/30+1)); err != nil {
+		t.Fatal(err)
+	}
+
+	target := "user:" + u.ID.String()
+	want := []struct{ action, actor, target, result, reason, method string }{
+		{"user.sign_in", "anonymous", "", ResultDenied, "unknown_email", ""},
+		{"user.sign_in", "anonymous", target, ResultDenied, "wrong_password", ""},
+		{"user.sign_in", "anonymous", target, ResultOK, "", ""},
+		{"user.sign_in_code", target, target, ResultDenied, "code_invalid", ""},
+		{"user.sign_in_code", target, target, ResultOK, "", "authenticator"},
+	}
+	if len(st.audits) != len(want) {
+		t.Fatalf("got %d audit entries, want %d: %+v", len(st.audits), len(want), st.audits)
+	}
+	for i, w := range want {
+		e := st.audits[i]
+		if e.Action != w.action || e.Actor != w.actor || e.Target != w.target || e.Result != w.result ||
+			e.IP != ip || e.TenantID == nil || *e.TenantID != tenant {
+			t.Errorf("entry %d = %+v, want %+v", i, e, w)
+		}
+		if got, _ := e.Detail["reason"].(string); got != w.reason {
+			t.Errorf("entry %d reason = %q, want %q", i, got, w.reason)
+		}
+		if got, _ := e.Detail["method"].(string); got != w.method {
+			t.Errorf("entry %d method = %q, want %q", i, got, w.method)
+		}
+		for _, v := range e.Detail {
+			if s, ok := v.(string); ok && (strings.Contains(s, "passphrase") || strings.Contains(s, "wrong box") || strings.Contains(s, "nobody@")) {
+				t.Errorf("entry %d records what was typed: %+v", i, e.Detail)
+			}
+		}
+	}
+}
+
+func TestUnlockUser(t *testing.T) {
+	a, st, alerts := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	u, token, err := a.CreateUser(adminCtx, UserInput{Email: "locked@example.com", Name: "Locked", Role: RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.CompleteSetup(adminCtx, token, "the locked person's passphrase", netip.MustParseAddr("203.0.113.60"), "ua"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 5 {
+		ip := netip.AddrFrom4([4]byte{198, 51, 100, byte(100 + i)})
+		_, _ = a.SignIn(ctx, tenant, u.Email, "a wrong guess entirely", ip, "ua")
+	}
+	_, err = a.SignIn(ctx, tenant, u.Email, "the locked person's passphrase", netip.MustParseAddr("203.0.113.61"), "ua")
+	wantCode(t, err, "account_locked")
+
+	// An admin can't unlock a system admin (like every other change).
+	sa, _, err := a.CreateUser(adminCtx, UserInput{Email: "sa@example.com", Name: "SA", Role: RoleSystemAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := Principal{Type: TypeUser, ID: uuid.NewString(), TenantID: tenant, Role: RoleAdmin, Scopes: Scopes}
+	_, err = a.UnlockUser(WithPrincipal(ctx, admin), sa.ID)
+	wantCode(t, err, "role_exceeds_caller")
+
+	st.audits = nil
+	got, err := a.UnlockUser(adminCtx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LockedUntil != nil || st.users[u.ID].LockedUntil != nil || st.users[u.ID].FailedAttempts != 0 {
+		t.Fatalf("still locked: %+v", st.users[u.ID])
+	}
+	if len(st.audits) != 1 || st.audits[0].Action != "user.unlock" || st.audits[0].Detail["locked_until"] == nil {
+		t.Fatalf("audit: %+v", st.audits)
+	}
+	if !slices.Contains(alerts.resolved, loginGuessKey(u.ID)) {
+		t.Errorf("the guessing alert wasn't resolved: %v", alerts.resolved)
+	}
+	if _, err := a.SignIn(ctx, tenant, u.Email, "the locked person's passphrase", netip.MustParseAddr("203.0.113.61"), "ua"); err != nil {
+		t.Fatalf("sign-in after unlock: %v", err)
+	}
+	_, err = a.UnlockUser(adminCtx, uuid.New())
+	wantCode(t, err, "not_found")
 }

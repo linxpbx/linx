@@ -126,19 +126,36 @@ func TestAccountsDocker(t *testing.T) {
 			t.Fatalf("expected a pending secret, not yet enabled: %+v", mid)
 		}
 		hashes := [][]byte{auth.HashSecret("code-one"), auth.HashSecret("code-two")}
-		if err := s.ConfirmMFA(ctx, tenant, u.ID, hashes, now, audit("user.mfa_enabled")); err != nil {
+		if err := s.ConfirmMFA(ctx, tenant, u.ID, hashes, 1, now, audit("user.mfa_enabled")); err != nil {
 			t.Fatalf("ConfirmMFA: %v", err)
 		}
 		confirmed, _ := s.User(ctx, tenant, u.ID)
 		if !confirmed.MFAEnabled || len(confirmed.RecoveryCodeHashes) != 2 {
 			t.Fatalf("expected MFA enabled with 2 recovery codes: %+v", confirmed)
 		}
-		if err := s.ConsumeRecoveryCode(ctx, tenant, u.ID, hashes[0]); err != nil {
-			t.Fatalf("ConsumeRecoveryCode: %v", err)
+		if confirmed.MFALastStep == nil || *confirmed.MFALastStep != 1 {
+			t.Fatalf("confirming must record the enrollment code's step: %v", confirmed.MFALastStep)
+		}
+		if ok, err := s.ConsumeRecoveryCode(ctx, tenant, u.ID, hashes[0]); err != nil || !ok {
+			t.Fatalf("ConsumeRecoveryCode: %v, %v", ok, err)
+		}
+		if ok, err := s.ConsumeRecoveryCode(ctx, tenant, u.ID, hashes[0]); err != nil || ok {
+			t.Fatalf("a recovery code must work once: %v, %v", ok, err)
 		}
 		after, _ := s.User(ctx, tenant, u.ID)
 		if len(after.RecoveryCodeHashes) != 1 {
 			t.Fatalf("expected 1 recovery code left, got %d", len(after.RecoveryCodeHashes))
+		}
+
+		// Each authenticator code works once: only a later step than the
+		// last one accepted (the enrollment code's, step 1) is taken.
+		for _, c := range []struct {
+			step int64
+			want bool
+		}{{1, false}, {2, true}, {2, false}, {1, false}, {5, true}} {
+			if ok, err := s.UseTOTPStep(ctx, tenant, u.ID, c.step); err != nil || ok != c.want {
+				t.Fatalf("UseTOTPStep(%d) = %v, %v; want %v", c.step, ok, err, c.want)
+			}
 		}
 
 		// Restarting enrollment must not disturb the confirmed secret: it

@@ -151,7 +151,7 @@ func main() {
 	// People accounts and sessions (docs/WEB.md §4): the "someone is
 	// guessing a password" alert reuses this same engine, and sign-in
 	// failures share the per-address budget a bad API key or token draws on.
-	accounts := &auth.Accounts{Store: st, Sealer: sealer, Alerts: engine, Failures: authn.Failures, Now: time.Now}
+	accounts := &auth.Accounts{Store: st, Sealer: sealer, Alerts: engine, Failures: authn.Failures, Now: time.Now, Log: log}
 
 	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
 

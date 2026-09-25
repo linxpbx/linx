@@ -168,7 +168,7 @@ func (f *fakeStore) SetMFASecret(_ context.Context, _, user uuid.UUID, sealed []
 	return nil
 }
 
-func (f *fakeStore) ConfirmMFA(_ context.Context, _, user uuid.UUID, hashes [][]byte, _ time.Time, a auth.AuditEntry) error {
+func (f *fakeStore) ConfirmMFA(_ context.Context, _, user uuid.UUID, hashes [][]byte, step int64, _ time.Time, a auth.AuditEntry) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	u, ok := f.users[user]
@@ -178,17 +178,18 @@ func (f *fakeStore) ConfirmMFA(_ context.Context, _, user uuid.UUID, hashes [][]
 	u.MFASecretEnc, u.MFAPendingSecretEnc = u.MFAPendingSecretEnc, nil
 	u.MFAEnabled = true
 	u.RecoveryCodeHashes = hashes
+	u.MFALastStep = &step
 	f.users[user] = u
 	f.audits = append(f.audits, a)
 	return nil
 }
 
-func (f *fakeStore) ConsumeRecoveryCode(_ context.Context, _, user uuid.UUID, hash []byte) error {
+func (f *fakeStore) ConsumeRecoveryCode(_ context.Context, _, user uuid.UUID, hash []byte) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	u, ok := f.users[user]
 	if !ok {
-		return auth.ErrNotFound
+		return false, auth.ErrNotFound
 	}
 	out := make([][]byte, 0, len(u.RecoveryCodeHashes))
 	for _, h := range u.RecoveryCodeHashes {
@@ -196,9 +197,25 @@ func (f *fakeStore) ConsumeRecoveryCode(_ context.Context, _, user uuid.UUID, ha
 			out = append(out, h)
 		}
 	}
+	found := len(out) < len(u.RecoveryCodeHashes)
 	u.RecoveryCodeHashes = out
 	f.users[user] = u
-	return nil
+	return found, nil
+}
+
+func (f *fakeStore) UseTOTPStep(_ context.Context, _, user uuid.UUID, step int64) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.users[user]
+	if !ok {
+		return false, auth.ErrNotFound
+	}
+	if u.MFALastStep != nil && *u.MFALastStep >= step {
+		return false, nil
+	}
+	u.MFALastStep = &step
+	f.users[user] = u
+	return true, nil
 }
 
 func (f *fakeStore) RecordLoginSuccess(_ context.Context, _, user uuid.UUID, _ time.Time) error {

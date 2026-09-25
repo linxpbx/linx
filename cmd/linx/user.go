@@ -6,7 +6,7 @@ import (
 	"io"
 )
 
-// runUser creates, lists and issues set-password links for people
+// runUser creates, lists, unlocks and issues set-password links for people
 // (docs/WEB.md §4) by running the control plane's own user command inside
 // its container, exactly like runAPIKey.
 func runUser(ctx context.Context, args []string, stdout, stderr io.Writer, env apiKeyEnv) int {

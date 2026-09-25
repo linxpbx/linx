@@ -24,6 +24,7 @@ const userUsage = `Usage:
   linx user create --email EMAIL --name NAME --role ROLE [--extension NUMBER]
   linx user list
   linx user setup-link EMAIL
+  linx user unlock EMAIL
 
 create      Add a person and print a one-time set-password link (24
             hours), valid once. Hand it to them yourself (there's no email
@@ -33,6 +34,9 @@ create      Add a person and print a one-time set-password link (24
 list        Show every person (never passwords).
 setup-link  Issue a fresh one-time set-password link for an existing
             person, e.g. after their old one expired.
+unlock      Let someone sign in again at once after too many wrong
+            passwords or codes, instead of waiting (list shows who's
+            locked). Their password stays the same.
 `
 
 // userAdmin is the database access the user command needs.
@@ -77,6 +81,8 @@ func userCommand(ctx context.Context, st userAdmin, accounts *auth.Accounts, arg
 		return userList(ctx, accounts, stdout, stderr)
 	case "setup-link":
 		return userSetupLink(ctx, st, accounts, tenant, args[1:], stdout, stderr)
+	case "unlock":
+		return userUnlock(ctx, st, accounts, tenant, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown user command %q.\n\n%s", args[0], userUsage)
 		return 2
@@ -145,6 +151,8 @@ func userList(ctx context.Context, accounts *auth.Accounts, stdout, stderr io.Wr
 		status := "active"
 		if u.DisabledAt != nil {
 			status = "disabled"
+		} else if u.LockedUntil != nil && time.Now().Before(*u.LockedUntil) {
+			status = "locked until " + u.LockedUntil.Local().Format("15:04")
 		}
 		mfa := "off"
 		if u.MFAEnabled {
@@ -172,6 +180,29 @@ func userSetupLink(ctx context.Context, st userAdmin, accounts *auth.Accounts, t
 		return 1
 	}
 	printSetupLink(stdout, u, token)
+	return 0
+}
+
+func userUnlock(ctx context.Context, st userAdmin, accounts *auth.Accounts, tenant uuid.UUID, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "Say who to unlock: linx user unlock EMAIL (see linx user list).")
+		return 2
+	}
+	u, err := st.UserByEmail(ctx, tenant, strings.ToLower(strings.TrimSpace(args[0])))
+	if err != nil {
+		fmt.Fprintln(stderr, "There is no person with that email.")
+		return 1
+	}
+	wasLocked := u.LockedUntil != nil && time.Now().Before(*u.LockedUntil)
+	if _, err := accounts.UnlockUser(ctx, u.ID); err != nil {
+		fmt.Fprintf(stderr, "Couldn't unlock them: %v\n", err)
+		return 1
+	}
+	if wasLocked {
+		fmt.Fprintf(stdout, "%s (%s) can sign in again now.\n", u.Name, u.Email)
+	} else {
+		fmt.Fprintf(stdout, "%s (%s) wasn't locked. Their wrong-try count is reset.\n", u.Name, u.Email)
+	}
 	return 0
 }
 

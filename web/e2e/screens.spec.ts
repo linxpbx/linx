@@ -33,6 +33,24 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-signin-code`);
     });
 
+    test("authenticator code: used, timed out, start over", async ({ page }) => {
+      await fakeServer(page, { pending: "code" });
+      await page.goto("/");
+      await page.getByLabel("6-digit code").fill("111111");
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByRole("alert")).toHaveText("That code was already used. Wait for the next one in your app.");
+      await page.getByLabel("6-digit code").fill("222222");
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+      await expect(page.getByRole("status")).toHaveText("Your sign-in timed out. Enter your password again.");
+      await shot(page, `${scheme}-signin-timed-out`);
+
+      await page.goto("/");
+      await page.getByRole("button", { name: "Start over" }).click();
+      await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+      await expect(page.getByRole("status")).toHaveCount(0);
+    });
+
     test("first sign-in", async ({ page }) => {
       await fakeServer(page);
       await page.goto("/setup/abc123");

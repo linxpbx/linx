@@ -1,6 +1,7 @@
 package browsertest
 
 import (
+	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -305,7 +306,7 @@ func (h *harness) start() {
 				exec.Command("docker", args...).Run()
 			}
 		}
-		exec.Command("docker", "rm", "--force", "linx-browser-test-sipp", "linx-browser-test-playwright", "linx-browser-test-tcpdump").Run()
+		exec.Command("docker", "rm", "--force", "linx-browser-test-sipp", "linx-browser-test-sipp-call", "linx-browser-test-playwright", "linx-browser-test-tcpdump").Run()
 		exec.Command("docker", "volume", "rm", "--force", caVolume, certsVolume).Run()
 	}
 	h.compose = []string{"compose", "--project-name", project, "--project-directory", h.dir,
@@ -557,12 +558,17 @@ func (h *harness) provision(t *testing.T) {
 	// The softphone on 103 signs in over TLS from linx-public and answers
 	// whatever rings it.
 	testdata, _ := filepath.Abs("../calltest/testdata")
-	h.docker("run", "--detach", "--name", "linx-browser-test-sipp", "--network", netPrefix+"public",
-		"--volume", testdata+":/scenarios:ro", "--volume", filepath.Join(h.dir, "tls")+":/tls:ro",
-		sippImage, "asterisk:5061", "-t", "l1",
-		"-tls_cert", "/tls/client.pem", "-tls_key", "/tls/client.key", "-tls_ca", "/tls/root_ca.crt",
-		"-sf", "/scenarios/register.xml", "-oocsf", "/scenarios/answer.xml", "-m", "1", "-nostdin", "-d", "600000",
-		"-set", "user", dev.Device.SIPUsername, "-au", dev.Device.SIPUsername, "-ap", dev.Password)
+	// docker run arguments for a SIPp container signed in as 103's softphone.
+	sipp := func(name string, args ...string) []string {
+		base := []string{"run", "--detach", "--name", name, "--network", netPrefix + "public",
+			"--volume", testdata + ":/scenarios:ro", "--volume", filepath.Join(h.dir, "tls") + ":/tls:ro",
+			sippImage, "asterisk:5061", "-t", "l1",
+			"-tls_cert", "/tls/client.pem", "-tls_key", "/tls/client.key", "-tls_ca", "/tls/root_ca.crt",
+			"-m", "1", "-nostdin",
+			"-set", "user", dev.Device.SIPUsername, "-au", dev.Device.SIPUsername, "-ap", dev.Password}
+		return append(base, args...)
+	}
+	h.docker(sipp("linx-browser-test-sipp", "-sf", "/scenarios/register.xml", "-oocsf", "/scenarios/answer.xml", "-d", "600000")...)
 
 	// LINX_SIP_DEBUG=1 logs every SIP message Asterisk sees (shown on failure).
 	if os.Getenv("LINX_SIP_DEBUG") == "1" {
@@ -592,9 +598,53 @@ func (h *harness) provision(t *testing.T) {
 		"--env", "LINX_SETUP_A="+aisha, "--env", "LINX_SETUP_B="+omar,
 		"--env", "CI=1",
 		playwrightImage, "npx", "--no-install", "playwright", "test", "--config", "e2e/calls.config.ts")
-	outB, err := cmd.CombinedOutput()
-	t.Logf("browsers:\n%s", tail(string(outB), 60))
+	// The softphone calls a browser when the suite says it's ready for it
+	// (it prints softphoneCallMarker): it dials 101, talks for 3 seconds
+	// once answered and hangs up.
+	pr, pw := io.Pipe()
+	cmd.Stdout, cmd.Stderr = pw, pw
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting the browsers: %v", err)
+	}
+	var outB strings.Builder
+	calling := false
+	scanned := make(chan struct{})
+	go func() {
+		defer close(scanned)
+		sc := bufio.NewScanner(pr)
+		for sc.Scan() {
+			line := sc.Text()
+			outB.WriteString(line + "\n")
+			if !calling && strings.Contains(line, softphoneCallMarker) {
+				calling = true
+				// (Not h.docker: it can't fail the test from this goroutine.)
+				out, err := exec.CommandContext(h.ctx, "docker",
+					sipp("linx-browser-test-sipp-call", "-sf", "/scenarios/call.xml", "-s", "101", "-d", "3000")...).CombinedOutput()
+				if err != nil {
+					outB.WriteString(fmt.Sprintf("starting the softphone's call: %v\n%s\n", err, out))
+				}
+			}
+		}
+		_, _ = io.Copy(io.Discard, pr)
+	}()
+	err := cmd.Wait()
+	pw.Close()
+	<-scanned
+	t.Logf("browsers:\n%s", tail(outB.String(), 60))
 	if err != nil {
 		t.Fatalf("browser call suite failed: %v", err)
 	}
+	if !calling {
+		t.Fatal("the browser suite never asked for the softphone's call")
+	}
+	// The softphone's side of that call: answered, then hung up cleanly.
+	code := h.docker("wait", "linx-browser-test-sipp-call")
+	if code != "0" {
+		out, _ := exec.Command("docker", "logs", "--tail", "40", "linx-browser-test-sipp-call").CombinedOutput()
+		t.Fatalf("the softphone's call to a browser failed (SIPp exit %s):\n%s", code, out)
+	}
 }
+
+// softphoneCallMarker is the line web/e2e/calls.spec.ts prints when a
+// browser is waiting for the softphone to call it.
+const softphoneCallMarker = "LINX-TEST: softphone, call 101 now"

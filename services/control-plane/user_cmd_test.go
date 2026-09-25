@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,33 @@ func TestUserCommand(t *testing.T) {
 	code, out, errOut = runUserCmd(t, st, accounts, "setup-link", "jamie@example.com")
 	if code != 0 || !strings.Contains(out, "/setup/") {
 		t.Fatalf("setup-link: code %d, %q %q", code, out, errOut)
+	}
+
+	// Locked out: list says so, unlock clears it and says so.
+	until := time.Now().Add(10 * time.Minute)
+	st.mu.Lock()
+	locked := st.users[u.ID]
+	locked.FailedAttempts, locked.LockedUntil = 6, &until
+	st.users[u.ID] = locked
+	st.mu.Unlock()
+	if _, out, _ = runUserCmd(t, st, accounts, "list"); !strings.Contains(out, "locked until") {
+		t.Fatalf("list doesn't show the lockout: %q", out)
+	}
+	code, out, errOut = runUserCmd(t, st, accounts, "unlock", "Jamie@example.com")
+	if code != 0 || !strings.Contains(out, "can sign in again now") {
+		t.Fatalf("unlock: code %d, %q %q", code, out, errOut)
+	}
+	if got, _ := st.User(t.Context(), st.tenant, u.ID); got.LockedUntil != nil || got.FailedAttempts != 0 {
+		t.Fatalf("still locked: %+v", got)
+	}
+	if !slices.Contains(st.auditActions(), "user.unlock") {
+		t.Fatal("unlock wasn't audited")
+	}
+	if code, _, errOut = runUserCmd(t, st, accounts, "unlock", "nobody@example.com"); code == 0 || !strings.Contains(errOut, "no person") {
+		t.Fatalf("unknown person: code %d, %q", code, errOut)
+	}
+	if code, _, _ = runUserCmd(t, st, accounts, "unlock"); code != 2 {
+		t.Fatalf("no email: code %d", code)
 	}
 }
 

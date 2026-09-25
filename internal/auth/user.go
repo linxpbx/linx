@@ -28,6 +28,9 @@ type User struct {
 	MFAPendingSecretEnc []byte
 	MFAEnabled          bool
 	RecoveryCodeHashes  [][]byte
+	// MFALastStep is the TOTP step of the last authenticator code accepted
+	// (migration 0015): each code works once.
+	MFALastStep *int64
 
 	// FailedAttempts and LockedUntil are per-account lockout (docs/WEB.md
 	// §4); FailureWindowStart/-Count are the separate rolling hour the
@@ -84,10 +87,17 @@ type UserStore interface {
 	SetMFASecret(ctx context.Context, tenant, user uuid.UUID, sealedSecret []byte, at time.Time) error
 	// ConfirmMFA promotes the pending secret to the confirmed one, turns MFA
 	// on and replaces the recovery codes, once a code from the pending
-	// secret has been checked.
-	ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recoveryHashes [][]byte, at time.Time, audit AuditEntry) error
-	// ConsumeRecoveryCode removes one used recovery code.
-	ConsumeRecoveryCode(ctx context.Context, tenant, user uuid.UUID, hash []byte) error
+	// secret has been checked; totpStep is that code's step, so it can't be
+	// used again to sign in.
+	ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recoveryHashes [][]byte, totpStep int64, at time.Time, audit AuditEntry) error
+	// UseTOTPStep records step as the last authenticator code accepted, only
+	// if it's later than the one before; false means the code (or an older
+	// one) was already used. One statement, so two requests racing with the
+	// same code can't both win.
+	UseTOTPStep(ctx context.Context, tenant, user uuid.UUID, step int64) (bool, error)
+	// ConsumeRecoveryCode removes one used recovery code; false if it was
+	// already gone (two requests racing with the same code: one wins).
+	ConsumeRecoveryCode(ctx context.Context, tenant, user uuid.UUID, hash []byte) (bool, error)
 
 	// RecordLoginSuccess clears lockout and the guessing-password window.
 	RecordLoginSuccess(ctx context.Context, tenant, user uuid.UUID, at time.Time) error
@@ -100,6 +110,10 @@ type UserStore interface {
 	// alert still fires: the waits alone allow only about 10 counted
 	// failures an hour.
 	RecordLockedAttempt(ctx context.Context, tenant, user uuid.UUID, at time.Time) (alertThreshold bool, err error)
+
+	// Audit writes one audit_log row on its own (sign-in attempts, which
+	// change nothing else in the same transaction).
+	Audit(ctx context.Context, e AuditEntry) error
 
 	CreateSetupLink(ctx context.Context, l SetupLink) error
 	SetupLinkByTokenHash(ctx context.Context, hash []byte) (SetupLink, error)

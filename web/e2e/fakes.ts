@@ -55,6 +55,16 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     if (p === "/api/v1/session" && method === "POST") {
       return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "sign_in_invalid", detail: "Wrong email or password." }, 401));
     }
+    if (p === "/api/v1/session/mfa" && method === "POST") {
+      // "111111" was already used; anything else finds the half-finished
+      // sign-in timed out.
+      const { code } = route.request().postDataJSON() as { code: string };
+      if (code === "111111") {
+        return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "mfa_code_used", detail: "Used." }, 401));
+      }
+      return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "session_expired", detail: "Expired." }, 401));
+    }
+    if (p === "/api/v1/session" && method === "DELETE") return route.fulfill({ status: 204 });
     if (p === "/api/v1/me/mfa" && method === "POST") {
       return route.fulfill(json({ secret: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", otpauth_url: "otpauth://totp/Linx:mohammed@example.com?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Linx" }));
     }

@@ -20,13 +20,13 @@ var (
 
 const userColumns = `id, tenant_id, email, name, role, extension_id, password_hash, password_updated_at,
 	mfa_secret_enc, mfa_pending_secret_enc, mfa_enabled, recovery_code_hashes, failed_attempts, locked_until,
-	failure_window_start, failure_window_count, disabled_at, version, created_at, updated_at, presence`
+	failure_window_start, failure_window_count, disabled_at, version, created_at, updated_at, presence, mfa_last_step`
 
 func scanUser(row pgx.Row) (auth.User, error) {
 	var u auth.User
 	err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Role, &u.ExtensionID, &u.PasswordHash, &u.PasswordUpdatedAt,
 		&u.MFASecretEnc, &u.MFAPendingSecretEnc, &u.MFAEnabled, &u.RecoveryCodeHashes, &u.FailedAttempts, &u.LockedUntil,
-		&u.FailureWindowStart, &u.FailureWindowCount, &u.DisabledAt, &u.Version, &u.CreatedAt, &u.UpdatedAt, &u.Presence)
+		&u.FailureWindowStart, &u.FailureWindowCount, &u.DisabledAt, &u.Version, &u.CreatedAt, &u.UpdatedAt, &u.Presence, &u.MFALastStep)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return u, auth.ErrNotFound
 	}
@@ -173,12 +173,12 @@ func (s *Store) SetMFASecret(ctx context.Context, tenant, user uuid.UUID, sealed
 
 // ConfirmMFA promotes the pending secret to the confirmed one and clears
 // the pending column, once a code from it has been checked.
-func (s *Store) ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recoveryHashes [][]byte, at time.Time, audit auth.AuditEntry) error {
+func (s *Store) ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recoveryHashes [][]byte, totpStep int64, at time.Time, audit auth.AuditEntry) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE app_user SET
 				mfa_secret_enc = mfa_pending_secret_enc, mfa_pending_secret_enc = NULL,
-				mfa_enabled = true, recovery_code_hashes = $3, updated_at = $4, version = version + 1
-			WHERE id = $1 AND tenant_id = $2 AND mfa_pending_secret_enc IS NOT NULL`, user, tenant, recoveryHashes, at)
+				mfa_enabled = true, recovery_code_hashes = $3, mfa_last_step = $5, updated_at = $4, version = version + 1
+			WHERE id = $1 AND tenant_id = $2 AND mfa_pending_secret_enc IS NOT NULL`, user, tenant, recoveryHashes, at, totpStep)
 		if err != nil {
 			return fmt.Errorf("confirming MFA: %w", err)
 		}
@@ -189,10 +189,22 @@ func (s *Store) ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recovery
 	})
 }
 
-func (s *Store) ConsumeRecoveryCode(ctx context.Context, tenant, user uuid.UUID, hash []byte) error {
-	_, err := s.pool.Exec(ctx, `UPDATE app_user SET recovery_code_hashes = array_remove(recovery_code_hashes, $3)
-		WHERE id = $1 AND tenant_id = $2`, user, tenant, hash)
-	return err
+func (s *Store) UseTOTPStep(ctx context.Context, tenant, user uuid.UUID, step int64) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE app_user SET mfa_last_step = $3
+		WHERE id = $1 AND tenant_id = $2 AND (mfa_last_step IS NULL OR mfa_last_step < $3)`, user, tenant, step)
+	if err != nil {
+		return false, fmt.Errorf("recording an authenticator code: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+func (s *Store) ConsumeRecoveryCode(ctx context.Context, tenant, user uuid.UUID, hash []byte) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE app_user SET recovery_code_hashes = array_remove(recovery_code_hashes, $3)
+		WHERE id = $1 AND tenant_id = $2 AND $3 = ANY (recovery_code_hashes)`, user, tenant, hash)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 func (s *Store) RecordLoginSuccess(ctx context.Context, tenant, user uuid.UUID, at time.Time) error {

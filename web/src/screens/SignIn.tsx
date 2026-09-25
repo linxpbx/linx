@@ -18,6 +18,28 @@ type SessionStatus = "signed_in" | "mfa_verify_required" | "mfa_setup_required";
 
 const MIN_PASSWORD = 12;
 
+const TIMED_OUT = "Your sign-in timed out. Enter your password again.";
+
+// A half-finished sign-in lasts 15 minutes (docs/WEB.md §4); after that the
+// code and authenticator-setup steps get one of these back.
+const expired = (err: unknown) => ["session_expired", "session_invalid", "auth_required"].includes(problemCode(err));
+
+function StartOver({ onStartOver }: { onStartOver: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button type="button" disabled={busy} className="text-sm text-link underline-offset-4 hover:underline"
+      onClick={async () => {
+        setBusy(true);
+        // Ends the half-finished session; if it has already timed out
+        // there's nothing to end.
+        await api.DELETE("/api/v1/session").catch(() => undefined);
+        onStartOver();
+      }}>
+      Start over
+    </button>
+  );
+}
+
 function Card({ title, lead, children }: { title: string; lead?: ReactNode; children: ReactNode }) {
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
@@ -58,23 +80,30 @@ export function SignInScreen({ initialStep = "password", setupToken, onSignedIn 
   { initialStep?: SignInStep; setupToken?: string; onSignedIn: () => void }) {
   const [step, setStep] = useState<SignInStep>(
     setupToken ? "choose-password" : initialStep === "choose-password" ? "password" : initialStep);
+  const [notice, setNotice] = useState("");
   const next = (status: SessionStatus) => {
     if (status === "signed_in") onSignedIn();
     else setStep(status === "mfa_verify_required" ? "code" : "enroll");
   };
+  const restart = (why = "") => {
+    window.history.replaceState(null, "", "/");
+    setNotice(why);
+    setStep("password");
+  };
+  const timedOut = () => restart(TIMED_OUT);
   switch (step) {
     case "password":
-      return <PasswordStep onDone={next} />;
+      return <PasswordStep notice={notice} onDone={next} />;
     case "code":
-      return <CodeStep onDone={onSignedIn} />;
+      return <CodeStep onDone={onSignedIn} onTimedOut={timedOut} onStartOver={restart} />;
     case "enroll":
-      return <EnrollStep onDone={onSignedIn} />;
+      return <EnrollStep onDone={onSignedIn} onTimedOut={timedOut} onStartOver={restart} />;
     case "choose-password":
       return <ChoosePasswordStep token={setupToken ?? ""} onDone={next} />;
   }
 }
 
-function PasswordStep({ onDone }: { onDone: (s: SessionStatus) => void }) {
+function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: SessionStatus) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -105,7 +134,7 @@ function PasswordStep({ onDone }: { onDone: (s: SessionStatus) => void }) {
   };
 
   return (
-    <Card title="Sign in">
+    <Card title="Sign in" lead={notice ? <span role="status">{notice}</span> : undefined}>
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <fieldset disabled={busy || waiting} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
@@ -126,7 +155,7 @@ function PasswordStep({ onDone }: { onDone: (s: SessionStatus) => void }) {
   );
 }
 
-function CodeStep({ onDone }: { onDone: () => void }) {
+function CodeStep({ onDone, onTimedOut, onStartOver }: { onDone: () => void; onTimedOut: () => void; onStartOver: () => void }) {
   const [recovery, setRecovery] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -139,7 +168,10 @@ function CodeStep({ onDone }: { onDone: () => void }) {
     const { data, error: err } = await api.POST("/api/v1/session/mfa", { body: { code: code.trim() } });
     setBusy(false);
     if (data) onDone();
-    else setError(problemCode(err) === "mfa_code_invalid" ? "That code isn't right." : problemMessage(err));
+    else if (expired(err)) onTimedOut();
+    else if (problemCode(err) === "mfa_code_invalid") setError("That code isn't right.");
+    else if (problemCode(err) === "mfa_code_used") setError("That code was already used. Wait for the next one in your app.");
+    else setError(problemMessage(err));
   };
 
   return (
@@ -158,6 +190,7 @@ function CodeStep({ onDone }: { onDone: () => void }) {
           onClick={() => { setRecovery(!recovery); setCode(""); setError(""); }}>
           {recovery ? "Use my authenticator app instead" : "Use a recovery code instead"}
         </button>
+        <StartOver onStartOver={onStartOver} />
       </form>
     </Card>
   );
@@ -246,7 +279,7 @@ function ChoosePasswordForm({ token, onDone }: { token: string; onDone: (s: Sess
   );
 }
 
-function EnrollStep({ onDone }: { onDone: () => void }) {
+function EnrollStep({ onDone, onTimedOut, onStartOver }: { onDone: () => void; onTimedOut: () => void; onStartOver: () => void }) {
   const [secret, setSecret] = useState("");
   const [qr, setQr] = useState("");
   const [code, setCode] = useState("");
@@ -261,7 +294,8 @@ function EnrollStep({ onDone }: { onDone: () => void }) {
       const { data, error: err } = await api.POST("/api/v1/me/mfa");
       if (cancelled) return;
       if (!data) {
-        setError(problemMessage(err));
+        if (expired(err)) onTimedOut();
+        else setError(problemMessage(err));
         return;
       }
       setSecret(data.secret);
@@ -269,6 +303,7 @@ function EnrollStep({ onDone }: { onDone: () => void }) {
       setQr(await QRCode.toDataURL(data.otpauth_url, { margin: 1, width: 192 }));
     })();
     return () => { cancelled = true; };
+    // Runs once: a new enrollment secret on every render would be wrong.
   }, []);
 
   const confirm = async (e: FormEvent) => {
@@ -278,6 +313,7 @@ function EnrollStep({ onDone }: { onDone: () => void }) {
     const { data, error: err } = await api.POST("/api/v1/me/mfa/confirm", { body: { code: code.trim() } });
     setBusy(false);
     if (data) setCodes(data.recovery_codes);
+    else if (expired(err)) onTimedOut();
     else setError(problemCode(err) === "mfa_code_invalid" ? "That code isn't right. Check the time on your phone and try the next code." : problemMessage(err));
   };
 
@@ -331,6 +367,7 @@ function EnrollStep({ onDone }: { onDone: () => void }) {
         </div>
         <FormError message={error} />
         <Submit busy={busy} disabled={code.trim().length !== 6}>Turn on</Submit>
+        <StartOver onStartOver={onStartOver} />
       </form>
     </Card>
   );

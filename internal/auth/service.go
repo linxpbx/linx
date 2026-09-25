@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"regexp"
@@ -33,6 +34,9 @@ type Accounts struct {
 	// session, like the /sip relay's phone line, closes at once instead of
 	// at its next check (docs/WEB.md §4).
 	SessionsEnded func(ctx context.Context, user uuid.UUID, session *uuid.UUID)
+	// Log is for audit writes that fail (the response is already decided);
+	// nil logs to slog.Default.
+	Log *slog.Logger
 }
 
 func (a *Accounts) sessionsEnded(ctx context.Context, user uuid.UUID, session *uuid.UUID) {
@@ -410,19 +414,25 @@ func (a *Accounts) SignIn(ctx context.Context, tenant uuid.UUID, email, password
 			if a.Failures != nil {
 				a.Failures.Allow(ipKey, now)
 			}
+			a.auditSignIn(ctx, signInAttempt{tenant: tenant, ip: ip, reason: "unknown_email"})
 			return SessionOutcome{}, errSignInInvalid
 		}
 		return SessionOutcome{}, err
 	}
+	attempt := signInAttempt{tenant: tenant, user: &u, ip: ip}
 	if u.DisabledAt != nil {
 		VerifyPassword(unknownUserHash, password)
 		if a.Failures != nil {
 			a.Failures.Allow(ipKey, now)
 		}
+		attempt.reason = "disabled"
+		a.auditSignIn(ctx, attempt)
 		return SessionOutcome{}, errSignInInvalid
 	}
 	if u.LockedUntil != nil && now.Before(*u.LockedUntil) {
 		a.lockedAttempt(ctx, tenant, u, ipKey, now)
+		attempt.reason, attempt.lockedUntil = "locked", u.LockedUntil
+		a.auditSignIn(ctx, attempt)
 		return SessionOutcome{}, lockedError(*u.LockedUntil)
 	}
 	if !VerifyPassword(u.PasswordHash, password) {
@@ -436,6 +446,8 @@ func (a *Accounts) SignIn(ctx context.Context, tenant uuid.UUID, email, password
 		if alertThreshold {
 			a.fireGuessing(ctx, tenant, u)
 		}
+		attempt.reason, attempt.lockedUntil = "wrong_password", lockedUntil
+		a.auditSignIn(ctx, attempt)
 		if lockedUntil != nil {
 			return SessionOutcome{}, lockedError(*lockedUntil)
 		}
@@ -452,7 +464,96 @@ func (a *Accounts) SignIn(ctx context.Context, tenant uuid.UUID, email, password
 	if err != nil {
 		return SessionOutcome{}, err
 	}
+	a.auditSignIn(ctx, attempt)
 	return SessionOutcome{Session: sess, Token: token, CSRF: csrf, Status: statusFor(mfaVerified, u.MFAEnabled)}, nil
+}
+
+// signInAttempt is one sign-in step's outcome for the audit log: reason is
+// empty for a success. Never the password or code typed, and never an
+// email that matched nobody (people type passwords into the email box).
+type signInAttempt struct {
+	tenant      uuid.UUID
+	user        *User
+	ip          netip.Addr
+	code        bool // the authenticator-code step, not the password one
+	method      string
+	reason      string
+	lockedUntil *time.Time
+}
+
+// auditSignIn writes attempt as user.sign_in (password step) or
+// user.sign_in_code (code step), so an admin can see who tried, from where,
+// and why it was refused (docs/WEB.md §4). Tries refused by the address's
+// failure budget aren't written: they're bounded only by the caller.
+func (a *Accounts) auditSignIn(ctx context.Context, at signInAttempt) {
+	e := AuditEntry{TenantID: &at.tenant, Actor: "anonymous", IP: at.ip, Action: "user.sign_in", Result: ResultOK}
+	if at.code {
+		e.Action = "user.sign_in_code"
+	}
+	if at.user != nil {
+		e.Target = "user:" + at.user.ID.String()
+		if at.code {
+			e.Actor = e.Target
+		}
+	}
+	detail := map[string]any{}
+	if at.reason != "" {
+		e.Result = ResultDenied
+		detail["reason"] = at.reason
+	}
+	if at.method != "" {
+		detail["method"] = at.method
+	}
+	if at.lockedUntil != nil {
+		detail["locked_until"] = at.lockedUntil.UTC().Format(time.RFC3339)
+	}
+	if len(detail) > 0 {
+		e.Detail = detail
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := a.Store.Audit(ctx, e); err != nil {
+		log := a.Log
+		if log == nil {
+			log = slog.Default()
+		}
+		log.Error("audit log write failed", "action", e.Action, "err", err)
+	}
+}
+
+// UnlockUser clears a person's lockout wait and failure count, so they can
+// sign in again at once (`linx user unlock`). It doesn't change their
+// password: if someone else was guessing it, that's a separate decision.
+func (a *Accounts) UnlockUser(ctx context.Context, id uuid.UUID) (User, error) {
+	caller, audit, err := userAudit(ctx, "user.unlock", "user:"+id.String())
+	if err != nil {
+		return User{}, err
+	}
+	u, err := a.Store.User(ctx, caller.TenantID, id)
+	if errors.Is(err, ErrNotFound) {
+		return User{}, notFound("person")
+	}
+	if err != nil {
+		return User{}, err
+	}
+	if e := beyondCaller(caller, u); e != nil {
+		return User{}, e
+	}
+	now := a.Now().UTC()
+	if u.LockedUntil != nil {
+		audit.Detail = map[string]any{"locked_until": u.LockedUntil.UTC().Format(time.RFC3339)}
+	}
+	if err := a.Store.RecordLoginSuccess(ctx, u.TenantID, u.ID, now); err != nil {
+		return User{}, err
+	}
+	if err := a.Store.Audit(ctx, audit); err != nil {
+		return User{}, err
+	}
+	if a.Alerts != nil {
+		_ = a.Alerts.Resolve(ctx, u.TenantID, loginGuessKey(u.ID))
+	}
+	u.FailedAttempts, u.LockedUntil, u.FailureWindowStart, u.FailureWindowCount = 0, nil, nil, 0
+	return u, nil
 }
 
 // lockedAttempt counts a try made during the lockout wait: against the
@@ -582,15 +683,18 @@ func (a *Accounts) VerifyMFA(ctx context.Context, code string) error {
 	if !u.MFAEnabled || len(u.MFASecretEnc) == 0 {
 		return badRequest("mfa_not_enrolled", "Set up an authenticator app first: POST /me/mfa.")
 	}
+	attempt := signInAttempt{tenant: sess.TenantID, user: &u, ip: ClientIPFromContext(ctx), code: true}
 	if u.LockedUntil != nil && now.Before(*u.LockedUntil) {
 		a.lockedAttempt(ctx, sess.TenantID, u, ipKey, now)
+		attempt.reason, attempt.lockedUntil = "locked", u.LockedUntil
+		a.auditSignIn(ctx, attempt)
 		return lockedError(*u.LockedUntil)
 	}
-	ok, err = a.checkMFACode(ctx, u, code)
+	method, err := a.checkMFACode(ctx, u, code, now)
 	if err != nil {
 		return err
 	}
-	if !ok {
+	if method == codeInvalid || method == codeUsed {
 		if a.Failures != nil {
 			a.Failures.Allow(ipKey, now)
 		}
@@ -601,32 +705,72 @@ func (a *Accounts) VerifyMFA(ctx context.Context, code string) error {
 		if alertThreshold {
 			a.fireGuessing(ctx, sess.TenantID, u)
 		}
+		attempt.reason, attempt.lockedUntil = string(method), lockedUntil
+		a.auditSignIn(ctx, attempt)
 		if lockedUntil != nil {
 			return lockedError(*lockedUntil)
+		}
+		if method == codeUsed {
+			return &apihttp.Error{Status: http.StatusUnauthorized, Code: "mfa_code_used",
+				Detail: "That code was already used. Wait for the next one in your app."}
 		}
 		return &apihttp.Error{Status: http.StatusUnauthorized, Code: "mfa_code_invalid", Detail: "That code isn't right."}
 	}
 	if err := a.Store.RecordLoginSuccess(ctx, sess.TenantID, u.ID, now); err != nil {
 		return err
 	}
-	return a.Store.PromoteSession(ctx, sess.ID)
+	if err := a.Store.PromoteSession(ctx, sess.ID); err != nil {
+		return err
+	}
+	attempt.method = string(method)
+	a.auditSignIn(ctx, attempt)
+	return nil
 }
 
-func (a *Accounts) checkMFACode(ctx context.Context, u User, code string) (bool, error) {
+// mfaCodeResult is what checkMFACode found: which kind of code worked, or
+// why none did (these double as the audit log's method and reason).
+type mfaCodeResult string
+
+const (
+	codeAuthenticator mfaCodeResult = "authenticator"
+	codeRecovery      mfaCodeResult = "recovery_code"
+	codeInvalid       mfaCodeResult = "code_invalid"
+	codeUsed          mfaCodeResult = "code_used"
+)
+
+// checkMFACode checks code as an authenticator code, then as a recovery
+// code. Either works once (docs/WEB.md §4): an authenticator code only for
+// a later step than the last one accepted, a recovery code only while it's
+// still stored.
+func (a *Accounts) checkMFACode(ctx context.Context, u User, code string, now time.Time) (mfaCodeResult, error) {
 	secret, err := a.Sealer.Open(mfaRowID(u.ID), u.MFASecretEnc)
 	if err != nil {
-		return false, fmt.Errorf("opening MFA secret: %w", err)
+		return "", fmt.Errorf("opening MFA secret: %w", err)
 	}
-	if ValidTOTPCode(secret, code, a.Now()) {
-		return true, nil
+	if step, ok := MatchTOTPCode(secret, code, now); ok {
+		fresh, err := a.Store.UseTOTPStep(ctx, u.TenantID, u.ID, step)
+		if err != nil {
+			return "", err
+		}
+		if !fresh {
+			return codeUsed, nil
+		}
+		return codeAuthenticator, nil
 	}
 	norm := normalizeRecoveryCode(code)
 	for _, stored := range u.RecoveryCodeHashes {
 		if SecretMatches(stored, norm) {
-			return true, a.Store.ConsumeRecoveryCode(ctx, u.TenantID, u.ID, stored)
+			fresh, err := a.Store.ConsumeRecoveryCode(ctx, u.TenantID, u.ID, stored)
+			if err != nil {
+				return "", err
+			}
+			if !fresh {
+				return codeUsed, nil
+			}
+			return codeRecovery, nil
 		}
 	}
-	return false, nil
+	return codeInvalid, nil
 }
 
 // BeginMFAEnrollment starts (or restarts) turning on MFA for the caller's
@@ -690,7 +834,7 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 	if len(u.MFAPendingSecretEnc) == 0 {
 		return nil, badRequest("mfa_not_started", "Start enrollment first: POST /me/mfa.")
 	}
-	ok2, err := a.checkTOTPOnly(u, code)
+	step, ok2, err := a.checkTOTPOnly(u, code)
 	if err != nil {
 		return nil, err
 	}
@@ -706,7 +850,7 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 	if err != nil {
 		return nil, err
 	}
-	if err := a.Store.ConfirmMFA(ctx, u.TenantID, u.ID, hashes, now, audit); err != nil {
+	if err := a.Store.ConfirmMFA(ctx, u.TenantID, u.ID, hashes, step, now, audit); err != nil {
 		return nil, err
 	}
 	if sess, ok := SessionFromContext(ctx); ok && !sess.MFAVerified {
@@ -721,12 +865,13 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 // secret, never the active one: a code from an old, already-confirmed
 // authenticator app must not be able to confirm a new enrollment it was
 // never shown.
-func (a *Accounts) checkTOTPOnly(u User, code string) (bool, error) {
+func (a *Accounts) checkTOTPOnly(u User, code string) (int64, bool, error) {
 	secret, err := a.Sealer.Open(mfaRowID(u.ID), u.MFAPendingSecretEnc)
 	if err != nil {
-		return false, fmt.Errorf("opening pending MFA secret: %w", err)
+		return 0, false, fmt.Errorf("opening pending MFA secret: %w", err)
 	}
-	return ValidTOTPCode(secret, code, a.Now()), nil
+	step, ok := MatchTOTPCode(secret, code, a.Now())
+	return step, ok, nil
 }
 
 // ChangePassword changes the caller's own password after checking their

@@ -4,7 +4,7 @@
 // list, call each other and hear each other. Omar's browser can't use UDP
 // for calls (Chromium's "disable_non_proxied_udp" policy, as on a network
 // that blocks UDP), so his audio must go through Linx's relay over TLS.
-// Then a call to the SIPp softphone on 103, the Opus echo test, and
+// Then calls to and from the SIPp softphone on 103, the Opus echo test, and
 // signing out dropping the phone line at once.
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 
@@ -165,6 +165,16 @@ test("browsers call each other, one with UDP blocked", async () => {
   await expect(aisha.getByTestId("call-panel")).toHaveAttribute("data-phase", "active");
   await aisha.getByRole("button", { name: "End call" }).click();
   await expect(aisha.getByTestId("call-panel")).toHaveCount(0);
+
+  // And the other way: the softphone calls Aisha (internal/browsertest starts
+  // that call when it reads this line), she answers, and it hangs up after
+  // a few seconds.
+  console.log("LINX-TEST: softphone, call 101 now");
+  await expect(aisha.getByTestId("incoming-call")).toBeVisible({ timeout: 30_000 });
+  await expect(aisha.getByTestId("incoming-call")).toContainText("Desk softphone");
+  await aisha.getByRole("button", { name: "Answer" }).click();
+  await expect(aisha.getByTestId("call-panel")).toHaveAttribute("data-phase", "active");
+  await expect(aisha.getByTestId("call-panel")).toHaveCount(0, { timeout: 30_000 });
 
   // The echo test, in Opus: Omar (relayed over TLS) hears himself back.
   await omar.goto("/settings");
