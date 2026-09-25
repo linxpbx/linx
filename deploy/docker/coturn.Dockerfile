@@ -1,6 +1,7 @@
 # linx-coturn: the official coturn image (ADR-039), unchanged, plus Linx's
 # small Go entrypoint (services/coturn-entrypoint), which renders coturn's
-# configuration, runs it, and reloads its certificate on renewal.
+# configuration, runs it, and reloads its certificate on renewal. Debian's
+# security updates are applied at build time.
 #   docker buildx build -f deploy/docker/coturn.Dockerfile --platform linux/amd64,linux/arm64 .
 # Go cross-compiles natively (no QEMU); the coturn image is multi-arch.
 
@@ -30,6 +31,15 @@ COPY --from=build /out/coturn-entrypoint /usr/local/bin/coturn-entrypoint
 # door maps 443), so a plain copy, which drops the capability, is all it
 # needs: no capability is added back.
 USER root
+# Debian's security updates since the coturn image was built (like the
+# Asterisk image, which installs current packages), and without the DNS
+# tools the image carries only for its own entrypoint's external-IP
+# detection, which Linx doesn't use.
+RUN apt-get update -qq \
+ && apt-get -y -qq --no-install-recommends upgrade \
+ && apt-get -y -qq purge bind9-dnsutils bind9-host \
+ && apt-get -y -qq autoremove --purge \
+ && rm -rf /var/lib/apt/lists/*
 RUN cp /usr/bin/turnserver /usr/bin/turnserver.plain && mv /usr/bin/turnserver.plain /usr/bin/turnserver
 # The Linx services' nonroot user and group (65532): reads the certs
 # volume's private key and the relay secret, both group 65532.
