@@ -12,7 +12,7 @@ output-options:
   # hand-written handler (internal/auth/oauth.go), documented in the spec only.
   # The session endpoints need to set two cookies each, which a typed JSON
   # response can't do, so they're hand-written too (services/control-plane/session.go).
-  exclude-operation-ids: [oauthToken, createSession, deleteSession, verifySessionMfa, completeSetupLink, watchTeam]
+  exclude-operation-ids: [oauthToken, createSession, deleteSession, verifySessionMfa, checkSetupLink, completeSetupLink, watchTeam]
   # WebhookMessage is only referenced from the spec's `webhooks:` section,
   # which pruning doesn't follow.
   skip-prune: true

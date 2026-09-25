@@ -61,8 +61,8 @@ Do the steps it lists:
 ```
 sudo linx doctor
 ```
-- [ ] Everything is `ok`, including **Phone system** and **Calls from outside**: each of `meet.`, `api.` and `turn.` reaches Linx through Pangolin with Linx's own certificate; a relay connection works over TLS on 443; the relay answers on UDP 443 (or your port); the names point at your public address; only Pangolin may reach the web port.
-- [ ] The database line shows `schema version 14`. The only warnings are no API key and no alert channel.
+- [x] Everything is `ok`, including **Phone system** and **Calls from outside**: each of `meet.`, `api.` and `turn.` reaches Linx through Pangolin with Linx's own certificate; a relay connection works over TLS on 443; the relay answers on UDP 443 (or your port); the names point at your public address; only Pangolin may reach the web port.
+- [x] The database line shows `schema version 14`. The only warnings are no API key and no alert channel.
 
 ## 7. Key, alert channel, extensions, people
 On your laptop (it reaches Linx through Pangolin like anyone outside):
@@ -94,7 +94,7 @@ sudo linx user create --email you+phone@example.com --name "Phone Person" --role
 Open the **Laptop Person** link in Chrome on the laptop.
 - [ ] You choose a password (12+ characters; `password123456` is refused), then scan a QR code with your authenticator app, type its code, and see **10 recovery codes** once. Keep them for this demo.
 - [ ] You land on the **Dialer**, the sidebar shows Dialer and Team (the rest greyed "coming soon"), and the browser asks for the microphone once.
-- [ ] Open the link again: "This link has already been used…".
+- [ ] Open the link again: the page says **"This link can't be used"** ("…expired or was already used"), with no password form.
 
 **The authenticator can't be skipped** (fixed in this phase's review). Sign out, sign in with the password only, stop at the code screen, and in the same tab open the browser console (View → Developer → JavaScript Console) and paste:
 ```

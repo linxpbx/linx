@@ -248,3 +248,29 @@ func TestSignInNeedsJSON(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckSetupLink: the page checks a link before asking for a password.
+func TestCheckSetupLink(t *testing.T) {
+	env := newTestEnv(t)
+	_, token := createTestUser(t, env, "check@example.com", auth.RoleUser)
+	status := func(tok string) int {
+		t.Helper()
+		resp, err := http.Get(env.srv.URL + "/api/v1/setup-links/" + tok)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := status(token); got != http.StatusNoContent {
+		t.Fatalf("fresh link: %d", got)
+	}
+	resp := postJSON(t, env, "/api/v1/setup-links/"+token, map[string]string{"password": "a fine long passphrase 1"}, nil, "")
+	resp.Body.Close()
+	if got := status(token); got != http.StatusBadRequest {
+		t.Errorf("used link: %d", got)
+	}
+	if got := status("not-a-real-link"); got != http.StatusBadRequest {
+		t.Errorf("unknown link: %d", got)
+	}
+}

@@ -35,6 +35,14 @@ func registerSessionHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 		writeJSON(w, http.StatusOK, sessionStatusBody{Status: out.Status})
 	}))))
 
+	mux.Handle("GET /api/v1/setup-links/{token}", apihttp.NoStore(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := accounts.CheckSetupLink(r.Context(), r.PathValue("token"), authn.IPs.ClientIP(r)); err != nil {
+			writeAccountError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
 	mux.Handle("POST /api/v1/setup-links/{token}", apihttp.NoStore(apihttp.LimitBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body setupLinkBody
 		if !decodeJSON(w, r, &body) {

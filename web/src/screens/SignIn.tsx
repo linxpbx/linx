@@ -5,6 +5,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { CircleAlert } from "lucide-react";
 import { api, problemCode, problemMessage } from "@/api/client";
+import { navigate } from "@/hooks/useRoute";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -55,7 +56,8 @@ function Submit({ busy, children, disabled }: { busy: boolean; children: ReactNo
 
 export function SignInScreen({ initialStep = "password", setupToken, onSignedIn }:
   { initialStep?: SignInStep; setupToken?: string; onSignedIn: () => void }) {
-  const [step, setStep] = useState<SignInStep>(setupToken ? "choose-password" : initialStep);
+  const [step, setStep] = useState<SignInStep>(
+    setupToken ? "choose-password" : initialStep === "choose-password" ? "password" : initialStep);
   const next = (status: SessionStatus) => {
     if (status === "signed_in") onSignedIn();
     else setStep(status === "mfa_verify_required" ? "code" : "enroll");
@@ -161,7 +163,37 @@ function CodeStep({ onDone }: { onDone: () => void }) {
   );
 }
 
+const LINK_UNUSABLE = "This link has expired or was already used. Ask your admin for a new one.";
+
 function ChoosePasswordStep({ token, onDone }: { token: string; onDone: (s: SessionStatus) => void }) {
+  // The link is checked before asking for a password, so a used or expired
+  // one says so at once.
+  const [link, setLink] = useState<"checking" | "ok" | { problem: string }>("checking");
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const { error: err, response } = await api.GET("/api/v1/setup-links/{token}", { params: { path: { token } } });
+      if (cancelled) return;
+      if (response.ok) setLink("ok");
+      else setLink({ problem: problemCode(err) === "setup_link_invalid" ? LINK_UNUSABLE : problemMessage(err) });
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
+  if (link === "checking") return <main className="min-h-dvh" aria-busy="true" />;
+  if (link !== "ok") {
+    return (
+      <Card title="This link can't be used">
+        <div className="flex flex-col gap-4">
+          <FormError message={link.problem} />
+          <Button className="h-11 w-full text-base" onClick={() => navigate("/", true)}>Go to sign in</Button>
+        </div>
+      </Card>
+    );
+  }
+  return <ChoosePasswordForm token={token} onDone={onDone} />;
+}
+
+function ChoosePasswordForm({ token, onDone }: { token: string; onDone: (s: SessionStatus) => void }) {
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
@@ -182,7 +214,7 @@ function ChoosePasswordStep({ token, onDone }: { token: string; onDone: (s: Sess
       window.history.replaceState(null, "", "/");
       onDone(data.status);
     } else if (problemCode(err) === "setup_link_invalid") {
-      setError("This link has expired or was already used. Ask your admin for a new one.");
+      setError(LINK_UNUSABLE);
     } else {
       setError(problemMessage(err));
     }

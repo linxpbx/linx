@@ -41,6 +41,14 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-setup-password`);
     });
 
+    test("used setup link", async ({ page }) => {
+      await fakeServer(page);
+      await page.goto("/setup/used");
+      await expect(page.getByRole("heading", { name: "This link can't be used" })).toBeVisible();
+      await expect(page.getByLabel("New password")).toHaveCount(0);
+      await shot(page, `${scheme}-setup-link-used`);
+    });
+
     test("authenticator setup", async ({ page }) => {
       await fakeServer(page, { pending: "enroll" });
       await page.goto("/");

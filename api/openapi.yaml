@@ -1055,6 +1055,22 @@ paths:
         required: true
         schema:
           type: string
+    get:
+      operationId: checkSetupLink
+      summary: Check a set-password link before asking for a password
+      description: >-
+        204 if the link can still be used; 400 `setup_link_invalid` if it
+        was used, has expired or doesn't exist (the page then says so
+        instead of showing the password form). A link that fails counts
+        against the caller's address like a failed sign-in. Served by a
+        hand-written handler (excluded from code generation).
+      tags: [sessions]
+      security: []
+      responses:
+        "204":
+          description: The link can be used.
+        default:
+          $ref: "#/components/responses/Problem"
     post:
       operationId: completeSetupLink
       summary: Pick a password with a one-time set-password link

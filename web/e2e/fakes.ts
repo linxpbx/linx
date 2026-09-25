@@ -46,6 +46,12 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available", mfa_enabled: opts.pending !== "enroll",
       }));
     }
+    if (p.startsWith("/api/v1/setup-links/") && method === "GET") {
+      if (p.endsWith("/used")) {
+        return route.fulfill(json({ type: "about:blank", title: "Bad Request", status: 400, code: "setup_link_invalid", detail: "Used." }, 400));
+      }
+      return route.fulfill({ status: 204 });
+    }
     if (p === "/api/v1/session" && method === "POST") {
       return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "sign_in_invalid", detail: "Wrong email or password." }, 401));
     }

@@ -673,7 +673,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Check a set-password link before asking for a password
+         * @description 204 if the link can still be used; 400 `setup_link_invalid` if it was used, has expired or doesn't exist (the page then says so instead of showing the password form). A link that fails counts against the caller's address like a failed sign-in. Served by a hand-written handler (excluded from code generation).
+         */
+        get: operations["checkSetupLink"];
         put?: never;
         /**
          * Pick a password with a one-time set-password link
@@ -2905,6 +2909,27 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionStatus"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    checkSetupLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link can be used. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

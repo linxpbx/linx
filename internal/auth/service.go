@@ -473,6 +473,47 @@ func (a *Accounts) fireGuessing(ctx context.Context, tenant uuid.UUID, u User) {
 	}
 }
 
+// usableSetupLink returns the link for token if it can still be used. A
+// token that can't counts against ip's failure budget, like a wrong
+// password: links are 256-bit, but nobody gets to try them at speed.
+func (a *Accounts) usableSetupLink(ctx context.Context, token string, ip netip.Addr, now time.Time) (SetupLink, User, error) {
+	ipKey := IPKey(ip)
+	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
+		return SetupLink{}, User{}, tooManyFailuresErr()
+	}
+	invalid := func() (SetupLink, User, error) {
+		if a.Failures != nil {
+			a.Failures.Allow(ipKey, now)
+		}
+		return SetupLink{}, User{}, invalidLink()
+	}
+	link, err := a.Store.SetupLinkByTokenHash(ctx, HashSecret(token))
+	if errors.Is(err, ErrNotFound) {
+		return invalid()
+	}
+	if err != nil {
+		return SetupLink{}, User{}, err
+	}
+	if link.UsedAt != nil || !now.Before(link.ExpiresAt) {
+		return invalid()
+	}
+	u, err := a.Store.User(ctx, link.TenantID, link.UserID)
+	if err != nil {
+		return SetupLink{}, User{}, err
+	}
+	if u.DisabledAt != nil {
+		return invalid()
+	}
+	return link, u, nil
+}
+
+// CheckSetupLink reports whether a set-password link can still be used, so
+// the page can say it can't before asking for a password.
+func (a *Accounts) CheckSetupLink(ctx context.Context, token string, ip netip.Addr) error {
+	_, _, err := a.usableSetupLink(ctx, token, ip, a.Now().UTC())
+	return err
+}
+
 // CompleteSetup is a new person's first sign-in through their one-time link
 // (docs/WEB.md §4), or an existing person's password reset: they pick a
 // password, any other session of theirs ends, and they're signed in at once
@@ -482,23 +523,10 @@ func (a *Accounts) CompleteSetup(ctx context.Context, linkToken, password string
 	if err := CheckPasswordPolicy(password); err != nil {
 		return SessionOutcome{}, badRequest("password_invalid", err.Error())
 	}
-	link, err := a.Store.SetupLinkByTokenHash(ctx, HashSecret(linkToken))
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return SessionOutcome{}, invalidLink()
-		}
-		return SessionOutcome{}, err
-	}
 	now := a.Now().UTC()
-	if link.UsedAt != nil || !now.Before(link.ExpiresAt) {
-		return SessionOutcome{}, invalidLink()
-	}
-	u, err := a.Store.User(ctx, link.TenantID, link.UserID)
+	link, u, err := a.usableSetupLink(ctx, linkToken, ip, now)
 	if err != nil {
 		return SessionOutcome{}, err
-	}
-	if u.DisabledAt != nil {
-		return SessionOutcome{}, invalidLink()
 	}
 	hash, err := HashPassword(password)
 	if err != nil {
