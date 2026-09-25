@@ -40,6 +40,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - `APPLE_SIGNING.md`, `STORE_SUBMISSION.md`, `TEST_MATRIX.md`.
 - *Custom tunnel is not built (ADR-007).* The "tunnel-only network" test cases run against WSS + TURN/TLS 443 and may trigger ADR-008.
 - Linx name/trademark check completed before submission (ADR-015).
+- Working from China (ADR-042): CallKit off when the device's region is China (in-app ringing instead); `TEST_MATRIX.md` has China rows (hotel Wi-Fi and a Chinese SIM: sign in, `*43`, calls both ways over TLS 443, push ringing).
 - **Exit:** every lock-screen and killed-app ringing case in `TEST_MATRIX.md` passes on real devices.
 
 ## Phase 3 — Conferencing + guests
