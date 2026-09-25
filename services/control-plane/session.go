@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"mime"
 	"net/http"
 	"time"
 
@@ -111,8 +112,17 @@ func clearSessionCookies(w http.ResponseWriter) {
 		Secure: true, HttpOnly: false, SameSite: http.SameSiteStrictMode})
 }
 
+// decodeJSON reads a JSON body. Only application/json is taken: a page on
+// another site can post a form or text/plain cross-site without asking,
+// but not JSON, so this is what stops another site signing a visitor's
+// browser in to an account of its choosing (sign-in and setup links have no
+// session yet, so no CSRF token to check).
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	defer r.Body.Close()
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
+		apihttp.WriteProblem(w, http.StatusUnsupportedMediaType, "content_type_invalid", "Send the request body as application/json.")
+		return false
+	}
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {

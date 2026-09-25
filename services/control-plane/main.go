@@ -298,6 +298,7 @@ func main() {
 		log.Error("LINX_PROXY_PROTOCOL: want true or false", "err", err)
 		os.Exit(1)
 	}
+	ips.IgnoreForwardedFor = useProxyProtocol
 	if err := server.Serve(log, server.Entry{Server: https, Wrap: proxyListener(ips, useProxyProtocol)}, server.Entry{Server: plain}); err != nil {
 		log.Error("server stopped", "err", err)
 		stopBackground()

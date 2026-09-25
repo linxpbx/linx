@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -223,5 +224,27 @@ func TestSessionUnknownCookieIsRejected(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+// TestSignInNeedsJSON: a cross-site form (or text/plain) post can't sign a
+// visitor's browser in to someone else's account.
+func TestSignInNeedsJSON(t *testing.T) {
+	env := newTestEnv(t)
+	createTestUser(t, env, "form@example.com", auth.RoleUser)
+	for _, ct := range []string{"text/plain", "application/x-www-form-urlencoded", ""} {
+		req, _ := http.NewRequest(http.MethodPost, env.srv.URL+"/api/v1/session",
+			strings.NewReader(`{"email":"form@example.com","password":"whatever it is"}`))
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnsupportedMediaType || len(resp.Cookies()) != 0 {
+			t.Errorf("Content-Type %q: status %d, %d cookies", ct, resp.StatusCode, len(resp.Cookies()))
+		}
 	}
 }

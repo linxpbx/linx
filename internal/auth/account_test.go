@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/dbsecret"
 )
 
@@ -207,11 +209,15 @@ func (f *fakeAccountStore) SetupLinkByTokenHash(_ context.Context, hash []byte) 
 func (f *fakeAccountStore) ConsumeSetupLink(_ context.Context, id uuid.UUID, at time.Time) error {
 	for k, l := range f.links {
 		if l.ID == id {
+			if l.UsedAt != nil || !at.Before(l.ExpiresAt) {
+				break
+			}
 			l.UsedAt = &at
 			f.links[k] = l
+			return nil
 		}
 	}
-	return nil
+	return ErrNotFound
 }
 
 func (f *fakeAccountStore) CreateSession(_ context.Context, s UserSession) error {
@@ -662,8 +668,12 @@ func TestMFAReEnrollmentDoesNotDisableExisting(t *testing.T) {
 	}
 
 	// Start a second enrollment (e.g. setting up a new phone) without
-	// confirming it.
-	if _, _, err := a.BeginMFAEnrollment(sessionCtx); err != nil {
+	// confirming it, from the now fully signed-in session.
+	promoted, err := a.Store.SessionByTokenHash(ctx, HashSecret(out.Token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.BeginMFAEnrollment(WithSession(WithPrincipal(ctx, promoted.Principal()), promoted)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -679,5 +689,206 @@ func TestMFAReEnrollmentDoesNotDisableExisting(t *testing.T) {
 	verifyCtx := WithSession(ctx, signIn.Session)
 	if err := a.VerifyMFA(verifyCtx, totpCode(rawSecret1, uint64(a.Now().Unix())/30)); err != nil {
 		t.Fatalf("the original confirmed secret should still verify: %v", err)
+	}
+}
+
+// enrolledUser creates a person with role, sets their password and turns on
+// MFA, returning them and their authenticator secret.
+func enrolledUser(t *testing.T, a *Accounts, adminCtx context.Context, email, role, password string) (User, []byte) {
+	t.Helper()
+	ip := netip.MustParseAddr("203.0.113.30")
+	u, token, err := a.CreateUser(adminCtx, UserInput{Email: email, Name: "Person", Role: role})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := a.CompleteSetup(adminCtx, token, password, ip, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCtx := WithSession(WithPrincipal(context.Background(), out.Session.Principal()), out.Session)
+	secret, _, err := a.BeginMFAEnrollment(sessionCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := totpSecretEncoding.DecodeString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ConfirmMFAEnrollment(sessionCtx, totpCode(raw, uint64(a.Now().Unix())/30)); err != nil {
+		t.Fatal(err)
+	}
+	return u, raw
+}
+
+func wantCode(t *testing.T, err error, code string) {
+	t.Helper()
+	var e *apihttp.Error
+	if !errors.As(err, &e) || e.Code != code {
+		t.Fatalf("got %v, want %s", err, code)
+	}
+}
+
+// TestPendingSessionCantReplaceMFA: someone who knows only the password
+// gets a session waiting on the authenticator code. It must not be able to
+// enroll a new authenticator (which would promote it past the code), nor
+// change the password.
+func TestPendingSessionCantReplaceMFA(t *testing.T) {
+	a, _, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	for _, role := range []string{RoleUser, RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			email := role + "-pending@example.com"
+			enrolledUser(t, a, adminCtx, email, role, "the owner's own passphrase")
+			signIn, err := a.SignIn(ctx, tenant, email, "the owner's own passphrase", netip.MustParseAddr("198.51.100.7"), "ua")
+			if err != nil || signIn.Status != "mfa_verify_required" {
+				t.Fatalf("%+v %v", signIn, err)
+			}
+			pending := WithSession(WithPrincipal(ctx, signIn.Session.Principal()), signIn.Session)
+			_, _, err = a.BeginMFAEnrollment(pending)
+			wantCode(t, err, "sign_in_unfinished")
+			_, err = a.ConfirmMFAEnrollment(pending, "123456")
+			wantCode(t, err, "sign_in_unfinished")
+			wantCode(t, a.ChangePassword(pending, "the owner's own passphrase", "a brand new passphrase"), "sign_in_unfinished")
+			if s, _ := a.Store.SessionByTokenHash(ctx, HashSecret(signIn.Token)); s.MFAVerified {
+				t.Fatal("the pending session was promoted")
+			}
+		})
+	}
+}
+
+// TestSetupLinkKeepsMFA: a set-password link (an admin resetting a lost
+// password) ends the person's other sessions and still asks for their
+// authenticator code.
+func TestSetupLinkKeepsMFA(t *testing.T) {
+	a, st, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	ip := netip.MustParseAddr("203.0.113.31")
+	u, _ := enrolledUser(t, a, adminCtx, "reset@example.com", RoleUser, "the first passphrase here")
+	old, err := a.SignIn(ctx, tenant, u.Email, "the first passphrase here", ip, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := a.CreateSetupLink(adminCtx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := a.CompleteSetup(ctx, token, "the second passphrase here", ip, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != "mfa_verify_required" || out.Session.MFAVerified {
+		t.Fatalf("a setup link skipped the authenticator code: %+v", out)
+	}
+	if s, _ := st.SessionByTokenHash(ctx, HashSecret(old.Token)); s.RevokedAt == nil {
+		t.Fatal("the person's earlier session should have ended")
+	}
+}
+
+// TestAdminCantManageSystemAdmin: an admin can't reset, change or disable
+// someone with a role above their own.
+func TestAdminCantManageSystemAdmin(t *testing.T) {
+	a, _, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	sys := WithPrincipal(ctx, adminPrincipal(tenant))
+	target, _, err := a.CreateUser(sys, UserInput{Email: "root@example.com", Name: "Root", Role: RoleSystemAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, _, err := a.CreateUser(sys, UserInput{Email: "peer@example.com", Name: "Peer", Role: RoleAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := WithPrincipal(ctx, Principal{Type: TypeUser, ID: uuid.NewString(), TenantID: tenant, Role: RoleAdmin, Scopes: Effective(Scopes, RoleAdmin)})
+	_, err = a.CreateSetupLink(admin, target.ID)
+	wantCode(t, err, "role_exceeds_caller")
+	user := RoleUser
+	_, err = a.UpdateUser(admin, target.ID, UserPatch{Role: &user})
+	wantCode(t, err, "role_exceeds_caller")
+	_, err = a.DisableUser(admin, target.ID)
+	wantCode(t, err, "role_exceeds_caller")
+	// Their own level is fine.
+	if _, err := a.CreateSetupLink(admin, peer.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPendingSessionExpires: a session still waiting on its authenticator
+// code lasts PendingSessionTTL, not the full session lifetime.
+func TestPendingSessionExpires(t *testing.T) {
+	a, st, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	u, _ := enrolledUser(t, a, adminCtx, "slow@example.com", RoleUser, "a slow typist's passphrase")
+	signIn, err := a.SignIn(ctx, tenant, u.Email, "a slow typist's passphrase", netip.MustParseAddr("203.0.113.40"), "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authn := NewAuthenticator(st, nil, mustResolver(t), slog.New(slog.DiscardHandler))
+	authn.Sessions = st
+	status := func(at time.Time) int {
+		authn.Now = func() time.Time { return at }
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+		req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: signIn.Token})
+		rr := httptest.NewRecorder()
+		authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })).ServeHTTP(rr, req)
+		return rr.Code
+	}
+	created := signIn.Session.CreatedAt
+	if got := status(created.Add(PendingSessionTTL - time.Minute)); got != http.StatusNoContent {
+		t.Fatalf("within the wait: %d", got)
+	}
+	if got := status(created.Add(PendingSessionTTL)); got != http.StatusUnauthorized {
+		t.Fatalf("after the wait: %d", got)
+	}
+}
+
+func (f *fakeAccountStore) RecordLockedAttempt(_ context.Context, _, user uuid.UUID, at time.Time) (bool, error) {
+	u, ok := f.users[user]
+	if !ok {
+		return false, ErrNotFound
+	}
+	if u.FailureWindowStart == nil || at.Sub(*u.FailureWindowStart) > time.Hour {
+		u.FailureWindowStart = &at
+		u.FailureWindowCount = 1
+	} else {
+		u.FailureWindowCount++
+	}
+	f.users[user] = u
+	return u.FailureWindowCount == 20, nil
+}
+
+// TestGuessingAlertFires: the lockout waits allow only about 10 counted
+// password checks an hour, so tries during the wait must count toward the
+// "someone is guessing a password" alert, or it could never fire.
+func TestGuessingAlertFires(t *testing.T) {
+	a, st, alerts := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	u, token, err := a.CreateUser(adminCtx, UserInput{Email: "target@example.com", Name: "Target", Role: RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.CompleteSetup(adminCtx, token, "the real passphrase here", netip.MustParseAddr("203.0.113.50"), "ua"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 20 {
+		// A new address each time: the per-address limit isn't what's tested.
+		ip := netip.AddrFrom4([4]byte{198, 51, 100, byte(i + 1)})
+		if _, err := a.SignIn(ctx, tenant, u.Email, "a wrong guess entirely", ip, "ua"); err == nil {
+			t.Fatal("a wrong password signed in")
+		}
+	}
+	if len(alerts.fired) != 1 || alerts.fired[0] != loginGuessKey(u.ID) {
+		t.Fatalf("alerts fired: %v", alerts.fired)
+	}
+	if got := st.users[u.ID].FailedAttempts; got != 5 {
+		t.Errorf("tries during the wait lengthened it: %d counted failures", got)
 	}
 }

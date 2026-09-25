@@ -24,6 +24,12 @@ type ClientIPResolver struct {
 	names    []string
 	mu       sync.RWMutex
 	resolved []netip.Addr
+	// IgnoreForwardedFor is set when trusted front doors send the visitor's
+	// address with PROXY protocol (docs/WEB.md §3): they pass TLS through,
+	// so any X-Forwarded-For came from the visitor, and a connection that
+	// still shows the door's own address (a PROXY "LOCAL" header) must not
+	// let it be believed. Set it before serving.
+	IgnoreForwardedFor bool
 }
 
 // hostnameRE is a container or host name: letters, digits, dots and dashes.
@@ -102,7 +108,7 @@ func parsePrefix(s string) (netip.Prefix, error) {
 // peer is a trusted proxy, the right-most X-Forwarded-For entry that isn't one.
 func (r *ClientIPResolver) ClientIP(req *http.Request) netip.Addr {
 	peer := addrOf(req.RemoteAddr)
-	if !peer.IsValid() || !r.isTrusted(peer) {
+	if !peer.IsValid() || r.IgnoreForwardedFor || !r.isTrusted(peer) {
 		return peer
 	}
 	hops := strings.Split(strings.Join(req.Header.Values("X-Forwarded-For"), ","), ",")

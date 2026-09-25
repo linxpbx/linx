@@ -265,11 +265,15 @@ func (f *fakeStore) ConsumeSetupLink(_ context.Context, id uuid.UUID, at time.Ti
 	defer f.mu.Unlock()
 	for k, l := range f.links {
 		if l.ID == id {
+			if l.UsedAt != nil || !at.Before(l.ExpiresAt) {
+				break
+			}
 			l.UsedAt = &at
 			f.links[k] = l
+			return nil
 		}
 	}
-	return nil
+	return auth.ErrNotFound
 }
 
 func (f *fakeStore) CreateSession(_ context.Context, s auth.UserSession) error {
@@ -352,4 +356,21 @@ func (f *fakeStore) sessionLive(id uuid.UUID) bool {
 	}
 	u, ok := f.users[s.UserID]
 	return ok && u.DisabledAt == nil
+}
+
+func (f *fakeStore) RecordLockedAttempt(_ context.Context, _, user uuid.UUID, at time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.users[user]
+	if !ok {
+		return false, auth.ErrNotFound
+	}
+	if u.FailureWindowStart == nil || at.Sub(*u.FailureWindowStart) > time.Hour {
+		u.FailureWindowStart = &at
+		u.FailureWindowCount = 1
+	} else {
+		u.FailureWindowCount++
+	}
+	f.users[user] = u
+	return u.FailureWindowCount == 20, nil
 }

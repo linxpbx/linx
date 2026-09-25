@@ -34,6 +34,9 @@ const (
 	// teamCheck is how often an open websocket rechecks its session and
 	// pings the browser.
 	teamCheck = 30 * time.Second
+	// teamPerSession is how many Team lists one session may have open at
+	// once (a few tabs); each is a connection and a copy of every update.
+	teamPerSession = 8
 )
 
 type teamHub struct {
@@ -44,6 +47,7 @@ type teamHub struct {
 	mu   sync.Mutex
 	subs map[uuid.UUID]map[*teamSub]struct{} // by tenant
 	last map[uuid.UUID][]byte
+	open map[uuid.UUID]int // by session
 }
 
 type teamSub struct {
@@ -52,7 +56,27 @@ type teamSub struct {
 
 func newTeamHub(team *pbx.Team, log *slog.Logger) *teamHub {
 	return &teamHub{team: team, log: log, kick: make(chan struct{}, 1),
-		subs: map[uuid.UUID]map[*teamSub]struct{}{}, last: map[uuid.UUID][]byte{}}
+		subs: map[uuid.UUID]map[*teamSub]struct{}{}, last: map[uuid.UUID][]byte{}, open: map[uuid.UUID]int{}}
+}
+
+// acquire counts one more open list for session, unless it already has
+// teamPerSession; release undoes it.
+func (h *teamHub) acquire(session uuid.UUID) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.open[session] >= teamPerSession {
+		return false
+	}
+	h.open[session]++
+	return true
+}
+
+func (h *teamHub) release(session uuid.UUID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.open[session]--; h.open[session] <= 0 {
+		delete(h.open, session)
+	}
 }
 
 // Changed asks for the list to be recomputed soon. It never blocks.
@@ -175,6 +199,12 @@ func teamLiveHandler(authn *auth.Authenticator, st auth.SessionStore, hub *teamH
 			apihttp.WriteProblem(w, http.StatusForbidden, "insufficient_scope", "This needs the team:read scope.")
 			return
 		}
+		if !hub.acquire(sess.ID) {
+			apihttp.WriteProblem(w, http.StatusTooManyRequests, "too_many_open",
+				"The Team list is open in too many tabs. Close some and try again.")
+			return
+		}
+		defer hub.release(sess.ID)
 		sub, err := hub.subscribe(r.Context(), sess.TenantID)
 		if err != nil {
 			apihttp.WriteProblem(w, http.StatusServiceUnavailable, "unavailable", "Linx can't load the Team list right now. Try again shortly.")

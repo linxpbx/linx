@@ -27,7 +27,16 @@ type RecordsClient struct {
 	CloudflareAPI string
 	DuckDNSAPI    string
 	TraceURL      string
+	// OwnOnly changes an existing Cloudflare record only if Linx made it
+	// (its comment starts with recordComment). The background IP follower
+	// sets it, so an address the owner typed in by hand is never
+	// overwritten behind their back; `linx setup` doesn't, since the owner
+	// just asked for these names.
+	OwnOnly bool
 }
+
+// recordComment marks the Cloudflare records Linx made.
+const recordComment = "Linx"
 
 // NewRecordsClient uses the real endpoints.
 func NewRecordsClient() *RecordsClient {
@@ -125,6 +134,7 @@ type cfRecord struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
 	Proxied bool   `json:"proxied"`
+	Comment string `json:"comment"`
 }
 
 func (c *RecordsClient) cloudflare(ctx context.Context, token, domain string, hosts []string, ip netip.Addr) ([]RecordResult, error) {
@@ -140,7 +150,7 @@ func (c *RecordsClient) cloudflare(ctx context.Context, token, domain string, ho
 			return out, err
 		}
 		body := map[string]any{"type": "A", "name": name, "content": ip.String(), "ttl": 300, "proxied": false,
-			"comment": "Linx (linx setup)"}
+			"comment": recordComment + " (linx setup)"}
 		var a *cfRecord
 		cname := ""
 		for i, r := range found {
@@ -156,6 +166,8 @@ func (c *RecordsClient) cloudflare(ctx context.Context, token, domain string, ho
 			out = append(out, RecordResult{name, "left as is: it's an alias (CNAME) for " + cname})
 		case a != nil && a.Content == ip.String() && !a.Proxied:
 			out = append(out, RecordResult{name, "already points at " + ip.String()})
+		case a != nil && c.OwnOnly && !strings.HasPrefix(a.Comment, recordComment):
+			out = append(out, RecordResult{name, "left as is: someone else made it (it points at " + a.Content + ")"})
 		case a != nil:
 			if err := c.cf(ctx, token, http.MethodPut, "/zones/"+zone+"/dns_records/"+a.ID, body, nil); err != nil {
 				return out, err

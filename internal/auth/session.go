@@ -25,6 +25,9 @@ const (
 	UserSessionTTL  = 30 * 24 * time.Hour
 	AdminSessionTTL = 12 * time.Hour
 	SessionIdleTTL  = 7 * 24 * time.Hour
+	// PendingSessionTTL is how long a session may wait on its authenticator
+	// code or first-run enrollment before signing in starts over.
+	PendingSessionTTL = 15 * time.Minute
 )
 
 // SessionTTL is how long a new session of role lasts before it must be

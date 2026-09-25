@@ -94,6 +94,47 @@ func parseMessage(b []byte) (message, error) {
 	return m, nil
 }
 
+// checkFraming makes sure a browser's websocket message is exactly one SIP
+// message, framed so Asterisk can only read it the way parseMessage did:
+// every header line ends in CRLF (no bare CR or LF, which a lenient parser
+// could take as a line break the relay didn't see, hiding a header), and
+// the body is exactly Content-Length bytes (so nothing after it can be read
+// as a second message the relay never checked).
+func checkFraming(b []byte) error {
+	head, body, ok := bytes.Cut(b, []byte("\r\n\r\n"))
+	if !ok {
+		return errMalformed
+	}
+	for i, c := range head {
+		switch {
+		case c == 0,
+			c == '\r' && (i+1 == len(head) || head[i+1] != '\n'),
+			c == '\n' && (i == 0 || head[i-1] != '\r'):
+			return errMalformed
+		}
+	}
+	length, seen := 0, false
+	for _, l := range strings.Split(string(head), "\r\n")[1:] {
+		name, value, ok := strings.Cut(l, ":")
+		if !ok {
+			continue
+		}
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "content-length" && name != "l" {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(value))
+		if seen || err != nil || n < 0 {
+			return errMalformed
+		}
+		length, seen = n, true
+	}
+	if len(body) != length {
+		return errMalformed
+	}
+	return nil
+}
+
 func (m *message) firstLine(l string) error {
 	if rest, ok := strings.CutPrefix(l, "SIP/2.0 "); ok {
 		code, _, _ := strings.Cut(rest, " ")

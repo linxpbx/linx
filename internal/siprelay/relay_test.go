@@ -274,9 +274,17 @@ func TestRefusesOtherLines(t *testing.T) {
 
 func TestRefusesOtherMessages(t *testing.T) {
 	for name, tc := range map[string]struct{ msg, reason string }{
-		"not SIP":        {"GET / HTTP/1.1\r\n\r\n", ReasonMalformed},
-		"unknown method": {request("PUBLISH", me, me), ReasonMethod},
-		"too big":        {request("MESSAGE", me, "101") + strings.Repeat("x", DefaultMaxMessage), ""},
+		"not SIP": {"GET / HTTP/1.1\r\n\r\n", ReasonMalformed},
+		// Two messages in one frame: Asterisk would read the second, which
+		// the relay never checked.
+		"second message after the body":   {request("OPTIONS", me, me) + request("INVITE", "d_Other123", "101"), ReasonMalformed},
+		"body longer than Content-Length": {request("MESSAGE", me, "101") + "hello", ReasonMalformed},
+		"two Content-Lengths":             {strings.Replace(request("MESSAGE", me, "101"), "\r\n\r\n", "\r\nl: 5\r\n\r\nhello", 1), ReasonMalformed},
+		// A bare LF could hide a From header inside another header's value.
+		"bare LF in the headers": {strings.Replace(request("INVITE", me, "101"), "Via:", "Subject: x\nFrom: <sip:d_Other123@linx>;tag=b\r\nVia:", 1), ReasonMalformed},
+		"bare CR in the headers": {strings.Replace(request("INVITE", me, "101"), "Via:", "Subject: x\rFrom: <sip:d_Other123@linx>;tag=b\r\nVia:", 1), ReasonMalformed},
+		"unknown method":         {request("PUBLISH", me, me), ReasonMethod},
+		"too big":                {request("MESSAGE", me, "101") + strings.Repeat("x", DefaultMaxMessage), ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t, nil)

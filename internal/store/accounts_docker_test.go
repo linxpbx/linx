@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"testing"
 	"time"
@@ -169,6 +170,9 @@ func TestAccountsDocker(t *testing.T) {
 		if err := s.ConsumeSetupLink(ctx, link.ID, now); err != nil {
 			t.Fatalf("ConsumeSetupLink: %v", err)
 		}
+		if err := s.ConsumeSetupLink(ctx, link.ID, now); !errors.Is(err, auth.ErrNotFound) {
+			t.Fatalf("a used link was used again: %v", err)
+		}
 		used, err := s.SetupLinkByTokenHash(ctx, auth.HashSecret("link-token"))
 		if err != nil || used.UsedAt == nil {
 			t.Fatalf("consumed link should have UsedAt set: %+v, %v", used, err)
@@ -249,6 +253,27 @@ func TestAccountsDocker(t *testing.T) {
 		}
 		if !lastAlert {
 			t.Fatal("the 20th failure in an hour should cross the alert threshold")
+		}
+
+		// Tries during the lockout wait count toward the alert without
+		// lengthening the wait.
+		u3 := newUser("waiting@example.com", auth.RoleUser)
+		for i := 1; i <= 5; i++ {
+			if _, _, err := s.RecordLoginFailure(ctx, tenant, u3.ID, base.Add(time.Duration(i)*time.Second)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		lastAlert = false
+		for i := 6; i <= 20; i++ {
+			alert, err := s.RecordLockedAttempt(ctx, tenant, u3.ID, base.Add(time.Duration(i)*time.Second))
+			if err != nil {
+				t.Fatalf("RecordLockedAttempt %d: %v", i, err)
+			}
+			lastAlert = alert
+		}
+		after, _ := s.User(ctx, tenant, u3.ID)
+		if !lastAlert || after.FailedAttempts != 5 || after.FailureWindowCount != 20 {
+			t.Fatalf("locked tries: alert %v, %+v", lastAlert, after)
 		}
 	})
 }

@@ -289,6 +289,13 @@ func TestClientIP(t *testing.T) {
 			t.Errorf("%s: got %s, want %s", tt.name, got, tt.want)
 		}
 	}
+	// PROXY protocol front doors pass TLS through: a forwarded header can
+	// only be the visitor's own, even on a connection from the door itself.
+	r.IgnoreForwardedFor = true
+	if got := r.ClientIP(req("10.1.2.3:1234", "198.51.100.7")).String(); got != "10.1.2.3" {
+		t.Errorf("X-Forwarded-For believed with PROXY protocol on: %s", got)
+	}
+	r.IgnoreForwardedFor = false
 	for _, bad := range []string{"not an ip", "10.0.0.0/33", "-linx", "linx_sni"} {
 		if _, err := NewClientIPResolver(bad); err == nil {
 			t.Errorf("bad trusted proxy %q accepted", bad)

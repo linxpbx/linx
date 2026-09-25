@@ -227,8 +227,27 @@ func (s *Store) RecordLoginFailure(ctx context.Context, tenant, user uuid.UUID, 
 		}
 		return nil, false, err
 	}
-	return lockedUntil, windowCount == 20, nil
+	return lockedUntil, windowCount == guessingAlertThreshold, nil
 }
+
+func (s *Store) RecordLockedAttempt(ctx context.Context, tenant, user uuid.UUID, at time.Time) (bool, error) {
+	var windowCount int
+	err := s.pool.QueryRow(ctx, `UPDATE app_user SET
+			failure_window_start = CASE WHEN failure_window_start IS NULL OR $3::timestamptz - failure_window_start > interval '1 hour'
+				THEN $3::timestamptz ELSE failure_window_start END,
+			failure_window_count = CASE WHEN failure_window_start IS NULL OR $3::timestamptz - failure_window_start > interval '1 hour'
+				THEN 1 ELSE failure_window_count + 1 END
+		WHERE id = $1 AND tenant_id = $2
+		RETURNING failure_window_count`, user, tenant, at).Scan(&windowCount)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, auth.ErrNotFound
+	}
+	return windowCount == guessingAlertThreshold, err
+}
+
+// guessingAlertThreshold is how many failed tries in an hour fire the
+// "someone is guessing a password" alert (docs/WEB.md §4).
+const guessingAlertThreshold = 20
 
 const setupLinkColumns = `id, tenant_id, user_id, token_hash, created_at, expires_at, used_at`
 
@@ -252,8 +271,15 @@ func (s *Store) SetupLinkByTokenHash(ctx context.Context, hash []byte) (auth.Set
 }
 
 func (s *Store) ConsumeSetupLink(ctx context.Context, id uuid.UUID, at time.Time) error {
-	_, err := s.pool.Exec(ctx, `UPDATE user_setup_link SET used_at = $2 WHERE id = $1`, id, at)
-	return err
+	tag, err := s.pool.Exec(ctx, `UPDATE user_setup_link SET used_at = $2
+		WHERE id = $1 AND used_at IS NULL AND expires_at > $2`, id, at)
+	if err != nil {
+		return fmt.Errorf("using a setup link: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return auth.ErrNotFound
+	}
+	return nil
 }
 
 const sessionColumns = `id, tenant_id, user_id, role, token_hash, csrf_hash, mfa_verified,

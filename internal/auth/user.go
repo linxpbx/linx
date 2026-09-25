@@ -95,9 +95,17 @@ type UserStore interface {
 	// the wait the account is now under (nil if none) and whether the
 	// window just crossed the alert threshold (docs/WEB.md §4).
 	RecordLoginFailure(ctx context.Context, tenant, user uuid.UUID, at time.Time) (lockedUntil *time.Time, alertThreshold bool, err error)
+	// RecordLockedAttempt counts a try made during the lockout wait in the
+	// guessing-password window only (the wait itself doesn't grow), so the
+	// alert still fires: the waits alone allow only about 10 counted
+	// failures an hour.
+	RecordLockedAttempt(ctx context.Context, tenant, user uuid.UUID, at time.Time) (alertThreshold bool, err error)
 
 	CreateSetupLink(ctx context.Context, l SetupLink) error
 	SetupLinkByTokenHash(ctx context.Context, hash []byte) (SetupLink, error)
+	// ConsumeSetupLink marks the link used, only if it's still unused and
+	// unexpired at at; otherwise ErrNotFound (so two uses racing can't both
+	// win).
 	ConsumeSetupLink(ctx context.Context, id uuid.UUID, at time.Time) error
 
 	CreateSession(ctx context.Context, s UserSession) error

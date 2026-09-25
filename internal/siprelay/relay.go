@@ -289,6 +289,9 @@ func (s *session) fromBrowser(ctx context.Context) error {
 		if m.keepAlive {
 			continue
 		}
+		if err := checkFraming(b); err != nil {
+			return refused(ReasonMalformed)
+		}
 		if m.request {
 			if reason := s.checkRequest(m); reason != "" {
 				return refused(reason)

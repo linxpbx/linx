@@ -95,6 +95,21 @@ func TestPointRecordsCloudflare(t *testing.T) {
 		t.Errorf("writes = %s", got)
 	}
 
+	// The background follower leaves a record it didn't make alone.
+	cf.records["api.pbx.example.com"] = cfRecord{ID: "a1", Type: "A", Name: "api.pbx.example.com", Content: "198.51.100.1"}
+	cf.writes = nil
+	c.OwnOnly = true
+	res, err = c.PointRecords(context.Background(), cfg, []string{"api", "meet"}, netip.MustParseAddr("192.0.2.44"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(res[0].Outcome, "left as is: someone else") || !strings.HasPrefix(res[1].Outcome, "changed") {
+		t.Errorf("own only: %+v", res)
+	}
+	if got := strings.Join(cf.writes, ","); got != "PUT meet.pbx.example.com" {
+		t.Errorf("own only: writes = %s", got)
+	}
+
 	cfg.TokenFile = filepath.Join(t.TempDir(), "missing")
 	if _, err := c.PointRecords(context.Background(), cfg, []string{"meet"}, ip); err == nil {
 		t.Error("no error without a token")

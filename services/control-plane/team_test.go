@@ -202,4 +202,16 @@ func TestTeamLive(t *testing.T) {
 	if next := read(); next.Items[0].Status != pbx.TeamAway {
 		t.Fatalf("after setting away: %+v", next)
 	}
+
+	// One session can hold only so many open at once.
+	for i := 1; i < teamPerSession; i++ {
+		more, _, err := e.dialTeam(cookies, origin)
+		if err != nil {
+			t.Fatalf("list %d: %v", i+1, err)
+		}
+		defer more.CloseNow()
+	}
+	if _, resp, err := e.dialTeam(cookies, origin); err == nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("one list too many: %v", err)
+	}
 }

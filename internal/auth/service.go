@@ -57,6 +57,25 @@ func invalidLink() *apihttp.Error {
 		Detail: "This link has already been used, has expired, or doesn't exist. Ask an admin for a new one."}
 }
 
+// beyondCaller refuses changing, disabling or resetting someone whose role
+// the caller couldn't have given: an admin must not be able to take over a
+// system admin with a set-password link, or demote or disable one.
+func beyondCaller(caller Principal, target User) *apihttp.Error {
+	if CanGrantRole(caller.Role, target.Role) {
+		return nil
+	}
+	return &apihttp.Error{Status: http.StatusForbidden, Code: "role_exceeds_caller",
+		Detail: fmt.Sprintf("You can't change a person with the %s role.", target.Role)}
+}
+
+// mfaVerifyFirst refuses account changes from a session still waiting on
+// its authenticator code: knowing the password alone must not let anyone
+// replace the authenticator app or the password.
+func mfaVerifyFirst() *apihttp.Error {
+	return &apihttp.Error{Status: http.StatusForbidden, Code: "sign_in_unfinished",
+		Detail: "Enter the code from your authenticator app first."}
+}
+
 var errSignInInvalid = &apihttp.Error{Status: http.StatusUnauthorized, Code: "sign_in_invalid",
 	Detail: "That email or password is incorrect."}
 
@@ -194,6 +213,9 @@ func (a *Accounts) CreateSetupLink(ctx context.Context, userID uuid.UUID) (strin
 		}
 		return "", err
 	}
+	if e := beyondCaller(caller, u); e != nil {
+		return "", e
+	}
 	return a.createSetupLink(ctx, u)
 }
 
@@ -240,6 +262,9 @@ func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch
 			return User{}, notFound("person")
 		}
 		return User{}, err
+	}
+	if e := beyondCaller(caller, u); e != nil {
+		return User{}, e
 	}
 	now := a.Now().UTC()
 	if patch.Name != nil {
@@ -306,6 +331,16 @@ func (a *Accounts) DisableUser(ctx context.Context, id uuid.UUID) (User, error) 
 	caller, audit, err := userAudit(ctx, "user.disable", "user:"+id.String())
 	if err != nil {
 		return User{}, err
+	}
+	target, err := a.Store.User(ctx, caller.TenantID, id)
+	if errors.Is(err, ErrNotFound) {
+		return User{}, notFound("person")
+	}
+	if err != nil {
+		return User{}, err
+	}
+	if e := beyondCaller(caller, target); e != nil {
+		return User{}, e
 	}
 	u, err := a.Store.DisableUser(ctx, caller.TenantID, id, a.Now().UTC(), audit)
 	if errors.Is(err, ErrNotFound) {
@@ -387,6 +422,7 @@ func (a *Accounts) SignIn(ctx context.Context, tenant uuid.UUID, email, password
 		return SessionOutcome{}, errSignInInvalid
 	}
 	if u.LockedUntil != nil && now.Before(*u.LockedUntil) {
+		a.lockedAttempt(ctx, tenant, u, ipKey, now)
 		return SessionOutcome{}, lockedError(*u.LockedUntil)
 	}
 	if !VerifyPassword(u.PasswordHash, password) {
@@ -397,9 +433,8 @@ func (a *Accounts) SignIn(ctx context.Context, tenant uuid.UUID, email, password
 		if ferr != nil {
 			return SessionOutcome{}, unavailableErr()
 		}
-		if alertThreshold && a.Alerts != nil {
-			_ = a.Alerts.Fire(ctx, tenant, loginGuessKey(u.ID), "warning", "Someone is guessing a password",
-				fmt.Sprintf("More than 20 failed sign-ins for %s in the last hour.", u.Email), "")
+		if alertThreshold {
+			a.fireGuessing(ctx, tenant, u)
 		}
 		if lockedUntil != nil {
 			return SessionOutcome{}, lockedError(*lockedUntil)
@@ -420,9 +455,29 @@ func (a *Accounts) SignIn(ctx context.Context, tenant uuid.UUID, email, password
 	return SessionOutcome{Session: sess, Token: token, CSRF: csrf, Status: statusFor(mfaVerified, u.MFAEnabled)}, nil
 }
 
+// lockedAttempt counts a try made during the lockout wait: against the
+// address's budget, and toward the guessing-password alert.
+func (a *Accounts) lockedAttempt(ctx context.Context, tenant uuid.UUID, u User, ipKey string, now time.Time) {
+	if a.Failures != nil {
+		a.Failures.Allow(ipKey, now)
+	}
+	if alert, err := a.Store.RecordLockedAttempt(ctx, tenant, u.ID, now); err == nil && alert {
+		a.fireGuessing(ctx, tenant, u)
+	}
+}
+
+func (a *Accounts) fireGuessing(ctx context.Context, tenant uuid.UUID, u User) {
+	if a.Alerts != nil {
+		_ = a.Alerts.Fire(ctx, tenant, loginGuessKey(u.ID), "warning", "Someone is guessing a password",
+			fmt.Sprintf("20 or more failed sign-ins for %s in the last hour.", u.Email), "")
+	}
+}
+
 // CompleteSetup is a new person's first sign-in through their one-time link
-// (docs/WEB.md §4): they pick a password, and are signed in at once (still
-// pending MFA enrollment if their role requires it).
+// (docs/WEB.md §4), or an existing person's password reset: they pick a
+// password, any other session of theirs ends, and they're signed in at once
+// (still pending MFA enrollment if their role requires it, or their
+// authenticator code if they already have one: a link never skips it).
 func (a *Accounts) CompleteSetup(ctx context.Context, linkToken, password string, ip netip.Addr, userAgent string) (SessionOutcome, error) {
 	if err := CheckPasswordPolicy(password); err != nil {
 		return SessionOutcome{}, badRequest("password_invalid", err.Error())
@@ -449,25 +504,27 @@ func (a *Accounts) CompleteSetup(ctx context.Context, linkToken, password string
 	if err != nil {
 		return SessionOutcome{}, err
 	}
-	if err := a.Store.SetPassword(ctx, u.TenantID, u.ID, hash, now, false, AuditEntry{
+	// Claimed first, and only if still unused: two requests racing with the
+	// same link can't both set a password.
+	if err := a.Store.ConsumeSetupLink(ctx, link.ID, now); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return SessionOutcome{}, invalidLink()
+		}
+		return SessionOutcome{}, err
+	}
+	if err := a.Store.SetPassword(ctx, u.TenantID, u.ID, hash, now, true, AuditEntry{
 		TenantID: &u.TenantID, Actor: "user:" + u.ID.String(), IP: ip, Action: "user.password_set",
 		Target: "user:" + u.ID.String(), Result: ResultOK,
 	}); err != nil {
 		return SessionOutcome{}, err
 	}
-	if err := a.Store.ConsumeSetupLink(ctx, link.ID, now); err != nil {
-		return SessionOutcome{}, err
-	}
-	mfaVerified := !requiresMFA(u.Role)
+	a.sessionsEnded(ctx, u.ID, nil)
+	mfaVerified := !u.MFAEnabled && !requiresMFA(u.Role)
 	sess, token, csrf, err := a.newSession(ctx, u, mfaVerified, ip, userAgent, now)
 	if err != nil {
 		return SessionOutcome{}, err
 	}
-	status := "signed_in"
-	if !mfaVerified {
-		status = "mfa_setup_required"
-	}
-	return SessionOutcome{Session: sess, Token: token, CSRF: csrf, Status: status}, nil
+	return SessionOutcome{Session: sess, Token: token, CSRF: csrf, Status: statusFor(mfaVerified, u.MFAEnabled)}, nil
 }
 
 // VerifyMFA is step two of signing in: the authenticator code (or a
@@ -498,6 +555,7 @@ func (a *Accounts) VerifyMFA(ctx context.Context, code string) error {
 		return badRequest("mfa_not_enrolled", "Set up an authenticator app first: POST /me/mfa.")
 	}
 	if u.LockedUntil != nil && now.Before(*u.LockedUntil) {
+		a.lockedAttempt(ctx, sess.TenantID, u, ipKey, now)
 		return lockedError(*u.LockedUntil)
 	}
 	ok, err = a.checkMFACode(ctx, u, code)
@@ -512,9 +570,8 @@ func (a *Accounts) VerifyMFA(ctx context.Context, code string) error {
 		if ferr != nil {
 			return unavailableErr()
 		}
-		if alertThreshold && a.Alerts != nil {
-			_ = a.Alerts.Fire(ctx, sess.TenantID, loginGuessKey(u.ID), "warning", "Someone is guessing a password",
-				fmt.Sprintf("More than 20 failed sign-ins for %s in the last hour.", u.Email), "")
+		if alertThreshold {
+			a.fireGuessing(ctx, sess.TenantID, u)
 		}
 		if lockedUntil != nil {
 			return lockedError(*lockedUntil)
@@ -563,6 +620,9 @@ func (a *Accounts) BeginMFAEnrollment(ctx context.Context) (secret, otpauthURL s
 	if err != nil {
 		return "", "", err
 	}
+	if caller.Pending && u.MFAEnabled {
+		return "", "", mfaVerifyFirst()
+	}
 	raw, err := NewTOTPSecret()
 	if err != nil {
 		return "", "", err
@@ -595,6 +655,9 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 	u, err := a.Store.User(ctx, caller.TenantID, uid)
 	if err != nil {
 		return nil, err
+	}
+	if caller.Pending && u.MFAEnabled {
+		return nil, mfaVerifyFirst()
 	}
 	if len(u.MFAPendingSecretEnc) == 0 {
 		return nil, badRequest("mfa_not_started", "Start enrollment first: POST /me/mfa.")
@@ -649,6 +712,9 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 	if caller.Type != TypeUser {
 		return notASession()
 	}
+	if caller.Pending {
+		return mfaVerifyFirst()
+	}
 	uid, err := uuid.Parse(caller.ID)
 	if err != nil {
 		return err
@@ -657,7 +723,17 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 	if err != nil {
 		return err
 	}
+	// A wrong current password draws on the same per-address budget as a
+	// wrong sign-in, so a borrowed session can't be used to guess it.
+	now := a.Now().UTC()
+	ipKey := IPKey(ClientIPFromContext(ctx))
+	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
+		return tooManyFailuresErr()
+	}
 	if !VerifyPassword(u.PasswordHash, currentPassword) {
+		if a.Failures != nil {
+			a.Failures.Allow(ipKey, now)
+		}
 		return &apihttp.Error{Status: http.StatusUnauthorized, Code: "password_invalid", Detail: "Your current password is incorrect."}
 	}
 	if err := CheckPasswordPolicy(newPassword); err != nil {
@@ -671,7 +747,7 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 	if err != nil {
 		return err
 	}
-	if err := a.Store.SetPassword(ctx, u.TenantID, u.ID, hash, a.Now().UTC(), true, audit); err != nil {
+	if err := a.Store.SetPassword(ctx, u.TenantID, u.ID, hash, now, true, audit); err != nil {
 		return err
 	}
 	a.sessionsEnded(ctx, u.ID, nil)

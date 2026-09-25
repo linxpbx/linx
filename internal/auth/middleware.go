@@ -152,7 +152,8 @@ func (a *Authenticator) authenticateSession(ctx context.Context, raw string, now
 	switch {
 	case sess.RevokedAt != nil:
 		return UserSession{}, &failure{err: errSessionInvalid, reason: "revoked"}
-	case !now.Before(sess.ExpiresAt), !now.Before(sess.IdleExpiresAt):
+	case !now.Before(sess.ExpiresAt), !now.Before(sess.IdleExpiresAt),
+		!sess.MFAVerified && now.Sub(sess.CreatedAt) >= PendingSessionTTL:
 		return UserSession{}, &failure{err: errSessionExpired, reason: "expired"}
 	}
 	return sess, nil

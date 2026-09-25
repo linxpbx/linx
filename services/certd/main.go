@@ -148,5 +148,7 @@ func followerFromEnv(cfg certs.Config, getenv func(string) string, log *slog.Log
 	if err != nil {
 		return nil, fmt.Errorf("LINX_DNS_ADDRESS: %w", err)
 	}
-	return &certs.Follower{Client: certs.NewRecordsClient(), Config: cfg, Hosts: hosts, Fixed: fixed, Log: log.With("component", "dns")}, nil
+	client := certs.NewRecordsClient()
+	client.OwnOnly = true
+	return &certs.Follower{Client: client, Config: cfg, Hosts: hosts, Fixed: fixed, Log: log.With("component", "dns")}, nil
 }
