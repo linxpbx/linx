@@ -219,7 +219,13 @@ func replyTo(req string, status int, extra string) string {
 
 func TestRelaysOwnLine(t *testing.T) {
 	h := newHarness(t, nil)
-	h.ast.reply = func(req string) []string { return []string{replyTo(req, 200, "")} }
+	// Answers requests only (a real Asterisk doesn't answer responses).
+	h.ast.reply = func(req string) []string {
+		if strings.HasPrefix(req, "SIP/2.0 ") {
+			return nil
+		}
+		return []string{replyTo(req, 200, "")}
+	}
 	c := h.dial()
 	reg := request("REGISTER", me, me, authz(me))
 	send(t, c, reg)
@@ -231,8 +237,8 @@ func TestRelaysOwnLine(t *testing.T) {
 	send(t, c, "\r\n\r\n")
 	send(t, c, "SIP/2.0 200 OK\r\nFrom: <sip:asterisk@linx>;tag=x\r\nTo: <sip:someone@x>\r\nCall-ID: q\r\nCSeq: 1 OPTIONS\r\n\r\n")
 	send(t, c, request("INVITE", me, "101"))
-	if _, err := read(t, c); err != nil {
-		t.Fatal(err)
+	if resp, err := read(t, c); err != nil || !strings.Contains(resp, " INVITE") {
+		t.Fatalf("%q %v", resp, err)
 	}
 	got := h.ast.received()
 	if len(got) != 3 || got[0] != reg || !strings.HasPrefix(got[1], "SIP/2.0 200") || !strings.HasPrefix(got[2], "INVITE ") {
