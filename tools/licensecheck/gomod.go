@@ -30,7 +30,9 @@ var (
 		"GNU GENERAL PUBLIC LICENSE", "GNU LESSER GENERAL PUBLIC LICENSE", "GNU AFFERO GENERAL PUBLIC LICENSE",
 		"Mozilla Public License", "Server Side Public License", "Business Source License",
 	}
-	licenceFiles = []string{"LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING", "COPYING.md"}
+	// Lower-case too (github.com/josharian/native has "license"): Linux's disks
+	// are case-sensitive, even where macOS's hide it.
+	licenceFiles = []string{"LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "COPYING", "COPYING.md", "license", "license.md", "license.txt"}
 )
 
 // checkGo returns the number of modules checked and any problems.
@@ -63,6 +65,8 @@ func checkGo() (int, []string, error) {
 
 func readLicence(dir string) string {
 	var b strings.Builder
+	// On a case-insensitive disk "license" and "LICENSE" are one file, read
+	// twice: harmless for classifying it.
 	for _, name := range licenceFiles {
 		if data, err := os.ReadFile(filepath.Join(dir, name)); err == nil {
 			b.Write(data)
