@@ -126,7 +126,7 @@ func TestClean(t *testing.T) {
 func TestExplain(t *testing.T) {
 	r := Route{Result: Classify("AE", "0501234567"), Reason: ReasonNoLines}
 	got := r.Explain("0501234567", "101", "AE")
-	if !strings.Contains(got, "Mobile number: +971 50 123 4567.") || !strings.Contains(got, "no outside lines") {
+	if !strings.Contains(got, "Mobile number: +971 50 123 4567.") || !strings.Contains(got, "no outside line is set up") {
 		t.Errorf("Explain = %q", got)
 	}
 	r = Route{Result: Classify("AE", "+44 20 7946 0958"), Reason: ReasonNoLines}
@@ -135,6 +135,17 @@ func TestExplain(t *testing.T) {
 	}
 	r = Route{Result: Classify("AE", "999"), Allowed: true, Reason: ReasonEmergency}
 	if got := r.Explain("999", "101", "AE"); !strings.Contains(got, "Emergency number (police): 999.") || !strings.Contains(got, "Always allowed") {
+		t.Errorf("Explain = %q", got)
+	}
+	r = Route{Result: Classify("AE", "0501234567"), Allowed: true, Reason: ReasonAllowed, Lines: []Line{
+		{Trunk: "UCM", Number: "0501234567", CallerID: "+97142000100"}, {Trunk: "Backup", Number: "+971501234567"}}}
+	want := "Allowed for extension 101.\nGoes out on \"UCM\" as 0501234567, showing +97142000100.\n" +
+		"If that line is down or full: \"Backup\" as +971501234567.\n"
+	if got := r.Explain("0501234567", "101", "AE"); !strings.HasSuffix(got, want) {
+		t.Errorf("Explain = %q, want it to end %q", got, want)
+	}
+	r = Route{Result: Classify("AE", "999"), Allowed: true, Reason: ReasonEmergency, Lines: []Line{{Trunk: "UCM", Number: "999"}}}
+	if got := r.Explain("999", "101", "AE"); !strings.HasSuffix(got, "never limited.\nGoes out on \"UCM\" as 999.\n") {
 		t.Errorf("Explain = %q", got)
 	}
 	r = Route{Result: Classify("AE", "0501234567"), Reason: ReasonNotPermitted}

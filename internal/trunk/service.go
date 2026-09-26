@@ -2,9 +2,12 @@ package trunk
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +27,16 @@ type Service struct {
 	Store  Store
 	Sealer *dbsecret.Sealer
 	Now    func() time.Time
+	// OnChange, if set, is called after a trunk is created, changed or
+	// deleted: Asterisk's copy of the trunks is rendered again
+	// (internal/trunkconf).
+	OnChange func()
+}
+
+func (s *Service) changed() {
+	if s.OnChange != nil {
+		s.OnChange()
+	}
 }
 
 var errNoPrincipal = errors.New("no principal on the request: authentication middleware is missing")
@@ -85,11 +98,63 @@ var errTrunkChanged = &apihttp.Error{Status: http.StatusPreconditionFailed, Code
 var errUnencryptedConfirmationRequired = &apihttp.Error{Status: http.StatusUnprocessableEntity, Code: "unencrypted_confirmation_required",
 	Detail: "Calls to and from this trunk can be listened to on the way. Send confirm_unencrypted: true to save it anyway."}
 
+// hostPattern is a DNS name or an IPv4 address: what Asterisk's config
+// and a SIP URI can carry as they are (docs/TRUNKS.md §4).
+var hostPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,62})(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}))*\.?$`)
+
 func checkHost(host string) error {
-	if l := len(host); l < 1 || l > 255 || strings.ContainsAny(host, " \t\n") {
-		return invalid("host_invalid", "Give it an address of 1 to 255 characters, with no spaces.")
+	if len(host) > 253 || !hostPattern.MatchString(host) {
+		return invalid("host_invalid", "Give it the provider's name (sip.example.com) or IPv4 address.")
 	}
 	return nil
+}
+
+// usernamePattern is what a SIP login can be here: it's written into a SIP
+// URI and Asterisk's config as is.
+var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._~+=-]{0,128}$`)
+
+func checkUsername(username string) error {
+	if !usernamePattern.MatchString(username) {
+		return invalid("username_invalid", "A login is up to 128 letters, digits and . _ ~ + = -.")
+	}
+	return nil
+}
+
+// CheckPassword refuses what Asterisk's config can't hold: control
+// characters, and spaces at either end (which it trims). ";" is fine: the
+// config writer escapes it.
+func CheckPassword(password string) error {
+	if len(password) > 128 || strings.TrimSpace(password) != password ||
+		strings.ContainsFunc(password, func(r rune) bool { return r < 0x20 || r == 0x7f || r > 0x7e }) {
+		return invalid("password_invalid", "A password is up to 128 printable ASCII characters, with no spaces at either end.")
+	}
+	return nil
+}
+
+var callerIDPattern = regexp.MustCompile(`^(\+?[0-9]{2,20})?$`)
+
+// ParsePinnedCertificates returns the certificates in a pinned PEM
+// (ADR-045): at least one, and nothing but certificates.
+func ParsePinnedCertificates(pemText string) ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
+	rest := []byte(strings.TrimSpace(pemText))
+	for len(rest) > 0 {
+		var b *pem.Block
+		b, rest = pem.Decode(rest)
+		if b == nil || b.Type != "CERTIFICATE" {
+			return nil, errors.New("not a PEM certificate")
+		}
+		c, err := x509.ParseCertificate(b.Bytes)
+		if err != nil {
+			return nil, err
+		}
+		certs = append(certs, c)
+		rest = []byte(strings.TrimSpace(string(rest)))
+	}
+	if len(certs) == 0 {
+		return nil, errors.New("no certificate")
+	}
+	return certs, nil
 }
 
 func checkPort(port int) error {
@@ -180,6 +245,17 @@ func checkTrunkFields(t *Trunk) error {
 	if t.CertTrust == CertPinned && strings.TrimSpace(t.PinnedCertificate) == "" {
 		return invalid("pinned_certificate_required", "Paste the certificate or CA you compared and approved.")
 	}
+	if t.CertTrust == CertPinned {
+		if _, err := ParsePinnedCertificates(t.PinnedCertificate); err != nil {
+			return invalid("pinned_certificate_invalid", "Paste the certificate or CA in PEM form (-----BEGIN CERTIFICATE-----).")
+		}
+	}
+	if err := checkUsername(t.Username); err != nil {
+		return err
+	}
+	if !callerIDPattern.MatchString(t.CallerIDNumber) {
+		return invalid("caller_id_number_invalid", "A caller ID is 2 to 20 digits, optionally starting with +.")
+	}
 	if t.CertTrust == CertPublic {
 		t.PinnedCertificate = ""
 	}
@@ -251,6 +327,9 @@ func (s *Service) CreateTrunk(ctx context.Context, in TrunkInput) (Trunk, error)
 	if err := applyUnencrypted(&t, in.ConfirmUnencrypted, p.Actor(), now); err != nil {
 		return Trunk{}, err
 	}
+	if err := CheckPassword(in.Password); err != nil {
+		return Trunk{}, err
+	}
 	if in.Password != "" {
 		enc, err := s.Sealer.Seal(sealID(id), []byte(in.Password))
 		if err != nil {
@@ -273,6 +352,7 @@ func (s *Service) CreateTrunk(ctx context.Context, in TrunkInput) (Trunk, error)
 		}
 		return Trunk{}, err
 	}
+	s.changed()
 	return t, nil
 }
 
@@ -398,6 +478,9 @@ func (s *Service) UpdateTrunk(ctx context.Context, id uuid.UUID, patch TrunkPatc
 		return Trunk{}, err
 	}
 	if patch.Password != nil {
+		if err := CheckPassword(*patch.Password); err != nil {
+			return Trunk{}, err
+		}
 		if *patch.Password == "" {
 			t.PasswordEnc = nil
 		} else {
@@ -425,6 +508,9 @@ func (s *Service) UpdateTrunk(ctx context.Context, id uuid.UUID, patch TrunkPatc
 		return Trunk{}, &apihttp.Error{Status: http.StatusConflict, Code: "name_duplicate",
 			Detail: fmt.Sprintf("A trunk named %q already exists.", t.Name)}
 	}
+	if err == nil {
+		s.changed()
+	}
 	return updated, err
 }
 
@@ -441,6 +527,9 @@ func (s *Service) DeleteTrunk(ctx context.Context, id uuid.UUID) error {
 	err = s.Store.DeleteTrunk(ctx, p.TenantID, id, s.Now().UTC(), a)
 	if errors.Is(err, ErrNotFound) {
 		return notFound("trunk")
+	}
+	if err == nil {
+		s.changed()
 	}
 	return err
 }

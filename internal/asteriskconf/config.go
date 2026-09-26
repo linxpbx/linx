@@ -5,8 +5,11 @@
 package asteriskconf
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -91,6 +94,13 @@ type Config struct {
 	// local_net (no address rewriting towards them). Nil means
 	// net.InterfaceAddrs.
 	InterfaceAddrs func() ([]net.Addr, error)
+	// TrunksDir is where the control plane writes the trunks it renders
+	// (internal/trunkconf, ADR-043): TrunksFile, which pjsip.conf includes,
+	// and PinnedCAFile. A memory-only volume.
+	TrunksDir string
+	// SystemCAFile is the public CAs trunks' certificates are checked
+	// against (the image's ca-certificates bundle), besides the pinned ones.
+	SystemCAFile string
 	// LookupHost resolves SIPWSHost and MediaHost. Nil means the system resolver, retried
 	// for a few seconds while Docker's DNS catches up with a new container.
 	LookupHost func(host string) ([]netip.Addr, error)
@@ -143,7 +153,75 @@ func ConfigFromEnv(getenv func(string) string) Config {
 		SIPWSHost:       envOr(getenv, "LINX_SIPWS_HOST", DefaultSIPWSHost),
 		SIPWSCertsDir:   envOr(getenv, "LINX_SIPWS_CERTS_DIR", "/var/lib/linx/sipws-certs"),
 		MediaHost:       envOr(getenv, "LINX_MEDIA_HOST", DefaultMediaHost),
+		TrunksDir:       envOr(getenv, "LINX_TRUNKS_DIR", "/var/lib/linx/trunks"),
+		SystemCAFile:    envOr(getenv, "LINX_SYSTEM_CA_FILE", "/etc/ssl/certs/ca-certificates.crt"),
 	}
+}
+
+// Names pjsip.conf defines that the control plane's pjsip_trunks.conf
+// (internal/trunkconf) builds on.
+const (
+	// TLSTransport is the phones' TLS transport, which trunks over TLS use
+	// too (docs/TRUNKS.md §6).
+	TLSTransport = "transport-tls"
+	// ACLName is the one SIP ACL: the trunk file adds its addresses to it
+	// ("[phone-networks](+)"), because PJSIP makes a request pass every ACL
+	// object separately (ADR-043).
+	ACLName = "phone-networks"
+	// TrunkTransportTemplate carries the address rewriting (natSettings)
+	// for the trunk file's plain TCP/UDP transports (ADR-023).
+	TrunkTransportTemplate = "linx-trunk-transport"
+	// PlainTrunkPort is those transports' port: never 5060, never
+	// published.
+	PlainTrunkPort = 5062
+	// TrunksFile and PinnedCAFile are the files in TrunksDir.
+	TrunksFile   = "pjsip_trunks.conf"
+	PinnedCAFile = "pinned-ca.pem"
+)
+
+// TrunkCAPath is the CA list the TLS transport checks providers against:
+// the public CAs plus the pinned ones (WriteTrunkCA).
+func (c Config) TrunkCAPath() string { return filepath.Join(c.ConfDir, "trunk-ca.pem") }
+
+// WriteTrunkCA writes TrunkCAPath: SystemCAFile, then every certificate in
+// TrunksDir's PinnedCAFile that parses (a broken one is skipped and
+// reported: OpenSSL refuses a whole CA file it can't read, which would
+// take the phones' TLS transport down with it). Replaced atomically:
+// OpenSSL reads it again for every new connection to a provider.
+func (c Config) WriteTrunkCA() (skipped int, err error) {
+	system, err := os.ReadFile(c.SystemCAFile)
+	if err != nil {
+		return 0, fmt.Errorf("public CAs: %w", err)
+	}
+	out := append(bytes.TrimSpace(system), '\n')
+	pinned, err := os.ReadFile(filepath.Join(c.TrunksDir, PinnedCAFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return 0, err
+	}
+	for rest := pinned; ; {
+		var b *pem.Block
+		b, rest = pem.Decode(rest)
+		if b == nil {
+			if len(bytes.TrimSpace(rest)) > 0 {
+				skipped++
+			}
+			break
+		}
+		if b.Type != "CERTIFICATE" {
+			skipped++
+			continue
+		}
+		if _, err := x509.ParseCertificate(b.Bytes); err != nil {
+			skipped++
+			continue
+		}
+		out = append(out, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: b.Bytes})...)
+	}
+	tmp := c.TrunkCAPath() + ".new"
+	if err := os.WriteFile(tmp, out, 0o640); err != nil {
+		return skipped, err
+	}
+	return skipped, os.Rename(tmp, c.TrunkCAPath())
 }
 
 // ARIApp is the ARI application the control plane serves: every event
@@ -237,6 +315,9 @@ func (c Config) Render() error {
 		if err := os.WriteFile(filepath.Join(c.ConfDir, name), []byte(content), 0o640); err != nil {
 			return fmt.Errorf("write %s: %w", name, err)
 		}
+	}
+	if _, err := c.WriteTrunkCA(); err != nil {
+		return fmt.Errorf("trunk CA list: %w", err)
 	}
 	return nil
 }
@@ -461,27 +542,40 @@ func (c Config) pjsipConf(nets []netip.Prefix, nat string, ws netip.Prefix) stri
 		// (and linx doctor) showing 8089.
 		wss = "\n[transport-wss]\ntype=transport\nprotocol=wss\nbind=0.0.0.0:" + strconv.Itoa(SIPWSPort) + "\n"
 	}
-	return fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint. Endpoints, AORs and auths come from
-; the asterisk schema's realtime views over ODBC (docs/PBX.md §3;
-; sorcery.conf, extconfig.conf, res_odbc.conf) — nothing else belongs here.
+	return fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint. Phones' endpoints, AORs and auths
+; come from the asterisk schema's realtime views over ODBC (docs/PBX.md §3;
+; sorcery.conf, extconfig.conf, res_odbc.conf); trunks from the control
+; plane's %[7]s, included at the end (docs/TRUNKS.md §4).
 
 [global]
 type=global
 user_agent=Linx
 
-[transport-tls]
+[%[8]s]
 type=transport
 protocol=tls
-bind=0.0.0.0:%d
-cert_file=%s
-priv_key_file=%s
+bind=0.0.0.0:%[1]d
+cert_file=%[2]s
+priv_key_file=%[3]s
 ; TLS 1.2 and 1.3; the floor is openssl.cnf's MinProtocol.
 method=sslv23
-%s%s
-[phone-networks]
+; Trunks over TLS connect out through this transport too (docs/TRUNKS.md
+; §6, ADR-045): the provider's certificate must come from a public CA or
+; one the admin pinned, and name the address Linx dialled. Phones only
+; ever connect in, which these don't affect.
+ca_list_file=%[9]s
+verify_server=yes
+%[4]s%[5]s
+; Address rewriting for the trunk file's plain transports (ADR-023).
+[%[10]s](!)
+type=transport
+%[4]s
+[%[11]s]
 type=acl
-%s`, c.SIPPort, filepath.Join(c.CertsDir, "current", "fullchain.pem"), filepath.Join(c.CertsDir, "current", "privkey.pem"),
-		nat, wss, acl)
+%[6]s
+#tryinclude "%[12]s"
+`, c.SIPPort, filepath.Join(c.CertsDir, "current", "fullchain.pem"), filepath.Join(c.CertsDir, "current", "privkey.pem"),
+		nat, wss, acl, TrunksFile, TLSTransport, c.TrunkCAPath(), TrunkTransportTemplate, ACLName, filepath.Join(c.TrunksDir, TrunksFile))
 }
 
 // iceSettings are the addresses Asterisk offers browsers for audio (ICE
@@ -578,13 +672,19 @@ strictrtp=yes
 %s`, RTPStart, RTPEnd, ice)
 }
 
-// sorceryConf points PJSIP's endpoint/auth/aor objects at the realtime
-// engine instead of pjsip.conf (docs/PBX.md §3, ADR-032). "ps_endpoints" etc.
-// are realtime family names, resolved to the odbc DSN by extconfig.conf.
+// sorceryConf looks PJSIP's endpoint/auth/aor objects up in pjsip.conf
+// first (trunks, from the included pjsip_trunks.conf, ADR-043), then in the
+// realtime engine (phones and browser lines, docs/PBX.md §3, ADR-032).
+// "ps_endpoints" etc. are realtime family names, resolved to the odbc DSN
+// by extconfig.conf. Trunk names ("trunk-<uuid>") and device usernames
+// ("d_…") never overlap.
 const sorceryConf = `; Rendered by linx-asterisk-entrypoint.
 [res_pjsip]
+endpoint=config,pjsip.conf,criteria=type=endpoint
 endpoint=realtime,ps_endpoints
+auth=config,pjsip.conf,criteria=type=auth
 auth=realtime,ps_auths
+aor=config,pjsip.conf,criteria=type=aor
 aor=realtime,ps_aors
 `
 
@@ -746,26 +846,64 @@ verify_server_hostname = yes
 `, c.ARIURL, ARIUser, password, c.CARootFile)
 }
 
-// funcOdbcConf defines LINX_RING_TARGETS(number): a Dial() string ringing
-// every enabled device of that extension ("PJSIP/d_a&PJSIP/d_b"), read from
-// the linx_ring_targets view. No row at all means no such extension; one row
+// funcOdbcConf defines the dialplan's database lookups, all through the
+// asterisk schema (the linx_asterisk role can read nothing else):
+//
+// LINX_RING_TARGETS(number): a Dial() string ringing every enabled device
+// of that extension ("PJSIP/d_a&PJSIP/d_b"), read from the
+// linx_ring_targets view. No row at all means no such extension; one row
 // with an empty string means the extension exists but has no devices. The
 // dialplan tells the two apart with ${ODBCROWS}. Device usernames match
 // ^d_[A-Za-z0-9]{8}$ (migration 0005), so nothing from the database can
 // smuggle dial options into the string.
+//
+// LINX_OUTBOUND(endpoint,number): the outgoing-call decision (migration
+// 0018's linx_outbound): reason, category, withhold (1/0), lines.
+//
+// LINX_INBOUND(endpoint,number): the extension a call from a trunk to one
+// of its DIDs rings; no row if that trunk doesn't own the number.
 const funcOdbcConf = `; Rendered by linx-asterisk-entrypoint.
 [RING_TARGETS]
 prefix = LINX
 dsn = asterisk
 readsql = SELECT coalesce(string_agg('PJSIP/' || aor, '&' ORDER BY aor), '') FROM linx_ring_targets WHERE number = '${SQL_ESC(${ARG1})}' HAVING count(*) > 0
+
+[OUTBOUND]
+prefix = LINX
+dsn = asterisk
+readsql = SELECT reason, category, CASE WHEN withhold THEN 1 ELSE 0 END, lines FROM linx_outbound('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}')
+
+[INBOUND]
+prefix = LINX
+dsn = asterisk
+readsql = SELECT * FROM linx_inbound('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}')
 `
 
-// extensionsConf is the whole dialplan (docs/PBX.md §4): *43 echo test,
-// ring-all for extension numbers (2–6 digits, like the extension table's
-// check), and spoken messages for everything that can't ring. A device's
-// caller ID number is its extension (the ps_endpoints view sets it, and
-// PJSIP ignores what the phone claims), so "calling yourself" is a plain
-// comparison.
+// extensionsConf is the whole dialplan (docs/PBX.md §4, docs/TRUNKS.md
+// §4-§5, §9).
+//
+// linx-extensions is where phones and browser lines call from: *43 echo
+// test, ring-all for extension numbers (2–6 digits, like the extension
+// table's check), and everything else out through linx-outbound. A
+// device's caller ID number is its extension (the ps_endpoints view sets
+// it, and PJSIP ignores what the phone claims), so "calling yourself" is a
+// plain comparison.
+//
+// linx-outbound asks the database (LINX_OUTBOUND) whether the caller may
+// call the number and on which lines, then tries each line in turn: the
+// next one only when a line is down or full (DIALSTATUS CHANUNAVAIL or
+// CONGESTION, the latter e.g. a 503), never after the called person
+// answered, was busy or refused. Every limit (2 outside calls at once per
+// extension, each trunk's own call limit) skips emergency calls.
+//
+// linx-from-trunk is where trunks' calls arrive (their endpoints' context):
+// it can reach that trunk's own DIDs and nothing else, so a call from a
+// trunk can never go back out (ADR-048): nothing it can reach (linx-ring,
+// linx-messages) leads to linx-outbound, which TestDialplanTrunkCalls
+// checks. The number is the request's (IP
+// peers) or else the To header's (providers that call the registered
+// contact). The caller's name and number are untrusted: filtered to plain
+// characters and shortened before anything else sees them.
 const extensionsConf = `; Rendered by linx-asterisk-entrypoint.
 [general]
 static = yes
@@ -780,25 +918,87 @@ exten => *43,1,Answer()
  same => n,Echo()
  same => n,Hangup()
 
-exten => _XX,1,Goto(linx-ring,${EXTEN},1)
-exten => _XXX,1,Goto(linx-ring,${EXTEN},1)
-exten => _XXXX,1,Goto(linx-ring,${EXTEN},1)
-exten => _XXXXX,1,Goto(linx-ring,${EXTEN},1)
-exten => _XXXXXX,1,Goto(linx-ring,${EXTEN},1)
+exten => _XX,1,Goto(linx-local,${EXTEN},1)
+exten => _XXX,1,Goto(linx-local,${EXTEN},1)
+exten => _XXXX,1,Goto(linx-local,${EXTEN},1)
+exten => _XXXXX,1,Goto(linx-local,${EXTEN},1)
+exten => _XXXXXX,1,Goto(linx-local,${EXTEN},1)
 
-; Anything else a phone can dial: not a Linx number.
-exten => _[0-9*#+].,1,Goto(linx-messages,not-in-use,1)
-exten => _[0-9*#+],1,Goto(linx-messages,not-in-use,1)
+; Anything else a phone can dial: an outside number, or nothing at all.
+exten => _[0-9*#+].,1,Goto(linx-outbound,${EXTEN},1)
+exten => _[0-9*#+],1,Goto(linx-outbound,${EXTEN},1)
 
+; A short number from a phone: an extension, or else maybe an outside one
+; (999 is 3 digits; extensions can't take such numbers, migration 0016).
+[linx-local]
+exten => _X.,1,Set(TARGETS=${LINX_RING_TARGETS(${EXTEN})})
+ same => n,GotoIf($[${ODBCROWS} < 1]?linx-outbound,${EXTEN},1)
+ same => n,GotoIf($["${CALLERID(num)}" = "${EXTEN}"]?linx-messages,not-available,1)
+ same => n,Goto(linx-ring,${EXTEN},1)
+
+; Rings an extension, for phones (through linx-local) and for trunks' calls
+; to a DID (linx-trunk-call).
 [linx-ring]
 exten => _X.,1,Set(TARGETS=${LINX_RING_TARGETS(${EXTEN})})
  same => n,GotoIf($[${ODBCROWS} < 1]?linx-messages,not-in-use,1)
- same => n,GotoIf($["${CALLERID(num)}" = "${EXTEN}"]?linx-messages,not-available,1)
  same => n,GotoIf($["${TARGETS}" = ""]?linx-messages,not-available,1)
  same => n,Dial(${TARGETS},30)
  same => n,GotoIf($["${DIALSTATUS}" = "ANSWER"]?done)
  same => n,Goto(linx-messages,not-available,1)
  same => n(done),Hangup()
+
+[linx-outbound]
+exten => _[0-9*#+].,1,Set(ARRAY(REASON,CATEGORY,WITHHOLD,LINES)=${LINX_OUTBOUND(${CHANNEL(endpoint)},${EXTEN})})
+ same => n,GotoIf($[${ODBCROWS} < 1]?linx-messages,no-lines,1)
+ same => n,GotoIf($["${REASON}" = "invalid"]?linx-messages,not-in-use,1)
+ same => n,GotoIf($["${REASON}" = "no_lines"]?linx-messages,no-lines,1)
+ same => n,GotoIf($["${REASON}" != "allowed" & "${REASON}" != "emergency"]?linx-messages,not-permitted,1)
+ same => n,GotoIf($["${CATEGORY}" = "emergency"]?lines)
+ same => n,Set(GROUP(linx-out)=${CALLERID(num)})
+ same => n,GotoIf($[${GROUP_COUNT(${CALLERID(num)}@linx-out)} > 2]?linx-messages,limit,1)
+ same => n(lines),Set(I=0)
+ same => n(next),Set(I=$[${I} + 1])
+ same => n,Set(LINE=${CUT(LINES,&,${I})})
+ same => n,GotoIf($["${LINE}" = ""]?linx-messages,no-lines,1)
+ same => n,Set(TRUNK=${CUT(LINE,/,1)})
+ same => n,GotoIf($["${CATEGORY}" = "emergency"]?dial)
+ same => n,GotoIf($[${GROUP_COUNT(${TRUNK}@linx-trunk)} >= ${CUT(LINE,/,4)}]?next)
+ same => n(dial),Set(GROUP(linx-trunk)=${TRUNK})
+ same => n,Dial(PJSIP/${CUT(LINE,/,2)}@${TRUNK},120,b(linx-trunk-out^s^1(${CUT(LINE,/,3)},${WITHHOLD})))
+ same => n,GotoIf($["${DIALSTATUS}" = "CHANUNAVAIL" | "${DIALSTATUS}" = "CONGESTION"]?next)
+ same => n,Hangup()
+
+exten => _[0-9*#+],1,Goto(linx-messages,not-in-use,1)
+
+; On the outgoing channel, before it dials: the caller ID the called person
+; sees (the caller's DID on that trunk, or the trunk's main number), and
+; withheld if the caller's level says so. PJSIP sends an outgoing channel's
+; connected line as From and P-Asserted-Identity; "i" keeps the change from
+; being announced back to the caller's phone.
+[linx-trunk-out]
+exten => s,1,GotoIf($["${ARG1}" = ""]?withhold)
+ same => n,Set(CONNECTEDLINE(num,i)=${ARG1})
+ same => n(withhold),GotoIf($["${ARG2}" != "1"]?done)
+ same => n,Set(CONNECTEDLINE(pres,i)=prohib)
+ same => n(done),Return()
+
+[linx-from-trunk]
+exten => _[a-zA-Z0-9+*#].,1,Set(DIALLED=${EXTEN})
+ same => n,Goto(linx-trunk-call,s,1)
+exten => _[a-zA-Z0-9+*#],1,Set(DIALLED=${EXTEN})
+ same => n,Goto(linx-trunk-call,s,1)
+
+[linx-trunk-call]
+exten => s,1,Set(CALLERID(name)=${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40})
+ same => n,Set(CALLERID(num)=${FILTER(0-9+,${CALLERID(num)}):0:20})
+ same => n,Set(GROUP(linx-trunk)=${CHANNEL(endpoint)})
+ same => n,Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DIALLED})})
+ same => n,GotoIf($[${ODBCROWS} > 0]?found)
+ same => n,Set(TO=${FILTER(0-9+,${PJSIP_PARSE_URI(${CHANNEL(pjsip,local_uri)},user)})})
+ same => n,Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${TO})})
+ same => n,GotoIf($[${ODBCROWS} > 0]?found:linx-messages,not-in-use,1)
+ same => n(found),GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
+ same => n,Goto(linx-ring,${TARGET},1)
 
 [linx-messages]
 exten => not-in-use,1,Answer()
@@ -809,5 +1009,23 @@ exten => not-in-use,1,Answer()
 exten => not-available,1,Answer()
  same => n,Wait(0.5)
  same => n,Playback(vm-nobodyavail)
+ same => n,Hangup()
+
+; The caller's permission level doesn't include this kind of number.
+exten => not-permitted,1,Answer()
+ same => n,Wait(0.5)
+ same => n,Playback(im-sorry&feature-not-avail-line)
+ same => n,Hangup()
+
+; No line is set up, or every line is down or full.
+exten => no-lines,1,Answer()
+ same => n,Wait(0.5)
+ same => n,Playback(all-circuits-busy-now&please-try-call-later)
+ same => n,Hangup()
+
+; This extension already has 2 outside calls.
+exten => limit,1,Answer()
+ same => n,Wait(0.5)
+ same => n,Playback(simul-call-limit-reached)
  same => n,Hangup()
 `

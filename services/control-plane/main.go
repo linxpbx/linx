@@ -39,6 +39,7 @@ import (
 	"linxpbx.com/linx/internal/server"
 	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/trunk"
+	"linxpbx.com/linx/internal/trunkconf"
 	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/version"
 	"linxpbx.com/linx/internal/webapp"
@@ -174,6 +175,12 @@ func main() {
 
 	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
 	trunks := &trunk.Service{Store: st, Sealer: sealer, Now: time.Now}
+	// Trunks reach Asterisk as a rendered file (ADR-043, internal/trunkconf):
+	// written at start, on every trunk change, and every minute (providers'
+	// addresses can change on their own).
+	trunkFiles := &trunkconf.Renderer{Store: st, Sealer: sealer, Log: log,
+		Dir: envOr(os.Getenv, "LINX_TRUNKS_DIR", "/var/lib/linx/trunks")}
+	trunks.OnChange = trunkFiles.Changed
 
 	// Browsers' phone lines (docs/WEB.md §5): relay credentials, and the
 	// /sip relay to Asterisk's websocket, which drops a line the moment its
@@ -259,6 +266,7 @@ func main() {
 	})
 	runBackground(func(ctx context.Context) { sweepWebDevices(ctx, st, relay, webDeviceSweepInterval, log) })
 	runBackground(hub.Run)
+	runBackground(trunkFiles.Run)
 	stopARI, err := startARI(bgCtx, ariCfg, tracker, log, runBackground)
 	if err != nil {
 		log.Error("ARI setup failed", "err", err)

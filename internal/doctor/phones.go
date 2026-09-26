@@ -134,7 +134,10 @@ func phoneControl(ctx context.Context, env Env, rs *results) {
 
 // PlainSIPTransports returns the SIP transports "pjsip show transports"
 // lists that aren't TLS on port 5061 or the browsers' secure websocket on
-// 8089 (there must be none: docs/PBX.md §2, docs/WEB.md §2).
+// 8089 (there must be none: docs/PBX.md §2, docs/WEB.md §2). The trunks'
+// own plain transports (transport-trunk-tcp/udp, only there while a trunk
+// the admin confirmed as unencrypted needs one, ADR-023, and never
+// published) aren't phone connections: "Phone lines" lists those trunks.
 // ok is false if the output lists no transport at all.
 func PlainSIPTransports(cliOutput string) (bad []string, ok bool) {
 	for _, line := range strings.Split(cliOutput, "\n") {
@@ -146,6 +149,7 @@ func PlainSIPTransports(cliOutput string) (bad []string, ok bool) {
 		switch {
 		case f[2] == "tls" && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.SIPPort)):
 		case f[2] == "wss" && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.SIPWSPort)):
+		case strings.HasPrefix(f[1], "transport-trunk-") && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.PlainTrunkPort)):
 		default:
 			bad = append(bad, f[1]+" ("+f[2]+" "+f[len(f)-1]+")")
 		}

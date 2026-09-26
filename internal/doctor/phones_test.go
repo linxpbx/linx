@@ -197,6 +197,13 @@ func TestPhonesProblems(t *testing.T) {
 	}
 }
 
+// An unencrypted trunk's own transport (ADR-023) isn't a phone connection.
+func TestPhonesTrunkTransport(t *testing.T) {
+	f := phonesFixture(t)
+	f.runner[astCLI+"pjsip show transports"] = transport + "Transport:  transport-trunk-tcp       tcp      0      0  0.0.0.0:5062\n"
+	want(t, f.phones(), installer.OK, "only accepts encrypted phone connections")
+}
+
 func TestPhonesStarting(t *testing.T) {
 	f := phonesFixture(t)
 	f.runner[inspect+"linx-asterisk"] = "running starting\n"

@@ -1,14 +1,71 @@
 package asteriskconf
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
+
+// testCertPEM is a self-signed certificate named name.
+func testCertPEM(t *testing.T, name string) []byte {
+	t.Helper()
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: name},
+		NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+func TestWriteTrunkCA(t *testing.T) {
+	c := testConfig(t)
+	if err := os.MkdirAll(c.ConfDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	system, _ := os.ReadFile(c.SystemCAFile)
+
+	// No trunk file yet: just the public CAs.
+	if skipped, err := c.WriteTrunkCA(); err != nil || skipped != 0 {
+		t.Fatalf("WriteTrunkCA = %d, %v", skipped, err)
+	}
+	if got, _ := os.ReadFile(c.TrunkCAPath()); string(got) != string(system) {
+		t.Errorf("without pins:\n%s", got)
+	}
+
+	// Pinned ones are added; anything OpenSSL couldn't read is dropped, so
+	// it can't take the TLS transport down.
+	pin := testCertPEM(t, "UCM6304")
+	broken := "-----BEGIN CERTIFICATE-----\nbm90IGEgY2VydGlmaWNhdGU=\n-----END CERTIFICATE-----\n"
+	key := "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"
+	if err := os.MkdirAll(c.TrunksDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(c.TrunksDir, PinnedCAFile), []byte(broken+string(pin)+key+"junk"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	skipped, err := c.WriteTrunkCA()
+	if err != nil || skipped != 3 {
+		t.Fatalf("WriteTrunkCA = %d, %v; want 3 skipped", skipped, err)
+	}
+	if got, _ := os.ReadFile(c.TrunkCAPath()); string(got) != string(system)+string(pin) {
+		t.Errorf("with pins:\n%s", got)
+	}
+}
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
@@ -69,7 +126,13 @@ func testConfig(t *testing.T) Config {
 	if err := os.WriteFile(ariFile, []byte("ari-s3cret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	systemCA := filepath.Join(root, "ca-certificates.crt")
+	if err := os.WriteFile(systemCA, testCertPEM(t, "Public Root"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	return Config{
+		TrunksDir:        filepath.Join(root, "trunks"),
+		SystemCAFile:     systemCA,
 		ConfDir:          filepath.Join(root, "conf"),
 		VarDir:           filepath.Join(root, "var"),
 		RunDir:           filepath.Join(root, "run"),
@@ -128,7 +191,9 @@ func TestRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"endpoint=realtime,ps_endpoints", "auth=realtime,ps_auths", "aor=realtime,ps_aors"} {
+	// Trunks (pjsip.conf's include) first, then the phones' realtime views.
+	for _, want := range []string{"endpoint=config,pjsip.conf,criteria=type=endpoint\nendpoint=realtime,ps_endpoints",
+		"auth=config,pjsip.conf,criteria=type=auth\nauth=realtime,ps_auths", "aor=config,pjsip.conf,criteria=type=aor\naor=realtime,ps_aors"} {
 		if !strings.Contains(string(sorcery), want) {
 			t.Errorf("sorcery.conf missing %q:\n%s", want, sorcery)
 		}
@@ -175,7 +240,13 @@ func TestRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"bind=0.0.0.0:5061", "cert_file=/var/lib/linx/certs/current/fullchain.pem", "priv_key_file=/var/lib/linx/certs/current/privkey.pem",
-		"method=sslv23\n", "user_agent=Linx\n"} {
+		"method=sslv23\n", "user_agent=Linx\n",
+		// Trunks over TLS: providers' certificates checked (ADR-045).
+		"ca_list_file=" + c.TrunkCAPath() + "\nverify_server=yes\n",
+		"[linx-trunk-transport](!)\ntype=transport\n",
+		// The trunk file, last: it adds to [phone-networks] with "(+)".
+		"\n[phone-networks]\ntype=acl\n",
+		"#tryinclude \"" + filepath.Join(c.TrunksDir, "pjsip_trunks.conf") + "\"\n"} {
 		if !strings.Contains(string(pjsip), want) {
 			t.Errorf("pjsip.conf missing %q:\n%s", want, pjsip)
 		}
@@ -228,7 +299,10 @@ func TestRenderARI(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"exten => *43,1,Answer()", "Dial(${TARGETS},30)", "Playback(ss-noservice)", "Playback(vm-nobodyavail)",
-		`GotoIf($["${CALLERID(num)}" = "${EXTEN}"]?linx-messages,not-available,1)`} {
+		`GotoIf($["${CALLERID(num)}" = "${EXTEN}"]?linx-messages,not-available,1)`,
+		// Outside numbers go out; trunks' calls only reach DIDs (ADR-048).
+		"exten => _[0-9*#+].,1,Goto(linx-outbound,${EXTEN},1)", "Set(GROUP(linx-out)=${CALLERID(num)})",
+		"[linx-from-trunk]", "Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DIALLED})})"} {
 		if got := read(t, c, "extensions.conf"); !strings.Contains(got, want) {
 			t.Errorf("extensions.conf missing %q", want)
 		}
@@ -267,7 +341,7 @@ func TestRenderPhoneNetworks(t *testing.T) {
 		t.Fatal(err)
 	}
 	pjsip = read(t, c, "pjsip.conf")
-	if !strings.HasSuffix(pjsip, "[phone-networks]\ntype=acl\ndeny=0.0.0.0/0.0.0.0\ndeny=::/0\npermit=172.22.0.0/24\n") ||
+	if !strings.Contains(pjsip, "[phone-networks]\ntype=acl\ndeny=0.0.0.0/0.0.0.0\ndeny=::/0\npermit=172.22.0.0/24\n\n#tryinclude") ||
 		strings.Contains(pjsip, "external_") {
 		t.Errorf("no-LAN pjsip.conf:\n%s", pjsip)
 	}
@@ -417,5 +491,46 @@ func TestDefaultRouteInterface(t *testing.T) {
 	}
 	if _, err := DefaultRouteInterface(strings.SplitN(route, "eth0", 2)[0]); err == nil {
 		t.Error("found a default route in a table without one")
+	}
+}
+
+// TestDialplanTrunkCalls follows every context a trunk's call can reach
+// from linx-from-trunk (Goto, GotoIf, Gosub, Dial's b() and the like all
+// name a context) and checks linx-outbound isn't one of them: a call from a
+// trunk can never go back out (ADR-048), by construction.
+func TestDialplanTrunkCalls(t *testing.T) {
+	contexts := map[string]string{}
+	var name string
+	for _, line := range strings.Split(extensionsConf, "\n") {
+		if strings.HasPrefix(line, "[") {
+			name = strings.Trim(line, "[]")
+			continue
+		}
+		contexts[name] += line + "\n"
+	}
+	refs := regexp.MustCompile(`(linx-[a-z-]+)[,^]`)
+	seen := map[string]bool{"linx-from-trunk": true}
+	queue := []string{"linx-from-trunk"}
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+		body, ok := contexts[c]
+		if !ok {
+			t.Fatalf("context %s is referred to but not defined", c)
+		}
+		for _, m := range refs.FindAllStringSubmatch(body, -1) {
+			if !seen[m[1]] {
+				seen[m[1]] = true
+				queue = append(queue, m[1])
+			}
+		}
+	}
+	if seen["linx-outbound"] || seen["linx-local"] || seen["linx-extensions"] {
+		t.Errorf("a trunk's call can reach %v", seen)
+	}
+	for _, want := range []string{"linx-trunk-call", "linx-ring", "linx-messages"} {
+		if !seen[want] {
+			t.Errorf("%s isn't reachable from linx-from-trunk: the check isn't following the dialplan (%v)", want, seen)
+		}
 	}
 }

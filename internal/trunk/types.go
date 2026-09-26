@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/dbsecret"
 )
 
 // Trunk kinds (docs/TRUNKS.md §3).
@@ -203,3 +204,19 @@ type Store interface {
 	// has it assigned.
 	DeleteCallPermissionLevel(ctx context.Context, tenant, id uuid.UUID, audit auth.AuditEntry) error
 }
+
+// OpenPassword opens t's sealed provider password ("" if it has none). Only
+// the control plane's pjsip_trunks.conf render needs it (ADR-043); the API
+// never returns it.
+func OpenPassword(sealer *dbsecret.Sealer, t Trunk) (string, error) {
+	if len(t.PasswordEnc) == 0 {
+		return "", nil
+	}
+	b, err := sealer.Open(sealID(t.ID), t.PasswordEnc)
+	return string(b), err
+}
+
+// Endpoint is the name Asterisk knows t by (its PJSIP endpoint, AOR, auth,
+// registration and identify objects; migration 0018's functions build the
+// same name).
+func (t Trunk) Endpoint() string { return "trunk-" + t.ID.String() }

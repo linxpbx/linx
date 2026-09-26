@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,6 +259,10 @@ func TestTrunksDocker(t *testing.T) {
 	})
 
 	t.Run("numbering_route gates on the caller's permission level", func(t *testing.T) {
+		// No trunk used for outgoing calls yet.
+		if _, err := s.SetOutboundOrder(ctx, tenant, nil, now, audit("outbound_routing.update")); err != nil {
+			t.Fatal(err)
+		}
 		noLevel := newExtension("401")
 		limited := newExtension("402")
 		limited.CallPermissionLevelID = ptr(newLevel("Local only", []string{"landline"}).ID)
@@ -266,7 +271,8 @@ func TestTrunksDocker(t *testing.T) {
 		}
 		manager := newExtension("403")
 		manager.CallPermissionLevelID = ptr(newLevel("Manager", []string{"landline", "mobile", "national", "toll_free", "international"}).ID)
-		if _, err := s.UpdateExtension(ctx, manager, audit("extension.update")); err != nil {
+		manager, err = s.UpdateExtension(ctx, manager, audit("extension.update"))
+		if err != nil {
 			t.Fatalf("assigning level: %v", err)
 		}
 
@@ -283,6 +289,89 @@ func TestTrunksDocker(t *testing.T) {
 		}
 		if r, err := s.Route(ctx, manager.ID, "999"); err != nil || !r.Allowed || r.Reason != "emergency" {
 			t.Errorf("emergency ignores permission levels: Route = %+v, %v", r, err)
+		}
+
+		// Lines (migration 0018): every enabled trunk with a priority, in
+		// order, each sent the number the way it wants it, showing the
+		// caller's own DID on that trunk or else the trunk's main number.
+		e164 := newTrunk("Provider E164")
+		zero := newTrunk("Provider 00")
+		zero.DialFormat, zero.CallerIDNumber = trunk.Dial00, "+97142000100"
+		local := newTrunk("UCM local")
+		local.DialFormat = trunk.DialLocal
+		off := newTrunk("Turned off")
+		off.Enabled = false
+		for _, tr := range []trunk.Trunk{zero, local, off} {
+			if _, err := s.UpdateTrunk(ctx, tr, audit("trunk.update")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.CreateDID(ctx, trunk.DID{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, TrunkID: e164.ID, Number: "+97142000403",
+			ExtensionID: &manager.ID, Version: 1, CreatedAt: now, UpdatedAt: now}, audit("did.create")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.SetOutboundOrder(ctx, tenant, []uuid.UUID{local.ID, e164.ID, zero.ID, off.ID}, now, audit("outbound_routing.update")); err != nil {
+			t.Fatal(err)
+		}
+		lines := func(r numbering.Route) string {
+			var out []string
+			for _, l := range r.Lines {
+				out = append(out, l.Trunk+" "+l.Number+" "+l.CallerID)
+			}
+			return strings.Join(out, " | ")
+		}
+		for _, c := range []struct{ dialled, reason, lines string }{
+			{mobile, "allowed", "UCM local 0501234567  | Provider E164 +971501234567 +97142000403 | Provider 00 00971501234567 +97142000100"},
+			{"+44 20 7946 0958", "allowed", "UCM local 00442079460958  | Provider E164 +442079460958 +97142000403 | Provider 00 00442079460958 +97142000100"},
+			{"999", "emergency", "UCM local 999  | Provider E164 999 +97142000403 | Provider 00 999 +97142000100"},
+		} {
+			r, err := s.Route(ctx, manager.ID, c.dialled)
+			if err != nil || !r.Allowed || r.Reason != c.reason || lines(r) != c.lines {
+				t.Errorf("Route(%s) = %v %s [%s], %v; want %s [%s]", c.dialled, r.Allowed, r.Reason, lines(r), err, c.reason, c.lines)
+			}
+		}
+
+		// What Asterisk gets: the same, packed for the dialplan.
+		var got string
+		if err := pool.QueryRow(ctx, `SELECT concat_ws(',', reason, category, withhold, lines) FROM asterisk.linx_outbound($1, $2)`,
+			"d_nodevice", mobile).Scan(&got); err != nil || got != "unknown_caller,mobile,f," {
+			t.Errorf("linx_outbound for no device = %q, %v", got, err)
+		}
+
+		// Calls in: a trunk reaches its own DIDs, however the number is
+		// written, and nothing else.
+		ext := func(endpoint, dialled string) string {
+			var n []string
+			rows, err := pool.Query(ctx, `SELECT * FROM asterisk.linx_inbound($1, $2)`, endpoint, dialled)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var v string
+				rows.Scan(&v)
+				n = append(n, v)
+			}
+			return strings.Join(n, ",")
+		}
+		mine := "trunk-" + e164.ID.String()
+		for dialled, want := range map[string]string{"+97142000403": "403", "97142000403": "403", "042000403": "403",
+			"+97142000404": "", "0501234567": ""} {
+			if got := ext(mine, dialled); got != want {
+				t.Errorf("linx_inbound(%s) = %q, want %q", dialled, got, want)
+			}
+		}
+		if got := ext("trunk-"+zero.ID.String(), "+97142000403"); got != "" {
+			t.Errorf("another trunk reached this trunk's DID: %q", got)
+		}
+		// A DID whose extension is turned off rings nobody, but is still
+		// this trunk's (so the caller hears "not in use", not an error).
+		manager.Enabled = false
+		if _, err := s.UpdateExtension(ctx, manager, audit("extension.update")); err != nil {
+			t.Fatal(err)
+		}
+		var rows int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM asterisk.linx_inbound($1, '+97142000403') x WHERE x = ''`, mine).Scan(&rows); err != nil || rows != 1 {
+			t.Errorf("DID of a turned-off extension: %d rows, %v", rows, err)
 		}
 	})
 }

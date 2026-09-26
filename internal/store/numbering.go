@@ -112,6 +112,18 @@ func (s *Store) Route(ctx context.Context, extension uuid.UUID, dialled string) 
 		Scan(&cat, &typ, &region, &e164, &dial, &label, &r.Allowed, &r.Reason)
 	r.Category = numbering.Category(cat)
 	r.NumberType, r.Region, r.E164, r.Dial, r.Label = deref(typ), deref(region), deref(e164), deref(dial), deref(label)
+	if err != nil || !r.Allowed {
+		return r, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT trunk_name, number, caller_id FROM numbering_lines($1, $2, $3, $4) ORDER BY priority`,
+		extension, e164, region, dial)
+	if err != nil {
+		return r, err
+	}
+	r.Lines, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (numbering.Line, error) {
+		var l numbering.Line
+		return l, row.Scan(&l.Trunk, &l.Number, &l.CallerID)
+	})
 	return r, err
 }
 

@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!-- A phone provider (docs/TRUNKS.md §3), run as a SIPp server (-t l1 or t1,
+     no -m): every new request Asterisk sends starts one of these branches.
+     REGISTER: challenges, checks Linx's login (verifyauth), accepts, then
+     calls Linx back on that registration (the provider's call to a DID,
+     sent to the registered contact with the DID in To, as providers do).
+     OPTIONS: Asterisk's keep-alive checks. INVITE: a call Linx sends out,
+     answered in PCMA (Linx transcodes) and logged ("INVITE for <number> from
+     <caller ID> audio <profile>") for the test to check.
+     Variables: -set user/pass (the login Linx must present), -set did (the
+     number to call Linx on), -set proto RTP/SAVP|RTP/AVP and -set crypto
+     (an SDP line: a=crypto:... for SRTP, anything harmless otherwise). -->
+<scenario name="provider">
+  <Global variables="user,pass,did,proto,crypto"/>
+  <recv request="REGISTER" optional="true" next="register"/>
+  <recv request="OPTIONS" optional="true" next="options"/>
+  <recv request="INVITE">
+    <action>
+      <ereg regexp="^INVITE sip:([^@;]*)@" search_in="msg" assign_to="i0,num"/>
+      <ereg regexp="&lt;sip:([^@;>]*)@" search_in="hdr" header="From:" assign_to="i1,from"/>
+      <ereg regexp="m=audio [0-9]+ ([A-Z/]+)" search_in="body" assign_to="i2,audio"/>
+      <log message="INVITE for [$num] from [$from] audio [$audio]"/>
+      <!-- SIPp refuses a variable nothing reads: the whole matches. -->
+      <log message="matched [$i0] [$i1] [$i2]"/>
+    </action>
+  </recv>
+  <send>
+    <![CDATA[
+      SIP/2.0 180 Ringing
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag01[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:provider@[local_ip]:[local_port];transport=[transport]>
+      Content-Length: 0
+    ]]>
+  </send>
+  <pause milliseconds="200"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag01[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:provider@[local_ip]:[local_port];transport=[transport]>
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=- 2 2 IN IP[local_ip_type] [local_ip]
+      s=-
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [media_port] [$proto] 8
+      a=rtpmap:8 PCMA/8000
+      [$crypto]
+      a=sendrecv
+    ]]>
+  </send>
+  <recv request="ACK"/>
+  <recv request="BYE"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+    ]]>
+  </send>
+  <nop next="end"/>
+
+  <label id="options"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag02[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+    ]]>
+  </send>
+  <nop next="end"/>
+
+  <label id="register"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 401 Unauthorized
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag03[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      WWW-Authenticate: Digest realm="provider.linx.test", nonce="[pid]x[call_number]x0123456789", algorithm=MD5
+      Content-Length: 0
+    ]]>
+  </send>
+  <recv request="REGISTER">
+    <action>
+      <verifyauth assign_to="authvalid" username="[$user]" password="[$pass]"/>
+      <ereg regexp="&lt;([^>]*)>" search_in="hdr" header="Contact:" assign_to="r0,contact"/>
+    </action>
+  </recv>
+  <nop hide="true" test="authvalid" next="accept"/>
+  <nop>
+    <action>
+      <log message="REGISTER refused: wrong login"/>
+    </action>
+  </nop>
+  <send next="end">
+    <![CDATA[
+      SIP/2.0 403 Forbidden
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag03[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+    ]]>
+  </send>
+  <label id="accept"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag03[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <[$contact]>;expires=300
+      Expires: 300
+      Content-Length: 0
+    ]]>
+  </send>
+  <nop>
+    <action>
+      <log message="registered [$contact] ([$r0])"/>
+    </action>
+  </nop>
+  <pause milliseconds="1000"/>
+  <!-- Calls Linx back on the registration: the registered contact (it
+       carries the line parameter that identifies the trunk), the DID in To,
+       and a caller name with quotes and angle brackets Linx must strip. -->
+  <send>
+    <![CDATA[
+      INVITE [$contact] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Evil \"<Caller>\"" <sip:+971501112222@provider.linx.test>;tag=[pid]SIPpTag04[call_number]
+      To: <sip:[$did]@provider.linx.test>
+      Call-ID: [call_id]
+      CSeq: 1 INVITE
+      Contact: <sip:provider@[local_ip]:[local_port];transport=[transport]>
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=- 3 3 IN IP[local_ip_type] [local_ip]
+      s=-
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [media_port] [$proto] 8
+      a=rtpmap:8 PCMA/8000
+      [$crypto]
+      a=sendrecv
+    ]]>
+  </send>
+  <recv response="100" optional="true"/>
+  <recv response="180" optional="true"/>
+  <recv response="183" optional="true"/>
+  <recv response="200" rrs="true"/>
+  <send>
+    <![CDATA[
+      ACK [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Evil \"<Caller>\"" <sip:+971501112222@provider.linx.test>;tag=[pid]SIPpTag04[call_number]
+      [last_To:]
+      Call-ID: [call_id]
+      [routes]
+      CSeq: 1 ACK
+      Max-Forwards: 70
+      Content-Length: 0
+    ]]>
+  </send>
+  <nop>
+    <action>
+      <log message="inbound call answered"/>
+    </action>
+  </nop>
+  <pause milliseconds="1500"/>
+  <send>
+    <![CDATA[
+      BYE [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Evil \"<Caller>\"" <sip:+971501112222@provider.linx.test>;tag=[pid]SIPpTag04[call_number]
+      [last_To:]
+      Call-ID: [call_id]
+      [routes]
+      CSeq: 2 BYE
+      Max-Forwards: 70
+      Content-Length: 0
+    ]]>
+  </send>
+  <recv response="200"/>
+  <nop>
+    <action>
+      <log message="inbound call ended"/>
+    </action>
+  </nop>
+  <label id="end"/>
+</scenario>

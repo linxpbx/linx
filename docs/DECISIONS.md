@@ -517,6 +517,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Trunk changes take a reload (seconds; registrations and live calls survive, as 1B's certificate reload showed). The file lives only in memory (tmpfs), readable by Asterisk's group.
 
+**As built (1D step 3, 2026-09-26).** Two changes, both narrowing what's exposed. (1) **Asterisk's entrypoint reloads, not the control plane over ARI**: the entrypoint already watches files it reloads for (certificates), so it watches the trunk file too (every 2 s) and runs `module reload res_pjsip.so` itself; ARI stays read-only, as since 1B. (2) **The ACL isn't moved, it's extended**: `pjsip.conf` keeps the phones' `[phone-networks]` (rendered at start from `LINX_SIP_NETWORKS`), and the included trunk file adds the trunks' addresses with Asterisk's `[phone-networks](+)`: still one ACL object, and the phones' list never depends on the control plane. Code: `internal/trunkconf`; volume `trunks` (tmpfs, uid 65532, group 101); details in `docs/TRUNKS.md` §4.
+
 ## ADR-044 — Outbound numbering and routing (owner decision, 2026-09-26)
 
 **Context.** People dial numbers the way they would on a mobile. Linx must tell local, mobile, national, international, toll-free, premium and emergency numbers apart for the chosen country, decide who may call what and pick the line, and outgoing calls should keep working while the control plane restarts (ADR-034). Design: `docs/TRUNKS.md` §5.
@@ -527,7 +529,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Numbering data updates with the library (Dependabot). `linx_asterisk` gains `EXECUTE` on one function and `SELECT` on the rule tables. Only countries we test are offered at first (UAE; others added with their test corpus).
 
-**As built (1D step 1, 2026-09-26).** `linx_asterisk` gets `EXECUTE` on `asterisk.linx_route_outbound` only, **not** `SELECT` on the rule tables: the function is `SECURITY DEFINER` (fixed `search_path`), so Asterisk can't read any table behind it, including the trunk tables later steps add. The tables hold every region's data (international numbers are checked and typed too: a premium number abroad counts as premium); the control plane rewrites them at start when the library's data version changes. The PostgreSQL functions repeat libphonenumber's parsing step for step and agreed with it on all 30,632 numbers of the UAE corpus on the first run; a unit test fails if a data update brings a regular-expression construct they weren't checked with.
+**As built (1D step 1, 2026-09-26).** `linx_asterisk` gets `EXECUTE` on `asterisk.linx_route_outbound` (replaced in step 3 by `asterisk.linx_outbound` and `asterisk.linx_inbound`, the same way) only, **not** `SELECT` on the rule tables: the function is `SECURITY DEFINER` (fixed `search_path`), so Asterisk can't read any table behind it, including the trunk tables later steps add. The tables hold every region's data (international numbers are checked and typed too: a premium number abroad counts as premium); the control plane rewrites them at start when the library's data version changes. The PostgreSQL functions repeat libphonenumber's parsing step for step and agreed with it on all 30,632 numbers of the UAE corpus on the first run; a unit test fails if a data update brings a regular-expression construct they weren't checked with.
 
 ## ADR-045 — Trunk certificates (owner decision, 2026-09-26)
 
@@ -536,6 +538,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** Trunks over TLS are checked against the public CAs with the provider's name, or against a certificate or CA the admin pins after comparing its fingerprint (shown at `linx trunk add`). Asterisk checks per transport, so trunks share one TLS client transport whose CA list is the public CAs plus every pinned one; the name is always checked. Unencrypted trunks only per ADR-023.
 
 **Consequences.** A pinned certificate that the provider replaces breaks the trunk until the admin approves the new one (doctor warns before a pinned certificate expires). Pinning a CA for one trunk lets it vouch for other trunks' names too; accepted, since the admin chose to trust it.
+
+**As built (1D step 3, 2026-09-26).** The "one TLS client transport" is the phones' `transport-tls` itself (`verify_server=yes`, CA list = the image's public CAs + the pins, built by the entrypoint): a separate TLS transport would need its own listening port. The name check is PJSIP's (`The server identity does not match…`), proven in the call suite together with an unknown CA. A pin must be a CA or a self-signed certificate: OpenSSL (without partial-chain mode) won't accept a non-self-signed leaf as the end of the chain.
 
 ## ADR-046 — WireGuard agent (owner decision, 2026-09-26)
 

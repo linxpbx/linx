@@ -1,6 +1,7 @@
 package trunk
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -37,7 +38,9 @@ func TestCheckHost(t *testing.T) {
 			t.Errorf("checkHost(%q) = %v, want nil", ok, err)
 		}
 	}
-	for _, bad := range []string{"", "has space", string(make([]byte, 256))} {
+	// Anything else would reach Asterisk's config or a SIP URI as is.
+	for _, bad := range []string{"", "has space", string(make([]byte, 256)), "a;b", "sip.example.com\n[x]", "user@host",
+		"host:5061", "[2001:db8::1]", "-lead.example", "a,b"} {
 		if err := checkHost(bad); err == nil {
 			t.Errorf("checkHost(%q) succeeded, want an error", bad)
 		}
@@ -175,5 +178,37 @@ func TestCheckAllowedCategories(t *testing.T) {
 	}
 	if _, err := checkAllowedCategories([]string{"bogus"}); err == nil {
 		t.Error("checkAllowedCategories with an unknown category succeeded, want an error")
+	}
+}
+
+func TestTrunkFieldsForAsterisk(t *testing.T) {
+	for _, ok := range []string{"", "linx01", "a.b_c-d+e=f~g"} {
+		if err := checkUsername(ok); err != nil {
+			t.Errorf("checkUsername(%q) = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"a b", "a;b", "a,b", "a@b", "a:b", "a\nb"} {
+		if err := checkUsername(bad); err == nil {
+			t.Errorf("checkUsername(%q) succeeded", bad)
+		}
+	}
+	for _, ok := range []string{"", "p;ss w0rd", `a"b\c`} {
+		if err := CheckPassword(ok); err != nil {
+			t.Errorf("CheckPassword(%q) = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{" lead", "trail ", "a\nb", "a\x00b", "é"} {
+		if err := CheckPassword(bad); err == nil {
+			t.Errorf("CheckPassword(%q) succeeded", bad)
+		}
+	}
+	tr := Trunk{Name: "UCM", Kind: KindLANPeer, Host: "ucm.lan", Port: 5061, Transport: TransportTLS, MediaEncryption: MediaSRTP,
+		CertTrust: CertPinned, PinnedCertificate: "not a certificate", DialFormat: DialLocal, MaxCalls: 4}
+	if err := checkTrunkFields(&tr); err == nil || !strings.Contains(err.Error(), "PEM") {
+		t.Errorf("a pin that isn't a certificate: %v", err)
+	}
+	tr.CertTrust, tr.CallerIDNumber = CertPublic, "042000100;x"
+	if err := checkTrunkFields(&tr); err == nil {
+		t.Error("a caller ID that isn't a number was accepted")
 	}
 }

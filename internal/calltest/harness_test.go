@@ -38,6 +38,7 @@ import (
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/db/dbtest"
 	"linxpbx.com/linx/internal/doctor"
+	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/siprelay"
 	"linxpbx.com/linx/internal/store"
@@ -162,6 +163,15 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 	if err := db.EnsureAsteriskRole(ctx, pool, filepath.Join(e.dir, "secrets", "linx_asterisk_db_password")); err != nil {
 		t.Fatal(err)
 	}
+	// The country's numbering rules, as the control plane loads them at
+	// every start (docs/TRUNKS.md §5).
+	data, err := numbering.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.store.SyncNumbering(ctx, data, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	// "sign in, call, answer, hang up" checks Asterisk uses this name.
 	if err := db.SetSIPDomain(ctx, pool, "sip.linx.test"); err != nil {
 		t.Fatal(err)
@@ -199,6 +209,8 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		"--publish", "127.0.0.1::5061",
 		"--volume", filepath.Join(d, "certs")+":/var/lib/linx/certs:ro",
 		"--volume", filepath.Join(d, "sipws")+":/var/lib/linx/sipws-certs:ro",
+		// The control plane's rendered trunks (renderTrunks writes them).
+		"--volume", filepath.Join(d, "trunks")+":/var/lib/linx/trunks:ro",
 		"--init", // as compose.yaml
 		"--env", "LINX_CERT_CHECK_INTERVAL=1s",
 		"--volume", filepath.Join(d, "ca")+":/etc/linx/ca:ro",
@@ -431,12 +443,12 @@ func (w testWriter) Write(b []byte) (int, error) {
 // other users in their containers.
 func (e *env) writeFiles() {
 	t := e.t
-	for _, sub := range []string{"certs/v1", "sipws/v20", "ca", "secrets", "sipp"} {
+	for _, sub := range []string{"certs/v1", "sipws/v20", "ca", "secrets", "sipp", "trunks"} {
 		if err := os.MkdirAll(filepath.Join(e.dir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, d := range []string{e.dir, filepath.Join(e.dir, "certs"), filepath.Join(e.dir, "sipws")} {
+	for _, d := range []string{e.dir, filepath.Join(e.dir, "certs"), filepath.Join(e.dir, "sipws"), filepath.Join(e.dir, "trunks")} {
 		os.Chmod(d, 0o755)
 	}
 	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -471,6 +483,9 @@ func (e *env) writeFiles() {
 		"sipp/root_ca.crt":                  rootPEM,
 		"secrets/linx_asterisk_db_password": []byte(astDBPass),
 		"secrets/linx_ari_password":         []byte(ariPass),
+		// No trunks yet, as the control plane writes it at its start
+		// (Asterisk's entrypoint waits for this file).
+		"trunks/pjsip_trunks.conf": []byte("; no trunks\n"),
 	}
 	for name, b := range files {
 		if err := os.WriteFile(filepath.Join(e.dir, name), b, 0o644); err != nil {
@@ -488,12 +503,18 @@ func (e *env) writeFiles() {
 // leaf issues a certificate for dns from the test CA.
 func (e *env) leaf(serial int64, dns string) (certPEM, keyPEM []byte) {
 	e.t.Helper()
+	return e.leafFrom(e.caCert, e.caKey, serial, dns)
+}
+
+// leafFrom issues a certificate for dns from another CA.
+func (e *env) leafFrom(caCert *x509.Certificate, caKey *ecdsa.PrivateKey, serial int64, dns string) (certPEM, keyPEM []byte) {
+	e.t.Helper()
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: dns}, DNSNames: []string{dns},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, e.caCert, &key.PublicKey, e.caKey)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
 	if err != nil {
 		e.t.Fatal(err)
 	}

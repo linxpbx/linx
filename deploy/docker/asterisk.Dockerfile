@@ -98,7 +98,8 @@ RUN ./configure --with-pjproject-bundled --with-jansson-bundled=no
 RUN make menuselect.makeopts || make menuselect.makeopts
 
 # Only what Linx uses (docs/PBX.md §2): PJSIP + SRTP + RTP, ODBC realtime,
-# ARI/Stasis, dialplan basics, app_echo, func_odbc, ulaw/alaw/g722/Opus
+# ARI/Stasis, dialplan basics, app_echo, func_odbc, ulaw/alaw/g722/Opus,
+# signing in to trunks (outbound registration and its digest auth; 1D)
 # (Opus transcoding from Wazo's codec_opus_open_source, above), and the
 # secure websocket SIP transport for browsers (docs/WEB.md §2: served on
 # linx-sipws only, for the control plane's /sip relay). No chan_sip
@@ -129,6 +130,7 @@ RUN menuselect/menuselect \
       --enable res_pjsip_endpoint_identifier_ip --enable res_pjsip_endpoint_identifier_user \
       --enable res_pjsip_exten_state --enable res_pjsip_logger --enable res_pjsip_nat \
       --enable res_pjsip_registrar --enable res_pjsip_sdp_rtp --enable res_pjsip_session \
+      --enable res_pjsip_outbound_registration --enable res_pjsip_outbound_authenticator_digest \
       --enable res_realtime --enable res_security_log \
       --enable res_sorcery_astdb --enable res_sorcery_config --enable res_sorcery_memory \
       --enable res_sorcery_memory_cache --enable res_sorcery_realtime \
@@ -142,6 +144,7 @@ RUN menuselect/menuselect \
       --enable codec_ulaw --enable codec_alaw --enable codec_g722 --enable codec_gsm --enable codec_resample \
       --enable codec_opus_open_source \
       --enable func_odbc --enable func_channel --enable func_callerid \
+      --enable func_cut --enable func_strings --enable func_groupcount \
       --enable pbx_config \
       --enable bridge_simple --enable bridge_native_rtp \
       --enable format_pcm --enable format_sln \
@@ -181,6 +184,8 @@ LABEL org.opencontainers.image.source="https://github.com/linxpbx/linx" \
 
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
       libxml2 libsqlite3-0 libssl3 libjansson4 libedit2 libodbc2 libsrtp2-1 libopus0 odbc-postgresql \
+      # The public CAs trunks' certificates are checked against (ADR-045).
+      ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     # The Debian package installs psqlodbcw.so under an architecture triplet
     # directory (/usr/lib/<triplet>/odbc/); symlink it to one fixed path so

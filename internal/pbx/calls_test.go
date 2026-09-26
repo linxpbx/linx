@@ -164,6 +164,18 @@ func TestCallOutcomes(t *testing.T) {
 			c.State, c.Dialplan = "Up", ari.Dialplan{Context: "linx-messages", Exten: "not-available"}
 			tr.handle(ctx, ari.Event{Type: "ChannelDialplan", Channel: c})
 		}, OutcomeNotAvailable, CallSystem},
+		{"not allowed to call that", "00442079460000", func(tr *CallTracker, c *ari.Channel) {
+			c.State, c.Dialplan = "Up", ari.Dialplan{Context: "linx-messages", Exten: "not-permitted"}
+			tr.handle(ctx, ari.Event{Type: "ChannelDialplan", Channel: c})
+		}, OutcomeNotPermitted, CallSystem},
+		{"no outside line", "0501234567", func(tr *CallTracker, c *ari.Channel) {
+			c.State, c.Dialplan = "Up", ari.Dialplan{Context: "linx-messages", Exten: "no-lines"}
+			tr.handle(ctx, ari.Event{Type: "ChannelDialplan", Channel: c})
+		}, OutcomeNoLines, CallSystem},
+		{"too many outside calls", "0501234567", func(tr *CallTracker, c *ari.Channel) {
+			c.State, c.Dialplan = "Up", ari.Dialplan{Context: "linx-messages", Exten: "limit"}
+			tr.handle(ctx, ari.Event{Type: "ChannelDialplan", Channel: c})
+		}, OutcomeLimitReached, CallSystem},
 		{"nobody answers", "102", func(tr *CallTracker, c *ari.Channel) {
 			leg := ch("9", "d_bob00002", "Down", "linx-extensions", "s", "")
 			tr.handle(ctx, ari.Event{Type: "Dial", Caller: c, Peer: leg})

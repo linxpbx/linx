@@ -14,6 +14,16 @@ type Route struct {
 	Result
 	Allowed bool
 	Reason  string // one of the Reason constants
+	// Lines are the trunks an allowed call goes out on, in the order
+	// they're tried (numbering_lines).
+	Lines []Line
+}
+
+// Line is one trunk a call can go out on, and what it's sent as there.
+type Line struct {
+	Trunk    string // the trunk's name
+	Number   string // the number as that trunk is sent it
+	CallerID string // what the called person sees; empty: the provider's default
 }
 
 // Why a call is or isn't allowed.
@@ -27,7 +37,8 @@ const (
 	// can't dial out (other than emergency numbers) until an admin
 	// assigns it a level.
 	ReasonNotPermitted = "not_permitted"
-	ReasonNoLines      = "no_lines" // no outside lines yet
+	ReasonNoLines      = "no_lines" // allowed, but no trunk is set up for outgoing calls
+	ReasonAllowed      = "allowed"  // goes out on Lines
 )
 
 // Clash is an extension whose number can't be used in the country
@@ -158,9 +169,25 @@ func (r Route) Explain(dialled, from, country string) string {
 		b.WriteString("Always allowed, for everyone, and never limited.\n")
 	case ReasonNotPermitted:
 		fmt.Fprintf(&b, "Extension %s isn't allowed to call this kind of number (its call permission level doesn't include it, or it has none).\n", from)
+	case ReasonNoLines:
+		b.WriteString("Allowed, but no outside line is set up for outgoing calls, so the call can't go out until one is.\n")
+		return b.String()
 	default:
-		// Lines (trunks) arrive in the next steps of Phase 1D.
-		b.WriteString("Linx has no outside lines yet, so the call can't go out until one is added.\n")
+		fmt.Fprintf(&b, "Allowed for extension %s.\n", from)
+	}
+	if len(r.Lines) == 0 {
+		b.WriteString("No outside line is set up for outgoing calls, so it can't go out until one is.\n")
+	}
+	for i, l := range r.Lines {
+		if i == 0 {
+			fmt.Fprintf(&b, "Goes out on %q as %s", l.Trunk, l.Number)
+		} else {
+			fmt.Fprintf(&b, "If that line is down or full: %q as %s", l.Trunk, l.Number)
+		}
+		if l.CallerID != "" {
+			fmt.Fprintf(&b, ", showing %s", l.CallerID)
+		}
+		b.WriteString(".\n")
 	}
 	return b.String()
 }

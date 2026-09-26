@@ -2,12 +2,14 @@
 // environment variables (internal/asteriskconf), starts asterisk, and stays
 // beside it to reload its TLS certificates when they're renewed
 // (internal/certs.Watcher): the phones' one from linx-certd, and the browser
-// websocket's one from the control plane. It forwards docker stop's SIGTERM to Asterisk and exits
+// websocket's one from the control plane; and PJSIP when the control plane
+// renders the trunks again (trunkWatcher). It forwards docker stop's SIGTERM to Asterisk and exits
 // with Asterisk's exit status.
 package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -33,13 +35,21 @@ const asteriskBin = "/usr/sbin/asterisk"
 // LINX_CERT_CHECK_INTERVAL overrides it for tests.
 const certCheckInterval = time.Minute
 
-// sipwsCertWait is how long Asterisk's start waits for the browser
-// websocket's certificate.
-const sipwsCertWait = 2 * time.Minute
+// controlPlaneWait is how long Asterisk's start waits for what the control
+// plane writes for it: the browser websocket's certificate, and the trunks.
+const controlPlaneWait = 2 * time.Minute
+
+// trunkCheckInterval is how often the trunk file is checked for changes.
+const trunkCheckInterval = 2 * time.Second
 
 // waitForCertificate waits up to limit for dir/current/fullchain.pem.
 func waitForCertificate(dir string, limit time.Duration, log *slog.Logger) bool {
-	path := filepath.Join(dir, certs.CurrentLink, certs.FullchainFile)
+	return waitForFile(filepath.Join(dir, certs.CurrentLink, certs.FullchainFile), limit, log,
+		"the browser websocket certificate", "browsers can't call until Asterisk restarts")
+}
+
+// waitForFile waits up to limit for path, which the control plane writes.
+func waitForFile(path string, limit time.Duration, log *slog.Logger, what, without string) bool {
 	deadline := time.Now().Add(limit)
 	logged := false
 	for {
@@ -47,14 +57,87 @@ func waitForCertificate(dir string, limit time.Duration, log *slog.Logger) bool 
 			return true
 		}
 		if time.Now().After(deadline) {
-			log.Warn("no browser websocket certificate yet; starting without it (browsers can't call until Asterisk restarts)", "path", path)
+			log.Warn("no "+what+" yet; starting without it ("+without+")", "path", path)
 			return false
 		}
 		if !logged {
-			log.Info("waiting for the control plane to write the browser websocket certificate", "path", path)
+			log.Info("waiting for the control plane to write "+what, "path", path)
 			logged = true
 		}
 		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// trunkWatcher reloads PJSIP when the control plane's rendered trunks
+// (internal/trunkconf: pjsip_trunks.conf, which pjsip.conf includes, and
+// the pinned certificates) change, after rebuilding the TLS transport's CA
+// list from the pinned certificates. Reloading keeps phones' connections,
+// registrations and calls (docs/TRUNKS.md §4).
+type trunkWatcher struct {
+	cfg    asteriskconf.Config
+	reload func(context.Context) error
+	log    *slog.Logger
+	loaded [sha256.Size]byte
+}
+
+// state is a hash of both files' contents (a missing file counts as empty).
+func (w *trunkWatcher) state() [sha256.Size]byte {
+	h := sha256.New()
+	for _, name := range []string{asteriskconf.TrunksFile, asteriskconf.PinnedCAFile} {
+		b, _ := os.ReadFile(filepath.Join(w.cfg.TrunksDir, name))
+		fmt.Fprintf(h, "%d:", len(b))
+		h.Write(b)
+	}
+	var sum [sha256.Size]byte
+	copy(sum[:], h.Sum(nil))
+	return sum
+}
+
+// Start builds the CA list from what's there now, and records it as what
+// Asterisk is about to load (a change while it's starting gets a spare
+// reload, never a missed one).
+func (w *trunkWatcher) Start() {
+	w.loaded = w.state()
+	if skipped, err := w.cfg.WriteTrunkCA(); err != nil {
+		w.log.Error("building the trunks' CA list", "err", err)
+	} else if skipped > 0 {
+		w.log.Warn("pinned trunk certificates that can't be read were left out", "count", skipped)
+	}
+}
+
+// Check reloads if the trunks changed; a failed reload is retried at the
+// next check.
+func (w *trunkWatcher) Check(ctx context.Context) {
+	s := w.state()
+	if s == w.loaded {
+		return
+	}
+	skipped, err := w.cfg.WriteTrunkCA()
+	if err != nil {
+		w.log.Error("building the trunks' CA list; retrying", "err", err)
+		return
+	}
+	if skipped > 0 {
+		w.log.Warn("pinned trunk certificates that can't be read were left out", "count", skipped)
+	}
+	if err := w.reload(ctx); err != nil {
+		w.log.Error("reloading the trunks failed; retrying at the next check", "err", err)
+		return
+	}
+	w.loaded = s
+	w.log.Info("trunks reloaded")
+}
+
+func (w *trunkWatcher) Run(ctx context.Context, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			w.Check(ctx)
+		}
 	}
 }
 
@@ -101,8 +184,15 @@ func main() {
 	// moments after it starts, so wait for it; if it never comes, start
 	// anyway: phones on the LAN don't need it.
 	if cfg.SIPWSHost != "none" {
-		waitForCertificate(cfg.SIPWSCertsDir, sipwsCertWait, log)
+		waitForCertificate(cfg.SIPWSCertsDir, controlPlaneWait, log)
 	}
+	// Likewise the trunks: the control plane renders them at every start
+	// (an empty file when there are none). If it never comes, phones work
+	// and trunks join as soon as it's written.
+	waitForFile(filepath.Join(cfg.TrunksDir, asteriskconf.TrunksFile), controlPlaneWait, log,
+		"the trunks", "no trunks until the control plane writes them")
+	trunks := &trunkWatcher{cfg: cfg, reload: reloadModule("res_pjsip.so"), log: log.With("config", "trunks")}
+	trunks.Start()
 	for _, w := range watchers {
 		w.Start()
 	}
@@ -124,6 +214,7 @@ func main() {
 	for _, w := range watchers {
 		go w.Run(ctx, interval)
 	}
+	go trunks.Run(ctx, min(interval, trunkCheckInterval))
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 

@@ -30,6 +30,10 @@ const (
 	OutcomeNotAvailable = "not_available" // nothing could ring: no signed-in device, or calling yourself
 	OutcomeNotInUse     = "not_in_use"    // no such number
 	OutcomeEchoTest     = "echo_test"     // *43
+	// Outside calls Linx refused (docs/TRUNKS.md §5, §9).
+	OutcomeNotPermitted = "not_permitted" // the caller's call permission level doesn't allow that kind of number
+	OutcomeNoLines      = "no_lines"      // no outside line set up, or every line down or full
+	OutcomeLimitReached = "limit_reached" // the caller's extension already has 2 outside calls
 )
 
 // EchoTestNumber is the dialplan's echo test (internal/asteriskconf).
@@ -351,10 +355,18 @@ func (t *CallTracker) end(ctx context.Context, c *call, at time.Time) {
 		outcome = OutcomeAnswered
 	case c.to == EchoTestNumber:
 		outcome = OutcomeEchoTest
+	case c.where == "linx-messages/no-lines":
+		// Every line tried failed (down, full, refused its certificate):
+		// dialled, but nothing rang.
+		outcome = OutcomeNoLines
 	case c.rang:
 		outcome = OutcomeMissed
 	case c.where == "linx-messages/not-in-use":
 		outcome = OutcomeNotInUse
+	case c.where == "linx-messages/not-permitted":
+		outcome = OutcomeNotPermitted
+	case c.where == "linx-messages/limit":
+		outcome = OutcomeLimitReached
 	}
 	talk := 0
 	if c.answeredAt != nil {

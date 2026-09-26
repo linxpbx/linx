@@ -211,26 +211,32 @@ func TestAsteriskRealtimeDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ endpoint, dialled, want string }{
-		{"d_1a2b3c4d", "0501234567", "mobile +971501234567 f not_permitted"},
-		{"d_1a2b3c4d", "999", "emergency 999 t emergency"},
-		{"d_9z8y7x6w", "999", "emergency 999 f unknown_caller"},
-		{"101", "999", "emergency 999 f unknown_caller"},
+		{"d_1a2b3c4d", "0501234567", "not_permitted mobile f "},
+		{"d_1a2b3c4d", "999", "emergency emergency f "}, // allowed, but no line yet
+		{"d_9z8y7x6w", "999", "unknown_caller emergency f "},
+		{"101", "999", "unknown_caller emergency f "},
 	} {
 		var got string
-		if err := astPool.QueryRow(ctx, `SELECT concat_ws(' ', category, dial, allowed, reason)
-			FROM asterisk.linx_route_outbound($1, $2)`, c.endpoint, c.dialled).Scan(&got); err != nil {
-			t.Fatalf("linx_route_outbound(%s, %s): %v", c.endpoint, c.dialled, err)
+		if err := astPool.QueryRow(ctx, `SELECT concat_ws(' ', reason, category, withhold, lines)
+			FROM asterisk.linx_outbound($1, $2)`, c.endpoint, c.dialled).Scan(&got); err != nil {
+			t.Fatalf("linx_outbound(%s, %s): %v", c.endpoint, c.dialled, err)
 		}
 		if got != c.want {
-			t.Errorf("linx_route_outbound(%s, %s) = %q, want %q", c.endpoint, c.dialled, got, c.want)
+			t.Errorf("linx_outbound(%s, %s) = %q, want %q", c.endpoint, c.dialled, got, c.want)
 		}
+	}
+	// A number no trunk owns: no row (the dialplan says "not in use").
+	var n int
+	if err := astPool.QueryRow(ctx, `SELECT count(*) FROM asterisk.linx_inbound('trunk-00000000-0000-0000-0000-000000000000', '+97142000100')`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("linx_inbound for no trunk: %d rows, %v", n, err)
 	}
 	if _, err := astPool.Exec(ctx, "SELECT numbering_classify('AE', '0501234567')"); err == nil {
 		t.Error("linx_asterisk could run numbering_classify on the tables directly; want permission denied")
 	}
 
 	for _, table := range []string{"tenant", "extension", "device", "api_key", "webhook_endpoint", "alert_channel", "user_session", "app_user",
-		"pbx_setting", "numbering_region", "numbering_desc", "numbering_short", "numbering_always", "numbering_data"} {
+		"pbx_setting", "numbering_region", "numbering_desc", "numbering_short", "numbering_always", "numbering_data",
+		"trunk", "trunk_did", "wireguard_profile", "call_permission_level"} {
 		if _, err := astPool.Exec(ctx, "SELECT 1 FROM "+table+" LIMIT 1"); err == nil {
 			t.Errorf("linx_asterisk could read table %s directly; want permission denied", table)
 		}
