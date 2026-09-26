@@ -107,6 +107,9 @@ RUN make menuselect.makeopts || make menuselect.makeopts
 # add-ons, no unit tests, no voicemail/queues/conferencing/fax/presence yet
 # (later Phase 1B/1C slices) — trimmed at the category level, not by
 # hand-picking every res_pjsip_* submodule menuselect enables together.
+# BUILD_NATIVE off: it compiles with -march=native, for the CPU that built
+# the image, and the image must run on any amd64/arm64 server (Asterisk
+# from a CI cache built on one runner died at start on another).
 RUN menuselect/menuselect \
       --disable-category MENUSELECT_APPS --disable-category MENUSELECT_RES \
       --disable-category MENUSELECT_CHANNELS --disable-category MENUSELECT_CODECS \
@@ -149,6 +152,7 @@ RUN menuselect/menuselect \
       --enable bridge_simple --enable bridge_native_rtp \
       --enable format_pcm --enable format_sln \
       --disable CORE-SOUNDS-EN-GSM --enable CORE-SOUNDS-EN-G722 \
+      --disable BUILD_NATIVE \
       menuselect.makeopts \
     && menuselect/menuselect --check-deps menuselect.makeopts
 

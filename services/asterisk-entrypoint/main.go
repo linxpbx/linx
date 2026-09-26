@@ -290,6 +290,10 @@ func main() {
 			cancel()
 			var exit *exec.ExitError
 			if errors.As(err, &exit) {
+				if ws, ok := exit.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+					log.Error("asterisk was killed", "signal", ws.Signal().String(), "core_dumped", ws.CoreDump())
+					os.Exit(1)
+				}
 				log.Info("asterisk exited", "status", exit.ExitCode())
 				os.Exit(max(exit.ExitCode(), 1))
 			}
