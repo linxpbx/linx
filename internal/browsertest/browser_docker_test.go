@@ -523,7 +523,7 @@ var (
 
 func (h *harness) provision(t *testing.T) {
 	out := h.docker("exec", "linx-control-plane", "/usr/local/bin/service", "api-key", "create",
-		"--name", "browser test", "--role", "admin", "--scopes", "all,devices:write")
+		"--name", "browser test", "--role", "admin", "--scopes", "all,devices:write,routing:write")
 	h.key = keyRe.FindString(out)
 	if h.key == "" {
 		t.Fatalf("no API key in:\n%s", out)

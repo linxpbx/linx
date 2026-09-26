@@ -64,9 +64,10 @@ func parse(out []byte) ([]netip.Addr, error) {
 }
 
 // Sync makes set's elements exactly want, adding and removing only what's
-// needed, and reports what changed. It never touches a rule, and it never
-// touches any set but the one named.
-func Sync(ctx context.Context, run Run, table, set string, want []netip.Addr) (added, removed []netip.Addr, err error) {
+// needed, and reports what changed; with keep, it only adds (want is known
+// to be incomplete). It never touches a rule, and it never touches any set
+// but the one named.
+func Sync(ctx context.Context, run Run, table, set string, want []netip.Addr, keep bool) (added, removed []netip.Addr, err error) {
 	have, err := List(ctx, run, table, set)
 	if err != nil {
 		return nil, nil, err
@@ -77,7 +78,7 @@ func Sync(ctx context.Context, run Run, table, set string, want []netip.Addr) (a
 		}
 	}
 	for _, a := range have {
-		if !slices.Contains(want, a) {
+		if !keep && !slices.Contains(want, a) {
 			removed = append(removed, a)
 		}
 	}

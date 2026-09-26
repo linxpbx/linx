@@ -95,7 +95,7 @@ func TestParseRejectsANetwork(t *testing.T) {
 func TestSync(t *testing.T) {
 	f := &fakeSet{addrs: []netip.Addr{addr("203.0.113.1"), addr("203.0.113.2")}}
 	added, removed, err := Sync(context.Background(), f.run, "linx", "trunk_addresses",
-		[]netip.Addr{addr("203.0.113.2"), addr("203.0.113.3")})
+		[]netip.Addr{addr("203.0.113.2"), addr("203.0.113.3")}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,9 +116,16 @@ func TestSync(t *testing.T) {
 
 	// Already in sync: no add/delete calls.
 	f2 := &fakeSet{addrs: []netip.Addr{addr("203.0.113.1")}}
-	added, removed, err = Sync(context.Background(), f2.run, "linx", "trunk_addresses", []netip.Addr{addr("203.0.113.1")})
+	added, removed, err = Sync(context.Background(), f2.run, "linx", "trunk_addresses", []netip.Addr{addr("203.0.113.1")}, false)
 	if err != nil || len(added) != 0 || len(removed) != 0 {
 		t.Fatalf("added=%v removed=%v err=%v", added, removed, err)
+	}
+
+	// keep: only adds (a trunk's name didn't resolve this time).
+	f3 := &fakeSet{addrs: []netip.Addr{addr("203.0.113.1")}}
+	added, removed, err = Sync(context.Background(), f3.run, "linx", "trunk_addresses", []netip.Addr{addr("203.0.113.2")}, true)
+	if err != nil || !equal(added, []netip.Addr{addr("203.0.113.2")}) || len(removed) != 0 {
+		t.Fatalf("keep: added=%v removed=%v err=%v", added, removed, err)
 	}
 	for _, c := range f2.calls {
 		if strings.HasPrefix(c, "nft add") || strings.HasPrefix(c, "nft delete") {

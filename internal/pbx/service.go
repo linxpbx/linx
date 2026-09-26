@@ -75,6 +75,25 @@ var errWebDevice = &apihttp.Error{Status: http.StatusConflict, Code: "device_is_
 
 var errPermissionLevelNotFound = invalid("call_permission_level_not_found", "That call permission level doesn't exist.")
 
+// errRoutingWriteRequired: a call permission level decides which numbers an
+// extension may call, some of which cost money, so choosing one takes
+// routing:write (sensitive, ADR-048), not just extensions:write.
+var errRoutingWriteRequired = &apihttp.Error{Status: http.StatusForbidden, Code: "scope_missing",
+	Detail: "Choosing an extension's call permission level needs the routing:write scope."}
+
+// checkLevelScope refuses to set a call permission level for a caller
+// without routing:write.
+func checkLevelScope(ctx context.Context) error {
+	p, ok := auth.PrincipalFromContext(ctx)
+	if !ok {
+		return errNoPrincipal
+	}
+	if !p.Has("routing:write") {
+		return errRoutingWriteRequired
+	}
+	return nil
+}
+
 // numberPattern matches migration 0005's CHECK on extension.number.
 var numberPattern = regexp.MustCompile(`^[0-9]{2,6}$`)
 
@@ -116,6 +135,11 @@ func (s *Service) CreateExtension(ctx context.Context, in ExtensionInput) (Exten
 	if err := checkDisplayName(in.DisplayName); err != nil {
 		return Extension{}, err
 	}
+	if in.CallPermissionLevelID != nil {
+		if err := checkLevelScope(ctx); err != nil {
+			return Extension{}, err
+		}
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return Extension{}, err
@@ -131,6 +155,9 @@ func (s *Service) CreateExtension(ctx context.Context, in ExtensionInput) (Exten
 		Version: 1, CreatedAt: now, UpdatedAt: now,
 	}
 	a.Detail = map[string]any{"number": e.Number, "display_name": e.DisplayName, "enabled": e.Enabled}
+	if e.CallPermissionLevelID != nil {
+		a.Detail["call_permission_level_id"] = e.CallPermissionLevelID
+	}
 	if err := s.Store.CreateExtension(ctx, e, a); err != nil {
 		if errors.Is(err, ErrDuplicate) {
 			return Extension{}, &apihttp.Error{Status: http.StatusConflict, Code: "number_duplicate",
@@ -218,6 +245,9 @@ func (s *Service) UpdateExtension(ctx context.Context, id uuid.UUID, patch Exten
 		changes["enabled"] = e.Enabled
 	}
 	if patch.CallPermissionLevelID != nil {
+		if err := checkLevelScope(ctx); err != nil {
+			return Extension{}, err
+		}
 		if *patch.CallPermissionLevelID == "" {
 			e.CallPermissionLevelID = nil
 		} else {

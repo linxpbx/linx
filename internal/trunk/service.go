@@ -311,6 +311,14 @@ func applyUnencrypted(t *Trunk, confirmed bool, actor string, now time.Time) err
 	return nil
 }
 
+// ptrTime is *t, or the zero time.
+func ptrTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
+}
+
 // CreateTrunk adds a trunk.
 func (s *Service) CreateTrunk(ctx context.Context, in TrunkInput) (Trunk, error) {
 	p, err := principal(ctx)
@@ -360,6 +368,9 @@ func (s *Service) CreateTrunk(ctx context.Context, in TrunkInput) (Trunk, error)
 		return Trunk{}, err
 	}
 	a.Detail = map[string]any{"name": t.Name, "kind": t.Kind, "host": t.Host, "enabled": t.Enabled}
+	if t.UnencryptedConfirmedAt != nil {
+		a.Detail["unencrypted_confirmed"] = true
+	}
 	if err := s.Store.CreateTrunk(ctx, t, a); err != nil {
 		if errors.Is(err, ErrDuplicate) {
 			return Trunk{}, &apihttp.Error{Status: http.StatusConflict, Code: "name_duplicate",
@@ -433,6 +444,7 @@ func (s *Service) UpdateTrunk(ctx context.Context, id uuid.UUID, patch TrunkPatc
 	if ifMatch != "" && !matchETag(ifMatch, t.Version) {
 		return Trunk{}, errTrunkChanged
 	}
+	before := t
 	changes := map[string]any{}
 	if patch.Name != nil {
 		t.Name = *patch.Name
@@ -460,6 +472,9 @@ func (s *Service) UpdateTrunk(ctx context.Context, id uuid.UUID, patch TrunkPatc
 	}
 	if patch.PinnedCertificate != nil {
 		t.PinnedCertificate = *patch.PinnedCertificate
+		// Which certificate Linx trusts: audited, but the PEM itself is
+		// long and public, so only that it changed.
+		changes["pinned_certificate"] = "changed"
 	}
 	if patch.Username != nil {
 		t.Username = *patch.Username
@@ -482,6 +497,7 @@ func (s *Service) UpdateTrunk(ctx context.Context, id uuid.UUID, patch TrunkPatc
 	}
 	if patch.WireGuardProfileID != nil {
 		t.WireGuardProfileID = *patch.WireGuardProfileID
+		changes["wireguard_profile_id"] = t.WireGuardProfileID
 	}
 	if patch.Enabled != nil {
 		t.Enabled = *patch.Enabled
@@ -490,15 +506,26 @@ func (s *Service) UpdateTrunk(ctx context.Context, id uuid.UUID, patch TrunkPatc
 	if err := checkTrunkFields(&t); err != nil {
 		return Trunk{}, err
 	}
+	// An ADR-023 confirmation covers the provider and the way it was
+	// unencrypted when the admin read the warning: another address,
+	// transport or audio encryption asks again (Phase 1D review), e.g. a
+	// trunk confirmed as TLS without SRTP moving to plain UDP.
+	if t.Host != before.Host || t.Transport != before.Transport || t.MediaEncryption != before.MediaEncryption {
+		t.UnencryptedConfirmedBy, t.UnencryptedConfirmedAt = "", nil
+	}
 	now := s.Now().UTC()
 	confirmed := patch.ConfirmUnencrypted != nil && *patch.ConfirmUnencrypted
 	if err := applyUnencrypted(&t, confirmed, p.Actor(), now); err != nil {
 		return Trunk{}, err
 	}
+	if t.UnencryptedConfirmedAt != nil && !t.UnencryptedConfirmedAt.Equal(ptrTime(before.UnencryptedConfirmedAt)) {
+		changes["unencrypted_confirmed"] = true
+	}
 	if patch.Password != nil {
 		if err := CheckPassword(*patch.Password); err != nil {
 			return Trunk{}, err
 		}
+		changes["password"] = "changed"
 		if *patch.Password == "" {
 			t.PasswordEnc = nil
 		} else {

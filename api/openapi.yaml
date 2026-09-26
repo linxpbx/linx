@@ -2885,6 +2885,7 @@ components:
         call_permission_level_id:
           type: string
           format: uuid
+          description: Needs the routing:write scope as well (a level decides which numbers cost money to call); 403 scope_missing otherwise.
         enabled:
           type: boolean
           description: Defaults to true.
@@ -2905,7 +2906,7 @@ components:
           maxLength: 200
         call_permission_level_id:
           type: string
-          description: Empty string clears it (only emergency numbers stay allowed).
+          description: Empty string clears it (only emergency numbers stay allowed). Changing it needs the routing:write scope as well; 403 scope_missing otherwise.
         enabled:
           type: boolean
 
@@ -3337,6 +3338,12 @@ components:
           description: Empty string moves the trunk to "Internet".
         confirm_unencrypted:
           type: boolean
+          description: >-
+            Must be true when the change leaves the trunk unencrypted and it
+            wasn't confirmed before, or when an unencrypted trunk gets
+            another host, transport or media encryption (the earlier
+            confirmation no longer covers it); 422
+            unencrypted_confirmation_required otherwise.
         enabled:
           type: boolean
 

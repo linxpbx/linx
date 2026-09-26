@@ -85,6 +85,31 @@ func TestExtensionEndpoints(t *testing.T) {
 		}
 	})
 
+	t.Run("a call permission level needs routing:write", func(t *testing.T) {
+		// A level decides which numbers cost money to call (ADR-048):
+		// extensions:write alone ("all" leaves out sensitive scopes) can't
+		// choose one, on create or patch; clearing one needs it too.
+		_, router := e.newCredential(auth.TypeAPIKey, auth.RoleAdmin, "all", "routing:write")
+		level := "0199a8f0-0000-7000-8000-000000000001"
+		r := e.do(http.MethodPost, "/api/v1/extensions", admin, map[string]any{"number": "160", "display_name": "x", "call_permission_level_id": level})
+		if r.status != http.StatusForbidden || r.problemCode(t) != "scope_missing" {
+			t.Fatalf("create with a level, no routing:write: %d %s", r.status, r.body)
+		}
+		ext := e.createExtension(router, map[string]any{"number": "160", "display_name": "x", "call_permission_level_id": level})
+		path := "/api/v1/extensions/" + ext.Id.String()
+		for _, v := range []string{level, ""} {
+			if r := e.patch(path, admin, "", map[string]any{"call_permission_level_id": v}); r.status != http.StatusForbidden || r.problemCode(t) != "scope_missing" {
+				t.Fatalf("patch level %q, no routing:write: %d %s", v, r.status, r.body)
+			}
+		}
+		if r := e.patch(path, admin, "", map[string]any{"display_name": "y"}); r.status != http.StatusOK {
+			t.Fatalf("patch without a level: %d %s", r.status, r.body)
+		}
+		if r := e.patch(path, router, "", map[string]any{"call_permission_level_id": ""}); r.status != http.StatusOK {
+			t.Fatalf("patch level with routing:write: %d %s", r.status, r.body)
+		}
+	})
+
 	t.Run("patch with If-Match", func(t *testing.T) {
 		path := "/api/v1/extensions/" + created.Id.String()
 		if r := e.patch(path, admin, `"99"`, map[string]any{"display_name": "x"}); r.status != http.StatusPreconditionFailed {

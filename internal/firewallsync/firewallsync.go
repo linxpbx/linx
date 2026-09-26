@@ -28,6 +28,11 @@ import (
 const (
 	ControlPlaneContainer = "linx-control-plane"
 	ControlPlaneBinary    = "/usr/local/bin/service"
+	// KeepLine in the control plane's answer: a trunk's name didn't
+	// resolve, so the list is incomplete; add what's new but withdraw
+	// nothing (a DNS hiccup mustn't shut a provider out; the trunk
+	// renderer keeps its last addresses the same way).
+	KeepLine = "keep"
 )
 
 // sets is every nftables set this package may ever add or remove an
@@ -66,14 +71,17 @@ func (e Env) Once(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reading trunk addresses from the control plane: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	want := parse(out)
+	want, keep := parse(out)
+	if keep {
+		log.Warn("a phone-line provider's name didn't resolve; its addresses stay admitted until it does")
+	}
 
 	nft := func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return e.Exec(ctx, name, args...)
 	}
 	var errs []error
 	for _, set := range sets {
-		added, removed, err := nftset.Sync(ctx, nft, installer.FirewallTable, set, want[set])
+		added, removed, err := nftset.Sync(ctx, nft, installer.FirewallTable, set, want[set], keep)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("set %s: %w", set, err))
 			continue
@@ -88,14 +96,18 @@ func (e Env) Once(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// parse reads "<set> <address>" lines. A line naming a set that isn't one
+// parse reads "<set> <address>" lines, and KeepLine. A line naming a set that isn't one
 // of the two Once ever touches, or that doesn't parse as an address, is
 // ignored: it's simply never looked up in the sync loop below, whatever it
 // says.
-func parse(out []byte) map[string][]netip.Addr {
-	want := map[string][]netip.Addr{}
+func parse(out []byte) (want map[string][]netip.Addr, keep bool) {
+	want = map[string][]netip.Addr{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line == "" {
+			continue
+		}
+		if line == KeepLine {
+			keep = true
 			continue
 		}
 		set, addr, ok := strings.Cut(line, " ")
@@ -108,5 +120,5 @@ func parse(out []byte) map[string][]netip.Addr {
 		}
 		want[set] = append(want[set], a)
 	}
-	return want
+	return want, keep
 }

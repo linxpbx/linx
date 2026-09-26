@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"linxpbx.com/linx/internal/db"
+	"linxpbx.com/linx/internal/firewallsync"
 	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/trunkconf"
@@ -20,8 +21,10 @@ const firewallUsage = `Usage:
 addresses  Print, one per line, "<set> <address>": the IP-authenticated
            trunks' resolved addresses the host firewall's trunk_addresses
            and trunk_plain_addresses sets should hold right now
-           (docs/TRUNKS.md §12). linx-firewall-sync runs this through
-           docker exec, the same trust as linx user; nothing else calls it.
+           (docs/TRUNKS.md §12), and "keep" first if a trunk's name
+           didn't resolve (withdraw nothing this time). linx-firewall-sync
+           runs this through docker exec, the same trust as linx user;
+           nothing else calls it.
 `
 
 // firewallTrunks is the database access the firewall command needs.
@@ -59,7 +62,17 @@ func firewallCommand(ctx context.Context, st firewallTrunks, resolve func(contex
 		fmt.Fprintf(stderr, "Can't read trunks: %v\n", err)
 		return 1
 	}
-	tls, plain := trunk.FirewallAddresses(ctx, trunks, resolve)
+	unresolved := false
+	tls, plain := trunk.FirewallAddresses(ctx, trunks, func(ctx context.Context, host string) []netip.Addr {
+		addrs := resolve(ctx, host)
+		if len(addrs) == 0 {
+			unresolved = true
+		}
+		return addrs
+	})
+	if unresolved {
+		fmt.Fprintln(stdout, firewallsync.KeepLine)
+	}
 	for _, a := range tls {
 		fmt.Fprintf(stdout, "trunk_addresses %s\n", a)
 	}

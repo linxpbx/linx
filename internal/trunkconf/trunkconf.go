@@ -305,6 +305,10 @@ func writeTrunk(b *bytes.Buffer, t trunk.Trunk, password string, addrs []netip.A
 	// to, on its registration's line) is this trunk: never a name someone
 	// puts in a From header, since trunks don't challenge.
 	b.WriteString("identify_by=ip\n")
+	// allow_transfer=no: a provider can't ask Linx to transfer a call
+	// (REFER). The dialplan already sends such a transfer nowhere useful
+	// (the phone's side would land in linx-from-trunk, which only knows
+	// trunks' DIDs); this refuses it outright (Phase 1D review).
 	b.WriteString(`direct_media=no
 rtp_symmetric=yes
 force_rport=yes
@@ -315,6 +319,7 @@ send_rpid=no
 trust_id_inbound=no
 trust_id_outbound=yes
 allow_subscribe=no
+allow_transfer=no
 `)
 
 	if t.Kind == trunk.KindRegistration {

@@ -66,6 +66,24 @@ func contains(list []string, s string) bool {
 	return false
 }
 
+func TestOnceKeepWithdrawsNothing(t *testing.T) {
+	// A trunk's name didn't resolve: add what's new, withdraw nothing.
+	f := &fakeHost{
+		dockerOut: "keep\ntrunk_addresses 203.0.113.1\n",
+		sets:      map[string][]string{installer.TrunkAddressSet: {"203.0.113.9"}, installer.TrunkPlainAddressSet: {"203.0.113.9"}},
+	}
+	env := Env{Exec: f.run, Log: slog.New(slog.NewTextHandler(logDiscard{}, nil))}
+	if err := env.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.sets[installer.TrunkAddressSet]; !sameSet(got, []string{"203.0.113.1", "203.0.113.9"}) {
+		t.Errorf("trunk_addresses = %v", got)
+	}
+	if got := f.sets[installer.TrunkPlainAddressSet]; !sameSet(got, []string{"203.0.113.9"}) {
+		t.Errorf("trunk_plain_addresses = %v", got)
+	}
+}
+
 func TestOnceAddsAndRemoves(t *testing.T) {
 	f := &fakeHost{
 		dockerOut: "trunk_addresses 203.0.113.1\ntrunk_addresses 203.0.113.2\ntrunk_plain_addresses 203.0.113.2\n",
@@ -139,7 +157,7 @@ func TestOnceOneSetFailingDoesntStopTheOther(t *testing.T) {
 }
 
 func TestParseIgnoresGarbage(t *testing.T) {
-	want := parse([]byte("trunk_addresses 203.0.113.1\nnot a valid line\ntrunk_addresses not-an-address\n\n"))
+	want, _ := parse([]byte("trunk_addresses 203.0.113.1\nnot a valid line\ntrunk_addresses not-an-address\n\n"))
 	got := want[installer.TrunkAddressSet]
 	if len(got) != 1 || got[0] != netip.MustParseAddr("203.0.113.1") {
 		t.Errorf("got %v", got)

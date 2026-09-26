@@ -80,7 +80,7 @@ func TestRender(t *testing.T) {
 		"server_uri=sip:sip.provider.example:5061;transport=tls\nclient_uri=sip:linx01@sip.provider.example\n",
 		"line=yes\nendpoint=" + reg.Endpoint() + "\n",
 		// Every trunk: its own context, never a name from a From header.
-		"context=linx-from-trunk\n", "identify_by=ip\n", "media_encryption=sdes\n",
+		"context=linx-from-trunk\n", "identify_by=ip\n", "allow_transfer=no\n", "media_encryption=sdes\n",
 		// TLS by name (the certificate is checked against it).
 		"[" + ucm.Endpoint() + "]\ntype=aor\ncontact=sip:ucm.lan:5061;transport=tls\n",
 		// Calls in from its addresses.

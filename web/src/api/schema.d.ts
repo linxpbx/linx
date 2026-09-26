@@ -1759,7 +1759,10 @@ export interface components {
             number: string;
             display_name: string;
             email?: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description Needs the routing:write scope as well (a level decides which numbers cost money to call); 403 scope_missing otherwise.
+             */
             call_permission_level_id?: string;
             /** @description Defaults to true. */
             enabled?: boolean;
@@ -1769,7 +1772,7 @@ export interface components {
             number?: string;
             display_name?: string;
             email?: string;
-            /** @description Empty string clears it (only emergency numbers stay allowed). */
+            /** @description Empty string clears it (only emergency numbers stay allowed). Changing it needs the routing:write scope as well; 403 scope_missing otherwise. */
             call_permission_level_id?: string;
             enabled?: boolean;
         };
@@ -2024,6 +2027,7 @@ export interface components {
             max_calls?: number;
             /** @description Empty string moves the trunk to "Internet". */
             wireguard_profile_id?: string;
+            /** @description Must be true when the change leaves the trunk unencrypted and it wasn't confirmed before, or when an unencrypted trunk gets another host, transport or media encryption (the earlier confirmation no longer covers it); 422 unencrypted_confirmation_required otherwise. */
             confirm_unencrypted?: boolean;
             enabled?: boolean;
         };

@@ -555,7 +555,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 ## ADR-047 — Firewall for IP-authenticated trunks (owner decision, 2026-09-26)
 
-**Context.** Providers that send calls from fixed addresses need 5061 (5060 for ADR-023 trunks) and the audio ports open to exactly those addresses. The host firewall (`inet linx`, 1B) is installed by `linx setup` as root; nothing in a container may change the host. Design: `docs/TRUNKS.md` §3, §8.
+**Context.** Providers that send calls from fixed addresses need 5061 (5060 for ADR-023 trunks; as built, 5062: 5060 is never used) and the audio ports open to exactly those addresses. The host firewall (`inet linx`, 1B) is installed by `linx setup` as root; nothing in a container may change the host. Design: `docs/TRUNKS.md` §3, §8.
 
 **Decision.** `linx-firewall-sync`, a root systemd timer on the host (every minute), asks the control plane for the address lists through `docker exec` (the same trust as `linx user`) and updates only the elements of Linx's own nftables sets, never rules. Registration trunks need nothing (replies to Linx's own connections).
 

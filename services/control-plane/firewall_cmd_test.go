@@ -47,6 +47,26 @@ func TestFirewallCommand(t *testing.T) {
 	}
 }
 
+func TestFirewallCommandUnresolvedKeeps(t *testing.T) {
+	st := &fakeFirewallTrunks{trunks: []trunk.Trunk{
+		{Kind: trunk.KindIPAuthenticated, Host: "203.0.113.1", Transport: trunk.TransportTLS, Enabled: true},
+		{Kind: trunk.KindIPAuthenticated, Host: "gone.example.com", Transport: trunk.TransportTLS, Enabled: true},
+	}}
+	resolve := func(_ context.Context, host string) []netip.Addr {
+		if a, err := netip.ParseAddr(host); err == nil {
+			return []netip.Addr{a}
+		}
+		return nil
+	}
+	var out, errb bytes.Buffer
+	if code := firewallCommand(t.Context(), st, resolve, []string{"addresses"}, &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	if want := "keep\ntrunk_addresses 203.0.113.1\n"; out.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
 func TestFirewallCommandNoTrunks(t *testing.T) {
 	var out, errb bytes.Buffer
 	code := firewallCommand(t.Context(), &fakeFirewallTrunks{}, func(context.Context, string) []netip.Addr { return nil },
