@@ -37,6 +37,8 @@ type setupEnv struct {
 	// /usr/local/bin/linx ("" if unknown).
 	executable string
 	resolve    func(string) (string, error)
+	// stat is os.Stat: whether linx-firewall-sync sits next to executable.
+	stat func(string) (os.FileInfo, error)
 }
 
 func realSetupEnv() setupEnv {
@@ -57,6 +59,7 @@ func realSetupEnv() setupEnv {
 		commit:     version.Commit,
 		executable: executablePath(),
 		resolve:    filepath.EvalSymlinks,
+		stat:       os.Stat,
 	}
 }
 
@@ -237,6 +240,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	plan = append(plan, fdDNS...)
 
 	plan = append(plan, installer.CLIPlan(env.executable, env.resolve)...)
+	plan = append(plan, installer.FirewallSyncPlan(env.executable, env.resolve, env.stat)...)
 	plan = append(plan, installer.Step{Title: "Save your answers to " + installer.ConfigPath, File: &installer.File{
 		Path: installer.ConfigPath, Data: cfg.Marshal(), Mode: 0o600, DirMode: 0o755,
 	}})

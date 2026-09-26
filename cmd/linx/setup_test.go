@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"net/netip"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -55,6 +56,7 @@ func testEnv(stdin string, files map[string]string) setupEnv {
 		commit:     testCommit,
 		executable: "/home/owner/linx",
 		resolve:    func(p string) (string, error) { return p, nil },
+		stat:       func(string) (os.FileInfo, error) { return nil, fs.ErrNotExist },
 	}
 }
 
@@ -95,6 +97,33 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 		"Install the linx command as /usr/local/bin/linx",
 		"Save your answers",
 		"Dry run: nothing was changed.",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// TestSetupInstallsFirewallSync checks setup installs linx-firewall-sync
+// (docs/TRUNKS.md §13 step 6) when it's built alongside linx, the same way
+// it installs linx itself.
+func TestSetupInstallsFirewallSync(t *testing.T) {
+	env := testEnv("\ny\n1\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n", nil)
+	env.stat = func(p string) (os.FileInfo, error) {
+		if p == "/home/owner/linx-firewall-sync" {
+			return nil, nil
+		}
+		return nil, fs.ErrNotExist
+	}
+	var out, errOut bytes.Buffer
+	code := runSetup(context.Background(), []string{"--dry-run"}, &out, &errOut, env)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr: %s\nstdout: %s", code, errOut.String(), out.String())
+	}
+	for _, want := range []string{
+		"Install linx-firewall-sync as /usr/local/bin/linx-firewall-sync",
+		"$ systemctl enable linx-firewall-sync.timer",
+		"$ systemctl restart linx-firewall-sync.timer",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())

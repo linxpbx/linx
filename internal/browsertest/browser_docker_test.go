@@ -528,11 +528,18 @@ func (h *harness) provision(t *testing.T) {
 	if h.key == "" {
 		t.Fatalf("no API key in:\n%s", out)
 	}
+	// A permission level letting 101 and 102 call mobile numbers: the
+	// Phase 1 exit test dials one, out through the provider trunk below.
+	var level struct {
+		ID string `json:"id"`
+	}
+	h.call("POST", "/api/v1/call-permission-levels", map[string]any{"name": "Browser test", "allowed_categories": []string{"mobile"}}, &level)
+
 	var ext struct {
 		ID string `json:"id"`
 	}
 	for _, n := range []string{"101", "102"} {
-		h.call("POST", "/api/v1/extensions", map[string]string{"number": n, "display_name": "Browser " + n}, nil)
+		h.call("POST", "/api/v1/extensions", map[string]any{"number": n, "display_name": "Browser " + n, "call_permission_level_id": level.ID}, nil)
 	}
 	h.call("POST", "/api/v1/extensions", map[string]string{"number": "103", "display_name": "Desk softphone"}, &ext)
 	var dev struct {
@@ -569,6 +576,8 @@ func (h *harness) provision(t *testing.T) {
 		return append(base, args...)
 	}
 	h.docker(sipp("linx-browser-test-sipp", "-sf", "/scenarios/register.xml", "-oocsf", "/scenarios/answer.xml", "-d", "600000")...)
+
+	h.providerTrunk(t, testdata)
 
 	// LINX_SIP_DEBUG=1 logs every SIP message Asterisk sees (shown on failure).
 	if os.Getenv("LINX_SIP_DEBUG") == "1" {
@@ -648,3 +657,70 @@ func (h *harness) provision(t *testing.T) {
 // softphoneCallMarker is the line web/e2e/calls.spec.ts prints when a
 // browser is waiting for the softphone to call it.
 const softphoneCallMarker = "LINX-TEST: softphone, call 101 now"
+
+// providerTrunkUser and providerTrunkPass: the login Linx registers to the
+// provider trunk with.
+const (
+	providerTrunkUser = "browsertrunk"
+	providerTrunkPass = "p;ss w0rd-x7"
+	providerHost      = "provider." + domain
+)
+
+// providerTrunk sets up a phone-line provider (docs/TRUNKS.md), the same
+// SIPp scenario the trunk call suite uses as a registration provider over
+// TLS with SRTP: it reuses the *.linx.test certificate deployCertificate
+// already made (its wildcard covers provider.linx.test too), so nothing
+// new needs pinning by hand. This is the Phase 1 exit test's other leg: a
+// browser with UDP blocked calls out through it and back.
+func (h *harness) providerTrunk(t *testing.T, testdata string) {
+	h.docker("run", "--detach", "--name", "linx-browser-test-provider", "--network", netPrefix+"public",
+		"--network-alias", providerHost,
+		"--volume", testdata+":/scenarios:ro", "--volume", filepath.Join(h.dir, "tls")+":/tls:ro",
+		sippImage, "-t", "l1", "-p", "5061", "-sf", "/scenarios/provider.xml",
+		"-tls_cert", "/tls/client.pem", "-tls_key", "/tls/client.key",
+		"-nostdin", "-trace_logs", "-log_file", "/dev/stdout", "-trace_err", "-error_file", "/dev/stderr",
+		"-set", "user", providerTrunkUser, "-set", "pass", providerTrunkPass, "-set", "did", "+97142000199",
+		"-set", "proto", "RTP/SAVP", "-set", "crypto", "a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:y8r4kQ3zYt0Rvq2VJq0yJ3m0z2fX8sA1b5c6d7e8")
+	t.Cleanup(func() { exec.Command("docker", "rm", "--force", "linx-browser-test-provider").Run() })
+
+	rootCA, err := os.ReadFile(filepath.Join(h.dir, "tls", "root_ca.crt"))
+	must(t, err)
+	var tr struct {
+		ID string `json:"id"`
+	}
+	h.call("POST", "/api/v1/trunks", map[string]any{
+		"name": "Browser test provider", "kind": "registration", "host": providerHost,
+		"cert_trust": "pinned", "pinned_certificate": string(rootCA),
+		"username": providerTrunkUser, "password": providerTrunkPass, "caller_id_number": "+97142000100",
+	}, &tr)
+	h.call("PUT", "/api/v1/outbound-routing", map[string]any{"order": []string{tr.ID}}, nil)
+
+	waitFor(t, h.ctx, 30*time.Second, func() bool {
+		out, err := exec.CommandContext(h.ctx, "docker", "exec", "linx-asterisk", "asterisk", "-rx", "pjsip show registrations").CombinedOutput()
+		return err == nil && strings.Contains(string(out), "Registered")
+	}, func() string {
+		out, _ := exec.CommandContext(h.ctx, "docker", "exec", "linx-asterisk", "asterisk", "-rx", "pjsip show registrations").CombinedOutput()
+		logs, _ := exec.Command("docker", "logs", "--tail", "40", "linx-browser-test-provider").CombinedOutput()
+		return fmt.Sprintf("registrations:\n%s\nprovider's log:\n%s", out, logs)
+	})
+}
+
+// waitFor polls until check reports true or timeout passes, failing t with
+// detail's output (evaluated only on failure) if it never does.
+func waitFor(t *testing.T, ctx context.Context, timeout time.Duration, check func() bool, detail func() string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if check() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out after %s:\n%s", timeout, detail())
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("cancelled:\n%s", detail())
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}

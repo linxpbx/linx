@@ -561,6 +561,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Up to a minute before a new IP-authenticated trunk can call in. Doctor checks the sets match.
 
+**As built (1D step 6, 2026-09-26).** The plain trunk port is 5062, not 5060 (step 3 already moved it, ADR-031 "As built": Asterisk never listens on 5060, anywhere). The addresses to admit come from `docker exec linx-control-plane service firewall addresses`, a new hidden subcommand printing `"<set> <address>"` lines from `internal/trunk.FirewallAddresses` (the same host resolution `trunkconf` uses for Asterisk's own ACL, so the two can't disagree); `internal/nftset` is the only code that runs `nft add/delete element`, and `linx-firewall-sync` (`cmd/linx-firewall-sync`, `internal/firewallsync`) checks a line's set name against a compile-time allow-list of exactly the two sets before ever calling it — never trusting what the control plane printed. If the control plane can't be reached, the firewall is left exactly as it was, not cleared. Details: `docs/TRUNKS.md` §8 "As built, step 6".
+
 ## ADR-048 — Toll-fraud defaults (owner decision, 2026-09-26)
 
 **Context.** Phone systems connected to paid lines are a target for fraud (calls to expensive international or premium numbers). The build brief asks for international dialling off by default, per-extension limits and alerts. Design: `docs/TRUNKS.md` §9.

@@ -5,9 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
+	"slices"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
+	"linxpbx.com/linx/internal/installer"
+	"linxpbx.com/linx/internal/nftset"
 	"linxpbx.com/linx/internal/numbering"
+	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/trunkstatus"
 )
 
@@ -160,6 +168,7 @@ func Lines(ctx context.Context, env Env) []Result {
 	}
 
 	tunnels(ctx, env, &rs, st.Tunnels)
+	firewallSync(ctx, env, &rs, st.Trunks)
 
 	if st.Clashes > 0 {
 		rs.warn(fmt.Sprintf("%s can't be dialled: their numbers are also outside or emergency numbers here.", count(st.Clashes, "extension")),
@@ -224,4 +233,73 @@ func pinnedExpiry(rs *results, label, pemText string, now time.Time) {
 		rs.warn(fmt.Sprintf("%s's pinned certificate expires on %s (%s).", label, soonest.NotAfter.Format("2 Jan 2006"), days(left)),
 			"Put a new certificate on it before then, and pin that one.")
 	}
+}
+
+// firewallSync checks the host firewall matches the IP-authenticated
+// trunks in rows (docs/TRUNKS.md §12): linx-firewall-sync's timer runs,
+// and its two sets hold exactly the addresses those trunks resolve to
+// right now. Nothing to check with no such trunk: the sets are simply
+// empty, and nothing depends on the timer yet.
+func firewallSync(ctx context.Context, env Env, rs *results, rows []lineRow) {
+	wantTLS, wantPlain := expectedFirewallAddrs(ctx, env, rows)
+	if len(wantTLS) == 0 && len(wantPlain) == 0 {
+		return
+	}
+	en, _ := env.Runner.Run(ctx, nil, "systemctl", "is-enabled", installer.FirewallSyncTimer)
+	act, _ := env.Runner.Run(ctx, nil, "systemctl", "is-active", installer.FirewallSyncTimer)
+	if strings.TrimSpace(string(en)) != "enabled" || strings.TrimSpace(string(act)) != "active" {
+		rs.fail("The timer that keeps the firewall matching your phone-line providers isn't running: a provider that changes address could be refused.",
+			"Turn it on: sudo systemctl enable --now "+installer.FirewallSyncTimer)
+		return
+	}
+	run := func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return env.Runner.Run(ctx, nil, name, args...)
+	}
+	haveTLS, err1 := nftset.List(ctx, run, installer.FirewallTable, installer.TrunkAddressSet)
+	havePlain, err2 := nftset.List(ctx, run, installer.FirewallTable, installer.TrunkPlainAddressSet)
+	if err1 != nil || err2 != nil {
+		rs.fail("Can't read the firewall's phone-line provider addresses.",
+			"Check the firewall rules are loaded: sudo systemctl restart "+installer.FirewallUnit)
+		return
+	}
+	switch {
+	case !sameAddrs(haveTLS, wantTLS) || !sameAddrs(havePlain, wantPlain):
+		rs.warn("The firewall hasn't caught up with your phone-line providers' addresses yet.",
+			"Run linx doctor again in a minute; if it stays like this: sudo systemctl restart "+installer.FirewallSyncTimer)
+	default:
+		rs.ok("The firewall only lets your phone-line providers reach the phone system, from their own addresses.")
+	}
+}
+
+// expectedFirewallAddrs is trunk.FirewallAddresses over what linesQuery
+// already read, so this doesn't need a second database query: it just
+// reuses each row's kind, host, transport and WireGuard flag.
+func expectedFirewallAddrs(ctx context.Context, env Env, rows []lineRow) (tls, plain []netip.Addr) {
+	trunks := make([]trunk.Trunk, len(rows))
+	for i, r := range rows {
+		t := trunk.Trunk{Enabled: r.Enabled, Kind: r.Kind, Host: r.Host, Transport: r.Transport}
+		if r.WireGuard {
+			id := uuid.Nil // trunk.FirewallAddresses only asks whether this is nil
+			t.WireGuardProfileID = &id
+		}
+		trunks[i] = t
+	}
+	resolve := func(ctx context.Context, host string) []netip.Addr {
+		if a, err := netip.ParseAddr(host); err == nil {
+			return []netip.Addr{a}
+		}
+		addrs, err := env.LookupIP(ctx, host)
+		if err != nil {
+			return nil
+		}
+		return addrs
+	}
+	return trunk.FirewallAddresses(ctx, trunks, resolve)
+}
+
+func sameAddrs(a, b []netip.Addr) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.SortFunc(a, netip.Addr.Compare)
+	slices.SortFunc(b, netip.Addr.Compare)
+	return slices.Equal(a, b)
 }

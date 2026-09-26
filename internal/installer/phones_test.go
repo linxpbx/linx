@@ -91,6 +91,20 @@ func TestPhonesPlan(t *testing.T) {
 		!strings.Contains(string(f.Data), "ExecStart=/usr/sbin/nft -f /etc/linx/nftables.conf") {
 		t.Errorf("unit = %+v", f)
 	}
+	if f := files[TrunkAudioForwardFile]; f == nil || !strings.Contains(string(f.Data), "forward UDP ports 10000-10199 to 192.168.1.20") {
+		t.Errorf("trunk audio forward steps = %+v", f)
+	}
+
+	// No local network: nothing to forward a port to.
+	p, err = PhonesPlan(context.Background(), r, LAN{}, FrontDoorSettings{}, readFiles(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range p {
+		if s.File != nil && s.File.Path == TrunkAudioForwardFile {
+			t.Errorf("trunk audio forward steps written with no LAN: %+v", s.File)
+		}
+	}
 
 	// No nft, fresh Docker.
 	p, err = PhonesPlan(context.Background(), &fakeRunner{}, lan, FrontDoorSettings{}, readFiles(nil))
@@ -114,8 +128,14 @@ func TestFirewallRuleset(t *testing.T) {
 		"type filter hook prerouting priority mangle; policy accept;",
 		"fib daddr type local tcp dport 5061 ip saddr @phone_networks accept",
 		"fib daddr type local udp dport 10000-10199 ip saddr @phone_networks accept",
-		"fib daddr type local tcp dport { 5060, 5061 } counter drop",
-		"fib daddr type local udp dport { 5060, 10000-10199 } counter drop",
+		"fib daddr type local tcp dport 5061 ip saddr @trunk_addresses accept",
+		"fib daddr type local udp dport 10000-10199 ip saddr @trunk_addresses accept",
+		"fib daddr type local tcp dport 5062 ip saddr @trunk_plain_addresses accept",
+		"fib daddr type local udp dport 5062 ip saddr @trunk_plain_addresses accept",
+		"set trunk_addresses {\n\t\ttype ipv4_addr\n\t}",
+		"set trunk_plain_addresses {\n\t\ttype ipv4_addr\n\t}",
+		"fib daddr type local tcp dport { 5060, 5061, 5062 } counter drop",
+		"fib daddr type local udp dport { 5060, 10000-10199, 5062 } counter drop",
 		// The front door (Pangolin at 192.168.1.30) alone reaches the web
 		// port and the relay's TLS port.
 		"set front_door {\n\t\ttype ipv4_addr\n\t\telements = { 192.168.1.30 }\n\t}",
@@ -134,7 +154,7 @@ func TestFirewallRuleset(t *testing.T) {
 	if strings.Contains(rs, "flush ruleset") {
 		t.Error("ruleset must never flush other tables")
 	}
-	if none := string(FirewallRuleset(LAN{}, FrontDoorSettings{})); strings.Contains(none, "elements") || !strings.Contains(none, "counter drop") {
+	if none := string(FirewallRuleset(LAN{}, FrontDoorSettings{})); strings.Contains(none, "elements = {") || !strings.Contains(none, "counter drop") {
 		t.Errorf("no-LAN ruleset:\n%s", none)
 	}
 }

@@ -8,7 +8,7 @@ SHELL := /bin/bash
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X linxpbx.com/linx/internal/version.Version=$(VERSION) -X linxpbx.com/linx/internal/version.Commit=$(COMMIT)
-GO_BINS := cmd/linx services/control-plane services/certd services/asterisk-entrypoint services/coturn-entrypoint services/wireguard
+GO_BINS := cmd/linx cmd/linx-firewall-sync services/control-plane services/certd services/asterisk-entrypoint services/coturn-entrypoint services/wireguard
 
 .PHONY: help
 help: ## Show available commands

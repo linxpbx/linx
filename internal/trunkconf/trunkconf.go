@@ -525,10 +525,30 @@ func (r *Renderer) RenderOnce(ctx context.Context) (bool, error) {
 }
 
 func (r *Renderer) resolve(ctx context.Context, host string) []netip.Addr {
+	addrs := ResolveHost(ctx, host, r.Lookup)
+	if len(addrs) == 0 {
+		if prev := r.last[host]; len(prev) > 0 {
+			r.Log.Warn("a trunk's address doesn't resolve; keeping the last one", "host", host, "addresses", prev)
+			return prev
+		}
+		return nil
+	}
+	r.last[host] = addrs
+	return addrs
+}
+
+// ResolveHost turns a trunk's host into its addresses: itself, if it's
+// already an IPv4 address, otherwise looked up (the system resolver unless
+// lookup is given, e.g. in tests). nil on failure or if it isn't found;
+// this doesn't cache anything, unlike Renderer.resolve, which wraps it
+// with "keep the last address on a DNS hiccup" for its own render loop.
+// Anything else that needs a trunk's address the way Asterisk sees it
+// (docs/TRUNKS.md §12's firewall sync included) should call this, not
+// invent a second resolution strategy that could disagree with it.
+func ResolveHost(ctx context.Context, host string, lookup func(context.Context, string) ([]netip.Addr, error)) []netip.Addr {
 	if a, err := netip.ParseAddr(host); err == nil {
 		return []netip.Addr{a}
 	}
-	lookup := r.Lookup
 	if lookup == nil {
 		lookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip4", host)
@@ -538,16 +558,11 @@ func (r *Renderer) resolve(ctx context.Context, host string) []netip.Addr {
 	defer cancel()
 	addrs, err := lookup(ctx, host)
 	if err != nil || len(addrs) == 0 {
-		if prev := r.last[host]; len(prev) > 0 {
-			r.Log.Warn("a trunk's address doesn't resolve; keeping the last one", "host", host, "err", err, "addresses", prev)
-			return prev
-		}
 		return nil
 	}
 	for i := range addrs {
 		addrs[i] = addrs[i].Unmap()
 	}
 	slices.SortFunc(addrs, func(a, b netip.Addr) int { return a.Compare(b) })
-	r.last[host] = addrs
 	return addrs
 }

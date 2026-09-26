@@ -104,3 +104,45 @@ func TestLinesWireGuard(t *testing.T) {
 	want(t, rs, installer.Fail, "Linx's WireGuard service isn't running")
 	want(t, rs, installer.Fail, "kernel hasn't loaded WireGuard")
 }
+
+func ipAuthLine(id, host, transport string) map[string]any {
+	return map[string]any{"id": id, "name": "Provider", "kind": "ip_authenticated", "host": host, "port": 5061,
+		"transport": transport, "media": "srtp", "enabled": true, "outbound": 2, "pinned": "", "status": "registered", "detail": "ok"}
+}
+
+// TestLinesFirewallSync checks the timer that keeps the firewall matching
+// IP-authenticated trunks (docs/TRUNKS.md §12): nothing to check with none
+// (TestLines's UCM is a LAN peer, never in this check), then not running,
+// out of sync and caught up.
+func TestLinesFirewallSync(t *testing.T) {
+	const providerID = "22222222-2222-2222-2222-222222222222"
+	f := phonesFixture(t)
+	f.runner[psqlCmd+linesQuery] = linesJSON(t, ucmLine(), ipAuthLine(providerID, "203.0.113.10", "tls"))
+	f.runner[astCLI+"pjsip show registrations"] = "  Registration:  trunk-" + providerID + "/sip Registered\n"
+
+	// The timer isn't set up at all yet.
+	rs := f.lines()
+	want(t, rs, installer.Fail, "The timer that keeps the firewall matching your phone-line providers isn't running")
+
+	// The timer runs, but hasn't caught up with the new trunk yet.
+	f.runner["systemctl is-enabled linx-firewall-sync.timer"] = "enabled\n"
+	f.runner["systemctl is-active linx-firewall-sync.timer"] = "active\n"
+	f.runner["nft -j list set inet linx trunk_addresses"] = `{"nftables":[{"set":{"elem":[]}}]}`
+	f.runner["nft -j list set inet linx trunk_plain_addresses"] = `{"nftables":[{"set":{"elem":[]}}]}`
+	rs = f.lines()
+	want(t, rs, installer.Warn, "The firewall hasn't caught up with your phone-line providers' addresses yet")
+
+	// Caught up: a TLS trunk's address is admitted, but never lands in the
+	// plain set (it never uses that port).
+	f.runner["nft -j list set inet linx trunk_addresses"] = `{"nftables":[{"set":{"elem":["203.0.113.10"]}}]}`
+	rs = f.lines()
+	want(t, rs, installer.OK, "The firewall only lets your phone-line providers reach the phone system, from their own addresses")
+
+	// A trunk using a plain transport also needs the plain set.
+	f.runner[psqlCmd+linesQuery] = linesJSON(t, ucmLine(), ipAuthLine(providerID, "203.0.113.10", "udp"))
+	rs = f.lines()
+	want(t, rs, installer.Warn, "The firewall hasn't caught up with your phone-line providers' addresses yet")
+	f.runner["nft -j list set inet linx trunk_plain_addresses"] = `{"nftables":[{"set":{"elem":["203.0.113.10"]}}]}`
+	rs = f.lines()
+	want(t, rs, installer.OK, "The firewall only lets your phone-line providers reach the phone system, from their own addresses")
+}

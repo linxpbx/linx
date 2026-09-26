@@ -176,6 +176,20 @@ test("browsers call each other, one with UDP blocked", async () => {
   await expect(aisha.getByTestId("call-panel")).toHaveAttribute("data-phase", "active");
   await expect(aisha.getByTestId("call-panel")).toHaveCount(0, { timeout: 30_000 });
 
+  // The Phase 1 exit test: Omar, with UDP blocked, calls a mobile number
+  // out through the phone-line provider trunk (internal/browsertest's
+  // linx-browser-test-provider, a SIPp registration provider over TLS with
+  // SRTP) and it answers — proving a call still gets out and back when a
+  // browser's own network blocks UDP, not just calls between browsers.
+  await omar.goto("/");
+  await expect(omar.getByTestId("account-menu")).toContainText("Available", { timeout: 30_000 });
+  await omar.getByLabel("Name, extension or number").fill("0501234567");
+  await omar.getByRole("button", { name: "Call", exact: true }).click();
+  await expect(omar.getByTestId("call-panel")).toHaveAttribute("data-phase", "active", { timeout: 30_000 });
+  await expect(omar.getByTestId("connection")).toHaveAttribute("data-relay-protocol", "tls");
+  await omar.getByRole("button", { name: "End call" }).click();
+  await expect(omar.getByTestId("call-panel")).toHaveCount(0);
+
   // The echo test, in Opus: Omar (relayed over TLS) hears himself back.
   await omar.goto("/settings");
   await expect(omar.getByTestId("account-menu")).toContainText("Available", { timeout: 30_000 });
