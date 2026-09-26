@@ -118,7 +118,7 @@ func TestWebhooksDocker(t *testing.T) {
 
 	t.Run("dispatch fans out to subscribed, enabled endpoints only", func(t *testing.T) {
 		off := newEndpoint(nil, false)
-		other := newEndpoint([]string{"trunk.down"}, true)
+		other := newEndpoint([]string{"trunk.status_changed"}, true)
 		all := newEndpoint(nil, true)
 		missed := newEndpoint([]string{"call.missed"}, true)
 		emit("call.missed")
@@ -143,7 +143,7 @@ func TestWebhooksDocker(t *testing.T) {
 
 	t.Run("claim leases a delivery to one worker", func(t *testing.T) {
 		e := newEndpoint(nil, true)
-		ev := emit("trunk.down")
+		ev := emit("trunk.status_changed")
 		s.DispatchEvents(ctx, time.Now(), webhook.MaxAttempts, 100)
 		now := time.Now()
 		jobs, err := s.ClaimDeliveries(ctx, now, now.Add(time.Minute), 10)

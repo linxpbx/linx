@@ -475,6 +475,14 @@ func isForeignKeyViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }
 
+// isRestrictViolation reports whether err is a delete or update refused by
+// an ON DELETE/UPDATE RESTRICT foreign key (a distinct SQLSTATE from a plain
+// foreign key violation).
+func isRestrictViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23001"
+}
+
 // Cleanup keeps the delivery log to its retention and forgets previous
 // secrets once their overlap has ended.
 func (s *Store) Cleanup(ctx context.Context, cutoff, now time.Time) error {

@@ -211,7 +211,7 @@ func TestAsteriskRealtimeDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ endpoint, dialled, want string }{
-		{"d_1a2b3c4d", "0501234567", "mobile +971501234567 f no_lines"},
+		{"d_1a2b3c4d", "0501234567", "mobile +971501234567 f not_permitted"},
 		{"d_1a2b3c4d", "999", "emergency 999 t emergency"},
 		{"d_9z8y7x6w", "999", "emergency 999 f unknown_caller"},
 		{"101", "999", "emergency 999 f unknown_caller"},

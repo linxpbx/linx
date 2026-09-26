@@ -1,0 +1,60 @@
+# Provider template catalogue (docs/TRUNKS.md §3): sensible defaults for
+# `linx trunk add` (Phase 1D step 4) to fill in. The admin still gives the
+# provider's address and login, and the probe checks everything regardless
+# of what a template says. Add an entry here to add a template; no code
+# change needed.
+- name: telnyx
+  label: Telnyx
+  kind: registration
+  transport: tls
+  media_encryption: srtp
+  dial_format: e164
+  codecs: [alaw, ulaw]
+  notes: SIP trunking credentials come from the Telnyx portal (Mission Control).
+
+- name: voipms
+  label: VoIP.ms
+  kind: registration
+  transport: tls
+  media_encryption: srtp
+  dial_format: e164
+  codecs: [alaw, ulaw]
+  notes: Use a subaccount's SIP/IAX username and password from the VoIP.ms portal.
+
+- name: twilio
+  label: Twilio Elastic SIP Trunking
+  kind: registration
+  transport: tls
+  media_encryption: srtp
+  dial_format: e164
+  codecs: [alaw, ulaw]
+  notes: Create a Termination SIP domain in the Twilio console and use its credential list username and password.
+
+- name: grandstream_ucm
+  label: Grandstream UCM (on the LAN)
+  kind: lan_peer
+  transport: tls
+  media_encryption: srtp
+  cert_trust: pinned
+  dial_format: local
+  port: 5061
+  codecs: [alaw, ulaw]
+  notes: Pin the UCM's own certificate (Settings > TLS on the UCM) and set up a matching TLS peer trunk there.
+
+- name: linx
+  label: Another Linx server
+  kind: lan_peer
+  transport: tls
+  media_encryption: srtp
+  dial_format: e164
+  codecs: [opus, g722, alaw, ulaw]
+  notes: For a parallel run while people move between two Linx servers.
+
+- name: generic
+  label: Generic
+  kind: registration
+  transport: tls
+  media_encryption: srtp
+  dial_format: e164
+  codecs: [alaw, ulaw]
+  notes: Fill in every field from the provider's own setup instructions.

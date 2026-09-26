@@ -121,8 +121,10 @@ func TestNumberingDocker(t *testing.T) {
 	}{
 		{ext.ID, "999", numbering.Emergency, true, numbering.ReasonEmergency, "999"},
 		{ext.ID, "901", numbering.Emergency, true, numbering.ReasonEmergency, "901"},
-		{ext.ID, "050 123 4567", numbering.Mobile, false, numbering.ReasonNoLines, "+971501234567"},
-		{ext.ID, "+44 20 7946 0958", numbering.International, false, numbering.ReasonNoLines, "+442079460958"},
+		// ext has no call permission level assigned, so it can only call
+		// emergency numbers (migration 0017, fail closed).
+		{ext.ID, "050 123 4567", numbering.Mobile, false, numbering.ReasonNotPermitted, "+971501234567"},
+		{ext.ID, "+44 20 7946 0958", numbering.International, false, numbering.ReasonNotPermitted, "+442079460958"},
 		{ext.ID, "12", numbering.Invalid, false, numbering.ReasonInvalid, ""},
 		{off.ID, "0501234567", numbering.Mobile, false, numbering.ReasonUnknownCaller, "+971501234567"},
 		{uuid.Nil, "999", numbering.Emergency, false, numbering.ReasonUnknownCaller, "999"},

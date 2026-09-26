@@ -16,6 +16,9 @@ func toExtension(e pbx.Extension) Extension {
 	if e.Email != "" {
 		out.Email = &e.Email
 	}
+	if e.CallPermissionLevelID != nil {
+		out.CallPermissionLevelId = e.CallPermissionLevelID
+	}
 	return out
 }
 
@@ -41,6 +44,7 @@ func (s *Server) ListExtensions(ctx context.Context, req ListExtensionsRequestOb
 func (s *Server) CreateExtension(ctx context.Context, req CreateExtensionRequestObject) (CreateExtensionResponseObject, error) {
 	e, err := s.pbx.CreateExtension(ctx, pbx.ExtensionInput{
 		Number: req.Body.Number, DisplayName: req.Body.DisplayName, Email: deref(req.Body.Email), Enabled: req.Body.Enabled,
+		CallPermissionLevelID: req.Body.CallPermissionLevelId,
 	})
 	if err != nil {
 		e, err := apiError(err)
@@ -68,6 +72,7 @@ func (s *Server) GetExtension(ctx context.Context, req GetExtensionRequestObject
 func (s *Server) UpdateExtension(ctx context.Context, req UpdateExtensionRequestObject) (UpdateExtensionResponseObject, error) {
 	e, err := s.pbx.UpdateExtension(ctx, req.Id, pbx.ExtensionPatch{
 		Number: req.Body.Number, DisplayName: req.Body.DisplayName, Email: req.Body.Email, Enabled: req.Body.Enabled,
+		CallPermissionLevelID: req.Body.CallPermissionLevelId,
 	}, deref(req.Params.IfMatch))
 	if err != nil {
 		e, err := apiError(err)

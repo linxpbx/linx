@@ -957,6 +957,513 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/trunks:
+    get:
+      operationId: listTrunks
+      summary: List trunks
+      description: Newest first.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of trunks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrunkList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createTrunk
+      summary: Add a trunk
+      description: >-
+        Not idempotent: retrying adds a second trunk. Refused (422
+        `unencrypted_confirmation_required`) if the trunk as given is
+        unencrypted (docs/TRUNKS.md §6, ADR-023) and isn't reached through a
+        WireGuard profile, unless `confirm_unencrypted` is sent too.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrunkCreate"
+      responses:
+        "201":
+          description: The new trunk.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trunk"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/trunks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getTrunk
+      summary: Get a trunk
+      tags: [trunks]
+      security:
+        - bearer: [trunks:read]
+      responses:
+        "200":
+          description: The trunk.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trunk"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateTrunk
+      summary: Change a trunk
+      description: >-
+        JSON Merge Patch: only the fields sent change. Send `If-Match` with
+        the trunk's `etag` to refuse the change (412) if someone else
+        changed it first. Send `confirm_unencrypted: true` in the same
+        request that makes the trunk unencrypted (ADR-023).
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/TrunkPatch"
+      responses:
+        "200":
+          description: The trunk as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trunk"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteTrunk
+      summary: Delete a trunk
+      description: Also deletes every DID it owns, in the same transaction.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      responses:
+        "204":
+          description: Deleted.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/trunks/{id}/dids:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listTrunkDids
+      summary: List a trunk's phone numbers
+      description: Newest first.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of phone numbers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DidList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createDid
+      summary: Add a phone number to a trunk
+      description: >-
+        Not idempotent: retrying adds a duplicate number (refused, 409
+        `number_duplicate`: a number can belong to only one trunk).
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DidCreate"
+      responses:
+        "201":
+          description: The new phone number.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Did"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/dids/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getDid
+      summary: Get a phone number
+      tags: [trunks]
+      security:
+        - bearer: [trunks:read]
+      responses:
+        "200":
+          description: The phone number.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Did"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateDid
+      summary: Change a phone number's route
+      description: >-
+        JSON Merge Patch: only the fields sent change. Send `If-Match` with
+        the number's `etag` to refuse the change (412) if someone else
+        changed it first. Send `extension_id: ""` to clear it: calls to the
+        number then hear "not in use".
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/DidPatch"
+      responses:
+        "200":
+          description: The phone number as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Did"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteDid
+      summary: Remove a phone number from its trunk
+      description: The number can be added to another trunk afterwards.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      responses:
+        "204":
+          description: Deleted.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/inbound-routes:
+    get:
+      operationId: listInboundRoutes
+      summary: List every phone number's route
+      description: Every DID of every trunk, newest first (docs/TRUNKS.md §5).
+      tags: [trunks]
+      security:
+        - bearer: [routing:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of phone numbers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InboundRouteList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/outbound-routing:
+    get:
+      operationId: getOutboundRouting
+      summary: See the outgoing call order
+      description: The country Linx is set up in and which trunks outgoing calls try, in order (docs/TRUNKS.md §5).
+      tags: [trunks]
+      security:
+        - bearer: [routing:read]
+      responses:
+        "200":
+          description: The outbound routing summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundRouting"
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: setOutboundRouting
+      summary: Set the outgoing call order
+      description: >-
+        Trunks named in `order` are tried for outgoing calls in that
+        sequence, primary first; trunks left out stop being used for
+        outgoing calls (their phone numbers keep ringing in).
+      tags: [trunks]
+      security:
+        - bearer: [routing:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutboundRoutingUpdate"
+      responses:
+        "200":
+          description: The outbound routing summary as it now is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundRouting"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/wireguard-profiles:
+    get:
+      operationId: listWireguardProfiles
+      summary: List WireGuard profiles
+      description: Newest first.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of profiles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WireguardProfileList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createWireguardProfile
+      summary: Add a WireGuard profile
+      description: >-
+        Import a whole wg-quick configuration with `config`, or fill in the
+        fields directly. The private key (and preshared key, if any) is
+        sealed and never shown again. Not idempotent: retrying adds a
+        second profile.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WireguardProfileCreate"
+      responses:
+        "201":
+          description: The new profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WireguardProfile"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/wireguard-profiles/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getWireguardProfile
+      summary: Get a WireGuard profile
+      tags: [trunks]
+      security:
+        - bearer: [trunks:read]
+      responses:
+        "200":
+          description: The profile.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WireguardProfile"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateWireguardProfile
+      summary: Change a WireGuard profile
+      description: >-
+        JSON Merge Patch of the profile's non-secret fields; reissue it
+        (delete and re-create) to change its keys. Send `If-Match` with the
+        profile's `etag` to refuse the change (412) if someone else changed
+        it first.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/WireguardProfilePatch"
+      responses:
+        "200":
+          description: The profile as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WireguardProfile"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteWireguardProfile
+      summary: Delete a WireGuard profile
+      description: Refused (409 `wireguard_profile_in_use`) while a trunk still connects through it.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      responses:
+        "204":
+          description: Deleted.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/call-permission-levels:
+    get:
+      operationId: listCallPermissionLevels
+      summary: List call permission levels
+      description: Newest first.
+      tags: [trunks]
+      security:
+        - bearer: [routing:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of levels.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPermissionLevelList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createCallPermissionLevel
+      summary: Add a call permission level
+      description: "Not idempotent: retrying adds a second level."
+      tags: [trunks]
+      security:
+        - bearer: [routing:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CallPermissionLevelCreate"
+      responses:
+        "201":
+          description: The new level.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPermissionLevel"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/call-permission-levels/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getCallPermissionLevel
+      summary: Get a call permission level
+      tags: [trunks]
+      security:
+        - bearer: [routing:read]
+      responses:
+        "200":
+          description: The level.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPermissionLevel"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateCallPermissionLevel
+      summary: Change a call permission level
+      description: >-
+        JSON Merge Patch: only the fields sent change. Send `If-Match` with
+        the level's `etag` to refuse the change (412) if someone else
+        changed it first.
+      tags: [trunks]
+      security:
+        - bearer: [routing:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CallPermissionLevelPatch"
+      responses:
+        "200":
+          description: The level as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPermissionLevel"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteCallPermissionLevel
+      summary: Delete a call permission level
+      description: Refused (409 `permission_level_in_use`) while an extension still has it assigned.
+      tags: [trunks]
+      security:
+        - bearer: [routing:write]
+      responses:
+        "204":
+          description: Deleted.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/calls/active:
     get:
       operationId: listActiveCalls
@@ -2291,6 +2798,10 @@ components:
           type: string
         email:
           type: string
+        call_permission_level_id:
+          type: string
+          format: uuid
+          description: Who this extension may call out to (docs/TRUNKS.md §5). Absent means it may only call emergency numbers.
         enabled:
           type: boolean
         created_at:
@@ -2318,6 +2829,9 @@ components:
         email:
           type: string
           maxLength: 200
+        call_permission_level_id:
+          type: string
+          format: uuid
         enabled:
           type: boolean
           description: Defaults to true.
@@ -2336,6 +2850,9 @@ components:
         email:
           type: string
           maxLength: 200
+        call_permission_level_id:
+          type: string
+          description: Empty string clears it (only emergency numbers stay allowed).
         enabled:
           type: boolean
 
@@ -2513,6 +3030,497 @@ components:
         settings_text:
           type: string
           description: A plain-language summary of the above, ready to paste into a phone app.
+
+    TrunkKind:
+      type: string
+      enum: [registration, ip_authenticated, lan_peer]
+      description: >-
+        `registration`: Linx signs in to the provider. `ip_authenticated`:
+        the provider calls in from its own fixed addresses. `lan_peer`:
+        another phone system on the LAN (docs/TRUNKS.md §3).
+
+    TrunkTransport:
+      type: string
+      enum: [tls, tcp, udp]
+      description: tcp and udp need confirm_unencrypted (ADR-023).
+
+    TrunkMediaEncryption:
+      type: string
+      enum: [srtp, none]
+      description: none needs confirm_unencrypted (ADR-023).
+
+    TrunkCertTrust:
+      type: string
+      enum: [public, pinned]
+      description: pinned is a certificate or CA the admin compared and approved (ADR-045).
+
+    TrunkDialFormat:
+      type: string
+      enum: [e164, "00_prefix", local]
+      description: How outgoing numbers are written for this trunk.
+
+    TrunkCodec:
+      type: string
+      enum: [ulaw, alaw, g722, opus]
+
+    NumberCategory:
+      type: string
+      enum: [landline, mobile, national, shared_cost, toll_free, premium, international, service]
+      description: A numbering.Category a call permission level can name. Emergency numbers are always allowed and never listed here.
+
+    Trunk:
+      description: A phone line to a provider or another phone system (docs/TRUNKS.md §3). Its password is write-only and never returned.
+      type: object
+      required: [id, name, kind, host, port, transport, media_encryption, cert_trust, dial_format, codecs, max_calls, unencrypted, enabled, created_at, updated_at, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kind:
+          $ref: "#/components/schemas/TrunkKind"
+        template:
+          type: string
+          description: Which entry of the provider template catalogue this was created from, if any.
+        host:
+          type: string
+        port:
+          type: integer
+        transport:
+          $ref: "#/components/schemas/TrunkTransport"
+        media_encryption:
+          $ref: "#/components/schemas/TrunkMediaEncryption"
+        cert_trust:
+          $ref: "#/components/schemas/TrunkCertTrust"
+        pinned_certificate:
+          type: string
+          description: Present only when cert_trust is pinned.
+        username:
+          type: string
+        dial_format:
+          $ref: "#/components/schemas/TrunkDialFormat"
+        codecs:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrunkCodec"
+        caller_id_number:
+          type: string
+        max_calls:
+          type: integer
+        wireguard_profile_id:
+          type: string
+          format: uuid
+          description: The WireGuard profile this trunk connects through. Absent means "Internet" (ADR-024).
+        outbound_priority:
+          type: integer
+          description: 1 = tried first for outgoing calls. Absent means this trunk isn't used for outgoing calls. Set with PUT /outbound-routing.
+        unencrypted:
+          type: boolean
+          description: Calls on this trunk travel without TLS or without SRTP media (ADR-023), and it isn't reached through a WireGuard profile.
+        unencrypted_confirmed_by:
+          type: string
+          description: Who confirmed the ADR-023 warning. Present only while unencrypted is true.
+        unencrypted_confirmed_at:
+          type: string
+          format: date-time
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: Send as If-Match when changing it.
+
+    TrunkCreate:
+      type: object
+      additionalProperties: false
+      required: [name, kind, host]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        kind:
+          $ref: "#/components/schemas/TrunkKind"
+        template:
+          type: string
+          maxLength: 50
+        host:
+          type: string
+          maxLength: 255
+        port:
+          type: integer
+          description: Defaults to 5061.
+        transport:
+          $ref: "#/components/schemas/TrunkTransport"
+          description: Defaults to tls.
+        media_encryption:
+          $ref: "#/components/schemas/TrunkMediaEncryption"
+          description: Defaults to srtp.
+        cert_trust:
+          $ref: "#/components/schemas/TrunkCertTrust"
+          description: Defaults to public.
+        pinned_certificate:
+          type: string
+          description: Required when cert_trust is pinned.
+        username:
+          type: string
+          maxLength: 200
+        password:
+          type: string
+          maxLength: 200
+          description: Write-only; never returned.
+        dial_format:
+          $ref: "#/components/schemas/TrunkDialFormat"
+          description: Defaults to e164.
+        codecs:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrunkCodec"
+          description: Defaults to [alaw, ulaw].
+        caller_id_number:
+          type: string
+          maxLength: 32
+        max_calls:
+          type: integer
+          description: Defaults to 4.
+        wireguard_profile_id:
+          type: string
+          format: uuid
+        confirm_unencrypted:
+          type: boolean
+          description: >-
+            Must be true if the trunk as given is unencrypted and isn't
+            reached through a WireGuard profile (ADR-023); refused with 422
+            unencrypted_confirmation_required otherwise.
+        enabled:
+          type: boolean
+          description: Defaults to true.
+
+    TrunkPatch:
+      description: JSON Merge Patch; fields not sent stay as they are.
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        host:
+          type: string
+          maxLength: 255
+        port:
+          type: integer
+        transport:
+          $ref: "#/components/schemas/TrunkTransport"
+        media_encryption:
+          $ref: "#/components/schemas/TrunkMediaEncryption"
+        cert_trust:
+          $ref: "#/components/schemas/TrunkCertTrust"
+        pinned_certificate:
+          type: string
+        username:
+          type: string
+          maxLength: 200
+        password:
+          type: string
+          maxLength: 200
+          description: Write-only; never returned. Empty string removes it.
+        dial_format:
+          $ref: "#/components/schemas/TrunkDialFormat"
+        codecs:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrunkCodec"
+        caller_id_number:
+          type: string
+          maxLength: 32
+        max_calls:
+          type: integer
+        wireguard_profile_id:
+          type: string
+          description: Empty string moves the trunk to "Internet".
+        confirm_unencrypted:
+          type: boolean
+        enabled:
+          type: boolean
+
+    TrunkList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Trunk"
+        next_cursor:
+          type: string
+
+    Did:
+      description: A phone number a trunk owns (docs/TRUNKS.md §5).
+      type: object
+      required: [id, trunk_id, number, label, created_at, updated_at, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        trunk_id:
+          type: string
+          format: uuid
+        number:
+          type: string
+          description: Digits, optionally starting with +.
+        label:
+          type: string
+        extension_id:
+          type: string
+          format: uuid
+          description: Absent means calls to this number hear "not in use".
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: Send as If-Match when changing it.
+
+    DidCreate:
+      type: object
+      additionalProperties: false
+      required: [number]
+      properties:
+        number:
+          type: string
+          maxLength: 20
+        label:
+          type: string
+          maxLength: 100
+        extension_id:
+          type: string
+          format: uuid
+
+    DidPatch:
+      description: JSON Merge Patch; fields not sent stay as they are.
+      type: object
+      additionalProperties: false
+      properties:
+        label:
+          type: string
+          maxLength: 100
+        extension_id:
+          type: string
+          description: Empty string clears the route.
+
+    DidList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Did"
+        next_cursor:
+          type: string
+
+    InboundRouteList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Did"
+        next_cursor:
+          type: string
+
+    OutboundRouting:
+      description: The order outgoing calls try trunks in (docs/TRUNKS.md §5).
+      type: object
+      required: [country, trunks]
+      properties:
+        country:
+          type: string
+          description: The ISO 3166 country code Linx is set up in.
+        trunks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Trunk"
+          description: Every trunk used for outgoing calls, in the order they're tried.
+
+    OutboundRoutingUpdate:
+      type: object
+      additionalProperties: false
+      required: [order]
+      properties:
+        order:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Every trunk id to use for outgoing calls, primary first. Trunks left out stop being used for outgoing calls.
+
+    WireguardProfile:
+      description: A WireGuard tunnel trunks can be reached through (docs/TRUNKS.md §7). Its keys are write-only and never returned.
+      type: object
+      required: [id, name, address, public_key, peer_public_key, peer_endpoint_host, peer_endpoint_port, created_at, updated_at, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          type: string
+          description: This end's own tunnel address, e.g. "10.6.0.2/32".
+        public_key:
+          type: string
+          description: Derived from the private key; give this to the provider if it needs it registered.
+        peer_public_key:
+          type: string
+        peer_endpoint_host:
+          type: string
+        peer_endpoint_port:
+          type: integer
+        persistent_keepalive:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: Send as If-Match when changing it.
+
+    WireguardProfileCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        config:
+          type: string
+          description: A whole wg-quick configuration file ([Interface] and [Peer]); takes priority over the fields below.
+        private_key:
+          type: string
+          description: Base64, 32 bytes. Write-only; never returned.
+        address:
+          type: string
+        peer_public_key:
+          type: string
+        peer_endpoint_host:
+          type: string
+        peer_endpoint_port:
+          type: integer
+          description: Defaults to 51820.
+        preshared_key:
+          type: string
+          description: Base64, 32 bytes. Write-only; never returned.
+        persistent_keepalive:
+          type: integer
+
+    WireguardProfilePatch:
+      description: JSON Merge Patch of the profile's non-secret fields; reissue it (delete and re-create) to change its keys.
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        peer_endpoint_host:
+          type: string
+        peer_endpoint_port:
+          type: integer
+        persistent_keepalive:
+          type: integer
+
+    WireguardProfileList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WireguardProfile"
+        next_cursor:
+          type: string
+
+    CallPermissionLevel:
+      description: Who a group of extensions may call out to (docs/TRUNKS.md §5).
+      type: object
+      required: [id, name, allowed_categories, withhold_caller_id, created_at, updated_at, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        allowed_categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/NumberCategory"
+        withhold_caller_id:
+          type: boolean
+          description: Send "withheld" instead of a caller ID, if the trunk's provider supports it.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: Send as If-Match when changing it.
+
+    CallPermissionLevelCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        allowed_categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/NumberCategory"
+        withhold_caller_id:
+          type: boolean
+          description: Defaults to false.
+
+    CallPermissionLevelPatch:
+      description: JSON Merge Patch; fields not sent stay as they are.
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        allowed_categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/NumberCategory"
+        withhold_caller_id:
+          type: boolean
+
+    CallPermissionLevelList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CallPermissionLevel"
+        next_cursor:
+          type: string
 
     TokenRequest:
       type: object

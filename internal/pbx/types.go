@@ -29,6 +29,10 @@ var (
 	ErrVersionChanged = errors.New("changed since it was read")
 	ErrDuplicate      = errors.New("already exists")
 	ErrRevoked        = errors.New("revoked")
+	// ErrCallPermissionLevelNotFound is returned when an extension is
+	// created or patched with a call_permission_level_id that doesn't
+	// exist (docs/TRUNKS.md §5).
+	ErrCallPermissionLevelNotFound = errors.New("call permission level not found")
 )
 
 // ReservedNumberError is returned for an extension number that looks like
@@ -44,14 +48,17 @@ func (e *ReservedNumberError) Error() string {
 
 // Extension is a number people have, e.g. "101" (docs/PBX.md §1, §3).
 type Extension struct {
-	ID, TenantID         uuid.UUID
-	Number               string
-	DisplayName          string
-	Email                string
-	Enabled              bool
-	Version              int
-	CreatedAt, UpdatedAt time.Time
-	DeletedAt            *time.Time
+	ID, TenantID uuid.UUID
+	Number       string
+	DisplayName  string
+	Email        string
+	Enabled      bool
+	// CallPermissionLevelID is who this extension may call out to
+	// (docs/TRUNKS.md §5); nil means it may only call emergency numbers.
+	CallPermissionLevelID *uuid.UUID
+	Version               int
+	CreatedAt, UpdatedAt  time.Time
+	DeletedAt             *time.Time
 }
 
 // Device is a phone or app that rings for an extension (docs/PBX.md §1,

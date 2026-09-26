@@ -137,6 +137,10 @@ func TestExplain(t *testing.T) {
 	if got := r.Explain("999", "101", "AE"); !strings.Contains(got, "Emergency number (police): 999.") || !strings.Contains(got, "Always allowed") {
 		t.Errorf("Explain = %q", got)
 	}
+	r = Route{Result: Classify("AE", "0501234567"), Reason: ReasonNotPermitted}
+	if got := r.Explain("0501234567", "101", "AE"); !strings.Contains(got, "isn't allowed to call this kind of number") {
+		t.Errorf("Explain = %q", got)
+	}
 	if got := ClashText("0123", ClashNationalPrefix, "AE"); !strings.Contains(got, "can't start with 0") {
 		t.Errorf("ClashText = %q", got)
 	}

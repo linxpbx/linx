@@ -20,8 +20,10 @@ var Scopes = []string{
 	"oauth_clients:read", "oauth_clients:write",
 	"outbound_allowlist:read", "outbound_allowlist:write",
 	"recordings:read",
+	"routing:read", "routing:write",
 	"team:read",
 	"transcripts:read",
+	"trunks:read", "trunks:write",
 	"users:read", "users:write",
 	"webhooks:read", "webhooks:write",
 }
@@ -31,9 +33,11 @@ var Scopes = []string{
 // outbound_allowlist:write opens the server's LAN to outbound requests.
 // devices:write makes phone logins (docs/PBX.md §5), like api_keys:write.
 // users:write can create or disable a person's account, including admins.
+// trunks:write and routing:write can make calls that cost money
+// (docs/TRUNKS.md §10, ADR-048).
 var sensitiveScopes = []string{
 	"api_keys:write", "calls:control", "devices:write", "oauth_clients:write", "outbound_allowlist:write",
-	"recordings:read", "transcripts:read", "users:write",
+	"recordings:read", "routing:write", "transcripts:read", "trunks:write", "users:write",
 }
 
 // ScopeAll asks for every non-sensitive scope the role allows.

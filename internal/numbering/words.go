@@ -21,7 +21,13 @@ const (
 	ReasonEmergency     = "emergency"      // always allowed
 	ReasonInvalid       = "invalid"        // not a number
 	ReasonUnknownCaller = "unknown_caller" // the caller's extension doesn't exist or is turned off
-	ReasonNoLines       = "no_lines"       // no outside lines yet
+	// ReasonNotPermitted is refused because the caller's call permission
+	// level (docs/TRUNKS.md §5) doesn't allow this category, or it has no
+	// level assigned at all: fail closed, so a newly created extension
+	// can't dial out (other than emergency numbers) until an admin
+	// assigns it a level.
+	ReasonNotPermitted = "not_permitted"
+	ReasonNoLines      = "no_lines" // no outside lines yet
 )
 
 // Clash is an extension whose number can't be used in the country
@@ -147,10 +153,14 @@ func (r Route) Explain(dialled, from, country string) string {
 		return b.String()
 	}
 	fmt.Fprintf(&b, "%s: %s.\n", r.Kind(), r.Pretty())
-	if r.Reason == ReasonEmergency {
+	switch r.Reason {
+	case ReasonEmergency:
 		b.WriteString("Always allowed, for everyone, and never limited.\n")
+	case ReasonNotPermitted:
+		fmt.Fprintf(&b, "Extension %s isn't allowed to call this kind of number (its call permission level doesn't include it, or it has none).\n", from)
+	default:
+		// Lines (trunks) arrive in the next steps of Phase 1D.
+		b.WriteString("Linx has no outside lines yet, so the call can't go out until one is added.\n")
 	}
-	// Lines (trunks) arrive in the next steps of Phase 1D.
-	b.WriteString("Linx has no outside lines yet, so the call can't go out until one is added.\n")
 	return b.String()
 }

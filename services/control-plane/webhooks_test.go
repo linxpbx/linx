@@ -48,13 +48,13 @@ func TestWebhookEndpoints(t *testing.T) {
 	t.Run("create returns the secret once", func(t *testing.T) {
 		created = e.createWebhook(admin, map[string]any{
 			"url": "https://hooks.example.com/linx", "description": "CRM",
-			"event_types": []string{"call.missed", "call.missed", "trunk.down"},
+			"event_types": []string{"call.missed", "call.missed", "trunk.status_changed"},
 		})
 		if !strings.HasPrefix(created.Secret, webhook.SecretPrefix) {
 			t.Fatalf("secret = %q", created.Secret)
 		}
 		w := created.Webhook
-		if !w.Enabled || w.Etag != `"1"` || strings.Join(w.EventTypes, ",") != "call.missed,trunk.down" {
+		if !w.Enabled || w.Etag != `"1"` || strings.Join(w.EventTypes, ",") != "call.missed,trunk.status_changed" {
 			t.Fatalf("unexpected webhook %+v", w)
 		}
 		r := e.do(http.MethodGet, "/api/v1/webhooks/"+w.Id.String(), admin, nil)

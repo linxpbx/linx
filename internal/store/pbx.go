@@ -17,13 +17,13 @@ import (
 
 var _ pbx.Store = (*Store)(nil)
 
-const extensionColumns = `id, tenant_id, number, display_name, email, enabled, version, created_at, updated_at, deleted_at`
+const extensionColumns = `id, tenant_id, number, display_name, email, enabled, call_permission_level_id, version, created_at, updated_at, deleted_at`
 
 func scanExtension(row pgx.Row) (pbx.Extension, error) {
 	var e pbx.Extension
 	var email *string
-	err := row.Scan(&e.ID, &e.TenantID, &e.Number, &e.DisplayName, &email, &e.Enabled, &e.Version,
-		&e.CreatedAt, &e.UpdatedAt, &e.DeletedAt)
+	err := row.Scan(&e.ID, &e.TenantID, &e.Number, &e.DisplayName, &email, &e.Enabled, &e.CallPermissionLevelID,
+		&e.Version, &e.CreatedAt, &e.UpdatedAt, &e.DeletedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return e, pbx.ErrNotFound
 	}
@@ -41,15 +41,18 @@ func extensionEvent(e pbx.Extension, eventType string, at time.Time) (webhook.Ev
 
 func (s *Store) CreateExtension(ctx context.Context, e pbx.Extension, audit auth.AuditEntry) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO extension (id, tenant_id, number, display_name, email, enabled, version, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			e.ID, e.TenantID, e.Number, e.DisplayName, emptyStrToNil(e.Email), e.Enabled, e.Version, e.CreatedAt, e.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO extension (id, tenant_id, number, display_name, email, enabled, call_permission_level_id, version, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			e.ID, e.TenantID, e.Number, e.DisplayName, emptyStrToNil(e.Email), e.Enabled, e.CallPermissionLevelID, e.Version, e.CreatedAt, e.UpdatedAt)
 		if err != nil {
 			if IsUniqueViolation(err) {
 				return pbx.ErrDuplicate
 			}
 			if r := reservedNumber(err, e.Number); r != nil {
 				return r
+			}
+			if isForeignKeyViolation(err) {
+				return pbx.ErrCallPermissionLevelNotFound
 			}
 			return fmt.Errorf("creating extension: %w", err)
 		}
@@ -100,10 +103,10 @@ func (s *Store) UpdateExtension(ctx context.Context, e pbx.Extension, audit auth
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanExtension(tx.QueryRow(ctx, `UPDATE extension SET
-				number = $4, display_name = $5, email = $6, enabled = $7, version = version + 1, updated_at = $8
+				number = $4, display_name = $5, email = $6, enabled = $7, call_permission_level_id = $8, version = version + 1, updated_at = $9
 			WHERE id = $1 AND tenant_id = $2 AND version = $3 AND deleted_at IS NULL
 			RETURNING `+extensionColumns,
-			e.ID, e.TenantID, e.Version, e.Number, e.DisplayName, emptyStrToNil(e.Email), e.Enabled, e.UpdatedAt))
+			e.ID, e.TenantID, e.Version, e.Number, e.DisplayName, emptyStrToNil(e.Email), e.Enabled, e.CallPermissionLevelID, e.UpdatedAt))
 		if errors.Is(err, pbx.ErrNotFound) {
 			var exists bool
 			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM extension WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL)`,
@@ -121,6 +124,9 @@ func (s *Store) UpdateExtension(ctx context.Context, e pbx.Extension, audit auth
 			}
 			if r := reservedNumber(err, e.Number); r != nil {
 				return r
+			}
+			if isForeignKeyViolation(err) {
+				return pbx.ErrCallPermissionLevelNotFound
 			}
 			return err
 		}

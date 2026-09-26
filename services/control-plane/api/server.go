@@ -19,22 +19,31 @@ import (
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/webhook"
 )
 
 // Server implements StrictServerInterface.
 type Server struct {
-	spec     *openapi3.T
-	store    CredentialStore
-	webhooks *webhook.Service
-	alerts   *alert.Service
-	pbx      *pbx.Service
-	calls    CallSource
-	accounts *auth.Accounts
-	turn     *turn.Issuer
-	team     *pbx.Team
-	now      func() time.Time
+	spec      *openapi3.T
+	store     CredentialStore
+	webhooks  *webhook.Service
+	alerts    *alert.Service
+	pbx       *pbx.Service
+	trunks    *trunk.Service
+	numbering NumberingSource
+	calls     CallSource
+	accounts  *auth.Accounts
+	turn      *turn.Issuer
+	team      *pbx.Team
+	now       func() time.Time
+}
+
+// NumberingSource is the country Linx is set up in (internal/store's
+// Store.Country), for GET /outbound-routing (docs/TRUNKS.md §5).
+type NumberingSource interface {
+	Country(ctx context.Context) (string, error)
 }
 
 // CallSource is the live call state /calls/active reports (the control
@@ -48,8 +57,9 @@ type CallSource interface {
 // callers must pass the same document the server was validated against.
 // turnIssuer makes relay credentials for browsers (nil: no relay, so
 // /me/web-phone and /me/turn-credentials answer 503).
-func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, calls CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team) *Server {
-	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, calls: calls, accounts: accounts, turn: turnIssuer, team: team, now: time.Now}
+func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, trunks *trunk.Service, numbering NumberingSource, calls CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team) *Server {
+	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, trunks: trunks, numbering: numbering,
+		calls: calls, accounts: accounts, turn: turnIssuer, team: team, now: time.Now}
 }
 
 func (s *Server) GetOpenapiSpec(_ context.Context, _ GetOpenapiSpecRequestObject) (GetOpenapiSpecResponseObject, error) {

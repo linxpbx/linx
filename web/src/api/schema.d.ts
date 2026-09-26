@@ -600,6 +600,256 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List trunks
+         * @description Newest first.
+         */
+        get: operations["listTrunks"];
+        put?: never;
+        /**
+         * Add a trunk
+         * @description Not idempotent: retrying adds a second trunk. Refused (422 `unencrypted_confirmation_required`) if the trunk as given is unencrypted (docs/TRUNKS.md §6, ADR-023) and isn't reached through a WireGuard profile, unless `confirm_unencrypted` is sent too.
+         */
+        post: operations["createTrunk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trunks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a trunk */
+        get: operations["getTrunk"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a trunk
+         * @description Also deletes every DID it owns, in the same transaction.
+         */
+        delete: operations["deleteTrunk"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a trunk
+         * @description JSON Merge Patch: only the fields sent change. Send `If-Match` with the trunk's `etag` to refuse the change (412) if someone else changed it first. Send `confirm_unencrypted: true` in the same request that makes the trunk unencrypted (ADR-023).
+         */
+        patch: operations["updateTrunk"];
+        trace?: never;
+    };
+    "/api/v1/trunks/{id}/dids": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a trunk's phone numbers
+         * @description Newest first.
+         */
+        get: operations["listTrunkDids"];
+        put?: never;
+        /**
+         * Add a phone number to a trunk
+         * @description Not idempotent: retrying adds a duplicate number (refused, 409 `number_duplicate`: a number can belong to only one trunk).
+         */
+        post: operations["createDid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dids/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a phone number */
+        get: operations["getDid"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a phone number from its trunk
+         * @description The number can be added to another trunk afterwards.
+         */
+        delete: operations["deleteDid"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a phone number's route
+         * @description JSON Merge Patch: only the fields sent change. Send `If-Match` with the number's `etag` to refuse the change (412) if someone else changed it first. Send `extension_id: ""` to clear it: calls to the number then hear "not in use".
+         */
+        patch: operations["updateDid"];
+        trace?: never;
+    };
+    "/api/v1/inbound-routes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every phone number's route
+         * @description Every DID of every trunk, newest first (docs/TRUNKS.md §5).
+         */
+        get: operations["listInboundRoutes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/outbound-routing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See the outgoing call order
+         * @description The country Linx is set up in and which trunks outgoing calls try, in order (docs/TRUNKS.md §5).
+         */
+        get: operations["getOutboundRouting"];
+        /**
+         * Set the outgoing call order
+         * @description Trunks named in `order` are tried for outgoing calls in that sequence, primary first; trunks left out stop being used for outgoing calls (their phone numbers keep ringing in).
+         */
+        put: operations["setOutboundRouting"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wireguard-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List WireGuard profiles
+         * @description Newest first.
+         */
+        get: operations["listWireguardProfiles"];
+        put?: never;
+        /**
+         * Add a WireGuard profile
+         * @description Import a whole wg-quick configuration with `config`, or fill in the fields directly. The private key (and preshared key, if any) is sealed and never shown again. Not idempotent: retrying adds a second profile.
+         */
+        post: operations["createWireguardProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wireguard-profiles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a WireGuard profile */
+        get: operations["getWireguardProfile"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a WireGuard profile
+         * @description Refused (409 `wireguard_profile_in_use`) while a trunk still connects through it.
+         */
+        delete: operations["deleteWireguardProfile"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a WireGuard profile
+         * @description JSON Merge Patch of the profile's non-secret fields; reissue it (delete and re-create) to change its keys. Send `If-Match` with the profile's `etag` to refuse the change (412) if someone else changed it first.
+         */
+        patch: operations["updateWireguardProfile"];
+        trace?: never;
+    };
+    "/api/v1/call-permission-levels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List call permission levels
+         * @description Newest first.
+         */
+        get: operations["listCallPermissionLevels"];
+        put?: never;
+        /**
+         * Add a call permission level
+         * @description Not idempotent: retrying adds a second level.
+         */
+        post: operations["createCallPermissionLevel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/call-permission-levels/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a call permission level */
+        get: operations["getCallPermissionLevel"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a call permission level
+         * @description Refused (409 `permission_level_in_use`) while an extension still has it assigned.
+         */
+        delete: operations["deleteCallPermissionLevel"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a call permission level
+         * @description JSON Merge Patch: only the fields sent change. Send `If-Match` with the level's `etag` to refuse the change (412) if someone else changed it first.
+         */
+        patch: operations["updateCallPermissionLevel"];
+        trace?: never;
+    };
     "/api/v1/calls/active": {
         parameters: {
             query?: never;
@@ -1449,6 +1699,11 @@ export interface components {
             number: string;
             display_name: string;
             email?: string;
+            /**
+             * Format: uuid
+             * @description Who this extension may call out to (docs/TRUNKS.md §5). Absent means it may only call emergency numbers.
+             */
+            call_permission_level_id?: string;
             enabled: boolean;
             /** Format: date-time */
             created_at: string;
@@ -1462,6 +1717,8 @@ export interface components {
             number: string;
             display_name: string;
             email?: string;
+            /** Format: uuid */
+            call_permission_level_id?: string;
             /** @description Defaults to true. */
             enabled?: boolean;
         };
@@ -1470,6 +1727,8 @@ export interface components {
             number?: string;
             display_name?: string;
             email?: string;
+            /** @description Empty string clears it (only emergency numbers stay allowed). */
+            call_permission_level_id?: string;
             enabled?: boolean;
         };
         ExtensionList: {
@@ -1573,6 +1832,265 @@ export interface components {
             transport: "tls";
             /** @description A plain-language summary of the above, ready to paste into a phone app. */
             settings_text: string;
+        };
+        /**
+         * @description `registration`: Linx signs in to the provider. `ip_authenticated`: the provider calls in from its own fixed addresses. `lan_peer`: another phone system on the LAN (docs/TRUNKS.md §3).
+         * @enum {string}
+         */
+        TrunkKind: "registration" | "ip_authenticated" | "lan_peer";
+        /**
+         * @description tcp and udp need confirm_unencrypted (ADR-023).
+         * @enum {string}
+         */
+        TrunkTransport: "tls" | "tcp" | "udp";
+        /**
+         * @description none needs confirm_unencrypted (ADR-023).
+         * @enum {string}
+         */
+        TrunkMediaEncryption: "srtp" | "none";
+        /**
+         * @description pinned is a certificate or CA the admin compared and approved (ADR-045).
+         * @enum {string}
+         */
+        TrunkCertTrust: "public" | "pinned";
+        /**
+         * @description How outgoing numbers are written for this trunk.
+         * @enum {string}
+         */
+        TrunkDialFormat: "e164" | "00_prefix" | "local";
+        /** @enum {string} */
+        TrunkCodec: "ulaw" | "alaw" | "g722" | "opus";
+        /**
+         * @description A numbering.Category a call permission level can name. Emergency numbers are always allowed and never listed here.
+         * @enum {string}
+         */
+        NumberCategory: "landline" | "mobile" | "national" | "shared_cost" | "toll_free" | "premium" | "international" | "service";
+        /** @description A phone line to a provider or another phone system (docs/TRUNKS.md §3). Its password is write-only and never returned. */
+        Trunk: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            kind: components["schemas"]["TrunkKind"];
+            /** @description Which entry of the provider template catalogue this was created from, if any. */
+            template?: string;
+            host: string;
+            port: number;
+            transport: components["schemas"]["TrunkTransport"];
+            media_encryption: components["schemas"]["TrunkMediaEncryption"];
+            cert_trust: components["schemas"]["TrunkCertTrust"];
+            /** @description Present only when cert_trust is pinned. */
+            pinned_certificate?: string;
+            username?: string;
+            dial_format: components["schemas"]["TrunkDialFormat"];
+            codecs: components["schemas"]["TrunkCodec"][];
+            caller_id_number?: string;
+            max_calls: number;
+            /**
+             * Format: uuid
+             * @description The WireGuard profile this trunk connects through. Absent means "Internet" (ADR-024).
+             */
+            wireguard_profile_id?: string;
+            /** @description 1 = tried first for outgoing calls. Absent means this trunk isn't used for outgoing calls. Set with PUT /outbound-routing. */
+            outbound_priority?: number;
+            /** @description Calls on this trunk travel without TLS or without SRTP media (ADR-023), and it isn't reached through a WireGuard profile. */
+            unencrypted: boolean;
+            /** @description Who confirmed the ADR-023 warning. Present only while unencrypted is true. */
+            unencrypted_confirmed_by?: string;
+            /** Format: date-time */
+            unencrypted_confirmed_at?: string;
+            enabled: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Send as If-Match when changing it. */
+            etag: string;
+        };
+        TrunkCreate: {
+            name: string;
+            kind: components["schemas"]["TrunkKind"];
+            template?: string;
+            host: string;
+            /** @description Defaults to 5061. */
+            port?: number;
+            /** @description Defaults to tls. */
+            transport?: components["schemas"]["TrunkTransport"];
+            /** @description Defaults to srtp. */
+            media_encryption?: components["schemas"]["TrunkMediaEncryption"];
+            /** @description Defaults to public. */
+            cert_trust?: components["schemas"]["TrunkCertTrust"];
+            /** @description Required when cert_trust is pinned. */
+            pinned_certificate?: string;
+            username?: string;
+            /** @description Write-only; never returned. */
+            password?: string;
+            /** @description Defaults to e164. */
+            dial_format?: components["schemas"]["TrunkDialFormat"];
+            /** @description Defaults to [alaw, ulaw]. */
+            codecs?: components["schemas"]["TrunkCodec"][];
+            caller_id_number?: string;
+            /** @description Defaults to 4. */
+            max_calls?: number;
+            /** Format: uuid */
+            wireguard_profile_id?: string;
+            /** @description Must be true if the trunk as given is unencrypted and isn't reached through a WireGuard profile (ADR-023); refused with 422 unencrypted_confirmation_required otherwise. */
+            confirm_unencrypted?: boolean;
+            /** @description Defaults to true. */
+            enabled?: boolean;
+        };
+        /** @description JSON Merge Patch; fields not sent stay as they are. */
+        TrunkPatch: {
+            name?: string;
+            host?: string;
+            port?: number;
+            transport?: components["schemas"]["TrunkTransport"];
+            media_encryption?: components["schemas"]["TrunkMediaEncryption"];
+            cert_trust?: components["schemas"]["TrunkCertTrust"];
+            pinned_certificate?: string;
+            username?: string;
+            /** @description Write-only; never returned. Empty string removes it. */
+            password?: string;
+            dial_format?: components["schemas"]["TrunkDialFormat"];
+            codecs?: components["schemas"]["TrunkCodec"][];
+            caller_id_number?: string;
+            max_calls?: number;
+            /** @description Empty string moves the trunk to "Internet". */
+            wireguard_profile_id?: string;
+            confirm_unencrypted?: boolean;
+            enabled?: boolean;
+        };
+        TrunkList: {
+            items: components["schemas"]["Trunk"][];
+            next_cursor?: string;
+        };
+        /** @description A phone number a trunk owns (docs/TRUNKS.md §5). */
+        Did: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            trunk_id: string;
+            /** @description Digits, optionally starting with +. */
+            number: string;
+            label: string;
+            /**
+             * Format: uuid
+             * @description Absent means calls to this number hear "not in use".
+             */
+            extension_id?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Send as If-Match when changing it. */
+            etag: string;
+        };
+        DidCreate: {
+            number: string;
+            label?: string;
+            /** Format: uuid */
+            extension_id?: string;
+        };
+        /** @description JSON Merge Patch; fields not sent stay as they are. */
+        DidPatch: {
+            label?: string;
+            /** @description Empty string clears the route. */
+            extension_id?: string;
+        };
+        DidList: {
+            items: components["schemas"]["Did"][];
+            next_cursor?: string;
+        };
+        InboundRouteList: {
+            items: components["schemas"]["Did"][];
+            next_cursor?: string;
+        };
+        /** @description The order outgoing calls try trunks in (docs/TRUNKS.md §5). */
+        OutboundRouting: {
+            /** @description The ISO 3166 country code Linx is set up in. */
+            country: string;
+            /** @description Every trunk used for outgoing calls, in the order they're tried. */
+            trunks: components["schemas"]["Trunk"][];
+        };
+        OutboundRoutingUpdate: {
+            /** @description Every trunk id to use for outgoing calls, primary first. Trunks left out stop being used for outgoing calls. */
+            order: string[];
+        };
+        /** @description A WireGuard tunnel trunks can be reached through (docs/TRUNKS.md §7). Its keys are write-only and never returned. */
+        WireguardProfile: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description This end's own tunnel address, e.g. "10.6.0.2/32". */
+            address: string;
+            /** @description Derived from the private key; give this to the provider if it needs it registered. */
+            public_key: string;
+            peer_public_key: string;
+            peer_endpoint_host: string;
+            peer_endpoint_port: number;
+            persistent_keepalive?: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Send as If-Match when changing it. */
+            etag: string;
+        };
+        WireguardProfileCreate: {
+            name: string;
+            /** @description A whole wg-quick configuration file ([Interface] and [Peer]); takes priority over the fields below. */
+            config?: string;
+            /** @description Base64, 32 bytes. Write-only; never returned. */
+            private_key?: string;
+            address?: string;
+            peer_public_key?: string;
+            peer_endpoint_host?: string;
+            /** @description Defaults to 51820. */
+            peer_endpoint_port?: number;
+            /** @description Base64, 32 bytes. Write-only; never returned. */
+            preshared_key?: string;
+            persistent_keepalive?: number;
+        };
+        /** @description JSON Merge Patch of the profile's non-secret fields; reissue it (delete and re-create) to change its keys. */
+        WireguardProfilePatch: {
+            name?: string;
+            peer_endpoint_host?: string;
+            peer_endpoint_port?: number;
+            persistent_keepalive?: number;
+        };
+        WireguardProfileList: {
+            items: components["schemas"]["WireguardProfile"][];
+            next_cursor?: string;
+        };
+        /** @description Who a group of extensions may call out to (docs/TRUNKS.md §5). */
+        CallPermissionLevel: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            allowed_categories: components["schemas"]["NumberCategory"][];
+            /** @description Send "withheld" instead of a caller ID, if the trunk's provider supports it. */
+            withhold_caller_id: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Send as If-Match when changing it. */
+            etag: string;
+        };
+        CallPermissionLevelCreate: {
+            name: string;
+            allowed_categories?: components["schemas"]["NumberCategory"][];
+            /** @description Defaults to false. */
+            withhold_caller_id?: boolean;
+        };
+        /** @description JSON Merge Patch; fields not sent stay as they are. */
+        CallPermissionLevelPatch: {
+            name?: string;
+            allowed_categories?: components["schemas"]["NumberCategory"][];
+            withhold_caller_id?: boolean;
+        };
+        CallPermissionLevelList: {
+            items: components["schemas"]["CallPermissionLevel"][];
+            next_cursor?: string;
         };
         TokenRequest: {
             /** @constant */
@@ -2818,6 +3336,590 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeviceCredentials"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listTrunks: {
+        parameters: {
+            query?: {
+                /** @description Maximum items per page (docs/API.md §2). */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque pagination cursor from a previous page's `next_cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of trunks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrunkList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createTrunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrunkCreate"];
+            };
+        };
+        responses: {
+            /** @description The new trunk. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Trunk"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getTrunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The trunk. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Trunk"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteTrunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateTrunk: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["TrunkPatch"];
+            };
+        };
+        responses: {
+            /** @description The trunk as it now is. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Trunk"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listTrunkDids: {
+        parameters: {
+            query?: {
+                /** @description Maximum items per page (docs/API.md §2). */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque pagination cursor from a previous page's `next_cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of phone numbers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DidList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createDid: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DidCreate"];
+            };
+        };
+        responses: {
+            /** @description The new phone number. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Did"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getDid: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The phone number. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Did"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteDid: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateDid: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["DidPatch"];
+            };
+        };
+        responses: {
+            /** @description The phone number as it now is. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Did"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listInboundRoutes: {
+        parameters: {
+            query?: {
+                /** @description Maximum items per page (docs/API.md §2). */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque pagination cursor from a previous page's `next_cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of phone numbers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundRouteList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getOutboundRouting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The outbound routing summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboundRouting"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setOutboundRouting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutboundRoutingUpdate"];
+            };
+        };
+        responses: {
+            /** @description The outbound routing summary as it now is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboundRouting"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listWireguardProfiles: {
+        parameters: {
+            query?: {
+                /** @description Maximum items per page (docs/API.md §2). */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque pagination cursor from a previous page's `next_cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of profiles. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WireguardProfileList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createWireguardProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WireguardProfileCreate"];
+            };
+        };
+        responses: {
+            /** @description The new profile. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WireguardProfile"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getWireguardProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WireguardProfile"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteWireguardProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateWireguardProfile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["WireguardProfilePatch"];
+            };
+        };
+        responses: {
+            /** @description The profile as it now is. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WireguardProfile"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listCallPermissionLevels: {
+        parameters: {
+            query?: {
+                /** @description Maximum items per page (docs/API.md §2). */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque pagination cursor from a previous page's `next_cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of levels. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallPermissionLevelList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createCallPermissionLevel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallPermissionLevelCreate"];
+            };
+        };
+        responses: {
+            /** @description The new level. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallPermissionLevel"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getCallPermissionLevel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The level. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallPermissionLevel"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteCallPermissionLevel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateCallPermissionLevel: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["CallPermissionLevelPatch"];
+            };
+        };
+        responses: {
+            /** @description The level as it now is. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallPermissionLevel"];
                 };
             };
             default: components["responses"]["Problem"];

@@ -38,6 +38,7 @@ import (
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
 	"linxpbx.com/linx/internal/store"
+	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/version"
 	"linxpbx.com/linx/internal/webapp"
@@ -172,6 +173,7 @@ func main() {
 	accounts := &auth.Accounts{Store: st, Sealer: sealer, Alerts: engine, Failures: authn.Failures, Now: time.Now, Log: log}
 
 	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
+	trunks := &trunk.Service{Store: st, Sealer: sealer, Now: time.Now}
 
 	// Browsers' phone lines (docs/WEB.md §5): relay credentials, and the
 	// /sip relay to Asterisk's websocket, which drops a line the moment its
@@ -270,7 +272,7 @@ func main() {
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, tracker, accounts, turnIssuer, team)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)

@@ -158,13 +158,13 @@ func (e DeliveryStatus) Valid() bool {
 
 // Defines values for DeviceCredentialsTransport.
 const (
-	Tls DeviceCredentialsTransport = "tls"
+	DeviceCredentialsTransportTls DeviceCredentialsTransport = "tls"
 )
 
 // Valid indicates whether the value is a known member of the DeviceCredentialsTransport enum.
 func (e DeviceCredentialsTransport) Valid() bool {
 	switch e {
-	case Tls:
+	case DeviceCredentialsTransportTls:
 		return true
 	default:
 		return false
@@ -189,6 +189,42 @@ func (e DeviceKind) Valid() bool {
 	case Softphone:
 		return true
 	case Web:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NumberCategory.
+const (
+	International NumberCategory = "international"
+	Landline      NumberCategory = "landline"
+	Mobile        NumberCategory = "mobile"
+	National      NumberCategory = "national"
+	Premium       NumberCategory = "premium"
+	Service       NumberCategory = "service"
+	SharedCost    NumberCategory = "shared_cost"
+	TollFree      NumberCategory = "toll_free"
+)
+
+// Valid indicates whether the value is a known member of the NumberCategory enum.
+func (e NumberCategory) Valid() bool {
+	switch e {
+	case International:
+		return true
+	case Landline:
+		return true
+	case Mobile:
+		return true
+	case National:
+		return true
+	case Premium:
+		return true
+	case Service:
+		return true
+	case SharedCost:
+		return true
+	case TollFree:
 		return true
 	default:
 		return false
@@ -369,6 +405,129 @@ const (
 func (e TokenResponseTokenType) Valid() bool {
 	switch e {
 	case Bearer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TrunkCertTrust.
+const (
+	Pinned TrunkCertTrust = "pinned"
+	Public TrunkCertTrust = "public"
+)
+
+// Valid indicates whether the value is a known member of the TrunkCertTrust enum.
+func (e TrunkCertTrust) Valid() bool {
+	switch e {
+	case Pinned:
+		return true
+	case Public:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TrunkCodec.
+const (
+	Alaw TrunkCodec = "alaw"
+	G722 TrunkCodec = "g722"
+	Opus TrunkCodec = "opus"
+	Ulaw TrunkCodec = "ulaw"
+)
+
+// Valid indicates whether the value is a known member of the TrunkCodec enum.
+func (e TrunkCodec) Valid() bool {
+	switch e {
+	case Alaw:
+		return true
+	case G722:
+		return true
+	case Opus:
+		return true
+	case Ulaw:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TrunkDialFormat.
+const (
+	E164      TrunkDialFormat = "e164"
+	Local     TrunkDialFormat = "local"
+	N00Prefix TrunkDialFormat = "00_prefix"
+)
+
+// Valid indicates whether the value is a known member of the TrunkDialFormat enum.
+func (e TrunkDialFormat) Valid() bool {
+	switch e {
+	case E164:
+		return true
+	case Local:
+		return true
+	case N00Prefix:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TrunkKind.
+const (
+	IpAuthenticated TrunkKind = "ip_authenticated"
+	LanPeer         TrunkKind = "lan_peer"
+	Registration    TrunkKind = "registration"
+)
+
+// Valid indicates whether the value is a known member of the TrunkKind enum.
+func (e TrunkKind) Valid() bool {
+	switch e {
+	case IpAuthenticated:
+		return true
+	case LanPeer:
+		return true
+	case Registration:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TrunkMediaEncryption.
+const (
+	None TrunkMediaEncryption = "none"
+	Srtp TrunkMediaEncryption = "srtp"
+)
+
+// Valid indicates whether the value is a known member of the TrunkMediaEncryption enum.
+func (e TrunkMediaEncryption) Valid() bool {
+	switch e {
+	case None:
+		return true
+	case Srtp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TrunkTransport.
+const (
+	TrunkTransportTcp TrunkTransport = "tcp"
+	TrunkTransportTls TrunkTransport = "tls"
+	TrunkTransportUdp TrunkTransport = "udp"
+)
+
+// Valid indicates whether the value is a known member of the TrunkTransport enum.
+func (e TrunkTransport) Valid() bool {
+	switch e {
+	case TrunkTransportTcp:
+		return true
+	case TrunkTransportTls:
+		return true
+	case TrunkTransportUdp:
 		return true
 	default:
 		return false
@@ -641,6 +800,43 @@ type CallParty struct {
 	Name string `json:"name"`
 }
 
+// CallPermissionLevel Who a group of extensions may call out to (docs/TRUNKS.md §5).
+type CallPermissionLevel struct {
+	AllowedCategories []NumberCategory `json:"allowed_categories"`
+	CreatedAt         time.Time        `json:"created_at"`
+
+	// Etag Send as If-Match when changing it.
+	Etag      string             `json:"etag"`
+	Id        openapi_types.UUID `json:"id"`
+	Name      string             `json:"name"`
+	UpdatedAt time.Time          `json:"updated_at"`
+
+	// WithholdCallerId Send "withheld" instead of a caller ID, if the trunk's provider supports it.
+	WithholdCallerId bool `json:"withhold_caller_id"`
+}
+
+// CallPermissionLevelCreate defines model for CallPermissionLevelCreate.
+type CallPermissionLevelCreate struct {
+	AllowedCategories *[]NumberCategory `json:"allowed_categories,omitempty"`
+	Name              string            `json:"name"`
+
+	// WithholdCallerId Defaults to false.
+	WithholdCallerId *bool `json:"withhold_caller_id,omitempty"`
+}
+
+// CallPermissionLevelList defines model for CallPermissionLevelList.
+type CallPermissionLevelList struct {
+	Items      []CallPermissionLevel `json:"items"`
+	NextCursor *string               `json:"next_cursor,omitempty"`
+}
+
+// CallPermissionLevelPatch JSON Merge Patch; fields not sent stay as they are.
+type CallPermissionLevelPatch struct {
+	AllowedCategories *[]NumberCategory `json:"allowed_categories,omitempty"`
+	Name              *string           `json:"name,omitempty"`
+	WithholdCallerId  *bool             `json:"withhold_caller_id,omitempty"`
+}
+
 // CredentialCreate A new API key or OAuth client.
 type CredentialCreate struct {
 	// AllowedIps Addresses or CIDR ranges it may be used from. Empty allows any.
@@ -755,6 +951,44 @@ type DevicePatch struct {
 	Name    *string `json:"name,omitempty"`
 }
 
+// Did A phone number a trunk owns (docs/TRUNKS.md §5).
+type Did struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Etag Send as If-Match when changing it.
+	Etag string `json:"etag"`
+
+	// ExtensionId Absent means calls to this number hear "not in use".
+	ExtensionId *openapi_types.UUID `json:"extension_id,omitempty"`
+	Id          openapi_types.UUID  `json:"id"`
+	Label       string              `json:"label"`
+
+	// Number Digits, optionally starting with +.
+	Number    string             `json:"number"`
+	TrunkId   openapi_types.UUID `json:"trunk_id"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+// DidCreate defines model for DidCreate.
+type DidCreate struct {
+	ExtensionId *openapi_types.UUID `json:"extension_id,omitempty"`
+	Label       *string             `json:"label,omitempty"`
+	Number      string              `json:"number"`
+}
+
+// DidList defines model for DidList.
+type DidList struct {
+	Items      []Did   `json:"items"`
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// DidPatch JSON Merge Patch; fields not sent stay as they are.
+type DidPatch struct {
+	// ExtensionId Empty string clears the route.
+	ExtensionId *string `json:"extension_id,omitempty"`
+	Label       *string `json:"label,omitempty"`
+}
+
 // EventType defines model for EventType.
 type EventType struct {
 	Description string `json:"description"`
@@ -773,10 +1007,12 @@ type EventTypeList struct {
 
 // Extension An extension (docs/PBX.md §3), e.g. "101".
 type Extension struct {
-	CreatedAt   time.Time `json:"created_at"`
-	DisplayName string    `json:"display_name"`
-	Email       *string   `json:"email,omitempty"`
-	Enabled     bool      `json:"enabled"`
+	// CallPermissionLevelId Who this extension may call out to (docs/TRUNKS.md §5). Absent means it may only call emergency numbers.
+	CallPermissionLevelId *openapi_types.UUID `json:"call_permission_level_id,omitempty"`
+	CreatedAt             time.Time           `json:"created_at"`
+	DisplayName           string              `json:"display_name"`
+	Email                 *string             `json:"email,omitempty"`
+	Enabled               bool                `json:"enabled"`
 
 	// Etag Send as If-Match when changing it.
 	Etag string             `json:"etag"`
@@ -789,8 +1025,9 @@ type Extension struct {
 
 // ExtensionCreate defines model for ExtensionCreate.
 type ExtensionCreate struct {
-	DisplayName string  `json:"display_name"`
-	Email       *string `json:"email,omitempty"`
+	CallPermissionLevelId *openapi_types.UUID `json:"call_permission_level_id,omitempty"`
+	DisplayName           string              `json:"display_name"`
+	Email                 *string             `json:"email,omitempty"`
 
 	// Enabled Defaults to true.
 	Enabled *bool `json:"enabled,omitempty"`
@@ -807,10 +1044,18 @@ type ExtensionList struct {
 
 // ExtensionPatch JSON Merge Patch; fields not sent stay as they are.
 type ExtensionPatch struct {
-	DisplayName *string `json:"display_name,omitempty"`
-	Email       *string `json:"email,omitempty"`
-	Enabled     *bool   `json:"enabled,omitempty"`
-	Number      *string `json:"number,omitempty"`
+	// CallPermissionLevelId Empty string clears it (only emergency numbers stay allowed).
+	CallPermissionLevelId *string `json:"call_permission_level_id,omitempty"`
+	DisplayName           *string `json:"display_name,omitempty"`
+	Email                 *string `json:"email,omitempty"`
+	Enabled               *bool   `json:"enabled,omitempty"`
+	Number                *string `json:"number,omitempty"`
+}
+
+// InboundRouteList defines model for InboundRouteList.
+type InboundRouteList struct {
+	Items      []Did   `json:"items"`
+	NextCursor *string `json:"next_cursor,omitempty"`
 }
 
 // MfaCode defines model for MfaCode.
@@ -833,6 +1078,9 @@ type MfaEnrollment struct {
 	// Secret Base32, for typing in by hand if the QR code can't be scanned.
 	Secret string `json:"secret"`
 }
+
+// NumberCategory A numbering.Category a call permission level can name. Emergency numbers are always allowed and never listed here.
+type NumberCategory string
 
 // OAuthClient defines model for OAuthClient.
 type OAuthClient struct {
@@ -876,6 +1124,21 @@ type OAuthErrorError string
 
 // OpenApiDocument The full OpenAPI document served by this API. Free-form JSON.
 type OpenApiDocument map[string]interface{}
+
+// OutboundRouting The order outgoing calls try trunks in (docs/TRUNKS.md §5).
+type OutboundRouting struct {
+	// Country The ISO 3166 country code Linx is set up in.
+	Country string `json:"country"`
+
+	// Trunks Every trunk used for outgoing calls, in the order they're tried.
+	Trunks []Trunk `json:"trunks"`
+}
+
+// OutboundRoutingUpdate defines model for OutboundRoutingUpdate.
+type OutboundRoutingUpdate struct {
+	// Order Every trunk id to use for outgoing calls, primary first. Trunks left out stop being used for outgoing calls.
+	Order []openapi_types.UUID `json:"order"`
+}
 
 // PasswordChange defines model for PasswordChange.
 type PasswordChange struct {
@@ -1031,6 +1294,160 @@ type TokenResponse struct {
 
 // TokenResponseTokenType defines model for TokenResponse.TokenType.
 type TokenResponseTokenType string
+
+// Trunk A phone line to a provider or another phone system (docs/TRUNKS.md §3). Its password is write-only and never returned.
+type Trunk struct {
+	CallerIdNumber *string `json:"caller_id_number,omitempty"`
+
+	// CertTrust pinned is a certificate or CA the admin compared and approved (ADR-045).
+	CertTrust TrunkCertTrust `json:"cert_trust"`
+	Codecs    []TrunkCodec   `json:"codecs"`
+	CreatedAt time.Time      `json:"created_at"`
+
+	// DialFormat How outgoing numbers are written for this trunk.
+	DialFormat TrunkDialFormat `json:"dial_format"`
+	Enabled    bool            `json:"enabled"`
+
+	// Etag Send as If-Match when changing it.
+	Etag string             `json:"etag"`
+	Host string             `json:"host"`
+	Id   openapi_types.UUID `json:"id"`
+
+	// Kind `registration`: Linx signs in to the provider. `ip_authenticated`: the provider calls in from its own fixed addresses. `lan_peer`: another phone system on the LAN (docs/TRUNKS.md §3).
+	Kind     TrunkKind `json:"kind"`
+	MaxCalls int       `json:"max_calls"`
+
+	// MediaEncryption none needs confirm_unencrypted (ADR-023).
+	MediaEncryption TrunkMediaEncryption `json:"media_encryption"`
+	Name            string               `json:"name"`
+
+	// OutboundPriority 1 = tried first for outgoing calls. Absent means this trunk isn't used for outgoing calls. Set with PUT /outbound-routing.
+	OutboundPriority *int `json:"outbound_priority,omitempty"`
+
+	// PinnedCertificate Present only when cert_trust is pinned.
+	PinnedCertificate *string `json:"pinned_certificate,omitempty"`
+	Port              int     `json:"port"`
+
+	// Template Which entry of the provider template catalogue this was created from, if any.
+	Template *string `json:"template,omitempty"`
+
+	// Transport tcp and udp need confirm_unencrypted (ADR-023).
+	Transport TrunkTransport `json:"transport"`
+
+	// Unencrypted Calls on this trunk travel without TLS or without SRTP media (ADR-023), and it isn't reached through a WireGuard profile.
+	Unencrypted            bool       `json:"unencrypted"`
+	UnencryptedConfirmedAt *time.Time `json:"unencrypted_confirmed_at,omitempty"`
+
+	// UnencryptedConfirmedBy Who confirmed the ADR-023 warning. Present only while unencrypted is true.
+	UnencryptedConfirmedBy *string   `json:"unencrypted_confirmed_by,omitempty"`
+	UpdatedAt              time.Time `json:"updated_at"`
+	Username               *string   `json:"username,omitempty"`
+
+	// WireguardProfileId The WireGuard profile this trunk connects through. Absent means "Internet" (ADR-024).
+	WireguardProfileId *openapi_types.UUID `json:"wireguard_profile_id,omitempty"`
+}
+
+// TrunkCertTrust pinned is a certificate or CA the admin compared and approved (ADR-045).
+type TrunkCertTrust string
+
+// TrunkCodec defines model for TrunkCodec.
+type TrunkCodec string
+
+// TrunkCreate defines model for TrunkCreate.
+type TrunkCreate struct {
+	CallerIdNumber *string `json:"caller_id_number,omitempty"`
+
+	// CertTrust Defaults to public.
+	CertTrust *TrunkCertTrust `json:"cert_trust,omitempty"`
+
+	// Codecs Defaults to [alaw, ulaw].
+	Codecs *[]TrunkCodec `json:"codecs,omitempty"`
+
+	// ConfirmUnencrypted Must be true if the trunk as given is unencrypted and isn't reached through a WireGuard profile (ADR-023); refused with 422 unencrypted_confirmation_required otherwise.
+	ConfirmUnencrypted *bool `json:"confirm_unencrypted,omitempty"`
+
+	// DialFormat Defaults to e164.
+	DialFormat *TrunkDialFormat `json:"dial_format,omitempty"`
+
+	// Enabled Defaults to true.
+	Enabled *bool  `json:"enabled,omitempty"`
+	Host    string `json:"host"`
+
+	// Kind `registration`: Linx signs in to the provider. `ip_authenticated`: the provider calls in from its own fixed addresses. `lan_peer`: another phone system on the LAN (docs/TRUNKS.md §3).
+	Kind TrunkKind `json:"kind"`
+
+	// MaxCalls Defaults to 4.
+	MaxCalls *int `json:"max_calls,omitempty"`
+
+	// MediaEncryption Defaults to srtp.
+	MediaEncryption *TrunkMediaEncryption `json:"media_encryption,omitempty"`
+	Name            string                `json:"name"`
+
+	// Password Write-only; never returned.
+	Password *string `json:"password,omitempty"`
+
+	// PinnedCertificate Required when cert_trust is pinned.
+	PinnedCertificate *string `json:"pinned_certificate,omitempty"`
+
+	// Port Defaults to 5061.
+	Port     *int    `json:"port,omitempty"`
+	Template *string `json:"template,omitempty"`
+
+	// Transport Defaults to tls.
+	Transport          *TrunkTransport     `json:"transport,omitempty"`
+	Username           *string             `json:"username,omitempty"`
+	WireguardProfileId *openapi_types.UUID `json:"wireguard_profile_id,omitempty"`
+}
+
+// TrunkDialFormat How outgoing numbers are written for this trunk.
+type TrunkDialFormat string
+
+// TrunkKind `registration`: Linx signs in to the provider. `ip_authenticated`: the provider calls in from its own fixed addresses. `lan_peer`: another phone system on the LAN (docs/TRUNKS.md §3).
+type TrunkKind string
+
+// TrunkList defines model for TrunkList.
+type TrunkList struct {
+	Items      []Trunk `json:"items"`
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// TrunkMediaEncryption none needs confirm_unencrypted (ADR-023).
+type TrunkMediaEncryption string
+
+// TrunkPatch JSON Merge Patch; fields not sent stay as they are.
+type TrunkPatch struct {
+	CallerIdNumber *string `json:"caller_id_number,omitempty"`
+
+	// CertTrust pinned is a certificate or CA the admin compared and approved (ADR-045).
+	CertTrust          *TrunkCertTrust `json:"cert_trust,omitempty"`
+	Codecs             *[]TrunkCodec   `json:"codecs,omitempty"`
+	ConfirmUnencrypted *bool           `json:"confirm_unencrypted,omitempty"`
+
+	// DialFormat How outgoing numbers are written for this trunk.
+	DialFormat *TrunkDialFormat `json:"dial_format,omitempty"`
+	Enabled    *bool            `json:"enabled,omitempty"`
+	Host       *string          `json:"host,omitempty"`
+	MaxCalls   *int             `json:"max_calls,omitempty"`
+
+	// MediaEncryption none needs confirm_unencrypted (ADR-023).
+	MediaEncryption *TrunkMediaEncryption `json:"media_encryption,omitempty"`
+	Name            *string               `json:"name,omitempty"`
+
+	// Password Write-only; never returned. Empty string removes it.
+	Password          *string `json:"password,omitempty"`
+	PinnedCertificate *string `json:"pinned_certificate,omitempty"`
+	Port              *int    `json:"port,omitempty"`
+
+	// Transport tcp and udp need confirm_unencrypted (ADR-023).
+	Transport *TrunkTransport `json:"transport,omitempty"`
+	Username  *string         `json:"username,omitempty"`
+
+	// WireguardProfileId Empty string moves the trunk to "Internet".
+	WireguardProfileId *string `json:"wireguard_profile_id,omitempty"`
+}
+
+// TrunkTransport tcp and udp need confirm_unencrypted (ADR-023).
+type TrunkTransport string
 
 // TurnCredentials Credentials for Linx's relay, as an RTCIceServer (ADR-039).
 type TurnCredentials struct {
@@ -1231,6 +1648,61 @@ type WebhookWithSecret struct {
 	Webhook Webhook `json:"webhook"`
 }
 
+// WireguardProfile A WireGuard tunnel trunks can be reached through (docs/TRUNKS.md §7). Its keys are write-only and never returned.
+type WireguardProfile struct {
+	// Address This end's own tunnel address, e.g. "10.6.0.2/32".
+	Address   string    `json:"address"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Etag Send as If-Match when changing it.
+	Etag                string             `json:"etag"`
+	Id                  openapi_types.UUID `json:"id"`
+	Name                string             `json:"name"`
+	PeerEndpointHost    string             `json:"peer_endpoint_host"`
+	PeerEndpointPort    int                `json:"peer_endpoint_port"`
+	PeerPublicKey       string             `json:"peer_public_key"`
+	PersistentKeepalive *int               `json:"persistent_keepalive,omitempty"`
+
+	// PublicKey Derived from the private key; give this to the provider if it needs it registered.
+	PublicKey string    `json:"public_key"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// WireguardProfileCreate defines model for WireguardProfileCreate.
+type WireguardProfileCreate struct {
+	Address *string `json:"address,omitempty"`
+
+	// Config A whole wg-quick configuration file ([Interface] and [Peer]); takes priority over the fields below.
+	Config           *string `json:"config,omitempty"`
+	Name             string  `json:"name"`
+	PeerEndpointHost *string `json:"peer_endpoint_host,omitempty"`
+
+	// PeerEndpointPort Defaults to 51820.
+	PeerEndpointPort    *int    `json:"peer_endpoint_port,omitempty"`
+	PeerPublicKey       *string `json:"peer_public_key,omitempty"`
+	PersistentKeepalive *int    `json:"persistent_keepalive,omitempty"`
+
+	// PresharedKey Base64, 32 bytes. Write-only; never returned.
+	PresharedKey *string `json:"preshared_key,omitempty"`
+
+	// PrivateKey Base64, 32 bytes. Write-only; never returned.
+	PrivateKey *string `json:"private_key,omitempty"`
+}
+
+// WireguardProfileList defines model for WireguardProfileList.
+type WireguardProfileList struct {
+	Items      []WireguardProfile `json:"items"`
+	NextCursor *string            `json:"next_cursor,omitempty"`
+}
+
+// WireguardProfilePatch JSON Merge Patch of the profile's non-secret fields; reissue it (delete and re-create) to change its keys.
+type WireguardProfilePatch struct {
+	Name                *string `json:"name,omitempty"`
+	PeerEndpointHost    *string `json:"peer_endpoint_host,omitempty"`
+	PeerEndpointPort    *int    `json:"peer_endpoint_port,omitempty"`
+	PersistentKeepalive *int    `json:"persistent_keepalive,omitempty"`
+}
+
 // Cursor defines model for Cursor.
 type Cursor = string
 
@@ -1278,8 +1750,29 @@ type ListApiKeysParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// ListCallPermissionLevelsParams defines parameters for ListCallPermissionLevels.
+type ListCallPermissionLevelsParams struct {
+	// Limit Maximum items per page (docs/API.md §2).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous page's `next_cursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// UpdateCallPermissionLevelParams defines parameters for UpdateCallPermissionLevel.
+type UpdateCallPermissionLevelParams struct {
+	// IfMatch The resource's `etag`; the change is refused with 412 if it no longer matches.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // UpdateDeviceParams defines parameters for UpdateDevice.
 type UpdateDeviceParams struct {
+	// IfMatch The resource's `etag`; the change is refused with 412 if it no longer matches.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpdateDidParams defines parameters for UpdateDid.
+type UpdateDidParams struct {
 	// IfMatch The resource's `etag`; the change is refused with 412 if it no longer matches.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
@@ -1317,6 +1810,15 @@ type ListExtensionDevicesParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// ListInboundRoutesParams defines parameters for ListInboundRoutes.
+type ListInboundRoutesParams struct {
+	// Limit Maximum items per page (docs/API.md §2).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous page's `next_cursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
 // SetMyPresenceJSONBody defines parameters for SetMyPresence.
 type SetMyPresenceJSONBody struct {
 	// Presence A person's chosen status. `dnd` (Do not disturb) also stops their extension ringing.
@@ -1325,6 +1827,30 @@ type SetMyPresenceJSONBody struct {
 
 // ListOauthClientsParams defines parameters for ListOauthClients.
 type ListOauthClientsParams struct {
+	// Limit Maximum items per page (docs/API.md §2).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous page's `next_cursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// ListTrunksParams defines parameters for ListTrunks.
+type ListTrunksParams struct {
+	// Limit Maximum items per page (docs/API.md §2).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous page's `next_cursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// UpdateTrunkParams defines parameters for UpdateTrunk.
+type UpdateTrunkParams struct {
+	// IfMatch The resource's `etag`; the change is refused with 412 if it no longer matches.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ListTrunkDidsParams defines parameters for ListTrunkDids.
+type ListTrunkDidsParams struct {
 	// Limit Maximum items per page (docs/API.md §2).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
@@ -1367,6 +1893,21 @@ type ListWebhookDeliveriesParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// ListWireguardProfilesParams defines parameters for ListWireguardProfiles.
+type ListWireguardProfilesParams struct {
+	// Limit Maximum items per page (docs/API.md §2).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque pagination cursor from a previous page's `next_cursor`.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// UpdateWireguardProfileParams defines parameters for UpdateWireguardProfile.
+type UpdateWireguardProfileParams struct {
+	// IfMatch The resource's `etag`; the change is refused with 412 if it no longer matches.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // CreateAlertChannelJSONRequestBody defines body for CreateAlertChannel for application/json ContentType.
 type CreateAlertChannelJSONRequestBody = AlertChannelCreate
 
@@ -1376,8 +1917,17 @@ type UpdateAlertChannelApplicationMergePatchPlusJSONRequestBody = AlertChannelPa
 // CreateApiKeyJSONRequestBody defines body for CreateApiKey for application/json ContentType.
 type CreateApiKeyJSONRequestBody = CredentialCreate
 
+// CreateCallPermissionLevelJSONRequestBody defines body for CreateCallPermissionLevel for application/json ContentType.
+type CreateCallPermissionLevelJSONRequestBody = CallPermissionLevelCreate
+
+// UpdateCallPermissionLevelApplicationMergePatchPlusJSONRequestBody defines body for UpdateCallPermissionLevel for application/merge-patch+json ContentType.
+type UpdateCallPermissionLevelApplicationMergePatchPlusJSONRequestBody = CallPermissionLevelPatch
+
 // UpdateDeviceApplicationMergePatchPlusJSONRequestBody defines body for UpdateDevice for application/merge-patch+json ContentType.
 type UpdateDeviceApplicationMergePatchPlusJSONRequestBody = DevicePatch
+
+// UpdateDidApplicationMergePatchPlusJSONRequestBody defines body for UpdateDid for application/merge-patch+json ContentType.
+type UpdateDidApplicationMergePatchPlusJSONRequestBody = DidPatch
 
 // CreateExtensionJSONRequestBody defines body for CreateExtension for application/json ContentType.
 type CreateExtensionJSONRequestBody = ExtensionCreate
@@ -1403,6 +1953,18 @@ type CreateOauthClientJSONRequestBody = CredentialCreate
 // CreateOutboundAllowlistEntryJSONRequestBody defines body for CreateOutboundAllowlistEntry for application/json ContentType.
 type CreateOutboundAllowlistEntryJSONRequestBody = AllowlistEntryCreate
 
+// SetOutboundRoutingJSONRequestBody defines body for SetOutboundRouting for application/json ContentType.
+type SetOutboundRoutingJSONRequestBody = OutboundRoutingUpdate
+
+// CreateTrunkJSONRequestBody defines body for CreateTrunk for application/json ContentType.
+type CreateTrunkJSONRequestBody = TrunkCreate
+
+// UpdateTrunkApplicationMergePatchPlusJSONRequestBody defines body for UpdateTrunk for application/merge-patch+json ContentType.
+type UpdateTrunkApplicationMergePatchPlusJSONRequestBody = TrunkPatch
+
+// CreateDidJSONRequestBody defines body for CreateDid for application/json ContentType.
+type CreateDidJSONRequestBody = DidCreate
+
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = UserCreate
 
@@ -1417,6 +1979,12 @@ type UpdateWebhookApplicationMergePatchPlusJSONRequestBody = WebhookPatch
 
 // ReplayWebhookJSONRequestBody defines body for ReplayWebhook for application/json ContentType.
 type ReplayWebhookJSONRequestBody = WebhookReplay
+
+// CreateWireguardProfileJSONRequestBody defines body for CreateWireguardProfile for application/json ContentType.
+type CreateWireguardProfileJSONRequestBody = WireguardProfileCreate
+
+// UpdateWireguardProfileApplicationMergePatchPlusJSONRequestBody defines body for UpdateWireguardProfile for application/merge-patch+json ContentType.
+type UpdateWireguardProfileApplicationMergePatchPlusJSONRequestBody = WireguardProfilePatch
 
 // AlertFiredJSONRequestBody defines body for AlertFired for application/json ContentType.
 type AlertFiredJSONRequestBody = WebhookMessage
@@ -1462,6 +2030,21 @@ type ServerInterface interface {
 	// GetApiKey Get an API key
 	// (GET /api/v1/api-keys/{id})
 	GetApiKey(w http.ResponseWriter, r *http.Request, id Id)
+	// ListCallPermissionLevels List call permission levels
+	// (GET /api/v1/call-permission-levels)
+	ListCallPermissionLevels(w http.ResponseWriter, r *http.Request, params ListCallPermissionLevelsParams)
+	// CreateCallPermissionLevel Add a call permission level
+	// (POST /api/v1/call-permission-levels)
+	CreateCallPermissionLevel(w http.ResponseWriter, r *http.Request)
+	// DeleteCallPermissionLevel Delete a call permission level
+	// (DELETE /api/v1/call-permission-levels/{id})
+	DeleteCallPermissionLevel(w http.ResponseWriter, r *http.Request, id Id)
+	// GetCallPermissionLevel Get a call permission level
+	// (GET /api/v1/call-permission-levels/{id})
+	GetCallPermissionLevel(w http.ResponseWriter, r *http.Request, id Id)
+	// UpdateCallPermissionLevel Change a call permission level
+	// (PATCH /api/v1/call-permission-levels/{id})
+	UpdateCallPermissionLevel(w http.ResponseWriter, r *http.Request, id Id, params UpdateCallPermissionLevelParams)
 	// ListActiveCalls Calls in progress
 	// (GET /api/v1/calls/active)
 	ListActiveCalls(w http.ResponseWriter, r *http.Request)
@@ -1477,6 +2060,15 @@ type ServerInterface interface {
 	// ResetDevicePassword Issue a new SIP password
 	// (POST /api/v1/devices/{id}/reset-password)
 	ResetDevicePassword(w http.ResponseWriter, r *http.Request, id Id)
+	// DeleteDid Remove a phone number from its trunk
+	// (DELETE /api/v1/dids/{id})
+	DeleteDid(w http.ResponseWriter, r *http.Request, id Id)
+	// GetDid Get a phone number
+	// (GET /api/v1/dids/{id})
+	GetDid(w http.ResponseWriter, r *http.Request, id Id)
+	// UpdateDid Change a phone number's route
+	// (PATCH /api/v1/dids/{id})
+	UpdateDid(w http.ResponseWriter, r *http.Request, id Id, params UpdateDidParams)
 	// ListEventTypes Webhook and admin-alert event types this server can emit
 	// (GET /api/v1/event-types)
 	ListEventTypes(w http.ResponseWriter, r *http.Request, params ListEventTypesParams)
@@ -1501,6 +2093,9 @@ type ServerInterface interface {
 	// CreateDevice Add a device
 	// (POST /api/v1/extensions/{id}/devices)
 	CreateDevice(w http.ResponseWriter, r *http.Request, id Id)
+	// ListInboundRoutes List every phone number's route
+	// (GET /api/v1/inbound-routes)
+	ListInboundRoutes(w http.ResponseWriter, r *http.Request, params ListInboundRoutesParams)
 	// GetMe Who am I, which scopes
 	// (GET /api/v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -1546,9 +2141,36 @@ type ServerInterface interface {
 	// DeleteOutboundAllowlistEntry Remove an allowlist entry
 	// (DELETE /api/v1/outbound-allowlist/{id})
 	DeleteOutboundAllowlistEntry(w http.ResponseWriter, r *http.Request, id Id)
+	// GetOutboundRouting See the outgoing call order
+	// (GET /api/v1/outbound-routing)
+	GetOutboundRouting(w http.ResponseWriter, r *http.Request)
+	// SetOutboundRouting Set the outgoing call order
+	// (PUT /api/v1/outbound-routing)
+	SetOutboundRouting(w http.ResponseWriter, r *http.Request)
 	// ListTeam The Team list
 	// (GET /api/v1/team)
 	ListTeam(w http.ResponseWriter, r *http.Request)
+	// ListTrunks List trunks
+	// (GET /api/v1/trunks)
+	ListTrunks(w http.ResponseWriter, r *http.Request, params ListTrunksParams)
+	// CreateTrunk Add a trunk
+	// (POST /api/v1/trunks)
+	CreateTrunk(w http.ResponseWriter, r *http.Request)
+	// DeleteTrunk Delete a trunk
+	// (DELETE /api/v1/trunks/{id})
+	DeleteTrunk(w http.ResponseWriter, r *http.Request, id Id)
+	// GetTrunk Get a trunk
+	// (GET /api/v1/trunks/{id})
+	GetTrunk(w http.ResponseWriter, r *http.Request, id Id)
+	// UpdateTrunk Change a trunk
+	// (PATCH /api/v1/trunks/{id})
+	UpdateTrunk(w http.ResponseWriter, r *http.Request, id Id, params UpdateTrunkParams)
+	// ListTrunkDids List a trunk's phone numbers
+	// (GET /api/v1/trunks/{id}/dids)
+	ListTrunkDids(w http.ResponseWriter, r *http.Request, id Id, params ListTrunkDidsParams)
+	// CreateDid Add a phone number to a trunk
+	// (POST /api/v1/trunks/{id}/dids)
+	CreateDid(w http.ResponseWriter, r *http.Request, id Id)
 	// ListUsers List people
 	// (GET /api/v1/users)
 	ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams)
@@ -1600,6 +2222,21 @@ type ServerInterface interface {
 	// TestWebhook Send a test message now
 	// (POST /api/v1/webhooks/{id}/test)
 	TestWebhook(w http.ResponseWriter, r *http.Request, id Id)
+	// ListWireguardProfiles List WireGuard profiles
+	// (GET /api/v1/wireguard-profiles)
+	ListWireguardProfiles(w http.ResponseWriter, r *http.Request, params ListWireguardProfilesParams)
+	// CreateWireguardProfile Add a WireGuard profile
+	// (POST /api/v1/wireguard-profiles)
+	CreateWireguardProfile(w http.ResponseWriter, r *http.Request)
+	// DeleteWireguardProfile Delete a WireGuard profile
+	// (DELETE /api/v1/wireguard-profiles/{id})
+	DeleteWireguardProfile(w http.ResponseWriter, r *http.Request, id Id)
+	// GetWireguardProfile Get a WireGuard profile
+	// (GET /api/v1/wireguard-profiles/{id})
+	GetWireguardProfile(w http.ResponseWriter, r *http.Request, id Id)
+	// UpdateWireguardProfile Change a WireGuard profile
+	// (PATCH /api/v1/wireguard-profiles/{id})
+	UpdateWireguardProfile(w http.ResponseWriter, r *http.Request, id Id, params UpdateWireguardProfileParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -1970,6 +2607,168 @@ func (siw *ServerInterfaceWrapper) GetApiKey(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListCallPermissionLevels operation middleware
+func (siw *ServerInterfaceWrapper) ListCallPermissionLevels(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCallPermissionLevelsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCallPermissionLevels(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCallPermissionLevel operation middleware
+func (siw *ServerInterfaceWrapper) CreateCallPermissionLevel(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCallPermissionLevel(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCallPermissionLevel operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCallPermissionLevel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCallPermissionLevel(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCallPermissionLevel operation middleware
+func (siw *ServerInterfaceWrapper) GetCallPermissionLevel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCallPermissionLevel(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCallPermissionLevel operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCallPermissionLevel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateCallPermissionLevelParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCallPermissionLevel(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListActiveCalls operation middleware
 func (siw *ServerInterfaceWrapper) ListActiveCalls(w http.ResponseWriter, r *http.Request) {
 
@@ -2103,6 +2902,108 @@ func (siw *ServerInterfaceWrapper) ResetDevicePassword(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ResetDevicePassword(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteDid operation middleware
+func (siw *ServerInterfaceWrapper) DeleteDid(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteDid(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDid operation middleware
+func (siw *ServerInterfaceWrapper) GetDid(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDid(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateDid operation middleware
+func (siw *ServerInterfaceWrapper) UpdateDid(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateDidParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateDid(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2401,6 +3302,52 @@ func (siw *ServerInterfaceWrapper) CreateDevice(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListInboundRoutes operation middleware
+func (siw *ServerInterfaceWrapper) ListInboundRoutes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListInboundRoutesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInboundRoutes(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMe operation middleware
 func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
 
@@ -2679,11 +3626,282 @@ func (siw *ServerInterfaceWrapper) DeleteOutboundAllowlistEntry(w http.ResponseW
 	handler.ServeHTTP(w, r)
 }
 
+// GetOutboundRouting operation middleware
+func (siw *ServerInterfaceWrapper) GetOutboundRouting(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOutboundRouting(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetOutboundRouting operation middleware
+func (siw *ServerInterfaceWrapper) SetOutboundRouting(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetOutboundRouting(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTeam operation middleware
 func (siw *ServerInterfaceWrapper) ListTeam(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListTeam(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTrunks operation middleware
+func (siw *ServerInterfaceWrapper) ListTrunks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTrunksParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTrunks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTrunk operation middleware
+func (siw *ServerInterfaceWrapper) CreateTrunk(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTrunk(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteTrunk operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTrunk(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTrunk(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTrunk operation middleware
+func (siw *ServerInterfaceWrapper) GetTrunk(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTrunk(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateTrunk operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTrunk(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateTrunkParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTrunk(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTrunkDids operation middleware
+func (siw *ServerInterfaceWrapper) ListTrunkDids(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTrunkDidsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTrunkDids(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDid operation middleware
+func (siw *ServerInterfaceWrapper) CreateDid(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDid(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3217,6 +4435,168 @@ func (siw *ServerInterfaceWrapper) TestWebhook(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListWireguardProfiles operation middleware
+func (siw *ServerInterfaceWrapper) ListWireguardProfiles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWireguardProfilesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWireguardProfiles(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateWireguardProfile operation middleware
+func (siw *ServerInterfaceWrapper) CreateWireguardProfile(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateWireguardProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteWireguardProfile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteWireguardProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteWireguardProfile(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetWireguardProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetWireguardProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetWireguardProfile(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateWireguardProfile operation middleware
+func (siw *ServerInterfaceWrapper) UpdateWireguardProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateWireguardProfileParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateWireguardProfile(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -3380,6 +4760,29 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/devices/{id}", wrapper.GetDevice)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/devices/{id}", wrapper.UpdateDevice)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/devices/{id}/reset-password", wrapper.ResetDevicePassword)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/trunks", wrapper.ListTrunks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/trunks", wrapper.CreateTrunk)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/trunks/{id}", wrapper.DeleteTrunk)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/trunks/{id}", wrapper.GetTrunk)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/trunks/{id}", wrapper.UpdateTrunk)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/trunks/{id}/dids", wrapper.ListTrunkDids)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/trunks/{id}/dids", wrapper.CreateDid)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/dids/{id}", wrapper.DeleteDid)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/dids/{id}", wrapper.GetDid)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/dids/{id}", wrapper.UpdateDid)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/inbound-routes", wrapper.ListInboundRoutes)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/outbound-routing", wrapper.GetOutboundRouting)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/outbound-routing", wrapper.SetOutboundRouting)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/wireguard-profiles", wrapper.ListWireguardProfiles)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/wireguard-profiles", wrapper.CreateWireguardProfile)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/wireguard-profiles/{id}", wrapper.DeleteWireguardProfile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/wireguard-profiles/{id}", wrapper.GetWireguardProfile)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/wireguard-profiles/{id}", wrapper.UpdateWireguardProfile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/call-permission-levels", wrapper.ListCallPermissionLevels)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/call-permission-levels", wrapper.CreateCallPermissionLevel)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/call-permission-levels/{id}", wrapper.DeleteCallPermissionLevel)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/call-permission-levels/{id}", wrapper.GetCallPermissionLevel)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/call-permission-levels/{id}", wrapper.UpdateCallPermissionLevel)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/calls/active", wrapper.ListActiveCalls)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/users", wrapper.ListUsers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/users", wrapper.CreateUser)
@@ -3920,6 +5323,217 @@ func (response GetApiKeydefaultApplicationProblemPlusJSONResponse) VisitGetApiKe
 	return err
 }
 
+type ListCallPermissionLevelsRequestObject struct {
+	Params ListCallPermissionLevelsParams
+}
+
+type ListCallPermissionLevelsResponseObject interface {
+	VisitListCallPermissionLevelsResponse(w http.ResponseWriter) error
+}
+
+type ListCallPermissionLevels200JSONResponse CallPermissionLevelList
+
+func (response ListCallPermissionLevels200JSONResponse) VisitListCallPermissionLevelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCallPermissionLevelsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListCallPermissionLevelsdefaultApplicationProblemPlusJSONResponse) VisitListCallPermissionLevelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCallPermissionLevelRequestObject struct {
+	Body *CreateCallPermissionLevelJSONRequestBody
+}
+
+type CreateCallPermissionLevelResponseObject interface {
+	VisitCreateCallPermissionLevelResponse(w http.ResponseWriter) error
+}
+
+type CreateCallPermissionLevel201JSONResponse CallPermissionLevel
+
+func (response CreateCallPermissionLevel201JSONResponse) VisitCreateCallPermissionLevelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCallPermissionLeveldefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateCallPermissionLeveldefaultApplicationProblemPlusJSONResponse) VisitCreateCallPermissionLevelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCallPermissionLevelRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type DeleteCallPermissionLevelResponseObject interface {
+	VisitDeleteCallPermissionLevelResponse(w http.ResponseWriter) error
+}
+
+type DeleteCallPermissionLevel204Response struct {
+}
+
+func (response DeleteCallPermissionLevel204Response) VisitDeleteCallPermissionLevelResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCallPermissionLeveldefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteCallPermissionLeveldefaultApplicationProblemPlusJSONResponse) VisitDeleteCallPermissionLevelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCallPermissionLevelRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type GetCallPermissionLevelResponseObject interface {
+	VisitGetCallPermissionLevelResponse(w http.ResponseWriter) error
+}
+
+type GetCallPermissionLevel200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetCallPermissionLevel200JSONResponse struct {
+	Body    CallPermissionLevel
+	Headers GetCallPermissionLevel200ResponseHeaders
+}
+
+func (response GetCallPermissionLevel200JSONResponse) VisitGetCallPermissionLevelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCallPermissionLeveldefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetCallPermissionLeveldefaultApplicationProblemPlusJSONResponse) VisitGetCallPermissionLevelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCallPermissionLevelRequestObject struct {
+	Id     Id `json:"id"`
+	Params UpdateCallPermissionLevelParams
+	Body   *UpdateCallPermissionLevelApplicationMergePatchPlusJSONRequestBody
+}
+
+type UpdateCallPermissionLevelResponseObject interface {
+	VisitUpdateCallPermissionLevelResponse(w http.ResponseWriter) error
+}
+
+type UpdateCallPermissionLevel200ResponseHeaders struct {
+	ETag *string
+}
+
+type UpdateCallPermissionLevel200JSONResponse struct {
+	Body    CallPermissionLevel
+	Headers UpdateCallPermissionLevel200ResponseHeaders
+}
+
+func (response UpdateCallPermissionLevel200JSONResponse) VisitUpdateCallPermissionLevelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCallPermissionLeveldefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdateCallPermissionLeveldefaultApplicationProblemPlusJSONResponse) VisitUpdateCallPermissionLevelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListActiveCallsRequestObject struct {
 }
 
@@ -4119,6 +5733,139 @@ type ResetDevicePassworddefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ResetDevicePassworddefaultApplicationProblemPlusJSONResponse) VisitResetDevicePasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteDidRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type DeleteDidResponseObject interface {
+	VisitDeleteDidResponse(w http.ResponseWriter) error
+}
+
+type DeleteDid204Response struct {
+}
+
+func (response DeleteDid204Response) VisitDeleteDidResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteDiddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteDiddefaultApplicationProblemPlusJSONResponse) VisitDeleteDidResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDidRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type GetDidResponseObject interface {
+	VisitGetDidResponse(w http.ResponseWriter) error
+}
+
+type GetDid200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetDid200JSONResponse struct {
+	Body    Did
+	Headers GetDid200ResponseHeaders
+}
+
+func (response GetDid200JSONResponse) VisitGetDidResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDiddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetDiddefaultApplicationProblemPlusJSONResponse) VisitGetDidResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateDidRequestObject struct {
+	Id     Id `json:"id"`
+	Params UpdateDidParams
+	Body   *UpdateDidApplicationMergePatchPlusJSONRequestBody
+}
+
+type UpdateDidResponseObject interface {
+	VisitUpdateDidResponse(w http.ResponseWriter) error
+}
+
+type UpdateDid200ResponseHeaders struct {
+	ETag *string
+}
+
+type UpdateDid200JSONResponse struct {
+	Body    Did
+	Headers UpdateDid200ResponseHeaders
+}
+
+func (response UpdateDid200JSONResponse) VisitUpdateDidResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateDiddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdateDiddefaultApplicationProblemPlusJSONResponse) VisitUpdateDidResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4449,6 +6196,45 @@ type CreateDevicedefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response CreateDevicedefaultApplicationProblemPlusJSONResponse) VisitCreateDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboundRoutesRequestObject struct {
+	Params ListInboundRoutesParams
+}
+
+type ListInboundRoutesResponseObject interface {
+	VisitListInboundRoutesResponse(w http.ResponseWriter) error
+}
+
+type ListInboundRoutes200JSONResponse InboundRouteList
+
+func (response ListInboundRoutes200JSONResponse) VisitListInboundRoutesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboundRoutesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListInboundRoutesdefaultApplicationProblemPlusJSONResponse) VisitListInboundRoutesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4998,6 +6784,83 @@ func (response DeleteOutboundAllowlistEntrydefaultApplicationProblemPlusJSONResp
 	return err
 }
 
+type GetOutboundRoutingRequestObject struct {
+}
+
+type GetOutboundRoutingResponseObject interface {
+	VisitGetOutboundRoutingResponse(w http.ResponseWriter) error
+}
+
+type GetOutboundRouting200JSONResponse OutboundRouting
+
+func (response GetOutboundRouting200JSONResponse) VisitGetOutboundRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOutboundRoutingdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetOutboundRoutingdefaultApplicationProblemPlusJSONResponse) VisitGetOutboundRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetOutboundRoutingRequestObject struct {
+	Body *SetOutboundRoutingJSONRequestBody
+}
+
+type SetOutboundRoutingResponseObject interface {
+	VisitSetOutboundRoutingResponse(w http.ResponseWriter) error
+}
+
+type SetOutboundRouting200JSONResponse OutboundRouting
+
+func (response SetOutboundRouting200JSONResponse) VisitSetOutboundRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetOutboundRoutingdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response SetOutboundRoutingdefaultApplicationProblemPlusJSONResponse) VisitSetOutboundRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTeamRequestObject struct {
 }
 
@@ -5025,6 +6888,297 @@ type ListTeamdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ListTeamdefaultApplicationProblemPlusJSONResponse) VisitListTeamResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTrunksRequestObject struct {
+	Params ListTrunksParams
+}
+
+type ListTrunksResponseObject interface {
+	VisitListTrunksResponse(w http.ResponseWriter) error
+}
+
+type ListTrunks200JSONResponse TrunkList
+
+func (response ListTrunks200JSONResponse) VisitListTrunksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTrunksdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListTrunksdefaultApplicationProblemPlusJSONResponse) VisitListTrunksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTrunkRequestObject struct {
+	Body *CreateTrunkJSONRequestBody
+}
+
+type CreateTrunkResponseObject interface {
+	VisitCreateTrunkResponse(w http.ResponseWriter) error
+}
+
+type CreateTrunk201JSONResponse Trunk
+
+func (response CreateTrunk201JSONResponse) VisitCreateTrunkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTrunkdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateTrunkdefaultApplicationProblemPlusJSONResponse) VisitCreateTrunkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTrunkRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type DeleteTrunkResponseObject interface {
+	VisitDeleteTrunkResponse(w http.ResponseWriter) error
+}
+
+type DeleteTrunk204Response struct {
+}
+
+func (response DeleteTrunk204Response) VisitDeleteTrunkResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteTrunkdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteTrunkdefaultApplicationProblemPlusJSONResponse) VisitDeleteTrunkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTrunkRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type GetTrunkResponseObject interface {
+	VisitGetTrunkResponse(w http.ResponseWriter) error
+}
+
+type GetTrunk200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetTrunk200JSONResponse struct {
+	Body    Trunk
+	Headers GetTrunk200ResponseHeaders
+}
+
+func (response GetTrunk200JSONResponse) VisitGetTrunkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTrunkdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetTrunkdefaultApplicationProblemPlusJSONResponse) VisitGetTrunkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTrunkRequestObject struct {
+	Id     Id `json:"id"`
+	Params UpdateTrunkParams
+	Body   *UpdateTrunkApplicationMergePatchPlusJSONRequestBody
+}
+
+type UpdateTrunkResponseObject interface {
+	VisitUpdateTrunkResponse(w http.ResponseWriter) error
+}
+
+type UpdateTrunk200ResponseHeaders struct {
+	ETag *string
+}
+
+type UpdateTrunk200JSONResponse struct {
+	Body    Trunk
+	Headers UpdateTrunk200ResponseHeaders
+}
+
+func (response UpdateTrunk200JSONResponse) VisitUpdateTrunkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTrunkdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdateTrunkdefaultApplicationProblemPlusJSONResponse) VisitUpdateTrunkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTrunkDidsRequestObject struct {
+	Id     Id `json:"id"`
+	Params ListTrunkDidsParams
+}
+
+type ListTrunkDidsResponseObject interface {
+	VisitListTrunkDidsResponse(w http.ResponseWriter) error
+}
+
+type ListTrunkDids200JSONResponse DidList
+
+func (response ListTrunkDids200JSONResponse) VisitListTrunkDidsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTrunkDidsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListTrunkDidsdefaultApplicationProblemPlusJSONResponse) VisitListTrunkDidsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDidRequestObject struct {
+	Id   Id `json:"id"`
+	Body *CreateDidJSONRequestBody
+}
+
+type CreateDidResponseObject interface {
+	VisitCreateDidResponse(w http.ResponseWriter) error
+}
+
+type CreateDid201JSONResponse Did
+
+func (response CreateDid201JSONResponse) VisitCreateDidResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDiddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateDiddefaultApplicationProblemPlusJSONResponse) VisitCreateDidResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5712,6 +7866,217 @@ func (response TestWebhookdefaultApplicationProblemPlusJSONResponse) VisitTestWe
 	return err
 }
 
+type ListWireguardProfilesRequestObject struct {
+	Params ListWireguardProfilesParams
+}
+
+type ListWireguardProfilesResponseObject interface {
+	VisitListWireguardProfilesResponse(w http.ResponseWriter) error
+}
+
+type ListWireguardProfiles200JSONResponse WireguardProfileList
+
+func (response ListWireguardProfiles200JSONResponse) VisitListWireguardProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWireguardProfilesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListWireguardProfilesdefaultApplicationProblemPlusJSONResponse) VisitListWireguardProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateWireguardProfileRequestObject struct {
+	Body *CreateWireguardProfileJSONRequestBody
+}
+
+type CreateWireguardProfileResponseObject interface {
+	VisitCreateWireguardProfileResponse(w http.ResponseWriter) error
+}
+
+type CreateWireguardProfile201JSONResponse WireguardProfile
+
+func (response CreateWireguardProfile201JSONResponse) VisitCreateWireguardProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateWireguardProfiledefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateWireguardProfiledefaultApplicationProblemPlusJSONResponse) VisitCreateWireguardProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWireguardProfileRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type DeleteWireguardProfileResponseObject interface {
+	VisitDeleteWireguardProfileResponse(w http.ResponseWriter) error
+}
+
+type DeleteWireguardProfile204Response struct {
+}
+
+func (response DeleteWireguardProfile204Response) VisitDeleteWireguardProfileResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteWireguardProfiledefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteWireguardProfiledefaultApplicationProblemPlusJSONResponse) VisitDeleteWireguardProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetWireguardProfileRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type GetWireguardProfileResponseObject interface {
+	VisitGetWireguardProfileResponse(w http.ResponseWriter) error
+}
+
+type GetWireguardProfile200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetWireguardProfile200JSONResponse struct {
+	Body    WireguardProfile
+	Headers GetWireguardProfile200ResponseHeaders
+}
+
+func (response GetWireguardProfile200JSONResponse) VisitGetWireguardProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetWireguardProfiledefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetWireguardProfiledefaultApplicationProblemPlusJSONResponse) VisitGetWireguardProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateWireguardProfileRequestObject struct {
+	Id     Id `json:"id"`
+	Params UpdateWireguardProfileParams
+	Body   *UpdateWireguardProfileApplicationMergePatchPlusJSONRequestBody
+}
+
+type UpdateWireguardProfileResponseObject interface {
+	VisitUpdateWireguardProfileResponse(w http.ResponseWriter) error
+}
+
+type UpdateWireguardProfile200ResponseHeaders struct {
+	ETag *string
+}
+
+type UpdateWireguardProfile200JSONResponse struct {
+	Body    WireguardProfile
+	Headers UpdateWireguardProfile200ResponseHeaders
+}
+
+func (response UpdateWireguardProfile200JSONResponse) VisitUpdateWireguardProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateWireguardProfiledefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdateWireguardProfiledefaultApplicationProblemPlusJSONResponse) VisitUpdateWireguardProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ListAlertChannels List alert channels
@@ -5747,6 +8112,21 @@ type StrictServerInterface interface {
 	// GetApiKey Get an API key
 	// (GET /api/v1/api-keys/{id})
 	GetApiKey(ctx context.Context, request GetApiKeyRequestObject) (GetApiKeyResponseObject, error)
+	// ListCallPermissionLevels List call permission levels
+	// (GET /api/v1/call-permission-levels)
+	ListCallPermissionLevels(ctx context.Context, request ListCallPermissionLevelsRequestObject) (ListCallPermissionLevelsResponseObject, error)
+	// CreateCallPermissionLevel Add a call permission level
+	// (POST /api/v1/call-permission-levels)
+	CreateCallPermissionLevel(ctx context.Context, request CreateCallPermissionLevelRequestObject) (CreateCallPermissionLevelResponseObject, error)
+	// DeleteCallPermissionLevel Delete a call permission level
+	// (DELETE /api/v1/call-permission-levels/{id})
+	DeleteCallPermissionLevel(ctx context.Context, request DeleteCallPermissionLevelRequestObject) (DeleteCallPermissionLevelResponseObject, error)
+	// GetCallPermissionLevel Get a call permission level
+	// (GET /api/v1/call-permission-levels/{id})
+	GetCallPermissionLevel(ctx context.Context, request GetCallPermissionLevelRequestObject) (GetCallPermissionLevelResponseObject, error)
+	// UpdateCallPermissionLevel Change a call permission level
+	// (PATCH /api/v1/call-permission-levels/{id})
+	UpdateCallPermissionLevel(ctx context.Context, request UpdateCallPermissionLevelRequestObject) (UpdateCallPermissionLevelResponseObject, error)
 	// ListActiveCalls Calls in progress
 	// (GET /api/v1/calls/active)
 	ListActiveCalls(ctx context.Context, request ListActiveCallsRequestObject) (ListActiveCallsResponseObject, error)
@@ -5762,6 +8142,15 @@ type StrictServerInterface interface {
 	// ResetDevicePassword Issue a new SIP password
 	// (POST /api/v1/devices/{id}/reset-password)
 	ResetDevicePassword(ctx context.Context, request ResetDevicePasswordRequestObject) (ResetDevicePasswordResponseObject, error)
+	// DeleteDid Remove a phone number from its trunk
+	// (DELETE /api/v1/dids/{id})
+	DeleteDid(ctx context.Context, request DeleteDidRequestObject) (DeleteDidResponseObject, error)
+	// GetDid Get a phone number
+	// (GET /api/v1/dids/{id})
+	GetDid(ctx context.Context, request GetDidRequestObject) (GetDidResponseObject, error)
+	// UpdateDid Change a phone number's route
+	// (PATCH /api/v1/dids/{id})
+	UpdateDid(ctx context.Context, request UpdateDidRequestObject) (UpdateDidResponseObject, error)
 	// ListEventTypes Webhook and admin-alert event types this server can emit
 	// (GET /api/v1/event-types)
 	ListEventTypes(ctx context.Context, request ListEventTypesRequestObject) (ListEventTypesResponseObject, error)
@@ -5786,6 +8175,9 @@ type StrictServerInterface interface {
 	// CreateDevice Add a device
 	// (POST /api/v1/extensions/{id}/devices)
 	CreateDevice(ctx context.Context, request CreateDeviceRequestObject) (CreateDeviceResponseObject, error)
+	// ListInboundRoutes List every phone number's route
+	// (GET /api/v1/inbound-routes)
+	ListInboundRoutes(ctx context.Context, request ListInboundRoutesRequestObject) (ListInboundRoutesResponseObject, error)
 	// GetMe Who am I, which scopes
 	// (GET /api/v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
@@ -5831,9 +8223,36 @@ type StrictServerInterface interface {
 	// DeleteOutboundAllowlistEntry Remove an allowlist entry
 	// (DELETE /api/v1/outbound-allowlist/{id})
 	DeleteOutboundAllowlistEntry(ctx context.Context, request DeleteOutboundAllowlistEntryRequestObject) (DeleteOutboundAllowlistEntryResponseObject, error)
+	// GetOutboundRouting See the outgoing call order
+	// (GET /api/v1/outbound-routing)
+	GetOutboundRouting(ctx context.Context, request GetOutboundRoutingRequestObject) (GetOutboundRoutingResponseObject, error)
+	// SetOutboundRouting Set the outgoing call order
+	// (PUT /api/v1/outbound-routing)
+	SetOutboundRouting(ctx context.Context, request SetOutboundRoutingRequestObject) (SetOutboundRoutingResponseObject, error)
 	// ListTeam The Team list
 	// (GET /api/v1/team)
 	ListTeam(ctx context.Context, request ListTeamRequestObject) (ListTeamResponseObject, error)
+	// ListTrunks List trunks
+	// (GET /api/v1/trunks)
+	ListTrunks(ctx context.Context, request ListTrunksRequestObject) (ListTrunksResponseObject, error)
+	// CreateTrunk Add a trunk
+	// (POST /api/v1/trunks)
+	CreateTrunk(ctx context.Context, request CreateTrunkRequestObject) (CreateTrunkResponseObject, error)
+	// DeleteTrunk Delete a trunk
+	// (DELETE /api/v1/trunks/{id})
+	DeleteTrunk(ctx context.Context, request DeleteTrunkRequestObject) (DeleteTrunkResponseObject, error)
+	// GetTrunk Get a trunk
+	// (GET /api/v1/trunks/{id})
+	GetTrunk(ctx context.Context, request GetTrunkRequestObject) (GetTrunkResponseObject, error)
+	// UpdateTrunk Change a trunk
+	// (PATCH /api/v1/trunks/{id})
+	UpdateTrunk(ctx context.Context, request UpdateTrunkRequestObject) (UpdateTrunkResponseObject, error)
+	// ListTrunkDids List a trunk's phone numbers
+	// (GET /api/v1/trunks/{id}/dids)
+	ListTrunkDids(ctx context.Context, request ListTrunkDidsRequestObject) (ListTrunkDidsResponseObject, error)
+	// CreateDid Add a phone number to a trunk
+	// (POST /api/v1/trunks/{id}/dids)
+	CreateDid(ctx context.Context, request CreateDidRequestObject) (CreateDidResponseObject, error)
 	// ListUsers List people
 	// (GET /api/v1/users)
 	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
@@ -5885,6 +8304,21 @@ type StrictServerInterface interface {
 	// TestWebhook Send a test message now
 	// (POST /api/v1/webhooks/{id}/test)
 	TestWebhook(ctx context.Context, request TestWebhookRequestObject) (TestWebhookResponseObject, error)
+	// ListWireguardProfiles List WireGuard profiles
+	// (GET /api/v1/wireguard-profiles)
+	ListWireguardProfiles(ctx context.Context, request ListWireguardProfilesRequestObject) (ListWireguardProfilesResponseObject, error)
+	// CreateWireguardProfile Add a WireGuard profile
+	// (POST /api/v1/wireguard-profiles)
+	CreateWireguardProfile(ctx context.Context, request CreateWireguardProfileRequestObject) (CreateWireguardProfileResponseObject, error)
+	// DeleteWireguardProfile Delete a WireGuard profile
+	// (DELETE /api/v1/wireguard-profiles/{id})
+	DeleteWireguardProfile(ctx context.Context, request DeleteWireguardProfileRequestObject) (DeleteWireguardProfileResponseObject, error)
+	// GetWireguardProfile Get a WireGuard profile
+	// (GET /api/v1/wireguard-profiles/{id})
+	GetWireguardProfile(ctx context.Context, request GetWireguardProfileRequestObject) (GetWireguardProfileResponseObject, error)
+	// UpdateWireguardProfile Change a WireGuard profile
+	// (PATCH /api/v1/wireguard-profiles/{id})
+	UpdateWireguardProfile(ctx context.Context, request UpdateWireguardProfileRequestObject) (UpdateWireguardProfileResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -6230,6 +8664,149 @@ func (sh *strictHandler) GetApiKey(w http.ResponseWriter, r *http.Request, id Id
 	}
 }
 
+// ListCallPermissionLevels operation middleware
+func (sh *strictHandler) ListCallPermissionLevels(w http.ResponseWriter, r *http.Request, params ListCallPermissionLevelsParams) {
+	var request ListCallPermissionLevelsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCallPermissionLevels(ctx, request.(ListCallPermissionLevelsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCallPermissionLevels")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCallPermissionLevelsResponseObject); ok {
+		if err := validResponse.VisitListCallPermissionLevelsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCallPermissionLevel operation middleware
+func (sh *strictHandler) CreateCallPermissionLevel(w http.ResponseWriter, r *http.Request) {
+	var request CreateCallPermissionLevelRequestObject
+
+	var body CreateCallPermissionLevelJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCallPermissionLevel(ctx, request.(CreateCallPermissionLevelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCallPermissionLevel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCallPermissionLevelResponseObject); ok {
+		if err := validResponse.VisitCreateCallPermissionLevelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteCallPermissionLevel operation middleware
+func (sh *strictHandler) DeleteCallPermissionLevel(w http.ResponseWriter, r *http.Request, id Id) {
+	var request DeleteCallPermissionLevelRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCallPermissionLevel(ctx, request.(DeleteCallPermissionLevelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCallPermissionLevel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCallPermissionLevelResponseObject); ok {
+		if err := validResponse.VisitDeleteCallPermissionLevelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCallPermissionLevel operation middleware
+func (sh *strictHandler) GetCallPermissionLevel(w http.ResponseWriter, r *http.Request, id Id) {
+	var request GetCallPermissionLevelRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCallPermissionLevel(ctx, request.(GetCallPermissionLevelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCallPermissionLevel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCallPermissionLevelResponseObject); ok {
+		if err := validResponse.VisitGetCallPermissionLevelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateCallPermissionLevel operation middleware
+func (sh *strictHandler) UpdateCallPermissionLevel(w http.ResponseWriter, r *http.Request, id Id, params UpdateCallPermissionLevelParams) {
+	var request UpdateCallPermissionLevelRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body UpdateCallPermissionLevelApplicationMergePatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateCallPermissionLevel(ctx, request.(UpdateCallPermissionLevelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateCallPermissionLevel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateCallPermissionLevelResponseObject); ok {
+		if err := validResponse.VisitUpdateCallPermissionLevelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListActiveCalls operation middleware
 func (sh *strictHandler) ListActiveCalls(w http.ResponseWriter, r *http.Request) {
 	var request ListActiveCallsRequestObject
@@ -6359,6 +8936,92 @@ func (sh *strictHandler) ResetDevicePassword(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ResetDevicePasswordResponseObject); ok {
 		if err := validResponse.VisitResetDevicePasswordResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteDid operation middleware
+func (sh *strictHandler) DeleteDid(w http.ResponseWriter, r *http.Request, id Id) {
+	var request DeleteDidRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteDid(ctx, request.(DeleteDidRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteDid")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteDidResponseObject); ok {
+		if err := validResponse.VisitDeleteDidResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDid operation middleware
+func (sh *strictHandler) GetDid(w http.ResponseWriter, r *http.Request, id Id) {
+	var request GetDidRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDid(ctx, request.(GetDidRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDid")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDidResponseObject); ok {
+		if err := validResponse.VisitGetDidResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateDid operation middleware
+func (sh *strictHandler) UpdateDid(w http.ResponseWriter, r *http.Request, id Id, params UpdateDidParams) {
+	var request UpdateDidRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body UpdateDidApplicationMergePatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateDid(ctx, request.(UpdateDidRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateDid")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateDidResponseObject); ok {
+		if err := validResponse.VisitUpdateDidResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -6588,6 +9251,32 @@ func (sh *strictHandler) CreateDevice(w http.ResponseWriter, r *http.Request, id
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateDeviceResponseObject); ok {
 		if err := validResponse.VisitCreateDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListInboundRoutes operation middleware
+func (sh *strictHandler) ListInboundRoutes(w http.ResponseWriter, r *http.Request, params ListInboundRoutesParams) {
+	var request ListInboundRoutesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInboundRoutes(ctx, request.(ListInboundRoutesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInboundRoutes")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListInboundRoutesResponseObject); ok {
+		if err := validResponse.VisitListInboundRoutesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -6998,6 +9687,61 @@ func (sh *strictHandler) DeleteOutboundAllowlistEntry(w http.ResponseWriter, r *
 	}
 }
 
+// GetOutboundRouting operation middleware
+func (sh *strictHandler) GetOutboundRouting(w http.ResponseWriter, r *http.Request) {
+	var request GetOutboundRoutingRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetOutboundRouting(ctx, request.(GetOutboundRoutingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetOutboundRouting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetOutboundRoutingResponseObject); ok {
+		if err := validResponse.VisitGetOutboundRoutingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetOutboundRouting operation middleware
+func (sh *strictHandler) SetOutboundRouting(w http.ResponseWriter, r *http.Request) {
+	var request SetOutboundRoutingRequestObject
+
+	var body SetOutboundRoutingJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetOutboundRouting(ctx, request.(SetOutboundRoutingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetOutboundRouting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetOutboundRoutingResponseObject); ok {
+		if err := validResponse.VisitSetOutboundRoutingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListTeam operation middleware
 func (sh *strictHandler) ListTeam(w http.ResponseWriter, r *http.Request) {
 	var request ListTeamRequestObject
@@ -7015,6 +9759,209 @@ func (sh *strictHandler) ListTeam(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListTeamResponseObject); ok {
 		if err := validResponse.VisitListTeamResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTrunks operation middleware
+func (sh *strictHandler) ListTrunks(w http.ResponseWriter, r *http.Request, params ListTrunksParams) {
+	var request ListTrunksRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTrunks(ctx, request.(ListTrunksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTrunks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTrunksResponseObject); ok {
+		if err := validResponse.VisitListTrunksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTrunk operation middleware
+func (sh *strictHandler) CreateTrunk(w http.ResponseWriter, r *http.Request) {
+	var request CreateTrunkRequestObject
+
+	var body CreateTrunkJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTrunk(ctx, request.(CreateTrunkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTrunk")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTrunkResponseObject); ok {
+		if err := validResponse.VisitCreateTrunkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTrunk operation middleware
+func (sh *strictHandler) DeleteTrunk(w http.ResponseWriter, r *http.Request, id Id) {
+	var request DeleteTrunkRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTrunk(ctx, request.(DeleteTrunkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTrunk")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTrunkResponseObject); ok {
+		if err := validResponse.VisitDeleteTrunkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTrunk operation middleware
+func (sh *strictHandler) GetTrunk(w http.ResponseWriter, r *http.Request, id Id) {
+	var request GetTrunkRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTrunk(ctx, request.(GetTrunkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTrunk")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTrunkResponseObject); ok {
+		if err := validResponse.VisitGetTrunkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateTrunk operation middleware
+func (sh *strictHandler) UpdateTrunk(w http.ResponseWriter, r *http.Request, id Id, params UpdateTrunkParams) {
+	var request UpdateTrunkRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body UpdateTrunkApplicationMergePatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateTrunk(ctx, request.(UpdateTrunkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateTrunk")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateTrunkResponseObject); ok {
+		if err := validResponse.VisitUpdateTrunkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTrunkDids operation middleware
+func (sh *strictHandler) ListTrunkDids(w http.ResponseWriter, r *http.Request, id Id, params ListTrunkDidsParams) {
+	var request ListTrunkDidsRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTrunkDids(ctx, request.(ListTrunkDidsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTrunkDids")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTrunkDidsResponseObject); ok {
+		if err := validResponse.VisitListTrunkDidsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateDid operation middleware
+func (sh *strictHandler) CreateDid(w http.ResponseWriter, r *http.Request, id Id) {
+	var request CreateDidRequestObject
+
+	request.Id = id
+
+	var body CreateDidJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateDid(ctx, request.(CreateDidRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateDid")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateDidResponseObject); ok {
+		if err := validResponse.VisitCreateDidResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7497,209 +10444,411 @@ func (sh *strictHandler) TestWebhook(w http.ResponseWriter, r *http.Request, id 
 	}
 }
 
+// ListWireguardProfiles operation middleware
+func (sh *strictHandler) ListWireguardProfiles(w http.ResponseWriter, r *http.Request, params ListWireguardProfilesParams) {
+	var request ListWireguardProfilesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWireguardProfiles(ctx, request.(ListWireguardProfilesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWireguardProfiles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWireguardProfilesResponseObject); ok {
+		if err := validResponse.VisitListWireguardProfilesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateWireguardProfile operation middleware
+func (sh *strictHandler) CreateWireguardProfile(w http.ResponseWriter, r *http.Request) {
+	var request CreateWireguardProfileRequestObject
+
+	var body CreateWireguardProfileJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateWireguardProfile(ctx, request.(CreateWireguardProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateWireguardProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateWireguardProfileResponseObject); ok {
+		if err := validResponse.VisitCreateWireguardProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteWireguardProfile operation middleware
+func (sh *strictHandler) DeleteWireguardProfile(w http.ResponseWriter, r *http.Request, id Id) {
+	var request DeleteWireguardProfileRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteWireguardProfile(ctx, request.(DeleteWireguardProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteWireguardProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteWireguardProfileResponseObject); ok {
+		if err := validResponse.VisitDeleteWireguardProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetWireguardProfile operation middleware
+func (sh *strictHandler) GetWireguardProfile(w http.ResponseWriter, r *http.Request, id Id) {
+	var request GetWireguardProfileRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetWireguardProfile(ctx, request.(GetWireguardProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetWireguardProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetWireguardProfileResponseObject); ok {
+		if err := validResponse.VisitGetWireguardProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateWireguardProfile operation middleware
+func (sh *strictHandler) UpdateWireguardProfile(w http.ResponseWriter, r *http.Request, id Id, params UpdateWireguardProfileParams) {
+	var request UpdateWireguardProfileRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body UpdateWireguardProfileApplicationMergePatchPlusJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateWireguardProfile(ctx, request.(UpdateWireguardProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateWireguardProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateWireguardProfileResponseObject); ok {
+		if err := validResponse.VisitUpdateWireguardProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"yC5PPHDVwlav7ENa8v8dAA==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -73,6 +73,8 @@ var errDeviceRevoked = &apihttp.Error{Status: http.StatusConflict, Code: "device
 var errWebDevice = &apihttp.Error{Status: http.StatusConflict, Code: "device_is_web",
 	Detail: "This is a browser's phone line: it gets a new password each time that browser signs in, and ends when it signs out."}
 
+var errPermissionLevelNotFound = invalid("call_permission_level_not_found", "That call permission level doesn't exist.")
+
 // numberPattern matches migration 0005's CHECK on extension.number.
 var numberPattern = regexp.MustCompile(`^[0-9]{2,6}$`)
 
@@ -99,10 +101,11 @@ func checkDisplayName(name string) error {
 
 // ExtensionInput is a new extension.
 type ExtensionInput struct {
-	Number      string
-	DisplayName string
-	Email       string
-	Enabled     *bool
+	Number                string
+	DisplayName           string
+	Email                 string
+	Enabled               *bool
+	CallPermissionLevelID *uuid.UUID
 }
 
 // CreateExtension adds an extension.
@@ -124,7 +127,8 @@ func (s *Service) CreateExtension(ctx context.Context, in ExtensionInput) (Exten
 	now := s.Now().UTC()
 	e := Extension{
 		ID: id, TenantID: p.TenantID, Number: in.Number, DisplayName: in.DisplayName, Email: in.Email,
-		Enabled: in.Enabled == nil || *in.Enabled, Version: 1, CreatedAt: now, UpdatedAt: now,
+		Enabled: in.Enabled == nil || *in.Enabled, CallPermissionLevelID: in.CallPermissionLevelID,
+		Version: 1, CreatedAt: now, UpdatedAt: now,
 	}
 	a.Detail = map[string]any{"number": e.Number, "display_name": e.DisplayName, "enabled": e.Enabled}
 	if err := s.Store.CreateExtension(ctx, e, a); err != nil {
@@ -134,6 +138,9 @@ func (s *Service) CreateExtension(ctx context.Context, in ExtensionInput) (Exten
 		}
 		if r, ok := errors.AsType[*ReservedNumberError](err); ok {
 			return Extension{}, reserved(r)
+		}
+		if errors.Is(err, ErrCallPermissionLevelNotFound) {
+			return Extension{}, errPermissionLevelNotFound
 		}
 		return Extension{}, err
 	}
@@ -163,12 +170,14 @@ func (s *Service) ListExtensions(ctx context.Context, before *uuid.UUID, limit i
 }
 
 // ExtensionPatch is a JSON Merge Patch of an extension; nil fields stay as
-// they are.
+// they are. CallPermissionLevelID, when non-nil and empty, clears it (the
+// extension can then only call emergency numbers).
 type ExtensionPatch struct {
-	Number      *string
-	DisplayName *string
-	Email       *string
-	Enabled     *bool
+	Number                *string
+	DisplayName           *string
+	Email                 *string
+	Enabled               *bool
+	CallPermissionLevelID *string
 }
 
 // UpdateExtension applies patch. ifMatch, when not empty, must match the
@@ -208,6 +217,18 @@ func (s *Service) UpdateExtension(ctx context.Context, id uuid.UUID, patch Exten
 		e.Enabled = *patch.Enabled
 		changes["enabled"] = e.Enabled
 	}
+	if patch.CallPermissionLevelID != nil {
+		if *patch.CallPermissionLevelID == "" {
+			e.CallPermissionLevelID = nil
+		} else {
+			levelID, err := uuid.Parse(*patch.CallPermissionLevelID)
+			if err != nil {
+				return Extension{}, invalid("call_permission_level_id_invalid", "That isn't a valid call permission level id.")
+			}
+			e.CallPermissionLevelID = &levelID
+		}
+		changes["call_permission_level_id"] = e.CallPermissionLevelID
+	}
 	e.UpdatedAt = s.Now().UTC()
 	a.Detail = changes
 	updated, err := s.Store.UpdateExtension(ctx, e, a)
@@ -223,6 +244,9 @@ func (s *Service) UpdateExtension(ctx context.Context, id uuid.UUID, patch Exten
 	}
 	if r, ok := errors.AsType[*ReservedNumberError](err); ok {
 		return Extension{}, reserved(r)
+	}
+	if errors.Is(err, ErrCallPermissionLevelNotFound) {
+		return Extension{}, errPermissionLevelNotFound
 	}
 	return updated, err
 }
