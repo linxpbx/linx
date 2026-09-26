@@ -78,5 +78,19 @@ A watcher on the server that spots problems and gets a fix proposed, which the o
 - **Approve:** nothing changes until the owner merges. The fix reaches the server through the normal build and update.
 - **Trigger it yourself:** the admin portal gets "Check now" (runs the checks at once) and "Report a problem" (a short description of your own, sent the same way); `linx watch --now` does the same from the server.
 
+## After going live, second phase — Site Connector (owner idea, 2026-09-26)
+An SBC for remote offices, done the way Pangolin adds a site with Newt. It's for Linx hosted in the cloud (or at one main office), with phones in other places.
+- **Add a site in one step:** in the admin portal (or `linx site add`), the admin names the site. Linx shows a link with a one-time code and a single command to run it (`docker run …` or a compose snippet). The code works once and expires quickly. It only enrols the connector and never contains a SIP password (security rules).
+- **Runs anywhere:** the connector is one small container on any machine at the remote site (a Raspberry Pi, a NAS, any Docker host). It connects **out** to the main Linx over an encrypted tunnel on **TCP 443**, through the same front door as everything else, so it gets past firewalls that block SIP or UDP and needs no port forwarding at the site.
+- **Local phones use it:** desk phones and mobile clients on that site's network connect to the connector's local address, as if Linx were in the room. The connector carries their calls (signalling and audio) through the tunnel to the main Linx. Auto-provisioning (Phase 2) points a site's phones at their site's connector.
+- **The admin sees and controls each site:** online or offline, how many phones, call quality, last seen. Site down or back up raises an alert. One click revokes a site, and its tunnel closes at once. The connector gets its own certificate from Linx's internal CA when it enrols (step-ca); the code itself is only a one-time ticket.
+- **To decide when it's designed:**
+  - It changes ADR-007 ("no custom tunnel for now"), so it needs a new ADR.
+  - Pick the tunnel technology. Newt/Pangolin's own is AGPL, so it can't be reused as is. Other candidates: WireGuard carried over a TLS/WebSocket 443 wrapper, or a small Go relay. The rule is permissive licences and mature open source first.
+  - Audio quality over TCP (a lost packet delays everything behind it): try UDP first and fall back to 443.
+  - Per-site call limits for toll-fraud protection.
+  - Whether mobile apps on the site's Wi-Fi use the connector or keep connecting directly.
+- **Fits the owner's needs:** everything works on TLS 443 alone (the China travel requirement), and nothing needs opening at remote sites.
+
 ## Phase 7 — Additional clients (owner go-ahead only)
 - Android, macOS and Windows. Each must pass the same ringing and low-bandwidth release blockers.
