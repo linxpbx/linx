@@ -169,6 +169,7 @@ func (r Route) Explain(dialled, from, country string) string {
 		b.WriteString("Always allowed, for everyone, and never limited.\n")
 	case ReasonNotPermitted:
 		fmt.Fprintf(&b, "Extension %s isn't allowed to call this kind of number (its call permission level doesn't include it, or it has none).\n", from)
+		return b.String() // refused: no lines are looked up
 	case ReasonNoLines:
 		b.WriteString("Allowed, but no outside line is set up for outgoing calls, so the call can't go out until one is.\n")
 		return b.String()

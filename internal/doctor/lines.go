@@ -29,7 +29,13 @@ const linesQuery = `SELECT json_build_object(
 		'id', t.id, 'name', t.name, 'kind', t.kind, 'host', t.host, 'port', t.port, 'transport', t.transport,
 		'media', t.media_encryption, 'wireguard', t.wireguard_profile_id IS NOT NULL, 'enabled', t.enabled,
 		'outbound', t.outbound_priority, 'pinned', CASE WHEN t.cert_trust = 'pinned' THEN coalesce(t.pinned_certificate, '') ELSE '' END,
-		'status', t.status, 'detail', t.status_detail, 'confirmed_by', coalesce(t.unencrypted_confirmed_by, ''))
+		'status', t.status, 'detail', t.status_detail, 'confirmed_by', coalesce(
+			CASE split_part(t.unencrypted_confirmed_by, ':', 1)
+			WHEN 'api_key' THEN (SELECT 'the API key "' || k.name || '"' FROM api_key k
+				WHERE k.id::text = split_part(t.unencrypted_confirmed_by, ':', 2))
+			WHEN 'user' THEN (SELECT u.email FROM app_user u
+				WHERE u.id::text = split_part(t.unencrypted_confirmed_by, ':', 2))
+			END, t.unencrypted_confirmed_by, ''))
 		ORDER BY t.outbound_priority NULLS LAST, t.name) FROM trunk t), '[]'::json),
 	'clashes', (SELECT count(*) FROM extension e, pbx_setting s
 		WHERE e.deleted_at IS NULL AND numbering_extension_clash(s.country, e.number) IS NOT NULL),

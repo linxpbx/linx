@@ -149,8 +149,8 @@ func TestExplain(t *testing.T) {
 		t.Errorf("Explain = %q", got)
 	}
 	r = Route{Result: Classify("AE", "0501234567"), Reason: ReasonNotPermitted}
-	if got := r.Explain("0501234567", "101", "AE"); !strings.Contains(got, "isn't allowed to call this kind of number") {
-		t.Errorf("Explain = %q", got)
+	if got := r.Explain("0501234567", "101", "AE"); !strings.Contains(got, "isn't allowed to call this kind of number") || strings.Contains(got, "No outside line") {
+		t.Errorf("Explain = %q, want the refusal alone", got)
 	}
 	if got := ClashText("0123", ClashNationalPrefix, "AE"); !strings.Contains(got, "can't start with 0") {
 		t.Errorf("ClashText = %q", got)

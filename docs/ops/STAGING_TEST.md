@@ -11,7 +11,7 @@ Checks the whole path on a real server: `linx setup` → Let's Encrypt **test** 
 1. On your computer, from an up-to-date, clean checkout of master (the commit CI has already built):
    ```
    GOOS=linux GOARCH=amd64 make build    # use GOARCH=arm64 for an ARM server
-   scp bin/linx <you>@<server>:
+   scp bin/linx bin/linx-firewall-sync <you>@<server>:   # keep them side by side: setup installs linx-firewall-sync from next to linx
    ```
 2. On the server:
    ```

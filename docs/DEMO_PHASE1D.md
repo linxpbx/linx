@@ -39,7 +39,7 @@ Open the repository → **Actions** → the latest **CI** run on master.
 - [ ] Under **Packages**, `linx-wireguard` has an image tagged `sha-<that commit>`.
 
 ## 4. Install or update the server
-Follow steps 1–3 of [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md) with the commit CI just built, on a fresh server or the Phase 1C one. Answer as in Phase 1C: trusted certificate, **Pangolin** at `192.168.1.20`, the same UDP audio port.
+Follow steps 1–3 of [`ops/STAGING_TEST.md`](ops/STAGING_TEST.md) with the commit CI just built (copy `bin/linx-firewall-sync` too, next to `linx`: setup installs it from there), on a fresh server or the Phase 1C one. Answer as in Phase 1C: trusted certificate, **Pangolin** at `192.168.1.20`, the same UDP audio port.
 - [ ] Setup ends with "Linx is running" and the **Calls from outside** block, as in Phase 1C.
 - [ ] `systemctl status linx-firewall-sync.timer` is **active (waiting)**, and `ls /etc/linx/TRUNK-AUDIO-FORWARD.txt` exists.
 - [ ] `lsmod | grep wireguard` shows the module (setup loads it).
@@ -51,7 +51,7 @@ On a fresh server, redo Phase 1C's Pangolin block and the `sip.lab` DNS record.
 sudo linx doctor
 ```
 - [ ] Everything under **Phone system** and **Calls from outside** is `ok`, as in Phase 1C.
-- [ ] A **Phone lines** heading: country "United Arab Emirates"; the firewall sync timer on; the two provider sets empty and matching (no lines yet). It **warns** that no line can carry emergency calls yet. That's expected until step 8.
+- [ ] A **Phone lines** heading: country "United Arab Emirates". It **warns** that no line can carry emergency calls yet. That's expected until step 8. (The firewall sync timer and the two provider sets are checked only once a line needs them: step 13's test line. A LAN phone system like the UCM doesn't, since the local network is already let in.)
 - [ ] The database line shows `schema version 20`.
 
 ## 6. Key, alert channel, extensions, call permissions
@@ -66,7 +66,7 @@ API=https://meet.lab.linxpbx.com/api/v1
 api() { curl -sS -H "Authorization: Bearer $KEY" "$@"; }
 JSON='Content-Type: application/json'
 PATCH='Content-Type: application/merge-patch+json'
-HOOK_URL='https://webhook.site/...'
+HOOK_URL='https://webhook.site/...'   # a fresh address: a free one stops accepting (429) after about 100 requests, and a demo sends more
 api -X POST -H "$JSON" -d "{\"name\":\"Demo\",\"kind\":\"webhook\",\"config\":{\"url\":\"$HOOK_URL\"}}" $API/alert-channels | jq .id
 api -X POST -H "$JSON" -d "{\"url\":\"$HOOK_URL\",\"description\":\"Demo\"}" $API/webhooks | jq .webhook.id
 api -X POST -H "$JSON" -d '{"number":"101","display_name":"Browser"}' $API/extensions | tee /tmp/e101.json | jq .number
@@ -94,23 +94,28 @@ curl -sS -H "Authorization: Bearer $KEY2" -X PATCH -H "$PATCH" -d '{"call_permis
 - [ ] It answers `scope_missing`. Revoke that key: `sudo linx api-key revoke "${KEY2:0:17}"`.
 
 ## 7. Get the UCM6304 ready
-Menu names below are from Grandstream's UCM6300 manual and may differ a little on your firmware. The goal is written first, so you can find the place if a name differs.
+Menu names below are as tested on UCM6304 firmware **1.0.33.30** (2026-09-26). The goal is written first, so you can find the place if a name differs. Press **Apply Changes** (top right) after each save.
 
-**a. A certificate that names the UCM's address.** Linx always checks that a certificate names the address it dialled, and the UCM's built-in one usually doesn't. Linx makes one for it. On the server (no `sudo` needed):
+**a. A certificate that names the UCM's address.** Linx always checks that a certificate names the address it dialled, and the UCM's built-in one usually doesn't (a wildcard one like `*.example.com` is refused too). Linx makes one for it. On the server (no `sudo` needed):
 ```
 linx trunk cert 192.168.1.60
 ```
 - [ ] It writes `linx-line-192.168.1.60.crt` (the certificate) and `linx-line-192.168.1.60.key` (its private key), and prints a SHA-256 fingerprint. Write the fingerprint down.
 
-Copy both files to the laptop (`scp you@192.168.1.50:linx-line-192.168.1.60.* .`). On the UCM, in the SIP settings' **TLS** tab, upload the `.crt` as the TLS certificate and the `.key` as its key, and save. Then delete the `.key` from the laptop and the server: Linx doesn't keep it, and only the UCM needs it.
+Copy both files to the laptop (`scp you@192.168.1.50:linx-line-192.168.1.60.* .`). On the UCM: **PBX Settings → SIP Settings → TCP/TLS** (not System Settings → HTTP Server, which is the web page's certificate). TLS on, bind `0.0.0.0:5061`. Click **Reset** next to "Certificate & Private Key" first (a new upload doesn't replace an old certificate otherwise: the UCM names every upload `TLS.crt`/`TLS.key`, so the page can't tell you which one is loaded), then upload the `.key` as **TLS Private Key** and the `.crt` as **TLS Cert**; leave TLS CA Cert and Server Certificate Verification alone. Then delete the `.key` from the laptop and the server: Linx doesn't keep it, and only the UCM needs it.
+- [ ] On the server, `echo | openssl s_client -connect 192.168.1.60:5061 2>/dev/null | openssl x509 -noout -fingerprint -sha256` prints the fingerprint from above.
 
-**b. A peer trunk to Linx.** Add a VoIP trunk of type **Peer SIP Trunk**: host `sip.lab.linxpbx.com` (or `192.168.1.50`), port `5061`, transport **TLS**, **SRTP** on, codecs PCMA/PCMU. No login: each side knows the other by address.
+**b. A peer trunk to Linx.** **Extension/Trunk → VoIP Trunks → Add SIP Trunk**: type **Peer SIP Trunk**, provider name `Linx`, host name `192.168.1.50:5061`, transport **TLS**, no caller ID. Advanced Settings: codecs **PCMA** then **PCMU** only; SRTP **Enabled and forced** (crypto suite `AES_CM_128_HMAC_SHA1_80`); DTMF **RFC4733**; DID Mode **Request-line**; **Enable Heartbeat Detection** on. No login: each side knows the other by address.
 
-**c. Landline calls → Linx.** Change the inbound route of the landline (FXO) trunk so its calls go to the Linx peer trunk, sending the landline's own number `042345678` as the number called. This is the number Linx matches to ring 101.
+**c. Linx's calls → the landline.** Linx sends numbers the UAE's local way (`0501234567`) and shows the landline's number (`042345678`, the DID you give it in step 8) as the caller. Two changes:
+1. **Inbound Routes**, trunk **SIP Trunks -- Linx** → Add: name `From_Linx`, pattern `_X.`, **Dial Trunk** on (in the Pattern section), privilege **Local**, Default Destination **By DID**.
+2. The outbound route that uses the landline (FXO) trunk: if its Privilege Level is "Disable" (only allowlisted extensions), add `042345678` to its **Source Caller ID Pattern**; otherwise its level must be Local or lower. Add `999`, `998`, `997`, `112` and `901` to its patterns if they aren't there, or Linx's emergency calls stop at the UCM.
 
-**d. Linx's calls → the landline.** Let calls arriving on the Linx peer trunk go out on the landline trunk, with the number as Linx sends it (`0501234567`: the UAE's local way, from the template). In UCM terms, the Linx trunk's inbound route (or its DID destination) reaches the outbound route that uses the FXO trunk. Allow only local and mobile numbers there if the UCM offers it; Linx already refuses the rest.
+**d. Landline calls → Linx.** The UCM can't send an inbound call straight to a trunk, so it dials Linx through a small outbound route:
+1. **Outbound Routes → Add**: name `To_Linx`, pattern `_*88X.`, Privilege Level **Internal**, source caller ID allowlist off, Main Trunk **SIP Trunks -- Linx**, Strip `3`.
+2. **Inbound Routes**, trunk **Analog Trunks -- (the landline)**: note its current Default Destination (to put back in step 15), then set it to **External Number** `*88042345678`. This is the number Linx matches to ring 101. The house phones don't ring for the landline while this is set.
 
-- [ ] The UCM saves all four without errors.
+- [ ] The UCM saves all of these without errors.
 
 ## 8. Connect the UCM: `linx trunk add`
 In the same folder as the certificate from step 7a:
@@ -143,6 +148,7 @@ sudo linx route test "+44 20 7946 0958" --from 103
 Sign in as Browser Person (101) in the iPad's browser, on **the iPhone's hotspot** (mobile data).
 
 - [ ] **Out:** the iPad dials your iPhone's mobile number (`05…`). The iPhone rings, showing the landline's number (or the UCM's caller ID). Answer, and both hear each other clearly for 20 seconds. Hang up.
+An analog landline doesn't tell the UCM when the far end answers or hangs up (UAE lines, 2026-09-26): the call counts as answered, and the timer starts, as soon as the UCM has dialled; and if the mobile hangs up first, the browser hears the busy tone until you hang up there, unless the UCM's busy-tone detection catches it (it didn't on the demo line, with the right tone set: 400 Hz, 375/375 ms). Don't turn on the analog trunk's "Polarity Reversal" unless your line supports it: the UCM then waits for an answer signal that never comes, and calls stay silent. Call records for such a line say "answered" even when nobody picked up.
 - [ ] **In:** from the iPhone, call the landline `042345678`. The iPad rings (incoming-call screen with your mobile number). Answer, and both hear each other. Hang up.
 - [ ] **Refused:** sign in as Staff Person (102) in another browser and dial `+44 20 7946 0958`. You hear "I'm sorry, that feature is not available on this line" and nothing goes out. `sudo docker logs linx-asterisk 2>&1 | tail -5` shows no call to the UCM.
 - [ ] Webhook.site got `call.started` and `call.ended` for each, with `direction` `outbound`/`inbound`, the outside number, and for the refused one the outcome `not_permitted`.
@@ -189,6 +195,7 @@ api -X POST -H "$JSON" -d '{"name":"Test unencrypted","kind":"ip_authenticated",
 - [ ] Pointing it somewhere else asks again (fixed in this phase's review): `api -X PATCH -H "$PATCH" -d '{"host":"192.0.2.11"}' $API/trunks/$(jq -r .id /tmp/plain.json) | jq -r .code` answers `unencrypted_confirmation_required`.
 - [ ] `sudo linx doctor` lists it under **Phone lines** as unencrypted, with who confirmed it (and as unreachable, which is expected).
 - [ ] Within a minute, `sudo nft list set inet linx trunk_plain_addresses` holds `192.0.2.10`: the firewall lets this "provider" in, and nobody else.
+- [ ] `sudo linx doctor` now also shows the firewall sync timer on and the two provider sets matching.
 
 Delete it: `api -X DELETE $API/trunks/$(jq -r .id /tmp/plain.json)`. Within a minute both sets are empty again.
 
@@ -218,3 +225,4 @@ On the UCM, put back its inbound route for the landline and remove the Linx peer
 
 ## Results
 Add one line per run: date, server, commit, passed or what failed.
+- 2026-09-26, Ubuntu 24.04 VM on the home LAN (`pbx.mym.ae`, Pangolin at home), UCM6304 fw 1.0.33.30 with landline FXO1, commit `710caea` (+ fixes in the next commit): **passed.** Line added with the pinned certificate (all probe steps ok), calls out and in through the landline with audio both ways and the right caller ID, 102 refused abroad (`not_permitted`, nothing sent to the UCM), browser on mobile data with UDP blocked called a mobile through the landline (**Relayed**, 18 UDP packets dropped: Phase 1 exit), line down → unreachable and critical alert after 2 min → resolved on reconnect, unencrypted test line warned, re-confirmed on move, listed by doctor, admitted by the firewall and removed again, security spot checks all as expected. Step 12 skipped (optional). Found: the UCM's steps (step 7 rewritten as tested); the UCM had no route for emergency numbers from Linx (added); `route test` added a wrong "no outside line" sentence after a refusal (fixed); doctor named the confirmer `api_key:<id>` (now the key's name); setup only installs `linx-firewall-sync` when it's copied next to `linx` (docs); webhook.site hit its free quota (429) mid-demo, so the down/resolved alerts were sent but refused; an analog landline gives no answer or hang-up signal (see step 10), not a Linx fault.
