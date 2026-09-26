@@ -446,6 +446,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Decision.** (a). Local accounts: Argon2id (`golang.org/x/crypto/argon2`, BSD), TOTP written with the standard library (required for admins, optional for users), 10 recovery codes, `__Host-` session cookies stored hashed, CSRF header, per-address and per-account lockout with an admin alert. First account through `linx user create` (one-time set-password link). OIDC and passkeys (WebAuthn) join in 1E on the same sessions.
 
+*Changed 2026-09-27 (owner decision, `docs/ADMIN.md` §11 item 10):* from 1E an admin may choose password only, marked "not recommended" with a warning they must accept; the authenticator stays required only for admins who set one up.
+
 **Consequences.** The session model from `docs/API.md` §3 gets built now. `golang.org/x/crypto` becomes a direct dependency. Until email sending exists, set-password links are handed over by the admin.
 
 ## ADR-037 — One HTTPS entry
@@ -593,6 +595,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Decision.** Settings `extension_digits` (default 3) and `extension_first` (default 100), enforced for new extensions; plain ranges (with 3 digits: people 100–599, groups 600–699, 700–899 kept, 900s avoided in the UAE); the next free number suggested everywhere. `linx setup` creates the first system admin and prints a one-time link; home/business, country, numbering, people, phone line, permissions and a test call follow in a resumable browser wizard.
 
+*Changed 2026-09-27 (owner decisions, `docs/ADMIN.md` §11 items 11–12):* the ranges are settings the admin can change (defaults as above; no overlaps, every number the chosen length, none containing the country's short codes); calling permissions are flat in 1E: one set of switches for every extension (abroad and premium off by default), no Staff/Managers.
+
 **Consequences.** The installer stops asking non-technical questions. Changing the digit count later needs existing extensions renumbered first.
 
 ## ADR-051 — Passkeys (owner decision, 2026-09-26)
@@ -601,7 +605,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Options.** Server: `github.com/go-webauthn/webauthn` (BSD-3-Clause, the maintained Go library) or hand-written (CBOR/COSE parsing: no). Browser: `navigator.credentials` directly, or `@simplewebauthn/browser` (MIT).
 
-**Decision.** go-webauthn; the browser's own API (JSON helpers are in every current browser). User verification required, discoverable credentials, attestation `none`, relying party ID = the base domain. A passkey is a complete sign-in (both steps), for admins too; up to 10 per person.
+**Decision.** go-webauthn; the browser's own API (JSON helpers are in every current browser). User verification required, discoverable credentials, attestation `none`, relying party ID = the base domain. A passkey is a complete sign-in (both steps), for admins too; up to 10 per person. Passkeys are recommended, not required: admins may also use password + authenticator or, not recommended, password only (2026-09-27).
 
 **Consequences.** New Go dependency (licence check). Chromium's virtual authenticator makes it testable in Playwright.
 
