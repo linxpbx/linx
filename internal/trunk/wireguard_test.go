@@ -5,7 +5,7 @@ import "testing"
 // Test keys generated once with `wg genkey` / the equivalent X25519 derivation;
 // not used for anything real.
 const (
-	testPrivateKey = "qLgcA/ELBQAcmbijpgxcxhIGXziCqyfgvmHv1X63aUc="
+	testPrivateKey = "qLgcA/ELBQAcmbijpgxcxhIGXziCqyfgvmHv1X63aUc=" // gitleaks:allow (test key)
 	testPublicKey  = "X59Uv0OU7+T4zQ1YyFpUJ9eXc+AslF6qZ4TZYaXLYW8="
 	testPeerPublic = "u719inAundyjsFWqCBDBO6R4+n58xrvlHm6vlZnVWxE="
 	testPSK        = "LIWz1kXYhnTONwQ5Ct7xPT5UF+6XSNiaT/fZuxXJkTs="
