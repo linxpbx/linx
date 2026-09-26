@@ -374,7 +374,8 @@ func TestInboundCall(t *testing.T) {
 		Caller:   ari.CallerID{Name: `Bob "B" <script>`, Number: "050 123 4567"},
 		Dialplan: ari.Dialplan{Context: "linx-from-trunk", Exten: "linxuser"}, CreationTime: at(0)}
 	tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(0), Channel: caller})
-	caller.ChannelVars = map[string]string{DIDVariable: "+97142000100"}
+	caller.Dialplan = ari.Dialplan{Context: "linx-trunk-did", Exten: "+97142000100", AppName: "Goto"}
+	tr.handle(ctx, ari.Event{Type: "ChannelDialplan", Timestamp: at(1), Channel: caller})
 	caller.Dialplan = ari.Dialplan{Context: "linx-ring", Exten: "102", AppName: "Dial"}
 	tr.handle(ctx, ari.Event{Type: "ChannelDialplan", Timestamp: at(1), Channel: caller})
 	calls := tr.ActiveCalls()

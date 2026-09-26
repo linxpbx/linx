@@ -293,8 +293,7 @@ func TestRenderARI(t *testing.T) {
 			t.Errorf("websocket_client.conf missing %q:\n%s", want, got)
 		}
 	}
-	for _, want := range []string{"type = outbound_websocket", "apps = linx", "subscribe_all = yes", "read_only = yes",
-		"channelvars = LINX_DID"} {
+	for _, want := range []string{"type = outbound_websocket", "apps = linx", "subscribe_all = yes", "read_only = yes"} {
 		if got := read(t, c, "ari.conf"); !strings.Contains(got, want) {
 			t.Errorf("ari.conf missing %q:\n%s", want, got)
 		}
@@ -305,7 +304,7 @@ func TestRenderARI(t *testing.T) {
 		"exten => _[0-9*#+].,1,Goto(linx-outbound,${EXTEN},1)", "Set(GROUP(linx-out)=${CALLERID(num)})",
 		"[linx-from-trunk]", "Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DID})})",
 		// The dialled number for call events.
-		"n(found),Set(LINX_DID=${FILTER(0-9+,${DID})})"} {
+		"same => n,Goto(linx-trunk-did,${DID},1)", "exten => _[0-9+].,1,Goto(linx-ring,${TARGET},1)"} {
 		if got := read(t, c, "extensions.conf"); !strings.Contains(got, want) {
 			t.Errorf("extensions.conf missing %q", want)
 		}

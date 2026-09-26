@@ -51,9 +51,10 @@ const EchoTestNumber = "*43"
 // (trunk.Trunk's Endpoint).
 const trunkEndpointPrefix = "trunk-"
 
-// DIDVariable is the channel variable the dialplan sets on a call from a
-// trunk: the phone number the caller dialled (ari.conf's channelvars).
-const DIDVariable = "LINX_DID"
+// didContext is the dialplan context a call from a trunk passes through
+// with the phone number the caller dialled as its extension
+// (internal/asteriskconf's linx-trunk-did).
+const didContext = "linx-trunk-did"
 
 // CallStore is the database access the call tracker needs.
 type CallStore interface {
@@ -492,12 +493,14 @@ func (t *CallTracker) observe(ch *ari.Channel) {
 	}
 	if ch.Dialplan.Context != "" {
 		c.where = ch.Dialplan.Context + "/" + ch.Dialplan.Exten
-		if ch.Dialplan.Context == "linx-ring" {
+		switch ch.Dialplan.Context {
+		case "linx-ring":
 			c.ringing = ch.Dialplan.Exten
+		case didContext:
+			if did := cleanNumber(ch.Dialplan.Exten); did != "" && c.direction == DirectionInbound {
+				c.to = did
+			}
 		}
-	}
-	if did := cleanNumber(ch.ChannelVars[DIDVariable]); did != "" && c.direction == DirectionInbound {
-		c.to = did
 	}
 }
 

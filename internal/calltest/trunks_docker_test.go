@@ -192,7 +192,7 @@ func TestTrunksDocker(t *testing.T) {
 			t.Errorf("the provider refused Linx's login:\n%s", l)
 		}
 		// The call's events say where it came from: the trunk, the
-		// caller's number, and the DID dialled (LINX_DID).
+		// caller's number, and the DID dialled (linx-trunk-did).
 		in := e.callEnded("+97142000102")
 		if in["direction"] != pbx.DirectionInbound || in["trunk_id"] != reg.ID.String() || in["outside_number"] != "+971501112222" {
 			t.Errorf("inbound call.ended = %v", in)

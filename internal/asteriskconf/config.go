@@ -807,9 +807,6 @@ func ariConf(localPassword string) string {
 enabled = yes
 pretty = no
 websocket_write_timeout = 1000
-; Carried in every channel in every event: the phone number an outside
-; caller dialled (linx-trunk-call).
-channelvars = LINX_DID
 
 [linx-local]
 type = user
@@ -906,9 +903,9 @@ readsql = SELECT * FROM linx_inbound('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}
 // checks. The number is the request's (IP
 // peers) or else the To header's (providers that call the registered
 // contact). The caller's name and number are untrusted: filtered to plain
-// characters and shortened before anything else sees them. LINX_DID is
-// the number that matched, for the control plane's call events (ari.conf's
-// channelvars).
+// characters and shortened before anything else sees them. The call
+// passes through linx-trunk-did with the DID that matched as its extension,
+// which is how the control plane's call events learn it.
 const extensionsConf = `; Rendered by linx-asterisk-entrypoint.
 [general]
 static = yes
@@ -1003,9 +1000,16 @@ exten => s,1,Set(CALLERID(name)=${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40})
  same => n,Set(DID=${FILTER(0-9+,${PJSIP_PARSE_URI(${CHANNEL(pjsip,local_uri)},user)})})
  same => n,Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DID})})
  same => n,GotoIf($[${ODBCROWS} > 0]?found:linx-messages,not-in-use,1)
- same => n(found),Set(LINX_DID=${FILTER(0-9+,${DID})})
- same => n,GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
- same => n,Goto(linx-ring,${TARGET},1)
+ same => n(found),GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
+ same => n,Set(DID=${FILTER(0-9+,${DID})})
+ same => n,GotoIf($["${DID}" = ""]?linx-ring,${TARGET},1)
+ same => n,Goto(linx-trunk-did,${DID},1)
+
+; Only so the control plane's call events can tell which number was
+; dialled: the channel passes through this context with the DID as its
+; extension, then rings the DID's extension.
+[linx-trunk-did]
+exten => _[0-9+].,1,Goto(linx-ring,${TARGET},1)
 
 [linx-messages]
 exten => not-in-use,1,Answer()

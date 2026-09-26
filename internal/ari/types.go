@@ -29,9 +29,6 @@ type Channel struct {
 	Connected    CallerID `json:"connected"`
 	Dialplan     Dialplan `json:"dialplan"`
 	CreationTime Time     `json:"creationtime"`
-	// ChannelVars are the variables ari.conf's channelvars names, as set
-	// on this channel (LINX_DID: the number an outside caller dialled).
-	ChannelVars map[string]string `json:"channelvars,omitempty"`
 }
 
 // Endpoint returns the PJSIP endpoint (a device's SIP username) a channel
