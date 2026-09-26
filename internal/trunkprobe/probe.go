@@ -430,8 +430,8 @@ func (p *Prober) handshake(ctx context.Context, r *run, t Target, raw net.Conn) 
 	var invalid x509.CertificateInvalidError
 	switch {
 	case errors.As(verr.Err, &host):
-		r.add("certificate", Failed, fmt.Sprintf("Its certificate is for %s, not %s. Use the name its certificate is for as the address, or put a certificate for %s on it.",
-			strings.Join(names(certs[0]), ", "), t.Host, t.Host))
+		r.add("certificate", Failed, fmt.Sprintf("Its certificate is for %s, not %s. Use the name its certificate is for as the address, or put a certificate for %s on it (for a phone system on your network, linx trunk cert %s makes one to upload and pin).",
+			strings.Join(names(certs[0]), ", "), t.Host, t.Host, t.Host))
 	case errors.As(verr.Err, &invalid) && invalid.Reason == x509.Expired:
 		r.add("certificate", Failed, fmt.Sprintf("Its certificate expired or isn't valid yet (valid %s to %s). It needs a new one.",
 			certs[0].NotBefore.Format("2 Jan 2006"), certs[0].NotAfter.Format("2 Jan 2006")))

@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"math/big"
 	"os"
@@ -251,6 +252,14 @@ func TestTrunkAddNonInteractive(t *testing.T) {
 	}
 	if len(st.dids) != 1 || st.dids[0].ExtensionID != nil || *st.trunks[0].OutboundPriority != 1 {
 		t.Errorf("dids %+v, priority %v", st.dids, st.trunks[0].OutboundPriority)
+	}
+
+	// The certificate as linx passes it from the server (--pin-pem).
+	c, st, _, out, errb = newTrunkCmd(t, "", false)
+	code = c.run(context.Background(), []string{"add", "--yes", "--template", "grandstream_ucm", "--name", "UCM", "--host", "192.168.1.60",
+		"--pin-pem", base64.StdEncoding.EncodeToString([]byte(testPEM))})
+	if code != 0 || len(st.trunks) != 1 || st.trunks[0].CertTrust != trunk.CertPinned || st.trunks[0].PinnedCertificate != testPEM {
+		t.Fatalf("--pin-pem: code %d %+v\n%s%s", code, st.trunks, out, errb)
 	}
 }
 

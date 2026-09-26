@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -31,6 +32,7 @@ import (
 )
 
 const trunkUsage = `Usage:
+  linx trunk cert ADDRESS [--out NAME]
   linx trunk add [options]
   linx trunk list
   linx trunk test NAME
@@ -39,6 +41,9 @@ const trunkUsage = `Usage:
   linx trunk wireguard list
   linx trunk wireguard remove NAME [--yes]
 
+cert    Make a certificate for a phone system on your network (a UCM) to
+        upload to it, naming exactly its address; then pin it with
+        add --pin. Runs on the server; Linx never keeps its key.
 add     Connect a phone line: a provider, or another phone system like a
         Grandstream UCM (docs/TRUNKS.md). Asks what it needs, tests the
         connection (address, certificate, login) and only then saves.
@@ -431,6 +436,9 @@ func (c *trunkCmd) add(ctx context.Context, tenant uuid.UUID, args []string) int
 	username := fs.String("username", "", "")
 	passwordStdin := fs.Bool("password-stdin", false, "")
 	pinFile := fs.String("pin", "", "")
+	// --pin-pem: the certificate itself, base64; linx reads --pin FILE on
+	// the server (this runs in a container that can't see its files).
+	pinPEM := fs.String("pin-pem", "", "")
 	unencrypted := fs.Bool("unencrypted", false, "")
 	outgoing := fs.String("outgoing", "", "")
 	tunnel := fs.String("wireguard", "", "")
@@ -557,6 +565,13 @@ func (c *trunkCmd) add(ctx context.Context, tenant uuid.UUID, args []string) int
 		b, err := os.ReadFile(*pinFile)
 		if err != nil {
 			return fail(fmt.Errorf("can't read %s: %w", *pinFile, err))
+		}
+		in.CertTrust, in.PinnedCertificate = trunk.CertPinned, string(b)
+	}
+	if *pinPEM != "" {
+		b, err := base64.StdEncoding.DecodeString(*pinPEM)
+		if err != nil {
+			return fail(errors.New("the certificate to pin didn't arrive intact"))
 		}
 		in.CertTrust, in.PinnedCertificate = trunk.CertPinned, string(b)
 	}

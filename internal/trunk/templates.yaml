@@ -39,7 +39,7 @@
   dial_format: local
   port: 5061
   codecs: [alaw, ulaw]
-  notes: Pin the UCM's own certificate (Settings > TLS on the UCM) and set up a matching TLS peer trunk there.
+  notes: Make the UCM's certificate with `linx trunk cert ADDRESS`, upload both files in the UCM's SIP settings (TLS tab), then add this line with --pin; set up a matching TLS peer trunk on the UCM.
 
 - name: linx
   label: Another Linx server

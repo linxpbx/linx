@@ -96,14 +96,13 @@ curl -sS -H "Authorization: Bearer $KEY2" -X PATCH -H "$PATCH" -d '{"call_permis
 ## 7. Get the UCM6304 ready
 Menu names below are from Grandstream's UCM6300 manual and may differ a little on your firmware. The goal is written first, so you can find the place if a name differs.
 
-**a. A certificate that names the UCM's address.** Linx always checks that a certificate names the address it dialled, even a pinned one. The UCM's built-in certificate usually doesn't name its IP address. On the laptop:
+**a. A certificate that names the UCM's address.** Linx always checks that a certificate names the address it dialled, and the UCM's built-in one usually doesn't. Linx makes one for it. On the server (no `sudo` needed):
 ```
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 825 \
-  -subj "/CN=UCM6304" -addext "subjectAltName=IP:192.168.1.60" \
-  -keyout ucm-sip.key -out ucm-sip.crt
-openssl x509 -in ucm-sip.crt -noout -fingerprint -sha256
+linx trunk cert 192.168.1.60
 ```
-Write down the fingerprint. On the UCM, in the SIP settings' **TLS** tab, upload `ucm-sip.crt` as the TLS certificate and `ucm-sip.key` as its key, and save. Keep `ucm-sip.crt` for step 8. Delete `ucm-sip.key` from the laptop once it's uploaded.
+- [ ] It writes `linx-line-192.168.1.60.crt` (the certificate) and `linx-line-192.168.1.60.key` (its private key), and prints a SHA-256 fingerprint. Write the fingerprint down.
+
+Copy both files to the laptop (`scp you@192.168.1.50:linx-line-192.168.1.60.* .`). On the UCM, in the SIP settings' **TLS** tab, upload the `.crt` as the TLS certificate and the `.key` as its key, and save. Then delete the `.key` from the laptop and the server: Linx doesn't keep it, and only the UCM needs it.
 
 **b. A peer trunk to Linx.** Add a VoIP trunk of type **Peer SIP Trunk**: host `sip.lab.linxpbx.com` (or `192.168.1.50`), port `5061`, transport **TLS**, **SRTP** on, codecs PCMA/PCMU. No login: each side knows the other by address.
 
@@ -114,12 +113,14 @@ Write down the fingerprint. On the UCM, in the SIP settings' **TLS** tab, upload
 - [ ] The UCM saves all four without errors.
 
 ## 8. Connect the UCM: `linx trunk add`
+In the same folder as the certificate from step 7a:
 ```
-sudo linx trunk add --template grandstream_ucm
+sudo linx trunk add --template grandstream_ucm --host 192.168.1.60 --pin linx-line-192.168.1.60.crt
 ```
-Answer: name `UCM landlines`, address `192.168.1.60`, port `5061`. It tests the connection. When it shows the UCM's certificate, **compare its SHA-256 fingerprint with the one you wrote down in step 7a**. Only if they're the same, accept pinning it. Phone number: `042345678`, ringing extension `101`. Outgoing: **primary**.
+Answer: name `UCM landlines`, port `5061`. It tests the connection against the certificate you pinned. Phone number: `042345678`, ringing extension `101`. Outgoing: **primary**.
 
-(Or with flags: `sudo linx trunk add --template grandstream_ucm --name "UCM landlines" --host 192.168.1.60 --port 5061 --pin ucm-sip.crt --did 042345678=101 --outgoing primary --yes`, after copying `ucm-sip.crt` to the server.)
+(All in one go: add `--name "UCM landlines" --port 5061 --did 042345678=101 --outgoing primary --yes`.)
+- [ ] If the certificate step fails with "is for …, not 192.168.1.60" or "isn't signed by…", the UCM is still serving its old certificate: check the upload in step 7a (some firmware needs a restart of the SIP service).
 - [ ] The test steps all say `ok`: address, connection, certificate ("the one you pinned"), SIP answer. The line is saved.
 - [ ] `sudo linx trunk list` shows it **reachable**, "Encrypted (TLS + SRTP)", outgoing 1.
 - [ ] `sudo linx doctor`: the **Phone lines** section is all `ok` now, including "emergency calls have a line". Webhook.site got `trunk.created`, with no password in it.
@@ -209,7 +210,7 @@ sudo docker exec linx-postgres psql -U linx -d linx -tAc \
 
 ## 15. Clean up
 ```
-rm -f /tmp/e10*.json /tmp/local.json /tmp/plain.json
+rm -f /tmp/e10*.json /tmp/local.json /tmp/plain.json linx-line-192.168.1.60.*
 sudo linx trunk remove "UCM landlines" --yes
 sudo linx api-key revoke "${KEY:0:17}"
 ```
