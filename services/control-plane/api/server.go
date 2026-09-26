@@ -18,6 +18,7 @@ import (
 	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/turn"
@@ -40,10 +41,14 @@ type Server struct {
 	now       func() time.Time
 }
 
-// NumberingSource is the country Linx is set up in (internal/store's
-// Store.Country), for GET /outbound-routing (docs/TRUNKS.md §5).
+// NumberingSource is the country Linx is set up in and the outgoing-call
+// decision (internal/store), for /outbound-routing and /route-test
+// (docs/TRUNKS.md §5).
 type NumberingSource interface {
 	Country(ctx context.Context) (string, error)
+	Classify(ctx context.Context, home, dialled string) (numbering.Result, error)
+	Route(ctx context.Context, extension uuid.UUID, dialled string) (numbering.Route, error)
+	ExtensionByNumber(ctx context.Context, tenant uuid.UUID, number string) (pbx.Extension, error)
 }
 
 // CallSource is the live call state /calls/active reports (the control

@@ -183,6 +183,10 @@ func scanAlert(row pgx.Row) (alert.Alert, error) {
 // its reminder is made due at once, so the escalation goes out on the
 // engine's next tick instead of waiting up to a day.
 func (s *Store) Fire(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string, now time.Time) (alert.Alert, bool, error) {
+	return s.FireWith(ctx, tenant, key, severity, title, message, link, now, alert.FireOptions{StableSince: now})
+}
+
+func (s *Store) FireWith(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string, now time.Time, opts alert.FireOptions) (alert.Alert, bool, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return alert.Alert{}, false, err
@@ -191,9 +195,13 @@ func (s *Store) Fire(ctx context.Context, tenant uuid.UUID, key, severity, title
 	if link != "" {
 		linkArg = &link
 	}
+	stableSince := opts.StableSince
+	if stableSince.IsZero() || stableSince.After(now) {
+		stableSince = now
+	}
 	row := s.pool.QueryRow(ctx, `INSERT INTO alert (id, tenant_id, key, severity, title, message, link, status,
-			first_seen_at, last_seen_at, stable_since)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $8, $8, $8)
+			first_seen_at, last_seen_at, stable_since, one_shot)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $8, $8, $9, $10)
 		ON CONFLICT (tenant_id, key) WHERE status = 'open' DO UPDATE SET
 			last_seen_at = $8, severity = $4, title = $5, message = $6, link = $7,
 			last_reminder_at = CASE
@@ -203,7 +211,7 @@ func (s *Store) Fire(ctx context.Context, tenant uuid.UUID, key, severity, title
 				THEN 'epoch'::timestamptz
 				ELSE alert.last_reminder_at END
 		RETURNING `+alertColumns+`, (xmax = 0) AS inserted`,
-		id, tenant, key, severity, title, message, linkArg, now)
+		id, tenant, key, severity, title, message, linkArg, now, stableSince, opts.OneShot)
 
 	var a alert.Alert
 	var linkOut *string
@@ -296,7 +304,13 @@ func (s *Store) Notify(ctx context.Context, a alert.Alert, kind string, due, hel
 	args := []any{a.ID, now}
 	switch kind {
 	case alert.DeliveryFired:
-		claim = `UPDATE alert SET notified_at = $2 WHERE id = $1 AND status = 'open' AND notified_at IS NULL`
+		// A one-shot alert closes as it notifies, with no "resolved" notice
+		// to follow.
+		claim = `UPDATE alert SET notified_at = $2,
+				status = CASE WHEN one_shot THEN 'resolved' ELSE status END,
+				resolved_at = CASE WHEN one_shot THEN $2 ELSE resolved_at END,
+				resolved_notified_at = CASE WHEN one_shot THEN $2 ELSE resolved_notified_at END
+			WHERE id = $1 AND status = 'open' AND notified_at IS NULL`
 	case alert.DeliveryReminder:
 		claim = `UPDATE alert SET last_reminder_at = $2 WHERE id = $1 AND status = 'open'
 			AND last_reminder_at IS NOT DISTINCT FROM $3`

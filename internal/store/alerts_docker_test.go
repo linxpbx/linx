@@ -442,6 +442,47 @@ func TestAlertsDocker(t *testing.T) {
 		}
 	})
 
+	t.Run("one-shot and held-back alerts", func(t *testing.T) {
+		now := time.Now().UTC().Truncate(time.Microsecond)
+		key := "test.oneshot:" + uuid.NewString()
+		a, _, err := s.FireWith(ctx, tenant, key, alert.SeverityCritical, "Emergency call", "999", "", now,
+			alert.FireOptions{StableSince: now.Add(-alert.StableFor), OneShot: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		due, err := s.DueToNotify(ctx, now.Add(-alert.StableFor), 1000)
+		if err != nil || !containsAlert(due, a.ID) {
+			t.Fatalf("one-shot not due at once: %v", err)
+		}
+		if err := s.Notify(ctx, a, alert.DeliveryFired, nil, nil, now, alert.MaxAttempts, nil); err != nil {
+			t.Fatal(err)
+		}
+		var status string
+		var resolvedNotified *time.Time
+		if err := pool.QueryRow(ctx, `SELECT status, resolved_notified_at FROM alert WHERE id = $1`, a.ID).Scan(&status, &resolvedNotified); err != nil {
+			t.Fatal(err)
+		}
+		if status != "resolved" || resolvedNotified == nil {
+			t.Fatalf("one-shot after notify: %s %v", status, resolvedNotified)
+		}
+		if due, _ := s.DueForResolvedNotice(ctx, 1000); containsAlert(due, a.ID) {
+			t.Error("a one-shot alert wants a resolved notice")
+		}
+
+		// Held back 2 minutes instead of 5.
+		held, _, err := s.FireWith(ctx, tenant, "test.held:"+uuid.NewString(), alert.SeverityWarning, "Line down", "x", "", now,
+			alert.FireOptions{StableSince: now.Add(2*time.Minute - alert.StableFor)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if due, _ := s.DueToNotify(ctx, now.Add(time.Minute-alert.StableFor), 1000); containsAlert(due, held.ID) {
+			t.Error("due after 1 minute")
+		}
+		if due, _ := s.DueToNotify(ctx, now.Add(2*time.Minute-alert.StableFor), 1000); !containsAlert(due, held.ID) {
+			t.Error("not due after 2 minutes")
+		}
+	})
+
 	t.Run("CleanupAlerts keeps 30 days", func(t *testing.T) {
 		channel := newChannel(t, true, nil)
 		now := time.Now()

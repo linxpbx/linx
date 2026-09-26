@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"linxpbx.com/linx/internal/asteriskconf"
+	"linxpbx.com/linx/internal/trunkstatus"
 )
 
 func TestWaitForCertificate(t *testing.T) {
@@ -74,5 +76,39 @@ func TestTrunkWatcher(t *testing.T) {
 	w.Check(ctx)
 	if reloads != 2 {
 		t.Fatalf("reloads = %d, want 2", reloads)
+	}
+}
+
+func TestStatusWriter(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	answers := map[string]string{
+		"pjsip show registrations": " trunk-a/sip:x  trunk-a  Registered  (exp. 3585s)\n",
+		"pjsip show contacts":      "  Contact:  trunk-a/sip 6a87682040 Avail  1.0\n  Contact:  trunk-b/sip 6a87682041 Unavail  nan\n",
+	}
+	up := true
+	w := &statusWriter{dir: dir, now: func() time.Time { return at }, log: slog.New(slog.DiscardHandler),
+		console: func(_ context.Context, cmd string) (string, error) {
+			if !up {
+				return "", errors.New("Unable to connect to remote asterisk")
+			}
+			return answers[cmd], nil
+		}}
+	w.Write(context.Background())
+	f, err := trunkstatus.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]trunkstatus.Trunk{"trunk-a": {Registration: "Registered", Contact: "Avail"}, "trunk-b": {Contact: "Unavail"}}
+	if !f.WrittenAt.Equal(at) || !reflect.DeepEqual(f.Trunks, want) {
+		t.Fatalf("status file = %+v", f)
+	}
+
+	// Asterisk not answering: the old file stays, and ages.
+	up, at = false, at.Add(time.Minute)
+	w.Write(context.Background())
+	f, err = trunkstatus.Read(dir)
+	if err != nil || f.WrittenAt.Equal(at) {
+		t.Fatalf("status file rewritten while Asterisk was away: %+v %v", f, err)
 	}
 }

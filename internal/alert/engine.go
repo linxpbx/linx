@@ -45,6 +45,26 @@ func (e *Engine) Fire(ctx context.Context, tenant uuid.UUID, key, severity, titl
 	return err
 }
 
+// FireAfter is Fire for a problem that should notify after holdBack
+// rather than the usual StableFor (never sooner than now).
+func (e *Engine) FireAfter(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string, holdBack time.Duration) error {
+	now := e.Sender.Now()
+	_, _, err := e.Store.FireWith(ctx, tenant, key, severity, title, message, link, now,
+		FireOptions{StableSince: now.Add(holdBack - StableFor)})
+	return err
+}
+
+// Announce tells the alert channels about something that happened (an
+// emergency call, a first call to a country) at the engine's next tick,
+// once: key must be new for each occurrence. The alert closes itself as
+// it's sent.
+func (e *Engine) Announce(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string) error {
+	now := e.Sender.Now()
+	_, _, err := e.Store.FireWith(ctx, tenant, key, severity, title, message, link, now,
+		FireOptions{StableSince: now.Add(-StableFor), OneShot: true})
+	return err
+}
+
 // Resolve reports that the problem behind key has cleared.
 func (e *Engine) Resolve(ctx context.Context, tenant uuid.UUID, key string) error {
 	_, _, err := e.Store.Resolve(ctx, tenant, key, e.Sender.Now())

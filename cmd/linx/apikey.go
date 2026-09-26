@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+
+	"golang.org/x/term"
 )
 
 // controlPlaneContainer and controlPlaneBinary are where `linx api-key`
@@ -20,16 +22,19 @@ const (
 // apiKeyEnv is everything api-key touches on the host, so tests can fake it.
 type apiKeyEnv struct {
 	isRoot bool
+	// terminal: stdin is a terminal (linx trunk add asks questions).
+	terminal bool
 	// run runs a command with the given output streams and returns its exit code.
 	run func(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) (int, error)
 }
 
 func realAPIKeyEnv() apiKeyEnv {
 	return apiKeyEnv{
-		isRoot: os.Geteuid() == 0,
+		isRoot:   os.Geteuid() == 0,
+		terminal: term.IsTerminal(int(os.Stdin.Fd())),
 		run: func(ctx context.Context, stdout, stderr io.Writer, name string, args ...string) (int, error) {
 			cmd := exec.CommandContext(ctx, name, args...)
-			cmd.Stdout, cmd.Stderr = stdout, stderr
+			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
 			err := cmd.Run()
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {

@@ -46,11 +46,12 @@ func TestActiveCalls(t *testing.T) {
 		e.calls.connected = true
 		start := time.Now().UTC().Truncate(time.Second)
 		answered := start.Add(5 * time.Second)
-		alice := pbx.CallParty{Extension: "101", DeviceID: uuid.New(), Name: "Alice's phone"}
-		bob := pbx.CallParty{Extension: "102", DeviceID: uuid.New(), Name: "Bob's phone"}
+		aliceID, bobID := uuid.New(), uuid.New()
+		alice := pbx.CallParty{Extension: "101", DeviceID: &aliceID, Name: "Alice's phone"}
+		bob := pbx.CallParty{Extension: "102", DeviceID: &bobID, Name: "Bob's phone"}
 		id := uuid.New()
-		e.calls.calls = []pbx.ActiveCall{{ID: id, From: alice, To: "102", State: pbx.CallAnswered, StartedAt: start,
-			AnsweredAt: &answered, AnsweredBy: &bob}}
+		e.calls.calls = []pbx.ActiveCall{{ID: id, Direction: pbx.DirectionInternal, From: alice, To: "102", Ringing: "102",
+			State: pbx.CallAnswered, StartedAt: start, AnsweredAt: &answered, AnsweredBy: &bob}}
 		r := e.do(http.MethodGet, "/api/v1/calls/active", reader, nil)
 		var out controlplaneapi.ActiveCallList
 		r.json(t, &out)
@@ -58,9 +59,24 @@ func TestActiveCalls(t *testing.T) {
 			t.Fatalf("got %d %s", r.status, r.body)
 		}
 		c := out.Items[0]
-		if c.Id != id || c.From.Extension != "101" || c.To != "102" || c.State != controlplaneapi.ActiveCallStateAnswered ||
-			c.AnsweredBy == nil || c.AnsweredBy.DeviceId != bob.DeviceID || !c.AnsweredAt.Equal(answered) {
+		if c.Id != id || c.From.Extension == nil || *c.From.Extension != "101" || c.To != "102" || c.State != controlplaneapi.ActiveCallStateAnswered ||
+			c.Direction != controlplaneapi.Internal || c.AnsweredBy == nil || *c.AnsweredBy.DeviceId != bobID ||
+			!c.AnsweredAt.Equal(answered) || c.From.Number != nil || c.TrunkId != nil {
 			t.Fatalf("unexpected call %+v", c)
+		}
+	})
+
+	t.Run("a call from outside", func(t *testing.T) {
+		trunkID := uuid.New()
+		e.calls.calls = []pbx.ActiveCall{{ID: uuid.New(), Direction: pbx.DirectionInbound, TrunkID: &trunkID,
+			From: pbx.CallParty{Number: "+971501234567"}, To: "+97142000100", Ringing: "101", State: pbx.CallRinging, StartedAt: time.Now()}}
+		r := e.do(http.MethodGet, "/api/v1/calls/active", reader, nil)
+		var out controlplaneapi.ActiveCallList
+		r.json(t, &out)
+		c := out.Items[0]
+		if c.Direction != controlplaneapi.Inbound || c.TrunkId == nil || *c.TrunkId != trunkID ||
+			c.From.Number == nil || *c.From.Number != "+971501234567" || c.From.Extension != nil || c.Ringing == nil || *c.Ringing != "101" {
+			t.Fatalf("unexpected call %s", r.body)
 		}
 	})
 }

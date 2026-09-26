@@ -18,6 +18,7 @@ import (
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/dbsecret"
+	"linxpbx.com/linx/internal/trunkprobe"
 )
 
 // Service is what the API's trunk, DID, WireGuard profile and call
@@ -31,6 +32,11 @@ type Service struct {
 	// deleted: Asterisk's copy of the trunks is rendered again
 	// (internal/trunkconf).
 	OnChange func()
+	// OnDeleted, if set, is called after a trunk is deleted (its "trunk is
+	// down" alert is closed).
+	OnDeleted func(ctx context.Context, tenant, id uuid.UUID)
+	// Prober tests trunks' connections (TestTrunk).
+	Prober Prober
 }
 
 func (s *Service) changed() {
@@ -530,6 +536,9 @@ func (s *Service) DeleteTrunk(ctx context.Context, id uuid.UUID) error {
 	}
 	if err == nil {
 		s.changed()
+		if s.OnDeleted != nil {
+			s.OnDeleted(ctx, p.TenantID, id)
+		}
 	}
 	return err
 }
@@ -1108,4 +1117,56 @@ func (s *Service) DeleteCallPermissionLevel(ctx context.Context, id uuid.UUID) e
 		return errCallPermissionLevelInUse
 	}
 	return err
+}
+
+// --- Testing a trunk ------------------------------------------------------
+
+// Prober tests a trunk's connection (internal/trunkprobe's Prober).
+type Prober interface {
+	Run(ctx context.Context, t trunkprobe.Target) trunkprobe.Result
+}
+
+// ProbeTarget is what trunkprobe tests for t, with its opened password.
+func ProbeTarget(t Trunk, password string) trunkprobe.Target {
+	target := trunkprobe.Target{Host: t.Host, Port: t.Port, Transport: t.Transport, Registers: t.Kind == KindRegistration,
+		Username: t.Username, Password: password, SRTP: t.MediaEncryption == MediaSRTP, WireGuard: t.WireGuardProfileID != nil}
+	if t.CertTrust == CertPinned {
+		target.Pinned = t.PinnedCertificate
+	}
+	return target
+}
+
+// TestTrunk tests a saved trunk's connection (POST /trunks/{id}/test).
+func (s *Service) TestTrunk(ctx context.Context, id uuid.UUID) (trunkprobe.Result, error) {
+	if s.Prober == nil {
+		return trunkprobe.Result{}, errors.New("trunk service has no prober")
+	}
+	t, err := s.GetTrunk(ctx, id)
+	if err != nil {
+		return trunkprobe.Result{}, err
+	}
+	password, err := OpenPassword(s.Sealer, t)
+	if err != nil {
+		return trunkprobe.Result{}, fmt.Errorf("opening the trunk's password: %w", err)
+	}
+	return s.Prober.Run(ctx, ProbeTarget(t, password)), nil
+}
+
+// InternationalAlert returns the "unusual calling abroad" alert's limits.
+func (s *Service) InternationalAlert(ctx context.Context) (minutes, calls int, err error) {
+	return s.Store.InternationalAlertLimits(ctx)
+}
+
+// SetInternationalAlert changes them: more than minutes, or calls, to
+// numbers abroad in an hour raises the alert.
+func (s *Service) SetInternationalAlert(ctx context.Context, minutes, calls int) error {
+	if minutes < 1 || minutes > 10000 || calls < 1 || calls > 10000 {
+		return invalid("international_alert_invalid", "Give 1 to 10000 minutes and 1 to 10000 calls.")
+	}
+	_, a, err := audit(ctx, "routing.international_alert", "pbx_setting")
+	if err != nil {
+		return err
+	}
+	a.Detail = map[string]any{"minutes": minutes, "calls": calls}
+	return s.Store.SetInternationalAlertLimits(ctx, minutes, calls, a)
 }

@@ -72,6 +72,38 @@ func TestPlatformQueryDocker(t *testing.T) {
 		st.OpenAlerts[0].Message != "line one\nline two" || st.OpenAlerts[0].Severity != "critical" || st.OpenAlerts[0].Since.IsZero() {
 		t.Fatalf("open alerts: %+v", st.OpenAlerts)
 	}
+
+	// The phone lines query, through docker exec: no lines, then one.
+	readLines := func() linesState {
+		t.Helper()
+		out, err := installer.ExecRunner{}.Run(ctx, nil, "docker", psqlArgs("linx-doctor-test", linesQuery)...)
+		if err != nil {
+			t.Fatalf("lines query: %v\n%s", err, out)
+		}
+		var ls linesState
+		if err := json.Unmarshal(out, &ls); err != nil {
+			t.Fatalf("%v in %s", err, out)
+		}
+		return ls
+	}
+	if ls := readLines(); ls.Country != "AE" || len(ls.Trunks) != 0 || ls.Clashes != 0 {
+		t.Fatalf("no lines: %+v", ls)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO trunk (id, tenant_id, name, kind, host, transport, media_encryption,
+			unencrypted_confirmed_by, unencrypted_confirmed_at, outbound_priority, status, status_detail, created_at, updated_at)
+		VALUES ('01900000-0000-7000-8000-000000000009', '01900000-0000-7000-8000-000000000001', 'UCM "1"', 'lan_peer',
+			'192.168.1.5', 'tcp', 'none', 'user:a@example.com', now(), 1, 'reachable', 'It answers.', now(), now())`); err != nil {
+		t.Fatal(err)
+	}
+	ls := readLines()
+	if len(ls.Trunks) != 1 {
+		t.Fatalf("lines: %+v", ls)
+	}
+	tr := ls.Trunks[0]
+	if tr.Name != `UCM "1"` || tr.Transport != "tcp" || tr.Outbound == nil || *tr.Outbound != 1 || tr.Status != "reachable" ||
+		tr.ConfirmedBy != "user:a@example.com" || tr.Pinned != "" || !tr.Enabled || tr.Port != 5061 {
+		t.Fatalf("line: %+v", tr)
+	}
 }
 
 // TestPhoneQueryDocker checks doctor's view of the linx_asterisk role

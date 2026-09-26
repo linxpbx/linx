@@ -1069,6 +1069,59 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/trunks/{id}/test:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: testTrunk
+      summary: Test a trunk's connection
+      description: >-
+        Checks the trunk as it's saved, from the control plane, step by
+        step (docs/TRUNKS.md §6): its address, the connection, its TLS
+        certificate (public CAs or the pinned one, and its name), that it
+        answers SIP, and for a trunk Linx signs in to, that it accepts the
+        login (a REGISTER with no Contact, which changes nothing at the
+        provider). Takes up to about 20 seconds. Places no call.
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      responses:
+        "200":
+          description: The result (a failed check is still a 200; see `ok`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrunkTest"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/route-test:
+    post:
+      operationId: testRoute
+      summary: See what would happen to an outgoing call
+      description: >-
+        The same decision a real call gets (docs/TRUNKS.md §5), without
+        making it: what kind of number it is, whether the extension may
+        call it, and which lines it would go out on.
+      tags: [trunks]
+      security:
+        - bearer: [routing:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteTestRequest"
+      responses:
+        "200":
+          description: The decision.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteTest"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/trunks/{id}/dids:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -2873,9 +2926,12 @@ components:
       description: Only `softphone` works in this slice (ADR-035); the others arrive with the web client and the iOS app.
 
     CallParty:
-      description: A device on one end of a call.
+      description: >-
+        One end of a call: one of Linx's devices (extension, device_id and
+        its name), or someone outside (number, and name if their provider
+        sent one).
       type: object
-      required: [extension, device_id, name]
+      required: [name]
       properties:
         extension:
           type: string
@@ -2885,21 +2941,38 @@ components:
           format: uuid
         name:
           type: string
-          description: The device's name.
+          description: The device's name, or the outside caller's name as their provider sent it (letters, digits, spaces and dots only; may be empty).
+        number:
+          type: string
+          description: An outside party's number, in E.164 (+971...) when Linx can read it.
 
     ActiveCall:
       type: object
-      required: [id, from, to, state, started_at]
+      required: [id, direction, from, to, state, started_at]
       properties:
         id:
           type: string
           format: uuid
           description: The same id the call's webhook events carry.
+        direction:
+          type: string
+          enum: [internal, inbound, outbound]
+          description: >-
+            `internal`: between Linx's own extensions (or to Linx itself,
+            like the echo test). `inbound`: from outside, through a trunk.
+            `outbound`: to an outside number.
+        trunk_id:
+          type: string
+          format: uuid
+          description: The trunk an inbound call came in on, or the line an outbound call went out on (the last one tried).
         from:
           $ref: "#/components/schemas/CallParty"
         to:
           type: string
-          description: The number dialled.
+          description: The number dialled (for an inbound call, the phone number the caller dialled).
+        ringing:
+          type: string
+          description: The extension this call rings, once Linx knows it.
         state:
           type: string
           enum: [ringing, answered, system]
@@ -3071,13 +3144,30 @@ components:
     Trunk:
       description: A phone line to a provider or another phone system (docs/TRUNKS.md §3). Its password is write-only and never returned.
       type: object
-      required: [id, name, kind, host, port, transport, media_encryption, cert_trust, dial_format, codecs, max_calls, unencrypted, enabled, created_at, updated_at, etag]
+      required: [id, name, kind, host, port, transport, media_encryption, cert_trust, dial_format, codecs, max_calls, unencrypted, enabled, status, status_detail, created_at, updated_at, etag]
       properties:
         id:
           type: string
           format: uuid
         name:
           type: string
+        status:
+          type: string
+          enum: [registered, reachable, rejected, unreachable, unknown, disabled]
+          description: >-
+            Whether it works, as Asterisk last reported it (checked every
+            few seconds; each change fires trunk.status_changed).
+            `registered`: Linx is signed in to the provider. `reachable`:
+            it answers Linx's keep-alive checks. `rejected`: it answers but
+            refuses Linx's login. `unreachable`: no answer. `unknown`: not
+            checked yet. `disabled`: turned off.
+        status_detail:
+          type: string
+          description: The status in plain words.
+        status_since:
+          type: string
+          format: date-time
+          description: When it last changed.
         kind:
           $ref: "#/components/schemas/TrunkKind"
         template:
@@ -3341,16 +3431,137 @@ components:
     OutboundRouting:
       description: The order outgoing calls try trunks in (docs/TRUNKS.md §5).
       type: object
-      required: [country, trunks]
+      required: [country, trunks, international_alert]
       properties:
         country:
           type: string
           description: The ISO 3166 country code Linx is set up in.
+        international_alert:
+          $ref: "#/components/schemas/InternationalAlert"
         trunks:
           type: array
           items:
             $ref: "#/components/schemas/Trunk"
           description: Every trunk used for outgoing calls, in the order they're tried.
+
+    TrunkTest:
+      type: object
+      required: [ok, steps]
+      properties:
+        ok:
+          type: boolean
+          description: No step failed (warnings allowed).
+        steps:
+          type: array
+          items:
+            type: object
+            required: [name, result, words]
+            properties:
+              name:
+                type: string
+                enum: [address, connection, certificate, sip, login, audio_encryption, tls_offered]
+              result:
+                type: string
+                enum: [ok, warning, failed, skipped]
+              words:
+                type: string
+                description: What was found, in plain words.
+        certificates:
+          type: array
+          description: The certificates it presented, its own first (TLS only).
+          items:
+            type: object
+            required: [subject, issuer, names, not_after, sha256, self_signed, pem]
+            properties:
+              subject:
+                type: string
+              issuer:
+                type: string
+              names:
+                type: array
+                items:
+                  type: string
+              not_after:
+                type: string
+                format: date-time
+              sha256:
+                type: string
+                description: The fingerprint, as providers print it (AB:CD:...).
+              self_signed:
+                type: boolean
+              pem:
+                type: string
+        untrusted:
+          type: boolean
+          description: The certificate failed only because nothing Linx trusts signed it; pinning the last of `certificates` would let it pass, if the admin recognises its fingerprint.
+
+    RouteTestRequest:
+      type: object
+      additionalProperties: false
+      required: [number]
+      properties:
+        number:
+          type: string
+          maxLength: 40
+          description: Dialled the way you'd dial it on a mobile ("050 123 4567", "+44 20 7946 0958").
+        from:
+          type: string
+          description: The calling extension's number. Without it, only what kind of number it is.
+
+    RouteTest:
+      type: object
+      required: [category, kind, words]
+      properties:
+        category:
+          type: string
+          enum: [emergency, service, landline, mobile, national, shared_cost, toll_free, premium, international, invalid]
+        kind:
+          type: string
+          description: What the number is, in plain words.
+        e164:
+          type: string
+        region:
+          type: string
+          description: The number's country (ISO 3166; "001" for international services).
+        allowed:
+          type: boolean
+          description: With `from`, whether the call would go out (or, for emergency numbers, is always let through).
+        reason:
+          type: string
+          enum: [emergency, invalid, unknown_caller, not_permitted, no_lines, allowed]
+        lines:
+          type: array
+          description: With `from`, the lines it would go out on, in the order they're tried.
+          items:
+            type: object
+            required: [trunk, number]
+            properties:
+              trunk:
+                type: string
+              number:
+                type: string
+                description: The number as that line is sent it.
+              caller_id:
+                type: string
+                description: What the called person sees; absent means the provider's default.
+        words:
+          type: string
+          description: The whole decision in plain words, as `linx route test` prints it.
+
+    InternationalAlert:
+      type: object
+      additionalProperties: false
+      required: [minutes, calls]
+      description: The "unusual calling abroad" alert fires when an hour has more than this many minutes, or calls, to numbers abroad (docs/TRUNKS.md §9).
+      properties:
+        minutes:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        calls:
+          type: integer
+          minimum: 1
+          maximum: 10000
 
     OutboundRoutingUpdate:
       type: object
@@ -3363,6 +3574,8 @@ components:
             type: string
             format: uuid
           description: Every trunk id to use for outgoing calls, primary first. Trunks left out stop being used for outgoing calls.
+        international_alert:
+          $ref: "#/components/schemas/InternationalAlert"
 
     WireguardProfile:
       description: A WireGuard tunnel trunks can be reached through (docs/TRUNKS.md §7). Its keys are write-only and never returned.

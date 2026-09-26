@@ -211,6 +211,8 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		"--volume", filepath.Join(d, "sipws")+":/var/lib/linx/sipws-certs:ro",
 		// The control plane's rendered trunks (renderTrunks writes them).
 		"--volume", filepath.Join(d, "trunks")+":/var/lib/linx/trunks:ro",
+		// Where the entrypoint reports each trunk's state (internal/trunkstatus).
+		"--volume", filepath.Join(d, "trunk-status")+":/var/lib/linx/trunk-status",
 		"--init", // as compose.yaml
 		"--env", "LINX_CERT_CHECK_INTERVAL=1s",
 		"--volume", filepath.Join(d, "ca")+":/etc/linx/ca:ro",
@@ -443,7 +445,7 @@ func (w testWriter) Write(b []byte) (int, error) {
 // other users in their containers.
 func (e *env) writeFiles() {
 	t := e.t
-	for _, sub := range []string{"certs/v1", "sipws/v20", "ca", "secrets", "sipp", "trunks"} {
+	for _, sub := range []string{"certs/v1", "sipws/v20", "ca", "secrets", "sipp", "trunks", "trunk-status"} {
 		if err := os.MkdirAll(filepath.Join(e.dir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -451,6 +453,8 @@ func (e *env) writeFiles() {
 	for _, d := range []string{e.dir, filepath.Join(e.dir, "certs"), filepath.Join(e.dir, "sipws"), filepath.Join(e.dir, "trunks")} {
 		os.Chmod(d, 0o755)
 	}
+	// Asterisk (uid 100) writes here.
+	os.Chmod(filepath.Join(e.dir, "trunk-status"), 0o777)
 	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	caTmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Linx Test Root"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),

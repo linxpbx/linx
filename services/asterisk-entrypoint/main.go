@@ -3,8 +3,10 @@
 // beside it to reload its TLS certificates when they're renewed
 // (internal/certs.Watcher): the phones' one from linx-certd, and the browser
 // websocket's one from the control plane; and PJSIP when the control plane
-// renders the trunks again (trunkWatcher). It forwards docker stop's SIGTERM to Asterisk and exits
-// with Asterisk's exit status.
+// renders the trunks again (trunkWatcher). It also reports every trunk's
+// registration and keep-alive state for the control plane (statusWriter,
+// internal/trunkstatus). It forwards docker stop's SIGTERM to Asterisk and
+// exits with Asterisk's exit status.
 package main
 
 import (
@@ -23,6 +25,7 @@ import (
 
 	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/certs"
+	"linxpbx.com/linx/internal/trunkstatus"
 	"linxpbx.com/linx/internal/version"
 )
 
@@ -41,6 +44,10 @@ const controlPlaneWait = 2 * time.Minute
 
 // trunkCheckInterval is how often the trunk file is checked for changes.
 const trunkCheckInterval = 2 * time.Second
+
+// statusInterval is how often trunks' state is read from Asterisk's
+// console for the control plane.
+const statusInterval = 10 * time.Second
 
 // waitForCertificate waits up to limit for dir/current/fullchain.pem.
 func waitForCertificate(dir string, limit time.Duration, log *slog.Logger) bool {
@@ -141,6 +148,56 @@ func (w *trunkWatcher) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// statusWriter asks Asterisk's console for every trunk's registration and
+// keep-alive state and writes it where the control plane reads it
+// (internal/trunkstatus): ARI has nothing for outbound registrations.
+type statusWriter struct {
+	dir     string
+	console func(ctx context.Context, command string) (string, error)
+	now     func() time.Time
+	log     *slog.Logger
+	failing bool
+}
+
+// Write asks once and writes the file. While Asterisk doesn't answer,
+// nothing is written: the file ages, and the control plane treats trunks
+// as unknown rather than down.
+func (w *statusWriter) Write(ctx context.Context) {
+	regs, err := w.console(ctx, "pjsip show registrations")
+	var contacts string
+	if err == nil {
+		contacts, err = w.console(ctx, "pjsip show contacts")
+	}
+	if err == nil {
+		err = trunkstatus.Write(w.dir, trunkstatus.File{WrittenAt: w.now().UTC(),
+			Trunks: trunkstatus.Merge(trunkstatus.ParseRegistrations(regs), trunkstatus.ParseContacts(contacts))})
+	}
+	if err != nil {
+		if !w.failing {
+			w.log.Warn("can't report the trunks' state", "err", err)
+			w.failing = true
+		}
+		return
+	}
+	if w.failing {
+		w.log.Info("reporting the trunks' state again")
+		w.failing = false
+	}
+}
+
+func (w *statusWriter) Run(ctx context.Context, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			w.Write(ctx)
+		}
+	}
+}
+
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", service)
 	log.Info("starting", "version", version.String(service))
@@ -215,6 +272,13 @@ func main() {
 		go w.Run(ctx, interval)
 	}
 	go trunks.Run(ctx, min(interval, trunkCheckInterval))
+	if dir := os.Getenv("LINX_TRUNK_STATUS_DIR"); dir != "none" {
+		if dir == "" {
+			dir = "/var/lib/linx/trunk-status"
+		}
+		status := &statusWriter{dir: dir, console: console, now: time.Now, log: log.With("report", "trunk status")}
+		go status.Run(ctx, min(interval, statusInterval))
+	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 
@@ -237,6 +301,17 @@ func main() {
 			os.Exit(0)
 		}
 	}
+}
+
+// console runs one command on Asterisk's console and returns its output.
+func console(ctx context.Context, command string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, asteriskBin, "-rx", command).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w: %s", command, err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
 }
 
 // reloadModule makes Asterisk reload a module, and with it the TLS

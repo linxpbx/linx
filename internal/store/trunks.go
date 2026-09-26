@@ -19,7 +19,7 @@ var _ trunk.Store = (*Store)(nil)
 const trunkColumns = `id, tenant_id, name, kind, template, host, port, transport, media_encryption, cert_trust,
 	pinned_certificate, username, password_enc, dial_format, codecs, caller_id_number, max_calls,
 	wireguard_profile_id, outbound_priority, unencrypted_confirmed_by, unencrypted_confirmed_at,
-	enabled, version, created_at, updated_at`
+	enabled, version, created_at, updated_at, status, status_detail, status_since`
 
 func scanTrunk(row pgx.Row) (trunk.Trunk, error) {
 	var t trunk.Trunk
@@ -27,7 +27,7 @@ func scanTrunk(row pgx.Row) (trunk.Trunk, error) {
 	err := row.Scan(&t.ID, &t.TenantID, &t.Name, &t.Kind, &t.Template, &t.Host, &t.Port, &t.Transport,
 		&t.MediaEncryption, &t.CertTrust, &pinnedCert, &t.Username, &t.PasswordEnc, &t.DialFormat, &t.Codecs,
 		&callerID, &t.MaxCalls, &t.WireGuardProfileID, &t.OutboundPriority, &confirmedBy, &t.UnencryptedConfirmedAt,
-		&t.Enabled, &t.Version, &t.CreatedAt, &t.UpdatedAt)
+		&t.Enabled, &t.Version, &t.CreatedAt, &t.UpdatedAt, &t.Status, &t.StatusDetail, &t.StatusSince)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, trunk.ErrNotFound
 	}
@@ -39,6 +39,60 @@ func trunkEvent(t trunk.Trunk, eventType string, at time.Time) (webhook.Event, e
 	return webhook.NewEvent(t.TenantID, eventType, map[string]any{
 		"id": t.ID, "name": t.Name, "kind": t.Kind, "host": t.Host, "enabled": t.Enabled,
 	}, at)
+}
+
+// SetTrunkStatus records a trunk's new state and, in the same transaction,
+// fires trunk.status_changed. Nothing changes (and false comes back) if the
+// trunk is gone or already has that status. It doesn't bump version: the
+// state isn't one of the trunk's settings.
+func (s *Store) SetTrunkStatus(ctx context.Context, tenant, id uuid.UUID, status, detail string, at time.Time) (bool, error) {
+	changed := false
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var previous string
+		err := tx.QueryRow(ctx, `SELECT status FROM trunk WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, id, tenant).Scan(&previous)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if previous == status {
+			_, err := tx.Exec(ctx, `UPDATE trunk SET status_detail = $2 WHERE id = $1 AND status_detail <> $2`, id, detail)
+			return err
+		}
+		t, err := scanTrunk(tx.QueryRow(ctx, `UPDATE trunk SET status = $2, status_detail = $3, status_since = $4
+			WHERE id = $1 RETURNING `+trunkColumns, id, status, detail, at))
+		if err != nil {
+			return err
+		}
+		changed = true
+		ev, err := webhook.NewEvent(t.TenantID, "trunk.status_changed", map[string]any{
+			"id": t.ID, "name": t.Name, "status": status, "previous_status": previous, "detail": detail,
+		}, at)
+		if err != nil {
+			return err
+		}
+		return insertEvent(ctx, tx, ev, nil)
+	})
+	return changed, err
+}
+
+// AllTrunks returns every trunk of every tenant, for the trunk monitor.
+func (s *Store) AllTrunks(ctx context.Context) ([]trunk.Trunk, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+trunkColumns+` FROM trunk ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []trunk.Trunk
+	for rows.Next() {
+		t, err := scanTrunk(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) CreateTrunk(ctx context.Context, t trunk.Trunk, audit auth.AuditEntry) error {

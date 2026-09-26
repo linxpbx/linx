@@ -70,6 +70,20 @@ func (f *fakeCallStore) InsertCallEvent(_ context.Context, _ uuid.UUID, typ stri
 	return nil
 }
 
+func (f *fakeCallStore) TrunkTenant(_ context.Context, id uuid.UUID) (uuid.UUID, error) {
+	if id == testTrunk {
+		return testTenant, nil
+	}
+	return uuid.Nil, ErrNotFound
+}
+
+func (f *fakeCallStore) Country(context.Context) (string, error) { return "AE", nil }
+
+var (
+	testTrunk  = uuid.MustParse("7d0c0e3a-0000-4000-8000-000000000001")
+	testTenant = uuid.MustParse("7d0c0e3a-0000-4000-8000-0000000000aa")
+)
+
 func (f *fakeCallStore) types() []string {
 	var out []string
 	for _, e := range f.events {
@@ -266,5 +280,120 @@ func TestContactAddr(t *testing.T) {
 		if got != want {
 			t.Errorf("contactAddr(%q) = %q, want %q", uri, got, want)
 		}
+	}
+}
+
+type fakeWatcher struct{ started, ended []OutsideCall }
+
+func (w *fakeWatcher) OutsideCallStarted(_ context.Context, c OutsideCall) {
+	w.started = append(w.started, c)
+}
+func (w *fakeWatcher) OutsideCallEnded(_ context.Context, c OutsideCall) {
+	w.ended = append(w.ended, c)
+}
+
+func trunkLeg(id string) *ari.Channel {
+	return &ari.Channel{ID: id, Name: "PJSIP/trunk-" + testTrunk.String() + "-0000000" + id, State: "Down",
+		Dialplan: ari.Dialplan{Context: "linx-outbound", Exten: "s"}}
+}
+
+func TestOutboundCall(t *testing.T) {
+	ctx := context.Background()
+	tr, st := newTracker()
+	w := &fakeWatcher{}
+	tr.Watch = w
+	caller := ch("1", "d_alice001", "Ring", "linx-extensions", "050 123 4567", "")
+	caller.Dialplan.Exten = "0501234567"
+	tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(0), Channel: caller})
+	if calls := tr.ActiveCalls(); len(calls) != 1 || calls[0].Direction != DirectionOutbound || calls[0].TrunkID != nil {
+		t.Fatalf("after start: %+v", calls)
+	}
+	leg := trunkLeg("2")
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(1), Caller: caller, Peer: leg})
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(4), Caller: caller, Peer: leg, DialStatus: "ANSWER"})
+	if progress := tr.OutsideCallsInProgress(); len(progress) != 1 || !progress[0].WentOut || progress[0].AnsweredAt == nil {
+		t.Fatalf("in progress: %+v", progress)
+	}
+	tr.handle(ctx, ari.Event{Type: "ChannelDestroyed", Timestamp: at(64), Channel: caller})
+
+	if got := st.types(); !equal(got, []string{"call.started", "call.answered", "call.ended"}) {
+		t.Fatalf("events %v", got)
+	}
+	started, ended := st.events[0].Data, st.events[2].Data
+	if started["direction"] != DirectionOutbound || started["outside_number"] != "+971501234567" || started["trunk_id"] != nil {
+		t.Errorf("call.started = %v", started)
+	}
+	if ended["trunk_id"] != testTrunk || ended["duration_seconds"] != 60 || ended["outcome"] != OutcomeAnswered {
+		t.Errorf("call.ended = %v", ended)
+	}
+	if by := ended["answered_by"].(*CallParty); by.Number != "+971501234567" || by.DeviceID != nil {
+		t.Errorf("answered_by = %+v", by)
+	}
+	if len(w.started) != 1 || w.started[0].Result.Category != "mobile" || w.started[0].WentOut {
+		t.Errorf("watcher started: %+v", w.started)
+	}
+	if len(w.ended) != 1 || !w.ended[0].WentOut || w.ended[0].TalkSeconds != 60 || *w.ended[0].TrunkID != testTrunk ||
+		w.ended[0].Extension != "101" || w.ended[0].Number != "+971501234567" {
+		t.Errorf("watcher ended: %+v", w.ended)
+	}
+}
+
+func TestEmergencyAndInternalCalls(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		to, direction string
+		watched       bool
+	}{
+		{"999", DirectionOutbound, true},
+		{"102", DirectionInternal, false},
+		{"*43", DirectionInternal, false},
+		{"12345", DirectionInternal, false}, // no such extension: "not in use"
+	} {
+		tr, st := newTracker()
+		w := &fakeWatcher{}
+		tr.Watch = w
+		tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(0), Channel: ch("1", "d_alice001", "Ring", "linx-extensions", tc.to, "")})
+		if d := st.events[0].Data["direction"]; d != tc.direction {
+			t.Errorf("%s: direction %v, want %s", tc.to, d, tc.direction)
+		}
+		if (len(w.started) == 1) != tc.watched {
+			t.Errorf("%s: watcher heard %d calls", tc.to, len(w.started))
+		}
+		if tc.watched && w.started[0].Result.Category != "emergency" {
+			t.Errorf("%s: category %q", tc.to, w.started[0].Result.Category)
+		}
+	}
+}
+
+func TestInboundCall(t *testing.T) {
+	ctx := context.Background()
+	tr, st := newTracker()
+	w := &fakeWatcher{}
+	tr.Watch = w
+	caller := &ari.Channel{ID: "1", Name: "PJSIP/trunk-" + testTrunk.String() + "-00000001", State: "Ring",
+		Caller:   ari.CallerID{Name: `Bob "B" <script>`, Number: "050 123 4567"},
+		Dialplan: ari.Dialplan{Context: "linx-from-trunk", Exten: "linxuser"}, CreationTime: at(0)}
+	tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(0), Channel: caller})
+	caller.ChannelVars = map[string]string{DIDVariable: "+97142000100"}
+	caller.Dialplan = ari.Dialplan{Context: "linx-ring", Exten: "102", AppName: "Dial"}
+	tr.handle(ctx, ari.Event{Type: "ChannelDialplan", Timestamp: at(1), Channel: caller})
+	calls := tr.ActiveCalls()
+	if len(calls) != 1 || calls[0].Direction != DirectionInbound || calls[0].To != "+97142000100" || calls[0].Ringing != "102" ||
+		calls[0].From.Number != "+971501234567" || calls[0].From.Name != "Bob B script" || *calls[0].TrunkID != testTrunk {
+		t.Fatalf("after start: %+v", calls)
+	}
+	leg := ch("2", "d_bob00002", "Down", "linx-ring", "s", "")
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(2), Caller: caller, Peer: leg, DialStatus: "ANSWER"})
+	tr.handle(ctx, ari.Event{Type: "ChannelDestroyed", Timestamp: at(9), Channel: caller})
+	if got := st.types(); !equal(got, []string{"call.started", "call.answered", "call.ended"}) {
+		t.Fatalf("events %v", got)
+	}
+	ended := st.events[2].Data
+	if ended["direction"] != DirectionInbound || ended["outside_number"] != "+971501234567" || ended["to"] != "+97142000100" ||
+		ended["answered_by"].(*CallParty).Extension != "102" {
+		t.Errorf("call.ended = %v", ended)
+	}
+	if len(w.started)+len(w.ended) != 0 {
+		t.Error("the watcher heard about an inbound call")
 	}
 }

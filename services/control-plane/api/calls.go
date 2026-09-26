@@ -6,15 +6,22 @@ import (
 	"linxpbx.com/linx/internal/pbx"
 )
 
+func optString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 func toCallParty(p pbx.CallParty) CallParty {
-	return CallParty{Extension: p.Extension, DeviceId: p.DeviceID, Name: p.Name}
+	return CallParty{Extension: optString(p.Extension), DeviceId: p.DeviceID, Name: p.Name, Number: optString(p.Number)}
 }
 
 func (s *Server) ListActiveCalls(_ context.Context, _ ListActiveCallsRequestObject) (ListActiveCallsResponseObject, error) {
 	out := ActiveCallList{Items: []ActiveCall{}, PhoneEngineConnected: s.calls.Connected()}
 	for _, c := range s.calls.ActiveCalls() {
-		a := ActiveCall{Id: c.ID, From: toCallParty(c.From), To: c.To, State: ActiveCallState(c.State),
-			StartedAt: c.StartedAt, AnsweredAt: c.AnsweredAt}
+		a := ActiveCall{Id: c.ID, Direction: ActiveCallDirection(c.Direction), TrunkId: c.TrunkID, From: toCallParty(c.From),
+			To: c.To, Ringing: optString(c.Ringing), State: ActiveCallState(c.State), StartedAt: c.StartedAt, AnsweredAt: c.AnsweredAt}
 		if c.AnsweredBy != nil {
 			by := toCallParty(*c.AnsweredBy)
 			a.AnsweredBy = &by

@@ -32,6 +32,7 @@ import (
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/trunkconf"
+	"linxpbx.com/linx/internal/trunkstatus"
 )
 
 // SDP lines for provider.xml: SRTP (SDES) and unencrypted audio.
@@ -190,6 +191,32 @@ func TestTrunksDocker(t *testing.T) {
 		if l := e.logs(provider); strings.Contains(l, "REGISTER refused") {
 			t.Errorf("the provider refused Linx's login:\n%s", l)
 		}
+		// The call's events say where it came from: the trunk, the
+		// caller's number, and the DID dialled (LINX_DID).
+		in := e.callEnded("+97142000102")
+		if in["direction"] != pbx.DirectionInbound || in["trunk_id"] != reg.ID.String() || in["outside_number"] != "+971501112222" {
+			t.Errorf("inbound call.ended = %v", in)
+		}
+
+		// Asterisk's entrypoint reports the registration, and the control
+		// plane's monitor turns it into the trunk's status and an event.
+		statusDir := filepath.Join(e.dir, "trunk-status")
+		eventually(t, "the trunk status report", 30*time.Second, func() bool {
+			f, err := trunkstatus.Read(statusDir)
+			return err == nil && f.Trunks[reg.Endpoint()].Registration == trunkstatus.RegRegistered
+		})
+		mon := &trunk.Monitor{Store: e.store, Alerts: noAlerts{}, Dir: statusDir, Log: slog.New(slog.DiscardHandler)}
+		if err := mon.Check(e.ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := e.store.Trunk(e.ctx, reg.TenantID, reg.ID); err != nil || got.Status != trunkstatus.StatusRegistered {
+			t.Errorf("trunk status %q (%v), want registered", got.Status, err)
+		}
+		// doctor's reading of the same console output agrees.
+		regs := trunkstatus.ParseRegistrations(e.asteriskCLI("pjsip show registrations"))
+		if regs[reg.Endpoint()] != trunkstatus.RegRegistered {
+			t.Errorf("doctor's parser: %v", regs)
+		}
 		// Every doctor check of the phones' transports still passes.
 		if bad, ok := doctor.PlainSIPTransports(e.asteriskCLI("pjsip show transports")); !ok || len(bad) > 0 {
 			t.Errorf("transports: %v", bad)
@@ -210,7 +237,8 @@ func TestTrunksDocker(t *testing.T) {
 		if l := e.logs(provider); !strings.Contains(l, "INVITE for +971501234567 from +97142000101 audio RTP/SAVP") {
 			t.Errorf("the provider's log:\n%s", l)
 		}
-		if ended := e.callEnded("0501234567"); ended["outcome"] != pbx.OutcomeAnswered {
+		if ended := e.callEnded("0501234567"); ended["outcome"] != pbx.OutcomeAnswered || ended["direction"] != pbx.DirectionOutbound ||
+			ended["outside_number"] != "+971501234567" || ended["trunk_id"] == nil {
 			t.Errorf("call.ended = %v", ended)
 		}
 	})
@@ -556,3 +584,11 @@ func (e *env) trunkByName(ctx context.Context, svc *trunk.Service, name string) 
 	}
 	return trunk.Trunk{}, trunk.ErrNotFound
 }
+
+// noAlerts is an alert engine that drops everything.
+type noAlerts struct{}
+
+func (noAlerts) FireAfter(context.Context, uuid.UUID, string, string, string, string, string, time.Duration) error {
+	return nil
+}
+func (noAlerts) Resolve(context.Context, uuid.UUID, string) error { return nil }

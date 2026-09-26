@@ -175,6 +175,18 @@ type Outcome struct {
 	Succeeded                       bool
 }
 
+// FireOptions change how a newly opened alert is held back.
+type FireOptions struct {
+	// StableSince backdates the start of the hold-back (StableFor): an
+	// alert opened with StableSince = now - StableFor + 2 min notifies
+	// after 2 minutes instead of 5. Zero: now.
+	StableSince time.Time
+	// OneShot: the alert tells of something that happened, not a problem
+	// that lasts. It closes itself as it notifies, with no "resolved"
+	// notice.
+	OneShot bool
+}
+
 // Store is the database access alerts need (internal/store implements it).
 type Store interface {
 	CreateChannel(ctx context.Context, c Channel, audit auth.AuditEntry) error
@@ -192,6 +204,9 @@ type Store interface {
 	// changed). justOpened is true the moment it goes from none/resolved to
 	// open (stable_since is reset then, restarting the flap hold-back).
 	Fire(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string, now time.Time) (a Alert, justOpened bool, err error)
+	// FireWith is Fire with a different flap hold-back or a one-shot alert
+	// (FireOptions).
+	FireWith(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string, now time.Time, opts FireOptions) (a Alert, justOpened bool, err error)
 	// Resolve closes the open alert with key, if there is one.
 	Resolve(ctx context.Context, tenant uuid.UUID, key string, now time.Time) (a Alert, wasOpen bool, err error)
 	ListAlerts(ctx context.Context, tenant uuid.UUID, status string, before *uuid.UUID, limit int) ([]Alert, error)

@@ -21,6 +21,7 @@ func platformFixture(t *testing.T, state string) *fixture {
 	f.runner[psqlCmd+platformQuery] = state + "\n"
 	f.env.Stat = secretsStat(nil)
 	addPhones(t, f)
+	addLines(t, f)
 	addRelay(f)
 	addFrontDoor(f)
 	return f
@@ -83,7 +84,7 @@ func TestRunAllGreen(t *testing.T) {
 	for _, s := range secs {
 		names = append(names, s.Name)
 	}
-	if got := strings.Join(names, ","); got != "Services,Certificates,Database, access and alerts,Phone system,Calls from outside,Secrets" {
+	if got := strings.Join(names, ","); got != "Services,Certificates,Database, access and alerts,Phone system,Phone lines,Calls from outside,Secrets" {
 		t.Errorf("sections = %s", got)
 	}
 	want(t, rs, installer.OK, "The database is running and answering")

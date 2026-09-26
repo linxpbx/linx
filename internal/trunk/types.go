@@ -109,6 +109,11 @@ type Trunk struct {
 	Enabled                bool
 	Version                int
 	CreatedAt, UpdatedAt   time.Time
+	// Status is what Asterisk last said about it (internal/trunkstatus's
+	// Status constants), kept by the Monitor; not a setting.
+	Status       string
+	StatusDetail string
+	StatusSince  *time.Time
 }
 
 // Unencrypted reports whether calls on t travel without TLS or without SRTP
@@ -203,6 +208,10 @@ type Store interface {
 	// DeleteCallPermissionLevel fails with ErrInUse if an extension still
 	// has it assigned.
 	DeleteCallPermissionLevel(ctx context.Context, tenant, id uuid.UUID, audit auth.AuditEntry) error
+
+	// The "unusual calling abroad" alert's limits (docs/TRUNKS.md §9).
+	InternationalAlertLimits(ctx context.Context) (minutes, calls int, err error)
+	SetInternationalAlertLimits(ctx context.Context, minutes, calls int, audit auth.AuditEntry) error
 }
 
 // OpenPassword opens t's sealed provider password ("" if it has none). Only

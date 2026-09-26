@@ -651,6 +651,48 @@ export interface paths {
         patch: operations["updateTrunk"];
         trace?: never;
     };
+    "/api/v1/trunks/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a trunk's connection
+         * @description Checks the trunk as it's saved, from the control plane, step by step (docs/TRUNKS.md §6): its address, the connection, its TLS certificate (public CAs or the pinned one, and its name), that it answers SIP, and for a trunk Linx signs in to, that it accepts the login (a REGISTER with no Contact, which changes nothing at the provider). Takes up to about 20 seconds. Places no call.
+         */
+        post: operations["testTrunk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/route-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * See what would happen to an outgoing call
+         * @description The same decision a real call gets (docs/TRUNKS.md §5), without making it: what kind of number it is, whether the extension may call it, and which lines it would go out on.
+         */
+        post: operations["testRoute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trunks/{id}/dids": {
         parameters: {
             query?: never;
@@ -1740,14 +1782,16 @@ export interface components {
          * @enum {string}
          */
         DeviceKind: "softphone" | "web" | "ios" | "desk";
-        /** @description A device on one end of a call. */
+        /** @description One end of a call: one of Linx's devices (extension, device_id and its name), or someone outside (number, and name if their provider sent one). */
         CallParty: {
             /** @description The device's extension number. */
-            extension: string;
+            extension?: string;
             /** Format: uuid */
-            device_id: string;
-            /** @description The device's name. */
+            device_id?: string;
+            /** @description The device's name, or the outside caller's name as their provider sent it (letters, digits, spaces and dots only; may be empty). */
             name: string;
+            /** @description An outside party's number, in E.164 (+971...) when Linx can read it. */
+            number?: string;
         };
         ActiveCall: {
             /**
@@ -1755,9 +1799,21 @@ export interface components {
              * @description The same id the call's webhook events carry.
              */
             id: string;
+            /**
+             * @description `internal`: between Linx's own extensions (or to Linx itself, like the echo test). `inbound`: from outside, through a trunk. `outbound`: to an outside number.
+             * @enum {string}
+             */
+            direction: "internal" | "inbound" | "outbound";
+            /**
+             * Format: uuid
+             * @description The trunk an inbound call came in on, or the line an outbound call went out on (the last one tried).
+             */
+            trunk_id?: string;
             from: components["schemas"]["CallParty"];
-            /** @description The number dialled. */
+            /** @description The number dialled (for an inbound call, the phone number the caller dialled). */
             to: string;
+            /** @description The extension this call rings, once Linx knows it. */
+            ringing?: string;
             /**
              * @description `ringing`: devices are ringing (or about to). `answered`: a device answered. `system`: Linx itself answered, for the echo test or a spoken message ("not available", "not in use").
              * @enum {string}
@@ -1870,6 +1926,18 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
+            /**
+             * @description Whether it works, as Asterisk last reported it (checked every few seconds; each change fires trunk.status_changed). `registered`: Linx is signed in to the provider. `reachable`: it answers Linx's keep-alive checks. `rejected`: it answers but refuses Linx's login. `unreachable`: no answer. `unknown`: not checked yet. `disabled`: turned off.
+             * @enum {string}
+             */
+            status: "registered" | "reachable" | "rejected" | "unreachable" | "unknown" | "disabled";
+            /** @description The status in plain words. */
+            status_detail: string;
+            /**
+             * Format: date-time
+             * @description When it last changed.
+             */
+            status_since?: string;
             kind: components["schemas"]["TrunkKind"];
             /** @description Which entry of the provider template catalogue this was created from, if any. */
             template?: string;
@@ -2008,12 +2076,74 @@ export interface components {
         OutboundRouting: {
             /** @description The ISO 3166 country code Linx is set up in. */
             country: string;
+            international_alert: components["schemas"]["InternationalAlert"];
             /** @description Every trunk used for outgoing calls, in the order they're tried. */
             trunks: components["schemas"]["Trunk"][];
+        };
+        TrunkTest: {
+            /** @description No step failed (warnings allowed). */
+            ok: boolean;
+            steps: {
+                /** @enum {string} */
+                name: "address" | "connection" | "certificate" | "sip" | "login" | "audio_encryption" | "tls_offered";
+                /** @enum {string} */
+                result: "ok" | "warning" | "failed" | "skipped";
+                /** @description What was found, in plain words. */
+                words: string;
+            }[];
+            /** @description The certificates it presented, its own first (TLS only). */
+            certificates?: {
+                subject: string;
+                issuer: string;
+                names: string[];
+                /** Format: date-time */
+                not_after: string;
+                /** @description The fingerprint, as providers print it (AB:CD:...). */
+                sha256: string;
+                self_signed: boolean;
+                pem: string;
+            }[];
+            /** @description The certificate failed only because nothing Linx trusts signed it; pinning the last of `certificates` would let it pass, if the admin recognises its fingerprint. */
+            untrusted?: boolean;
+        };
+        RouteTestRequest: {
+            /** @description Dialled the way you'd dial it on a mobile ("050 123 4567", "+44 20 7946 0958"). */
+            number: string;
+            /** @description The calling extension's number. Without it, only what kind of number it is. */
+            from?: string;
+        };
+        RouteTest: {
+            /** @enum {string} */
+            category: "emergency" | "service" | "landline" | "mobile" | "national" | "shared_cost" | "toll_free" | "premium" | "international" | "invalid";
+            /** @description What the number is, in plain words. */
+            kind: string;
+            e164?: string;
+            /** @description The number's country (ISO 3166; "001" for international services). */
+            region?: string;
+            /** @description With `from`, whether the call would go out (or, for emergency numbers, is always let through). */
+            allowed?: boolean;
+            /** @enum {string} */
+            reason?: "emergency" | "invalid" | "unknown_caller" | "not_permitted" | "no_lines" | "allowed";
+            /** @description With `from`, the lines it would go out on, in the order they're tried. */
+            lines?: {
+                trunk: string;
+                /** @description The number as that line is sent it. */
+                number: string;
+                /** @description What the called person sees; absent means the provider's default. */
+                caller_id?: string;
+            }[];
+            /** @description The whole decision in plain words, as `linx route test` prints it. */
+            words: string;
+        };
+        /** @description The "unusual calling abroad" alert fires when an hour has more than this many minutes, or calls, to numbers abroad (docs/TRUNKS.md §9). */
+        InternationalAlert: {
+            minutes: number;
+            calls: number;
         };
         OutboundRoutingUpdate: {
             /** @description Every trunk id to use for outgoing calls, primary first. Trunks left out stop being used for outgoing calls. */
             order: string[];
+            international_alert?: components["schemas"]["InternationalAlert"];
         };
         /** @description A WireGuard tunnel trunks can be reached through (docs/TRUNKS.md §7). Its keys are write-only and never returned. */
         WireguardProfile: {
@@ -3463,6 +3593,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Trunk"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    testTrunk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The result (a failed check is still a 200; see `ok`). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrunkTest"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    testRoute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RouteTestRequest"];
+            };
+        };
+        responses: {
+            /** @description The decision. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteTest"];
                 };
             };
             default: components["responses"]["Problem"];

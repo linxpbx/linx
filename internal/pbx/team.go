@@ -124,7 +124,11 @@ func TeamStatuses(members []TeamMember, calls []ActiveCall) []TeamStatus {
 			}
 		case CallRinging:
 			mark(c.From.Extension, TeamOnCall, c.StartedAt)
-			mark(c.To, TeamRinging, c.StartedAt)
+			target := c.Ringing
+			if target == "" {
+				target = c.To
+			}
+			mark(target, TeamRinging, c.StartedAt)
 		default: // talking to Linx itself (a message, the echo test)
 			mark(c.From.Extension, TeamOnCall, c.StartedAt)
 		}

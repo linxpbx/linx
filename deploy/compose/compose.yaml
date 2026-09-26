@@ -119,6 +119,9 @@ services:
       # Writes the trunks for Asterisk here, provider passwords included
       # (ADR-043, internal/trunkconf).
       - trunks:/var/lib/linx/trunks
+      # Asterisk's report of each trunk's state (trunk.status_changed, the
+      # trunk-down alert).
+      - trunk-status:/var/lib/linx/trunk-status:ro
       # linx-certd's certificate, for HTTPS on 8443 (ADR-037): the web
       # client, the API and /sip. Picked up again on renewal by itself. This
       # image's user (65532) is certd's, so it can read privkey.pem.
@@ -237,6 +240,8 @@ services:
       # The trunks the control plane renders: pjsip.conf includes them, and
       # the entrypoint reloads PJSIP when they change (docs/TRUNKS.md §4).
       - trunks:/var/lib/linx/trunks:ro
+      # The entrypoint writes each trunk's state here for the control plane.
+      - trunk-status:/var/lib/linx/trunk-status
       # To check the control plane's ARI certificate (see control-plane).
       - type: volume
         source: step-ca
@@ -388,6 +393,15 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: uid=65532,gid=101,mode=2750,size=1m
+  # Each trunk's registration and keep-alive state (internal/trunkstatus):
+  # written by Asterisk's entrypoint (uid 100), read by the control plane.
+  # States only, no addresses or logins, so readable by all.
+  trunk-status:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=100,gid=101,mode=0755,size=64k
   postgres-data:
   asterisk-state:
   step-ca:

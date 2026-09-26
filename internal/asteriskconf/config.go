@@ -807,6 +807,9 @@ func ariConf(localPassword string) string {
 enabled = yes
 pretty = no
 websocket_write_timeout = 1000
+; Carried in every channel in every event: the phone number an outside
+; caller dialled (linx-trunk-call).
+channelvars = LINX_DID
 
 [linx-local]
 type = user
@@ -903,7 +906,9 @@ readsql = SELECT * FROM linx_inbound('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}
 // checks. The number is the request's (IP
 // peers) or else the To header's (providers that call the registered
 // contact). The caller's name and number are untrusted: filtered to plain
-// characters and shortened before anything else sees them.
+// characters and shortened before anything else sees them. LINX_DID is
+// the number that matched, for the control plane's call events (ari.conf's
+// channelvars).
 const extensionsConf = `; Rendered by linx-asterisk-entrypoint.
 [general]
 static = yes
@@ -992,12 +997,14 @@ exten => _[a-zA-Z0-9+*#],1,Set(DIALLED=${EXTEN})
 exten => s,1,Set(CALLERID(name)=${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40})
  same => n,Set(CALLERID(num)=${FILTER(0-9+,${CALLERID(num)}):0:20})
  same => n,Set(GROUP(linx-trunk)=${CHANNEL(endpoint)})
- same => n,Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DIALLED})})
+ same => n,Set(DID=${DIALLED})
+ same => n,Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DID})})
  same => n,GotoIf($[${ODBCROWS} > 0]?found)
- same => n,Set(TO=${FILTER(0-9+,${PJSIP_PARSE_URI(${CHANNEL(pjsip,local_uri)},user)})})
- same => n,Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${TO})})
+ same => n,Set(DID=${FILTER(0-9+,${PJSIP_PARSE_URI(${CHANNEL(pjsip,local_uri)},user)})})
+ same => n,Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DID})})
  same => n,GotoIf($[${ODBCROWS} > 0]?found:linx-messages,not-in-use,1)
- same => n(found),GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
+ same => n(found),Set(LINX_DID=${FILTER(0-9+,${DID})})
+ same => n,GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
  same => n,Goto(linx-ring,${TARGET},1)
 
 [linx-messages]

@@ -74,13 +74,104 @@ func TestTrunksDocker(t *testing.T) {
 		return n
 	}
 
+	t.Run("trunk status: changes fire trunk.status_changed, keep the version", func(t *testing.T) {
+		tr := newTrunk("Status line")
+		before := eventCount(t, "trunk.status_changed")
+		changed, err := s.SetTrunkStatus(ctx, tenant, tr.ID, "registered", "Linx is signed in to it.", now)
+		if err != nil || !changed {
+			t.Fatalf("SetTrunkStatus: %v %v", changed, err)
+		}
+		// Same status, new words: no event.
+		if changed, err := s.SetTrunkStatus(ctx, tenant, tr.ID, "registered", "Still signed in.", now); err != nil || changed {
+			t.Fatalf("same status: %v %v", changed, err)
+		}
+		got, err := s.Trunk(ctx, tenant, tr.ID)
+		if err != nil || got.Status != "registered" || got.StatusDetail != "Still signed in." || got.StatusSince == nil ||
+			!got.StatusSince.Equal(now) || got.Version != 1 {
+			t.Fatalf("after: %+v %v", got, err)
+		}
+		if n := eventCount(t, "trunk.status_changed"); n != before+1 {
+			t.Errorf("status events %d, want %d", n, before+1)
+		}
+		if _, err := s.SetTrunkStatus(ctx, tenant, tr.ID, "bogus", "", now); err == nil {
+			t.Error("an unknown status was stored")
+		}
+		if changed, err := s.SetTrunkStatus(ctx, tenant, uuid.New(), "registered", "", now); err != nil || changed {
+			t.Errorf("unknown trunk: %v %v", changed, err)
+		}
+		all, err := s.AllTrunks(ctx)
+		if err != nil || len(all) == 0 {
+			t.Fatalf("AllTrunks: %d %v", len(all), err)
+		}
+		if tt, err := s.TrunkTenant(ctx, tr.ID); err != nil || tt != tenant {
+			t.Errorf("TrunkTenant = %v %v", tt, err)
+		}
+	})
+
+	t.Run("outside calls and first calls to a country", func(t *testing.T) {
+		tr := newTrunk("Calls line")
+		call := func(dialled string, talk int, at time.Time) pbx.OutsideCall {
+			r := numbering.Classify("AE", dialled)
+			return pbx.OutsideCall{ID: uuid.Must(uuid.NewV7()), Tenant: tenant, TrunkID: &tr.ID, Extension: "101", Dialled: dialled,
+				Number: r.E164, Result: r, StartedAt: at, EndedAt: at.Add(time.Duration(talk) * time.Second), TalkSeconds: talk, WentOut: true}
+		}
+		for _, c := range []pbx.OutsideCall{
+			call("00442079460000", 120, now.Add(-10*time.Minute)),
+			call("+33142685300", 60, now.Add(-20*time.Minute)),
+			call("0501234567", 600, now.Add(-5*time.Minute)),   // at home: not counted
+			call("00442079460000", 999, now.Add(-3*time.Hour)), // too long ago
+		} {
+			if err := s.RecordOutsideCall(ctx, c); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.RecordOutsideCall(ctx, c); err != nil { // twice: ignored
+				t.Fatal(err)
+			}
+		}
+		// A call on a line that's since been deleted keeps no trunk.
+		gone := call("+12025550123", 0, now)
+		ghost := uuid.New()
+		gone.TrunkID = &ghost
+		if err := s.RecordOutsideCall(ctx, gone); err != nil {
+			t.Fatalf("call on a deleted line: %v", err)
+		}
+		calls, talk, err := s.CallsAbroadSince(ctx, tenant, "AE", now.Add(-time.Hour))
+		if err != nil || calls != 3 || talk != 180 {
+			t.Fatalf("CallsAbroadSince = %d, %d, %v; want 3, 180", calls, talk, err)
+		}
+		if first, err := s.FirstCallToRegion(ctx, tenant, "GB", "101", now); err != nil || !first {
+			t.Fatalf("first GB: %v %v", first, err)
+		}
+		if first, err := s.FirstCallToRegion(ctx, tenant, "GB", "102", now); err != nil || first {
+			t.Fatalf("second GB: %v %v", first, err)
+		}
+		if err := s.CleanupOutsideCalls(ctx, now.Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		var left int
+		_ = pool.QueryRow(ctx, "SELECT count(*) FROM outside_call").Scan(&left)
+		if left != 4 {
+			t.Errorf("%d calls left after cleanup, want 4", left)
+		}
+		if m, c, err := s.InternationalAlertLimits(ctx); err != nil || m != 30 || c != 10 {
+			t.Fatalf("limits = %d %d %v", m, c, err)
+		}
+		if err := s.SetInternationalAlertLimits(ctx, 60, 5, audit("routing.international_alert")); err != nil {
+			t.Fatal(err)
+		}
+		if m, c, _ := s.InternationalAlertLimits(ctx); m != 60 || c != 5 {
+			t.Errorf("limits now %d %d", m, c)
+		}
+	})
+
 	t.Run("create, get, list", func(t *testing.T) {
+		created := eventCount(t, "trunk.created")
 		tr := newTrunk("Line A")
 		got, err := s.Trunk(ctx, tenant, tr.ID)
 		if err != nil || got.Name != "Line A" || got.Version != 1 {
 			t.Fatalf("Trunk = %+v, %v", got, err)
 		}
-		if eventCount(t, "trunk.created") != 1 {
+		if eventCount(t, "trunk.created") != created+1 {
 			t.Error("trunk.created event wasn't fired")
 		}
 		list, err := s.ListTrunks(ctx, tenant, nil, 10)

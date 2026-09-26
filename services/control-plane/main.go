@@ -40,6 +40,7 @@ import (
 	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/trunkconf"
+	"linxpbx.com/linx/internal/trunkprobe"
 	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/version"
 	"linxpbx.com/linx/internal/webapp"
@@ -64,6 +65,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "user" {
 		os.Exit(runUserCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "trunk" {
+		os.Exit(runTrunkCommand(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "route" {
 		os.Exit(runRouteCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
@@ -174,7 +178,10 @@ func main() {
 	accounts := &auth.Accounts{Store: st, Sealer: sealer, Alerts: engine, Failures: authn.Failures, Now: time.Now, Log: log}
 
 	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
-	trunks := &trunk.Service{Store: st, Sealer: sealer, Now: time.Now}
+	// Trunk tests connect only where a phone line can be: never to Linx's
+	// own container networks or loopback (docs/TRUNKS.md §10).
+	trunks := &trunk.Service{Store: st, Sealer: sealer, Now: time.Now,
+		Prober: &trunkprobe.Prober{Refuse: trunkprobe.RefuseOwn(own)}}
 	// Trunks reach Asterisk as a rendered file (ADR-043, internal/trunkconf):
 	// written at start, on every trunk change, and every minute (providers'
 	// addresses can change on their own).
@@ -212,6 +219,19 @@ func main() {
 	}
 	// The ARI app: device online state, call webhooks, /calls/active.
 	tracker := &pbx.CallTracker{Store: st, Log: log, Now: time.Now}
+	// Emergency calls, unusual calling abroad and first calls to a country
+	// (docs/TRUNKS.md §9).
+	callAlerts := &trunk.CallAlerts{Store: st, Alerts: engine, InProgress: tracker.OutsideCallsInProgress, Now: time.Now, Log: log}
+	tracker.Watch = callAlerts
+	// Each trunk's state from Asterisk's report, trunk.status_changed and
+	// the "trunk is down" alert.
+	trunkMonitor := &trunk.Monitor{Store: st, Alerts: engine, Now: time.Now, Log: log,
+		Dir: envOr(os.Getenv, "LINX_TRUNK_STATUS_DIR", "/var/lib/linx/trunk-status")}
+	trunks.OnDeleted = func(ctx context.Context, tenant, id uuid.UUID) {
+		if err := engine.Resolve(ctx, tenant, trunk.DownAlertKey(id)); err != nil {
+			log.Error("closing a deleted trunk's alert", "err", err)
+		}
+	}
 	// The Team list and its live updates (docs/WEB.md §6).
 	team := &pbx.Team{Store: st, Calls: tracker}
 	hub := newTeamHub(team, log)
@@ -267,6 +287,8 @@ func main() {
 	runBackground(func(ctx context.Context) { sweepWebDevices(ctx, st, relay, webDeviceSweepInterval, log) })
 	runBackground(hub.Run)
 	runBackground(trunkFiles.Run)
+	runBackground(trunkMonitor.Run)
+	runBackground(callAlerts.Run)
 	stopARI, err := startARI(bgCtx, ariCfg, tracker, log, runBackground)
 	if err != nil {
 		log.Error("ARI setup failed", "err", err)

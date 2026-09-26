@@ -108,7 +108,11 @@ func (f *fakeAlertStore) DeleteChannel(_ context.Context, tenant, id uuid.UUID, 
 	return nil
 }
 
-func (f *fakeAlertStore) Fire(_ context.Context, tenant uuid.UUID, key, severity, title, message, link string, now time.Time) (alert.Alert, bool, error) {
+func (f *fakeAlertStore) Fire(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string, now time.Time) (alert.Alert, bool, error) {
+	return f.FireWith(ctx, tenant, key, severity, title, message, link, now, alert.FireOptions{})
+}
+
+func (f *fakeAlertStore) FireWith(_ context.Context, tenant uuid.UUID, key, severity, title, message, link string, now time.Time, opts alert.FireOptions) (alert.Alert, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for i, a := range f.alerts {
@@ -121,6 +125,9 @@ func (f *fakeAlertStore) Fire(_ context.Context, tenant uuid.UUID, key, severity
 	id := uuid.Must(uuid.NewV7())
 	a := alert.Alert{ID: id, TenantID: tenant, Key: key, Severity: severity, Title: title, Message: message, Link: link,
 		Status: alert.StatusOpen, FirstSeenAt: now, LastSeenAt: now, StableSince: now}
+	if !opts.StableSince.IsZero() && opts.StableSince.Before(now) {
+		a.StableSince = opts.StableSince
+	}
 	f.alerts[id] = a
 	return a, true, nil
 }
