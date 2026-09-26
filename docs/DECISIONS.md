@@ -53,6 +53,12 @@ Status values: `Proposed` (awaiting owner approval), `Accepted`, `Superseded by 
 | 046 | WireGuard agent | `linx-wireguard` joins Asterisk's network namespace with `NET_ADMIN`; wgctrl-go + netlink; split tunnel | Accepted (owner, 2026-09-26) |
 | 047 | Firewall for IP-authenticated trunks | Host systemd timer keeps Linx's nftables address sets in step with trunks | Accepted (owner, 2026-09-26) |
 | 048 | Toll-fraud defaults | No trunk-to-trunk; international off, premium blocked, emergency always; 2 outside calls per extension; alerts | Accepted (owner, 2026-09-26) |
+| 049 | Admin portal location | Same web app and address, lazy-loaded admin bundle; setting for where admins may sign in from | Accepted (owner, 2026-09-26) |
+| 050 | Numbering plan and web setup | Extension digits + first number as settings, plain number ranges; first-run wizard in the browser | Accepted (owner, 2026-09-26) |
+| 051 | Passkeys | go-webauthn server, browser's own API; a passkey (user verification required) is a complete sign-in | Accepted (owner, 2026-09-26) |
+| 052 | Company sign-in | OpenID Connect (go-oidc, PKCE); links only existing people by verified email; never creates accounts | Accepted (owner, 2026-09-26) |
+| 053 | Confirm it's you | Fresh proof within 10 minutes for the most dangerous changes; admin can reset a lost authenticator | Accepted (owner, 2026-09-26) |
+| 054 | Admin screen libraries | TanStack Table, react-hook-form + zod, shadcn components | Accepted (owner, 2026-09-26) |
 
 ---
 
@@ -570,3 +576,55 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** Calls from a trunk land in a context that can only reach DIDs (no trunk-to-trunk, by construction); outside calls only from signed-in devices and browser lines; international off and premium blocked until turned on per permission level; emergency always allowed and never limited; at most 2 outside calls at once per extension plus each trunk's limit; alerts for every emergency call, unusual international calling (over 30 minutes or 10 calls an hour) and a country called for the first time. `trunks:write` and `routing:write` are sensitive scopes.
 
 **Consequences.** No spend limits in money yet (no rates); the volume alerts stand in for them.
+
+## ADR-049 — Admin portal location (owner decision, 2026-09-26)
+
+**Context.** Phase 1E adds admin screens. `docs/ARCHITECTURE.md` planned an `admin.` hostname, LAN/VPN by default. Since then every front door (ADR-040) was built around `meet.`/`api.`/`turn.`, and the API already enforces roles on every request. Design: `docs/ADMIN.md` §3.
+
+**Options.** (a) Same web app and address, admin screens as a lazy-loaded bundle for admin roles. (b) A separate `admin.` hostname, not forwarded by front doors unless the admin opts in. (c) A separate admin app on its own port.
+
+**Decision.** (a), with a setting "where admins may sign in from": anywhere with a second step (default) or only the home/office networks (admin sessions from elsewhere get the ordinary view).
+
+**Consequences.** No new hostname, DNS record or front-door route. The admin bundle isn't downloaded by ordinary people. `docs/ARCHITECTURE.md`'s `admin.` row is updated once approved.
+
+## ADR-050 — Numbering plan and web setup (owner decision, 2026-09-26)
+
+**Context.** Owner direction (2026-09-26): the web setup wizard includes the numbering plan, and every screen suits an admin new to phone systems. Extensions accept any 2–6 digits today. Design: `docs/ADMIN.md` §4.
+
+**Decision.** Settings `extension_digits` (default 3) and `extension_first` (default 100), enforced for new extensions; plain ranges (with 3 digits: people 100–599, groups 600–699, 700–899 kept, 900s avoided in the UAE); the next free number suggested everywhere. `linx setup` creates the first system admin and prints a one-time link; home/business, country, numbering, people, phone line, permissions and a test call follow in a resumable browser wizard.
+
+**Consequences.** The installer stops asking non-technical questions. Changing the digit count later needs existing extensions renumbered first.
+
+## ADR-051 — Passkeys (owner decision, 2026-09-26)
+
+**Context.** ADR-036 left passkeys (WebAuthn) for 1E. Design: `docs/ADMIN.md` §5.
+
+**Options.** Server: `github.com/go-webauthn/webauthn` (BSD-3-Clause, the maintained Go library) or hand-written (CBOR/COSE parsing: no). Browser: `navigator.credentials` directly, or `@simplewebauthn/browser` (MIT).
+
+**Decision.** go-webauthn; the browser's own API (JSON helpers are in every current browser). User verification required, discoverable credentials, attestation `none`, relying party ID = the base domain. A passkey is a complete sign-in (both steps), for admins too; up to 10 per person.
+
+**Consequences.** New Go dependency (licence check). Chromium's virtual authenticator makes it testable in Playwright.
+
+## ADR-052 — Company sign-in (owner decision, 2026-09-26)
+
+**Context.** The brief asks for OIDC (Authentik, Keycloak, Entra); ADR-036 left it for 1E. Design: `docs/ADMIN.md` §6.
+
+**Decision.** OpenID Connect authorization code flow with PKCE, state and nonce, via `github.com/coreos/go-oidc/v3` (Apache-2.0) and `golang.org/x/oauth2` (BSD). Templates for Google, Microsoft, Authentik, Keycloak and any OIDC provider. Only existing Linx people can sign in; first use links by a provider-verified email, afterwards by the provider's subject ID. It replaces the password, not the second step (always asked of admins). "People must use company sign-in" never applies to system admins. SAML and SCIM are out of scope.
+
+**Consequences.** Client secrets sealed (ADR-030). A LAN provider needs an outbound-allowlist entry (ADR-028), which the screen offers. Tests run against Dex (Apache-2.0) in a container.
+
+## ADR-053 — Confirm it's you (owner decision, 2026-09-26)
+
+**Context.** A stolen or unattended admin session can do anything until it expires (12 h). Two 1C residual risks: new authenticator without the password, no admin reset of a lost authenticator. Design: `docs/ADMIN.md` §7.
+
+**Decision.** The session records when its owner last proved themselves; a short list of dangerous operations needs that within 10 minutes (403 `confirm_required`, the screen asks and retries). Admins can reset a person's authenticator (audited, ends their sessions).
+
+**Consequences.** API keys and OAuth clients are unaffected. One more dialog on rare actions.
+
+## ADR-054 — Admin screen libraries (owner decision, 2026-09-26)
+
+**Context.** The admin area is lists and forms. Design: `docs/ADMIN.md` §8.
+
+**Decision.** `@tanstack/react-table` (MIT) for lists, `react-hook-form` (MIT) + `zod` (MIT) for forms, more shadcn/ui components (copied source, MIT) as needed. Versions pinned and checked when added.
+
+**Consequences.** Three new client dependencies, all headless (no styling of their own, so the design tokens stay the only colours).

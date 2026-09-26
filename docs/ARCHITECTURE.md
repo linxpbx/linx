@@ -76,7 +76,7 @@ Default hostnames sit under one base domain chosen in the setup wizard.
 
 | Host | Carries | Proxy mode | Public at proxy? |
 |---|---|---|---|
-| `admin.` | Admin console | HTTP (terminated) | LAN/VPN by default; SSO + MFA if exposed |
+| (none: `meet.`) | Admin console | HTTP (terminated) | Same address as the web client, admin bundle for admin roles only; admins sign in from anywhere with a second step, or only the home networks (setting). ADR-049 replaced the planned `admin.` host |
 | `meet.` | Guest join, meeting UI, click-to-call | HTTP | **Public** (the platform does its own auth) |
 | `api.` | REST, WSS events, SIP-over-WSS (routed to Asterisk), LiveKit signalling | HTTP/WSS | **Public** |
 | `provision.` | Enrollment API, desk-phone configs (Phase 4) | HTTP | Public (token/MAC auth) |

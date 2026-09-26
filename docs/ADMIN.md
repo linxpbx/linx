@@ -1,0 +1,113 @@
+# Linx — Admin portal and sign-in (Phase 1E)
+
+*Status: approved by the owner 2026-09-26 (ADR-049 to ADR-054 accepted, every item in §11 as recommended).*
+
+Fifth slice of Phase 1 (`docs/ROADMAP.md`). Until now, everything an admin does goes through `sudo linx …` commands or the API. This slice gives admins web screens for all of it, a first-run setup wizard in the browser, and two better ways to sign in: company accounts (Google, Microsoft, Authentik/Keycloak) and passkeys.
+
+## 1. In plain words
+- **One web address for everyone.** People sign in at the same page they use today. Admins see an extra **Admin** area in the sidebar; everyone else never sees it. The server checks every request, so hiding the area is just tidiness, not the protection.
+- **First-run setup in the browser.** After `linx setup`, the installer prints one link. The owner opens it, sets a password and a passkey (or authenticator app), and a short wizard asks: home or business, country, how extension numbers look (3 digits from 100 by default), who the people are, and whether to connect a phone line now. It ends with a test call.
+- **Every "add" has two paths** (owner direction, 2026-09-26): a guided wizard that explains each step with a recommended choice, or **quick create** with only the fields that are truly needed. Everything else gets a safe default and can be changed later.
+- **Getting-started checklist** on the admin home page, and **Simple mode** (on by default) that hides expert pages (WireGuard, webhooks, API keys, the raw call-permission editor) until one switch turns them on.
+- **Call simulator:** type a number (and who's calling, or which of your numbers is being called) and see in plain words where the call goes, before or after changing anything. It's the same database function real calls use, so it can't disagree with them.
+- **Sign in with a passkey** (Face ID, Touch ID, Windows Hello, a phone or a security key) with no password at all, or **sign in with your company account**. Admins still need a second step unless the passkey itself provides it.
+- **"Confirm it's you"** before the most dangerous changes (adding an admin, creating a powerful API key, showing a desk phone's password, turning off encryption on a line), even when already signed in.
+
+## 2. What's in this slice, and what waits
+**In 1E** (screens over the API that already exists, plus the few endpoints they need):
+- Admin home: checklist, open alerts, lines up/down, who's on a call now.
+- People (create, invite link + QR, role, extension, disable, reset authenticator, unlock).
+- Extensions and their devices (desk phones and softphones: settings shown once, reset password, revoke).
+- Phone lines (the same guided flow as `linx trunk add`: template, address, login, test, pin a certificate, the ADR-023 warning), their phone numbers and where each rings (an extension), WireGuard connections.
+- Outgoing calls: country, who can call what (permission levels in plain words), line order (primary/backup), caller ID, the international alert limits.
+- Call simulator (outgoing now; incoming shows number → extension, and grows with 1F's schedules and groups).
+- System: status (the server-side part of `linx doctor`: services, certificate expiry, front door, lines, tunnels), alerts and where they're sent, activity log (audit log, searchable), webhooks and API keys (advanced).
+- My account (every person): password, authenticator, passkeys, company account link, recovery codes, signed-in browsers.
+- First-run web setup wizard with the numbering plan; Simple mode; the checklist.
+
+**Waits for 1F (next slice, rest of Phase 1):** ring groups, office hours and holidays, the full inbound wizard (time of day, groups, "if nobody answers"), voicemail, email sending (invites and voicemail by email; until then invite links are copied or shown as a QR code), call history (CDR), undo for routing changes, the Domain & DNS page (1E shows the domain, certificate and DNS status read-only; changing them stays `linx setup`).
+
+## 3. Where the admin portal lives (ADR-049)
+- Same web app, same address (`meet.<domain>`), same sessions. The admin screens are a separate, lazy-loaded bundle downloaded only after an admin signs in. `docs/ARCHITECTURE.md` planned a separate `admin.` hostname; a second hostname means another name through every front door and another DNS record for no real gain, since the API is already on `meet.`/`api.` and enforces roles itself.
+- **Where admins may sign in from** (setting, `pbx_setting`): *Anywhere, with a passkey or authenticator* (recommended default; the owner travels, incl. China, ADR-042) or *Only from my home/office network* (the phone networks from setup, plus addresses the admin adds). With the second, an admin signing in from outside gets the ordinary person's view (Dialer, Team) and the admin area says why it's missing. API keys aren't affected (they have their own scopes).
+- Roles don't change: `system_admin`, `admin`, `reporter` (read-only admin area: status, alerts, activity, lines, people), `user`. The screens show what the role's scopes allow and grey out the rest with the reason.
+
+## 4. Numbering plan and first-run setup (ADR-050)
+- New settings (`pbx_setting`): `extension_digits` (2–6, default **3**), `extension_first` (default **100**), `site_kind` (`home`/`business`), `simple_mode` (default on), `admin_networks` (§3). `country` exists (1D).
+- New extensions must have the chosen number of digits (the API refuses others with `number_length`, saying the plan). Changing the digit count later is allowed only while no extension uses another length; otherwise the screen lists the ones to renumber first. Existing checks stay (2–6 digits, emergency/short-number clashes, `number_reserved`). The next free number is suggested everywhere (quick create needs only a name).
+- Numbers are split into plain ranges so 1F doesn't have to renumber anyone: with 3 digits, people 100–599, groups 600–699 (1F), reserved 700–899 (parking, conferences, later), 900–999 avoided in the UAE (short codes like 901, 999). Other lengths scale the same way. Shown on the numbering step as a picture, not a table.
+- **First admin:** `linx setup` ends by creating the first `system_admin` and printing (and showing as a QR code in the terminal) a one-time link, like `linx user create` does today. Opening it: password → passkey or authenticator → the setup wizard.
+- **The setup wizard** (resumable, `GET/PUT /setup`; each step saves as it goes; "skip for now" everywhere except the numbering step): 1) Home or business (sets Simple mode and naming hints: "Mum's phone", "Kitchen" vs "Reception"); 2) Country (UAE preselected); 3) Numbers (digits, first number, the picture); 4) People: a quick table (name, email, role; extension filled in automatically), each gets an invite link/QR; 5) Phone line: pick a template or "later"; 6) Who can call what: the defaults from 1D ("Staff" and "Managers"), assign in one click; 7) Test call: `*43` from the browser. Moving on to the admin home shows the checklist with what's already done ticked.
+- Moving `site_kind`/`simple_mode` out of `linx setup` into the web: the installer only asks technical questions (domain, front door, DNS). Setup's existing answers are untouched.
+
+## 5. Passkeys (ADR-051)
+- WebAuthn with `github.com/go-webauthn/webauthn` (BSD-3-Clause) on the server; the browser's own `navigator.credentials` (no client library). Relying party ID = the base domain, so one passkey works on `meet.` and later `admin.`/app hostnames.
+- **A passkey is a whole sign-in**: it proves the device (something you have) and unlocks with Face ID/PIN (user verification **required**), so it counts as password + second step, for admins too. Discoverable credentials: the sign-in page offers "Sign in with a passkey" with no email typed (autofill-assisted where the browser supports it).
+- A person may have up to 10 passkeys, named ("Mohammed's iPhone"), listed with last-used time, removable (removing needs "confirm it's you", §7). Admins may use a passkey instead of the authenticator app; an admin must always keep at least one of the two.
+- Stored: credential ID, public key, sign counter, backup flags, name, created/last used (migration). Nothing secret. Attestation: `none` (we don't restrict device makers). Challenges are single-use, 5 minutes, bound to the session cookie.
+- Setup links can offer "add a passkey" instead of choosing a password (the person can add a password later).
+
+## 6. Company sign-in (ADR-052)
+- OpenID Connect, authorization code flow with PKCE, `state` and `nonce`, with `github.com/coreos/go-oidc/v3` (Apache-2.0) and `golang.org/x/oauth2` (BSD). Provider templates: **Google**, **Microsoft (Entra ID)**, **Authentik**, **Keycloak**, **Other (any OpenID Connect provider)**. The admin pastes the issuer, client ID and secret (sealed, ADR-030); the screen shows the exact redirect address to register at the provider.
+- **Nobody new gets in by company sign-in.** A person must already exist in Linx. On first use the account is linked by the provider's `email` claim only if `email_verified` is true (Microsoft: its `xms_edov`/tenant-verified email or the `upn`, per the provider template) and matches a Linx person; after that, only the provider's stable subject ID is trusted. Unlinking is in "My account" and in People.
+- **Second step:** company sign-in replaces the password. People with an authenticator or passkey are still asked for it; admins always are. (We don't trust the provider's own MFA claim yet: providers report it differently. Revisit on request.)
+- Settings per provider: shown on the sign-in page (yes/no), "people must use company sign-in" (turns off passwords for everyone except system admins, so a broken provider can't lock the owner out).
+- Providers on the home network (e.g. Authentik on the LAN): Linx's outbound HTTP guard (ADR-028) blocks private addresses; the provider screen offers to add the provider's address to the outbound allowlist, showing why.
+- Sign-in audit extends 1C's: `user.sign_in` with `method` `password`/`passkey`/`company:<provider>`, and why a refusal happened (`not_linked`, `email_unverified`, `no_account`), never the token contents.
+
+## 7. "Confirm it's you" (ADR-053)
+- Some actions need a fresh proof in the last **10 minutes** (passkey, password + code, or company sign-in + code), even in a signed-in session: creating/editing admins and system admins, resetting someone's authenticator, creating API keys or OAuth clients with sensitive scopes, showing a device's SIP login, making a line unencrypted (ADR-023), changing company sign-in settings or "where admins may sign in from", removing your own passkey/authenticator.
+- Server-side: the session records `confirmed_at`; the affected operations return 403 `confirm_required`, the screen shows a small "Confirm it's you" dialog and retries. API keys and OAuth clients aren't affected (they're not sessions).
+- Also closes two 1C residual risks (`docs/THREAT_MODEL.md`): enrolling a new authenticator without re-entering the password, and no admin way to reset a lost authenticator (now "Reset authenticator" in People, audited, ends that person's sessions).
+
+## 8. Admin screens (ADR-054)
+- Layout per "Web · Console & presence" and the 1C shell: the sidebar gains an **Admin** group (Home, People, Extensions, Phone lines, Outgoing calls, Incoming calls, Simulator, System); expert pages appear under it when Simple mode is off. Every list: search, filter, a status column, an empty state that explains what the thing is and offers the wizard and quick create.
+- New web libraries (MIT, checked by the licence allowlist): `@tanstack/react-table` for lists, `react-hook-form` + `zod` for forms (validation messages in plain words, mirroring the API's). Nothing else new; shadcn components as needed (dialog, sheet, tabs, table, stepper built from them).
+- Live data: the existing Team websocket for who's on a call; lines, alerts and status refresh every 15 s while their page is open (a general events websocket waits until a page needs faster updates).
+- Plain words everywhere, no telecom jargon in default views (`docs/ui/DESIGN_TOKENS.md` voice): "phone line", not "trunk"; "phone number", not "DID"; "desk phone or phone app", not "SIP endpoint". Exact terms appear only in the advanced details.
+- Every screen: Playwright screenshots in light, dark and phone width (`make screens`), compared with `docs/ui` before it counts as done.
+
+## 9. API additions
+Most screens need nothing new. Added:
+- `GET/PUT /setup` (wizard progress), `GET/PATCH /settings` (numbering, site kind, simple mode, admin networks; `settings:write` sensitive for `admin_networks`), `GET /numbering/next` (next free extension).
+- `GET /audit-log` (`audit:read`, cursor-paginated, filters: who, what, when).
+- `GET /system/status` (`system:read`): the server-side doctor checks the control plane can see (services' health, certificate expiry, front-door reachability, lines, tunnels, open alerts); host-only checks (firewall, systemd) stay in `linx doctor` and the page says so.
+- `POST /route-test` gains `direction: inbound` with `number` (one of your phone numbers).
+- `/me/passkeys` (register begin/finish, list, rename, delete), `POST /session/passkey` (begin/finish), `/sso-providers` CRUD (`sso:write` sensitive), `GET /sso/{id}/start` + `/sso/callback` (hand-written, cookies), `/me/sso-links`, `POST /session/confirm`, `POST /users/{id}/reset-mfa`, `ETag`/`If-Match` on `/users` (1C gap).
+- New scopes `settings:read/write`, `system:read`, `sso:read/write`; `reporter` gets `audit:read`, `system:read`, the `:read` scopes of lines and routing.
+- Webhook events: `user.created/updated/disabled` (were audit-only), `settings.updated`.
+
+## 10. Security in this slice
+- New attack surface: the OIDC callback (state/nonce/PKCE, issuer and audience checked, ID token signature from the provider's keys, exact redirect URI, 10-minute flow), WebAuthn endpoints (single-use challenges, origin and RP ID checked by the library, user verification required, sign-counter regressions refused and alerted), the setup wizard (only a `system_admin` session; the first-admin link is single-use, 24 h, like 1C's).
+- Admin screens run under the existing CSP (no inline scripts), `SameSite=Strict` cookies and the CSRF header; no new origin, no `admin.` host to protect.
+- Showing secrets once (device SIP logins, API keys) needs "confirm it's you" and is never cached (`Cache-Control: no-store`, already on every API response); screens clear them from memory when closed.
+- Company sign-in can't create accounts or raise roles; "people must use company sign-in" never locks out system admins.
+- THREAT_MODEL gets rows for OIDC, passkeys, step-up, the setup wizard and admin-network restriction at the review step.
+
+## 11. Owner decisions (2026-09-26, all approved as recommended)
+1. **Scope split:** 1E = admin portal, setup wizard, passkeys and company sign-in (§2); ring groups, office hours, the full inbound wizard, voicemail, email, call history and undo move to **1F**. *Recommended* (1E alone is about nine sessions).
+2. **Admin area at the same address** (`meet.<domain>`), not a separate `admin.` hostname (§3). *Recommended.*
+3. **Where admins may sign in from:** default *anywhere, with a second step*; *home network only* is one setting away (§3). *Recommended* (you travel).
+4. **Numbering:** 3 digits from 100 by default; people 100–599, groups 600–699, 700–899 kept for later, 900s avoided in the UAE (§4). *Recommended.*
+5. **Home or business is asked in the web wizard**, not by `linx setup`; Simple mode on by default for both (§4). *Recommended.*
+6. **A passkey is a complete sign-in, also for admins** (no extra code) (§5). *Recommended:* passkeys are the strongest option we offer.
+7. **Company sign-in never creates accounts:** the person must exist and the email must be verified by the provider; admins still give a second step (§6). *Recommended.*
+8. **Which company sign-in to demo:** Google (a free Google Cloud project, any Gmail account works) or an Authentik container on the lab server. *Recommended: Google*, as it needs nothing extra running.
+9. **"Confirm it's you" within 10 minutes** for the actions in §7. *Recommended.*
+
+## 12. Build order (one session each)
+1. **Screen specs** (low-fidelity, `docs/ui/ADMIN_SCREENS_PHASE1E.md`): admin shell, home + checklist, setup wizard, People, Extensions + devices, Phone lines (wizard + quick create), Incoming, Outgoing, Simulator, System (status, alerts, activity, webhooks/keys), My account, sign-in additions. ➡ Owner approval. *(Opus)*
+2. **Settings and admin API:** migration (settings, `confirmed_at`, `/setup`), numbering plan enforcement + next number, `/audit-log`, `/system/status`, inbound route test, reset authenticator, `If-Match` on `/users`, new scopes and events, "confirm it's you", admin-network restriction, first admin from `linx setup`. *(Sonnet)*
+3. **Passkeys:** go-webauthn, migration, register/sign-in/confirm, sign-in page + My account passkeys; Playwright with Chromium's virtual authenticator. *(Opus)*
+4. **Company sign-in:** go-oidc, providers API, sign-in flow, linking, "must use company sign-in"; test against a real OIDC provider container (Dex, Apache-2.0, in `make test-docker`). *(Opus)*
+5. **Admin shell, setup wizard, home + checklist, Simple mode.** *(Sonnet)*
+6. **People, extensions, devices screens.** *(Sonnet)*
+7. **Phone lines, WireGuard, incoming, outgoing, simulator screens.** *(Sonnet)*
+8. **System screens:** status, alerts + channels, activity log, webhooks, API keys, My account. *(Sonnet)*
+9. **Security review + `docs/DEMO_PHASE1E.md`.** *(Opus)*
+
+## 13. Demo exit (Phase 1E)
+On a fresh install through Pangolin: `linx setup` prints the first-admin link; the owner sets a password and a passkey on the iPhone, runs the setup wizard (business, UAE, 3 digits, three people with invite QR codes), connects the UCM6304 line through the guided screen (certificate pinned from the screen), sends its number to 101, gives "Managers" to one person; the simulator shows a mobile number allowed and an international one refused for Staff, matching a real call; a second person joins by QR and signs in with Google; an admin signing in from mobile data works (default), and after switching to "home network only" gets the ordinary view; "confirm it's you" appears before creating an admin; System status matches `linx doctor`. Automated: `make screens` for every admin screen, Playwright (virtual authenticator for passkeys, Dex for company sign-in) in CI, existing call and browser suites green.
+
+## 14. Not in this slice
+Everything listed under 1F in §2; SAML; SCIM/automatic people sync from the company directory; trusting the provider's own MFA; per-person admin roles narrower than `admin` (custom roles); a separate `admin.` hostname; iOS admin screens (never planned: admin is web-only).
