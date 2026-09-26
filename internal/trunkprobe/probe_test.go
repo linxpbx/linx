@@ -270,6 +270,15 @@ func TestProbeTLS(t *testing.T) {
 		}
 	})
 
+	t.Run("a wildcard certificate is refused, as Asterisk refuses it", func(t *testing.T) {
+		wild := &provider{}
+		port := listenTLS(t, wild, ca.leaf(t, time.Now().Add(200*24*time.Hour), "*.example.test"))
+		r := newProber().Run(ctx, Target{Host: "sip.example.test", Port: port, Transport: TLS, Pinned: ca.pem, SRTP: true})
+		if r.OK || r.Steps[2].Result != Failed || !strings.Contains(r.Steps[2].Words, "wildcard") {
+			t.Fatalf("got %s: %+v", results(r), r.Steps)
+		}
+	})
+
 	t.Run("expiring soon", func(t *testing.T) {
 		soon := &provider{}
 		port := listenTLS(t, soon, ca.leaf(t, time.Now().Add(10*24*time.Hour), "sip.test"))

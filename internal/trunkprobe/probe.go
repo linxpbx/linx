@@ -343,6 +343,31 @@ func (p *Prober) connect(ctx context.Context, r *run, t Target, hostport string)
 	return conn, true
 }
 
+// namesExactly reports whether c names host without a wildcard, as
+// Asterisk's SIP stack requires: an IP address SAN for an address, else a
+// DNS SAN equal to host (the subject's common name only when there are
+// no DNS SANs at all).
+func namesExactly(c *x509.Certificate, host string) bool {
+	host = strings.TrimSuffix(host, ".")
+	if a, err := netip.ParseAddr(host); err == nil {
+		for _, ip := range c.IPAddresses {
+			if b, ok := netip.AddrFromSlice(ip); ok && b.Unmap() == a.Unmap() {
+				return true
+			}
+		}
+		return false
+	}
+	if len(c.DNSNames) == 0 {
+		return strings.EqualFold(c.Subject.CommonName, host)
+	}
+	for _, n := range c.DNSNames {
+		if strings.EqualFold(strings.TrimSuffix(n, "."), host) {
+			return true
+		}
+	}
+	return false
+}
+
 // handshake checks the provider's certificate exactly as Asterisk will
 // (docs/TRUNKS.md §6): public CAs plus what the admin pinned, and the name.
 func (p *Prober) handshake(ctx context.Context, r *run, t Target, raw net.Conn) (net.Conn, bool) {
@@ -366,6 +391,16 @@ func (p *Prober) handshake(ctx context.Context, r *run, t Target, raw net.Conn) 
 	hctx, cancel := context.WithTimeout(ctx, p.timeout())
 	defer cancel()
 	err := conn.HandshakeContext(hctx)
+	if err == nil && !namesExactly(conn.ConnectionState().PeerCertificates[0], t.Host) {
+		// Go accepted it through a wildcard (*.provider.com); Asterisk's
+		// SIP stack won't (RFC 5922 §7.2), so the line would never work.
+		certs := conn.ConnectionState().PeerCertificates
+		r.res.Certificates = describe(certs)
+		r.add("certificate", Failed, fmt.Sprintf("Its certificate covers %s only through a wildcard (%s), which phone systems don't accept for phone lines (RFC 5922). Ask the provider for its SIP address with a certificate naming it exactly.",
+			t.Host, strings.Join(names(certs[0]), ", ")))
+		conn.Close()
+		return nil, false
+	}
 	if err == nil {
 		certs := conn.ConnectionState().PeerCertificates
 		r.res.Certificates = describe(certs)

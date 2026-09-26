@@ -480,6 +480,20 @@ func (h *harness) deployCertificate() {
 	must(t, os.WriteFile(filepath.Join(tlsDir, "root_ca.crt"), caPEM, 0o644))
 	must(t, os.WriteFile(filepath.Join(tlsDir, "client.pem"), chain, 0o644))
 	must(t, os.WriteFile(filepath.Join(tlsDir, "client.key"), keyPEM, 0o644))
+
+	// The provider trunk's own certificate, for exactly its name: Asterisk
+	// refuses a wildcard on a phone line (RFC 5922 §7.2), so the
+	// *.linx.test one above can't serve.
+	pKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	pTmpl := &x509.Certificate{SerialNumber: big.NewInt(3), Subject: pkix.Name{CommonName: providerHost},
+		DNSNames: []string{providerHost}, NotBefore: now.Add(-time.Hour), NotAfter: now.Add(24 * time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	pDER, err := x509.CreateCertificate(rand.Reader, pTmpl, ca, &pKey.PublicKey, caKey)
+	must(t, err)
+	pkd, _ := x509.MarshalECPrivateKey(pKey)
+	must(t, os.WriteFile(filepath.Join(tlsDir, "provider.pem"), append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: pDER}), caPEM...), 0o644))
+	must(t, os.WriteFile(filepath.Join(tlsDir, "provider.key"), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: pkd}), 0o644))
+
 	roots := x509.NewCertPool()
 	roots.AddCert(ca)
 	h.client = &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{
@@ -668,16 +682,16 @@ const (
 
 // providerTrunk sets up a phone-line provider (docs/TRUNKS.md), the same
 // SIPp scenario the trunk call suite uses as a registration provider over
-// TLS with SRTP: it reuses the *.linx.test certificate deployCertificate
-// already made (its wildcard covers provider.linx.test too), so nothing
-// new needs pinning by hand. This is the Phase 1 exit test's other leg: a
+// TLS with SRTP: its certificate (provider.linx.test exactly, no
+// wildcard) comes from the test CA deployCertificate made, which the trunk
+// pins. This is the Phase 1 exit test's other leg: a
 // browser with UDP blocked calls out through it and back.
 func (h *harness) providerTrunk(t *testing.T, testdata string) {
 	h.docker("run", "--detach", "--name", "linx-browser-test-provider", "--network", netPrefix+"public",
 		"--network-alias", providerHost,
 		"--volume", testdata+":/scenarios:ro", "--volume", filepath.Join(h.dir, "tls")+":/tls:ro",
 		sippImage, "-t", "l1", "-p", "5061", "-sf", "/scenarios/provider.xml",
-		"-tls_cert", "/tls/client.pem", "-tls_key", "/tls/client.key",
+		"-tls_cert", "/tls/provider.pem", "-tls_key", "/tls/provider.key",
 		"-nostdin", "-trace_logs", "-log_file", "/dev/stdout", "-trace_err", "-error_file", "/dev/stderr",
 		"-set", "user", providerTrunkUser, "-set", "pass", providerTrunkPass, "-set", "did", "+97142000199",
 		"-set", "proto", "RTP/SAVP", "-set", "crypto", "a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:y8r4kQ3zYt0Rvq2VJq0yJ3m0z2fX8sA1b5c6d7e8")
