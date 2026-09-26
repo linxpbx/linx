@@ -3,6 +3,13 @@
 dist/
 node_modules/
 *.tsbuildinfo
+# What `go build ./services/NAME` (or ./cmd/linx) leaves in the repo root.
+/linx
+/asterisk-entrypoint
+/certd
+/control-plane
+/coturn-entrypoint
+/wireguard
 
 # Secrets and local config — never commit
 .env
