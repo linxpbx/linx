@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -459,8 +460,9 @@ func (e *env) writeLeaf(name string, ca *x509.Certificate, key *ecdsa.PrivateKey
 }
 
 // provider starts provider.xml as a SIPp server (transport l1 = TLS with
-// the certificate writeLeaf wrote for tlsName, t1 = TCP) on network with
-// alias, and waits until it listens.
+// the certificate writeLeaf wrote for tlsName, t1 = TCP, u1 = UDP) on
+// network with alias (none: "container:NAME", another container's network
+// namespace), and waits until it listens.
 func (e *env) provider(name, network, alias, transport string, port int, tlsName string, extra ...string) string {
 	e.t.Helper()
 	cname := prefix + "-prov-" + name
@@ -469,8 +471,11 @@ func (e *env) provider(name, network, alias, transport string, port int, tlsName
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	args := []string{"run", "--detach", "--name", cname, "--network", network, "--network-alias", alias,
-		"--volume", testdata + ":/scenarios:ro"}
+	args := []string{"run", "--detach", "--name", cname, "--network", network}
+	if alias != "" {
+		args = append(args, "--network-alias", alias)
+	}
+	args = append(args, "--volume", testdata+":/scenarios:ro")
 	if tlsName != "" {
 		args = append(args, "--volume", filepath.Join(e.dir, "tls-"+tlsName)+":/tls:ro")
 	}
@@ -482,6 +487,10 @@ func (e *env) provider(name, network, alias, transport string, port int, tlsName
 	docker(e.t, e.ctx, append(args, extra...)...)
 	e.t.Cleanup(func() { exec.Command("docker", "rm", "--force", cname).Run() })
 	eventually(e.t, name+" listening", 15*time.Second, func() bool {
+		if transport == "u1" {
+			out, _ := exec.Command("docker", "exec", cname, "cat", "/proc/net/udp").CombinedOutput()
+			return strings.Contains(string(out), fmt.Sprintf(":%04X ", port))
+		}
 		out, _ := exec.Command("docker", "exec", cname, "cat", "/proc/net/tcp").CombinedOutput()
 		return slices.ContainsFunc(doctor.ListeningTCP(string(out)), func(a netip.AddrPort) bool { return a.Port() == uint16(port) })
 	})

@@ -30,9 +30,46 @@ import (
 // doesn't use panic (the embedded nil interface).
 type fakeTrunkStore struct {
 	trunk.Store
-	mu     sync.Mutex
-	trunks []trunk.Trunk
-	dids   []trunk.DID
+	mu       sync.Mutex
+	trunks   []trunk.Trunk
+	dids     []trunk.DID
+	profiles []trunk.WireGuardProfile
+}
+
+func (f *fakeTrunkStore) CreateWireGuardProfile(_ context.Context, w trunk.WireGuardProfile, _ auth.AuditEntry) error {
+	f.profiles = append(f.profiles, w)
+	return nil
+}
+
+func (f *fakeTrunkStore) WireGuardProfile(_ context.Context, _, id uuid.UUID) (trunk.WireGuardProfile, error) {
+	for _, w := range f.profiles {
+		if w.ID == id {
+			return w, nil
+		}
+	}
+	return trunk.WireGuardProfile{}, trunk.ErrNotFound
+}
+
+func (f *fakeTrunkStore) ListWireGuardProfiles(_ context.Context, _ uuid.UUID, before *uuid.UUID, _ int) ([]trunk.WireGuardProfile, error) {
+	if before != nil {
+		return nil, nil
+	}
+	return append([]trunk.WireGuardProfile(nil), f.profiles...), nil
+}
+
+func (f *fakeTrunkStore) DeleteWireGuardProfile(_ context.Context, _, id uuid.UUID, _ auth.AuditEntry) error {
+	for _, t := range f.trunks {
+		if t.WireGuardProfileID != nil && *t.WireGuardProfileID == id {
+			return trunk.ErrInUse
+		}
+	}
+	for i, w := range f.profiles {
+		if w.ID == id {
+			f.profiles = append(f.profiles[:i], f.profiles[i+1:]...)
+			return nil
+		}
+	}
+	return trunk.ErrNotFound
 }
 
 func (f *fakeTrunkStore) CreateTrunk(_ context.Context, t trunk.Trunk, _ auth.AuditEntry) error {
@@ -109,6 +146,9 @@ var testPEM = func() string {
 
 func (p *fakeProber) Run(_ context.Context, t trunkprobe.Target) trunkprobe.Result {
 	p.targets = append(p.targets, t)
+	if t.WireGuard {
+		return trunkprobe.Result{OK: true, Steps: []trunkprobe.Step{{Name: "tunnel", Result: trunkprobe.Warning, Words: "connecting"}}}
+	}
 	if t.Pinned == "" {
 		return trunkprobe.Result{Untrusted: true, Steps: []trunkprobe.Step{
 			{Name: "address", Result: trunkprobe.OK, Words: "ok"},
@@ -215,3 +255,61 @@ func TestTrunkAddNonInteractive(t *testing.T) {
 }
 
 func writeFile(path, s string) error { return os.WriteFile(path, []byte(s), 0o600) }
+
+// WireGuard's documentation's example key pair; not used for anything real.
+const wgDocsPrivateKey = "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=" // gitleaks:allow (documentation example)
+
+func TestTrunkWireGuard(t *testing.T) {
+	conf := `[Interface]
+PrivateKey = ` + wgDocsPrivateKey + `
+Address = 10.6.0.2/24
+DNS = 1.1.1.1
+
+[Peer]
+PublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=
+Endpoint = vpn.provider.test:51820
+AllowedIPs = 0.0.0.0/0, ::/0
+`
+	c, st, pr, out, errb := newTrunkCmd(t, conf, false)
+	if code := c.run(context.Background(), []string{"wireguard", "add", "Provider VPN"}); code != 0 {
+		t.Fatalf("add: code %d\n%s\n%s", code, out, errb)
+	}
+	if len(st.profiles) != 1 || !strings.Contains(out.String(), "sent all traffic through the tunnel") ||
+		!strings.Contains(out.String(), "HIgo9xNzJMWLKASShiTqIybxZ0U3wGLiUeJ1PKf8ykw=") {
+		t.Fatalf("profiles %v, output:\n%s", st.profiles, out)
+	}
+
+	// A line through it: plain UDP inside the tunnel, no ADR-023 warning,
+	// and the test reports the tunnel.
+	out.Reset()
+	c.in = bufio.NewReader(strings.NewReader(""))
+	if code := c.run(context.Background(), []string{"add", "--template", "grandstream_ucm", "--name", "VPN line", "--wireguard", "provider vpn",
+		"--host", "10.6.0.1", "--outgoing", "no", "--yes"}); code != 0 {
+		t.Fatalf("trunk add: code %d\n%s\n%s", code, out, errb)
+	}
+	tr := st.trunks[0]
+	if tr.WireGuardProfileID == nil || *tr.WireGuardProfileID != st.profiles[0].ID || tr.Transport != trunk.TransportUDP ||
+		tr.Port != 5060 || tr.MediaEncryption != trunk.MediaNone || tr.Unencrypted() || tr.UnencryptedConfirmedAt != nil {
+		t.Fatalf("trunk %+v", tr)
+	}
+	if last := pr.targets[len(pr.targets)-1]; !last.WireGuard || last.TunnelName != "Provider VPN" {
+		t.Errorf("probe target %+v", last)
+	}
+
+	// A name isn't allowed through a tunnel.
+	errb.Reset()
+	if code := c.run(context.Background(), []string{"add", "--template", "grandstream_ucm", "--name", "By name", "--wireguard", "Provider VPN",
+		"--host", "sip.provider.test", "--outgoing", "no", "--yes"}); code == 0 || !strings.Contains(errb.String(), "IPv4 address") {
+		t.Errorf("a name through a tunnel: code %d\n%s", code, errb)
+	}
+
+	out.Reset()
+	if code := c.run(context.Background(), []string{"wireguard", "list"}); code != 0 || !strings.Contains(out.String(), "VPN line") {
+		t.Errorf("list: code %d\n%s", code, out)
+	}
+	errb.Reset()
+	if code := c.run(context.Background(), []string{"wireguard", "remove", "Provider VPN", "--yes"}); code != 1 ||
+		!strings.Contains(errb.String(), "A trunk still connects through this profile") {
+		t.Errorf("remove in use: code %d\n%s", code, errb)
+	}
+}

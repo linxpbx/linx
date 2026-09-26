@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
 	"os"
@@ -30,6 +31,7 @@ import (
 	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/trunk"
+	"linxpbx.com/linx/internal/wgconf"
 )
 
 // Input is everything a render needs.
@@ -42,6 +44,9 @@ type Input struct {
 	// its own address). They go into the ACL, and into identify rules for
 	// trunks that call in from their own addresses.
 	Addresses map[string][]netip.Addr
+	// Tunnels are every WireGuard profile, keys opened and endpoint
+	// resolved (docs/TRUNKS.md §7).
+	Tunnels []wgconf.Profile
 }
 
 // Files is a render: what Write puts in the directory Asterisk reads.
@@ -52,6 +57,13 @@ type Files struct {
 	// the entrypoint adds to the public CAs the TLS transport checks
 	// providers against.
 	PinnedCA []byte
+	// WireGuardTrunks are the trunks through each tunnel, by file name
+	// (asteriskconf.WireGuardTrunkFile): Asterisk's entrypoint includes a
+	// tunnel's file only while its addresses route into the tunnel.
+	WireGuardTrunks map[string][]byte
+	// WireGuard is linx-wireguard's config: every profile's tunnel,
+	// carrying exactly its trunks' addresses (the split tunnel, ADR-024).
+	WireGuard wgconf.Config
 }
 
 // Render writes the files for in. A trunk that can't be rendered safely
@@ -72,6 +84,13 @@ func Render(in Input) (Files, []string) {
 	seenPin := map[[32]byte]bool{}
 	var permit []netip.Addr
 	plain := map[string]bool{}
+	wgPlain := map[string]bool{}
+	profiles := map[uuid.UUID]bool{}
+	for _, p := range in.Tunnels {
+		profiles[p.ID] = true
+	}
+	wgBodies := map[uuid.UUID]*bytes.Buffer{}
+	allowed := map[uuid.UUID][]netip.Addr{}
 	for _, t := range trunks {
 		if !t.Enabled {
 			continue
@@ -97,6 +116,27 @@ func Render(in Input) (Files, []string) {
 				}
 			}
 		}
+		if id := t.WireGuardProfileID; id != nil {
+			// Through a tunnel: only by address (the tunnel carries only
+			// addresses known in advance), and only in the tunnel's own
+			// file.
+			if !profiles[*id] {
+				problems = append(problems, fmt.Sprintf("trunk %s (%s) left out: its WireGuard profile can't be used", t.ID, t.Name))
+				continue
+			}
+			if _, err := netip.ParseAddr(t.Host); err != nil {
+				problems = append(problems, fmt.Sprintf("trunk %s (%s) left out: through a WireGuard tunnel, its address must be an IPv4 address", t.ID, t.Name))
+				continue
+			}
+			wgPlain[t.Transport] = true
+			if wgBodies[*id] == nil {
+				wgBodies[*id] = &bytes.Buffer{}
+			}
+			permit = append(permit, addrs...)
+			allowed[*id] = append(allowed[*id], addrs...)
+			writeTrunk(wgBodies[*id], t, in.Passwords[t.ID], addrs)
+			continue
+		}
 		if t.Transport != trunk.TransportTLS {
 			plain[t.Transport] = true
 		}
@@ -110,6 +150,16 @@ func Render(in Input) (Files, []string) {
 				TransportName(proto), asteriskconf.TrunkTransportTemplate, proto, asteriskconf.PlainTrunkPort)
 		}
 	}
+	if wgPlain[trunk.TransportTLS] {
+		fmt.Fprintf(&b, "\n; For trunks over TLS through a WireGuard tunnel (docs/TRUNKS.md §7): no\n; address rewriting (it isn't the LAN). Never published.\n[%s](%s)\nbind=0.0.0.0:%d\n",
+			asteriskconf.WireGuardTLSTransport, asteriskconf.WireGuardTLSTemplate, asteriskconf.WireGuardTLSPort)
+	}
+	for _, proto := range []string{trunk.TransportTCP, trunk.TransportUDP} {
+		if wgPlain[proto] {
+			fmt.Fprintf(&b, "\n; For trunks through a WireGuard tunnel (docs/TRUNKS.md §7): the tunnel\n; encrypts; no address rewriting (it isn't the LAN). Never published.\n[%s]\ntype=transport\nprotocol=%s\nbind=0.0.0.0:%d\n",
+				wireGuardTransport(proto), proto, asteriskconf.WireGuardPlainPort)
+		}
+	}
 	b.Write(body.Bytes())
 
 	slices.SortFunc(permit, func(a, b netip.Addr) int { return a.Compare(b) })
@@ -120,7 +170,42 @@ func Render(in Input) (Files, []string) {
 			fmt.Fprintf(&b, "permit=%s\n", netip.PrefixFrom(a, a.BitLen()))
 		}
 	}
-	return Files{PJSIP: b.Bytes(), PinnedCA: bytes.Join(pinned, nil)}, problems
+	wg, wgProblems := wgconf.Render(in.Tunnels, allowed)
+	problems = append(problems, wgProblems...)
+	files := Files{PJSIP: b.Bytes(), PinnedCA: bytes.Join(pinned, nil), WireGuardTrunks: map[string][]byte{}, WireGuard: wg}
+	for _, tun := range wg.Tunnels {
+		body := wgBodies[tun.ID]
+		if body == nil {
+			continue
+		}
+		var f bytes.Buffer
+		f.WriteString(asteriskconf.WireGuardHeaderLine(tun.Address, tun.AllowedIPs) + "\n")
+		fmt.Fprintf(&f, "; Rendered by the Linx control plane (internal/trunkconf): the trunks through\n; WireGuard profile %s. Holds provider passwords.\n", tun.ID)
+		f.Write(body.Bytes())
+		files.WireGuardTrunks[asteriskconf.WireGuardTrunkFile(tun.Interface)] = f.Bytes()
+	}
+	for id := range wgBodies {
+		if !slices.ContainsFunc(wg.Tunnels, func(t wgconf.Tunnel) bool { return t.ID == id }) {
+			problems = append(problems, fmt.Sprintf("the trunks through WireGuard profile %s are left out: the profile can't be used", id))
+		}
+	}
+	return files, problems
+}
+
+// wireGuardTransport is the transport of trunks through a tunnel.
+func wireGuardTransport(transport string) string {
+	if transport == trunk.TransportTLS {
+		return asteriskconf.WireGuardTLSTransport
+	}
+	return "transport-wg-" + transport
+}
+
+// EndpointTransport is the PJSIP transport t uses.
+func EndpointTransport(t trunk.Trunk) string {
+	if t.WireGuardProfileID != nil {
+		return wireGuardTransport(t.Transport)
+	}
+	return TransportName(t.Transport)
 }
 
 // TransportName is the PJSIP transport trunks on a transport use: TLS
@@ -175,7 +260,7 @@ func configValue(s string) string { return strings.ReplaceAll(s, ";", `\;`) }
 
 func writeTrunk(b *bytes.Buffer, t trunk.Trunk, password string, addrs []netip.Addr) {
 	id := t.Endpoint()
-	transport := TransportName(t.Transport)
+	transport := EndpointTransport(t)
 	// Asterisk decides at start which transports its DNS resolver may use,
 	// and a trunk's plain TCP/UDP transport only exists once the first
 	// such trunk is added: a name would never resolve over it. An address
@@ -252,10 +337,26 @@ allow_subscribe=no
 // whether anything changed.
 func Write(dir string, f Files) (bool, error) {
 	changed := false
-	for _, w := range []struct {
+	type file struct {
 		name string
 		data []byte
-	}{{asteriskconf.PinnedCAFile, f.PinnedCA}, {asteriskconf.TrunksFile, f.PJSIP}} {
+	}
+	files := []file{{asteriskconf.PinnedCAFile, f.PinnedCA}}
+	for _, name := range slices.Sorted(maps.Keys(f.WireGuardTrunks)) {
+		files = append(files, file{name, f.WireGuardTrunks[name]})
+	}
+	files = append(files, file{asteriskconf.TrunksFile, f.PJSIP})
+	// Tunnels no longer there.
+	old, _ := filepath.Glob(filepath.Join(dir, asteriskconf.WireGuardTrunkFile("*")))
+	for _, path := range old {
+		if _, keep := f.WireGuardTrunks[filepath.Base(path)]; !keep {
+			if err := os.Remove(path); err != nil {
+				return changed, err
+			}
+			changed = true
+		}
+	}
+	for _, w := range files {
 		path := filepath.Join(dir, w.name)
 		if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, w.data) {
 			continue
@@ -280,6 +381,7 @@ func Write(dir string, f Files) (bool, error) {
 type Store interface {
 	DefaultTenant(ctx context.Context) (uuid.UUID, error)
 	ListTrunks(ctx context.Context, tenant uuid.UUID, before *uuid.UUID, limit int) ([]trunk.Trunk, error)
+	ListWireGuardProfiles(ctx context.Context, tenant uuid.UUID, before *uuid.UUID, limit int) ([]trunk.WireGuardProfile, error)
 }
 
 // Renderer keeps Dir's files in step with the database: at start, when
@@ -289,6 +391,9 @@ type Renderer struct {
 	Store  Store
 	Sealer *dbsecret.Sealer
 	Dir    string
+	// WireGuardDir is where linx-wireguard reads its tunnels
+	// (internal/wgconf); empty: not written.
+	WireGuardDir string
 	// Lookup resolves a trunk's host. Nil: the system resolver.
 	Lookup   func(ctx context.Context, host string) ([]netip.Addr, error)
 	Interval time.Duration
@@ -373,9 +478,44 @@ func (r *Renderer) RenderOnce(ctx context.Context) (bool, error) {
 		}
 		before = &page[len(page)-1].ID
 	}
+	before = nil
+	for {
+		page, err := r.Store.ListWireGuardProfiles(ctx, tenant, before, 100)
+		if err != nil {
+			return false, err
+		}
+		for _, w := range page {
+			priv, psk, err := trunk.OpenWireGuardKeys(r.Sealer, w)
+			if err != nil {
+				r.Log.Error("opening a WireGuard profile's keys; it's left out", "profile", w.ID, "err", err)
+				continue
+			}
+			p := wgconf.Profile{ID: w.ID, Name: w.Name, Address: w.Address, PrivateKey: priv, PresharedKey: psk,
+				PeerPublicKey: w.PeerPublicKey, Keepalive: w.PersistentKeepalive}
+			if addrs := r.resolve(ctx, w.PeerEndpointHost); len(addrs) > 0 {
+				p.Endpoint = netip.AddrPortFrom(addrs[0], uint16(w.PeerEndpointPort))
+			}
+			in.Tunnels = append(in.Tunnels, p)
+		}
+		if len(page) < 100 {
+			break
+		}
+		before = &page[len(page)-1].ID
+	}
 	files, problems := Render(in)
 	for _, p := range problems {
 		r.Log.Warn(p)
+	}
+	// The tunnels first: a trunk through one only loads once its addresses
+	// route into it.
+	if r.WireGuardDir != "" {
+		wgChanged, err := wgconf.WriteConfig(r.WireGuardDir, files.WireGuard)
+		if err != nil {
+			return false, fmt.Errorf("writing the WireGuard tunnels: %w", err)
+		}
+		if wgChanged {
+			r.Log.Info("WireGuard tunnels rendered", "tunnels", len(files.WireGuard.Tunnels))
+		}
 	}
 	changed, err := Write(r.Dir, files)
 	if changed {

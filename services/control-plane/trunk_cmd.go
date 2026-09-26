@@ -35,6 +35,9 @@ const trunkUsage = `Usage:
   linx trunk list
   linx trunk test NAME
   linx trunk remove NAME [--yes]
+  linx trunk wireguard add NAME < provider.conf
+  linx trunk wireguard list
+  linx trunk wireguard remove NAME [--yes]
 
 add     Connect a phone line: a provider, or another phone system like a
         Grandstream UCM (docs/TRUNKS.md). Asks what it needs, tests the
@@ -53,11 +56,22 @@ add     Connect a phone line: a provider, or another phone system like a
           --did NUMBER[=EXT]   a phone number on the line, and the extension
                                it rings (repeatable)
           --outgoing primary|backup|no
+          --wireguard TUNNEL   connect through a WireGuard tunnel (added with
+                               linx trunk wireguard add); --host is then the
+                               provider's IPv4 address inside the tunnel
+          --transport udp|tcp|tls
+                               inside a tunnel (default udp: the tunnel
+                               already encrypts)
           --yes                don't ask; fail if something's missing
 list    Show every line: whether it works, its encryption, and its place
         for outgoing calls.
 test    Test a saved line's connection again.
 remove  Delete a line and its phone numbers.
+wireguard
+        Tunnels for providers that offer their lines over WireGuard. add
+        reads the provider's WireGuard file (wg-quick format) from input;
+        only the lines' own addresses go through the tunnel. list shows
+        each tunnel's state and Linx's public key for it.
 `
 
 // trunkAdmin is the database access the trunk command needs besides the
@@ -113,7 +127,8 @@ func runTrunkCommand(ctx context.Context, args []string, stdin io.Reader, stdout
 	// Render for Asterisk at once, rather than waiting for the running
 	// control plane's next minute.
 	renderer := &trunkconf.Renderer{Store: st, Sealer: sealer, Log: slog.New(slog.DiscardHandler),
-		Dir: envOr(os.Getenv, "LINX_TRUNKS_DIR", "/var/lib/linx/trunks")}
+		Dir:          envOr(os.Getenv, "LINX_TRUNKS_DIR", "/var/lib/linx/trunks"),
+		WireGuardDir: envOr(os.Getenv, "LINX_WIREGUARD_DIR", "/var/lib/linx/wireguard")}
 	c := &trunkCmd{st: st, svc: svc, in: bufio.NewReader(stdin), out: stdout, errw: stderr,
 		render: func(ctx context.Context) error { _, err := renderer.RenderOnce(ctx); return err }}
 	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
@@ -143,6 +158,8 @@ func (c *trunkCmd) run(ctx context.Context, args []string) int {
 		return c.test(ctx, args[1:])
 	case "remove":
 		return c.remove(ctx, args[1:])
+	case "wireguard":
+		return c.wireguard(ctx, args[1:])
 	}
 	fmt.Fprintf(c.errw, "Unknown trunk command %q.\n\n%s", args[0], trunkUsage)
 	return 2
@@ -416,6 +433,8 @@ func (c *trunkCmd) add(ctx context.Context, tenant uuid.UUID, args []string) int
 	pinFile := fs.String("pin", "", "")
 	unencrypted := fs.Bool("unencrypted", false, "")
 	outgoing := fs.String("outgoing", "", "")
+	tunnel := fs.String("wireguard", "", "")
+	transport := fs.String("transport", "", "")
 	yes := fs.Bool("yes", false, "")
 	var dids didFlag
 	fs.Var(&dids, "did", "")
@@ -452,10 +471,59 @@ func (c *trunkCmd) add(ctx context.Context, tenant uuid.UUID, args []string) int
 	if in.Name, err = c.ask("Name for this line", defaultOr(*name, tmpl.Label)); err != nil {
 		return fail(err)
 	}
-	if in.Host, err = c.ask("Its address (name or IP address)", *host); err != nil {
+	// Connection: the internet, or a WireGuard tunnel (ADR-024).
+	if *tunnel == "" && c.interactive {
+		if profiles, err := c.profiles(ctx); err == nil && len(profiles) > 0 {
+			var names []string
+			for _, p := range profiles {
+				names = append(names, fmt.Sprintf("%q", p.Name))
+			}
+			a, err := c.ask("Connect through the internet, or a WireGuard tunnel ("+strings.Join(names, ", ")+")", "internet")
+			if err != nil {
+				return fail(err)
+			}
+			if !strings.EqualFold(a, "internet") {
+				*tunnel = strings.Trim(a, `"`)
+			}
+		}
+	}
+	if *tunnel != "" {
+		prof, ok, err := c.findProfile(ctx, *tunnel)
+		if err != nil {
+			return fail(err)
+		}
+		if !ok {
+			return fail(fmt.Errorf("there is no WireGuard tunnel %q (see linx trunk wireguard list)", *tunnel))
+		}
+		in.WireGuardProfileID = &prof.ID
+		// The tunnel encrypts: plain SIP inside it by default, never with
+		// the ADR-023 warning.
+		tr, err := c.ask("Inside the tunnel, connect with udp, tcp or tls", defaultOr(*transport, trunk.TransportUDP))
+		if err != nil {
+			return fail(err)
+		}
+		switch tr = strings.ToLower(tr); tr {
+		case trunk.TransportUDP, trunk.TransportTCP:
+			in.Transport, in.MediaEncryption, in.CertTrust = tr, trunk.MediaNone, trunk.CertPublic
+		case trunk.TransportTLS:
+			in.Transport, in.MediaEncryption = tr, trunk.MediaSRTP
+		default:
+			return fail(fmt.Errorf("%q isn't udp, tcp or tls", tr))
+		}
+	} else if *transport != "" {
+		return fail(fmt.Errorf("--transport is only for a line through a WireGuard tunnel; without one, Linx uses TLS (see --unencrypted)"))
+	}
+	question := "Its address (name or IP address)"
+	if in.WireGuardProfileID != nil {
+		question = "Its IPv4 address inside the tunnel"
+	}
+	if in.Host, err = c.ask(question, *host); err != nil {
 		return fail(err)
 	}
 	p := *port
+	if p == 0 && in.WireGuardProfileID != nil && in.Transport != trunk.TransportTLS {
+		p = 5060
+	}
 	if p == 0 {
 		p = tmpl.Port
 	}
@@ -525,7 +593,7 @@ func (c *trunkCmd) add(ctx context.Context, tenant uuid.UUID, args []string) int
 			}
 		}
 	}
-	if (in.Transport != trunk.TransportTLS || in.MediaEncryption != trunk.MediaSRTP) && !in.ConfirmUnencrypted {
+	if (in.Transport != trunk.TransportTLS || in.MediaEncryption != trunk.MediaSRTP) && !in.ConfirmUnencrypted && in.WireGuardProfileID == nil {
 		if !*unencrypted && !c.confirmUnencrypted() {
 			fmt.Fprintln(c.out, "Nothing saved.")
 			return 1
@@ -611,7 +679,16 @@ func (c *trunkCmd) probe(ctx context.Context, in trunk.TrunkInput) (trunkprobe.R
 	t := trunk.Trunk{Kind: in.Kind, Host: in.Host, Port: *in.Port, Transport: in.Transport, MediaEncryption: in.MediaEncryption,
 		CertTrust: in.CertTrust, PinnedCertificate: in.PinnedCertificate, Username: in.Username, WireGuardProfileID: in.WireGuardProfileID}
 	fmt.Fprintf(c.out, "\nTesting the connection to %s:%d...\n", t.Host, t.Port)
-	res := c.svc.Prober.Run(ctx, trunk.ProbeTarget(t, in.Password))
+	target := trunk.ProbeTarget(t, in.Password)
+	if t.WireGuardProfileID != nil {
+		w, err := c.svc.GetWireGuardProfile(ctx, *t.WireGuardProfileID)
+		if err != nil {
+			fmt.Fprintf(c.errw, "Can't read the WireGuard tunnel: %s\n", explain(err))
+			return trunkprobe.Result{}, false
+		}
+		target.TunnelName, target.TunnelState, target.TunnelDetail = w.Name, w.Status, w.StatusDetail
+	}
+	res := c.svc.Prober.Run(ctx, target)
 	c.printResult(res)
 	return res, true
 }

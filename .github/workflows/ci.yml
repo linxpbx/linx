@@ -93,6 +93,8 @@ jobs:
           - { service: certd, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=certd" }
           # The official coturn image plus Linx's Go entrypoint (ADR-039).
           - { service: coturn, dockerfile: deploy/docker/coturn.Dockerfile, build-args: "" }
+          # Brings up WireGuard tunnels for phone lines (ADR-046).
+          - { service: wireguard, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=wireguard" }
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/linx-${{ matrix.service }}
       PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
@@ -231,6 +233,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.mod
+      # The call suite's WireGuard lines (docs/TRUNKS.md §7): the agent's
+      # image, and the kernel module a container can't load itself.
+      - name: Build linx-wireguard for the call suite
+        if: matrix.arch == 'amd64'
+        run: make image SERVICE=wireguard
+      - name: Load WireGuard
+        if: matrix.arch == 'amd64'
+        run: sudo modprobe wireguard
       - name: Call suite
         if: matrix.arch == 'amd64'
         env:

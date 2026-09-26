@@ -38,9 +38,10 @@ func checkPrivateKey(key string) (string, error) {
 }
 
 // parseWireGuardConf reads a wg-quick configuration file ([Interface] and
-// [Peer] sections) into the fields a profile needs. AllowedIPs is ignored
-// on purpose: a profile's tunnel is split (ADR-046) to exactly its trunks'
-// addresses, computed when it's rendered, not from what was imported.
+// [Peer] sections) into the fields a profile needs. AllowedIPs isn't used:
+// a profile's tunnel is split (ADR-024) to exactly its trunks' addresses,
+// computed when it's rendered, not from what was imported; it's kept only
+// to tell the admin (splitNote).
 func parseWireGuardConf(text string) (WireGuardFields, error) {
 	var f WireGuardFields
 	section := ""
@@ -82,6 +83,8 @@ func parseWireGuardConf(text string) (WireGuardFields, error) {
 					return f, invalid("config_invalid", "The Endpoint line must be host:port.")
 				}
 				f.PeerEndpointHost, f.PeerEndpointPort = host, &port
+			case "allowedips":
+				f.allowedIPs = value
 			case "persistentkeepalive":
 				if n, err := strconv.Atoi(value); err == nil {
 					f.PersistentKeepalive = &n
@@ -93,4 +96,20 @@ func parseWireGuardConf(text string) (WireGuardFields, error) {
 		return f, invalid("config_invalid", "That configuration is missing PrivateKey, Address, the peer's PublicKey or Endpoint.")
 	}
 	return f, nil
+}
+
+// splitNote tells the admin what became of an imported AllowedIPs
+// (docs/TRUNKS.md §7): only the trunks' addresses go through the tunnel.
+func splitNote(allowedIPs string) string {
+	for _, p := range strings.Split(allowedIPs, ",") {
+		if p := strings.TrimSpace(p); p == "0.0.0.0/0" || p == "::/0" {
+			return "This configuration sent all traffic through the tunnel (AllowedIPs = " + strings.TrimSpace(allowedIPs) +
+				"). Linx sends only the addresses of the phone lines using this profile through it; everything else keeps using this server's own connection."
+		}
+	}
+	if strings.TrimSpace(allowedIPs) == "" {
+		return ""
+	}
+	return "Linx sends only the addresses of the phone lines using this profile through the tunnel; the configuration's AllowedIPs (" +
+		strings.TrimSpace(allowedIPs) + ") aren't used."
 }

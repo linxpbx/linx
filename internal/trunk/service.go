@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/trunkprobe"
+	"linxpbx.com/linx/internal/wgconf"
 )
 
 // Service is what the API's trunk, DID, WireGuard profile and call
@@ -35,6 +37,9 @@ type Service struct {
 	// OnDeleted, if set, is called after a trunk is deleted (its "trunk is
 	// down" alert is closed).
 	OnDeleted func(ctx context.Context, tenant, id uuid.UUID)
+	// OnWireGuardProfileDeleted, if set, is called after a WireGuard profile
+	// is deleted (its "tunnel is down" alert is closed).
+	OnWireGuardProfileDeleted func(ctx context.Context, tenant, id uuid.UUID)
 	// Prober tests trunks' connections (TestTrunk).
 	Prober Prober
 }
@@ -276,6 +281,13 @@ func checkTrunkFields(t *Trunk) error {
 		return err
 	}
 	t.Codecs = codecs
+	if t.WireGuardProfileID != nil {
+		// The tunnel carries only addresses Linx knows in advance
+		// (docs/TRUNKS.md §7): a name could resolve elsewhere, outside it.
+		if a, err := netip.ParseAddr(t.Host); err != nil || !a.Is4() {
+			return invalid("host_must_be_address", "Through a WireGuard tunnel, give the provider's IPv4 address (usually its address inside the tunnel), not a name.")
+		}
+	}
 	return nil
 }
 
@@ -770,6 +782,8 @@ type WireGuardFields struct {
 	PeerEndpointPort    *int
 	PresharedKey        string
 	PersistentKeepalive *int
+
+	allowedIPs string // from an imported config: only for splitNote
 }
 
 // CreateWireGuardProfile adds a profile, importing in.Config if given.
@@ -799,6 +813,9 @@ func (s *Service) CreateWireGuardProfile(ctx context.Context, in WireGuardProfil
 	if strings.TrimSpace(fields.Address) == "" {
 		return WireGuardProfile{}, invalid("address_required", "Give the tunnel address this end uses (e.g. 10.6.0.2/32).")
 	}
+	if _, err := wgconf.ParseTunnelAddress(fields.Address); err != nil {
+		return WireGuardProfile{}, invalid("address_invalid", "The tunnel address this end uses must include an IPv4 address (e.g. 10.6.0.2/32): "+err.Error()+".")
+	}
 	if err := checkHost(fields.PeerEndpointHost); err != nil {
 		return WireGuardProfile{}, err
 	}
@@ -818,6 +835,10 @@ func (s *Service) CreateWireGuardProfile(ctx context.Context, in WireGuardProfil
 		ID: id, TenantID: p.TenantID, Name: in.Name, Address: fields.Address, PublicKey: pub,
 		PeerPublicKey: fields.PeerPublicKey, PeerEndpointHost: fields.PeerEndpointHost, PeerEndpointPort: port,
 		PersistentKeepalive: fields.PersistentKeepalive, Version: 1, CreatedAt: now, UpdatedAt: now,
+		Status: wgconf.StateUnknown,
+	}
+	if note := splitNote(fields.allowedIPs); note != "" {
+		w.Notes = append(w.Notes, note)
 	}
 	enc, err := s.Sealer.Seal(wgSealID(id), []byte(fields.PrivateKey))
 	if err != nil {
@@ -846,6 +867,7 @@ func (s *Service) CreateWireGuardProfile(ctx context.Context, in WireGuardProfil
 		}
 		return WireGuardProfile{}, err
 	}
+	s.changed()
 	return w, nil
 }
 
@@ -932,6 +954,9 @@ func (s *Service) UpdateWireGuardProfile(ctx context.Context, id uuid.UUID, patc
 		return WireGuardProfile{}, &apihttp.Error{Status: http.StatusConflict, Code: "name_duplicate",
 			Detail: fmt.Sprintf("A WireGuard profile named %q already exists.", w.Name)}
 	}
+	if err == nil {
+		s.changed()
+	}
 	return updated, err
 }
 
@@ -951,6 +976,12 @@ func (s *Service) DeleteWireGuardProfile(ctx context.Context, id uuid.UUID) erro
 	}
 	if errors.Is(err, ErrInUse) {
 		return errWireGuardProfileInUse
+	}
+	if err == nil {
+		s.changed()
+		if s.OnWireGuardProfileDeleted != nil {
+			s.OnWireGuardProfileDeleted(ctx, p.TenantID, id)
+		}
 	}
 	return err
 }
@@ -1149,7 +1180,15 @@ func (s *Service) TestTrunk(ctx context.Context, id uuid.UUID) (trunkprobe.Resul
 	if err != nil {
 		return trunkprobe.Result{}, fmt.Errorf("opening the trunk's password: %w", err)
 	}
-	return s.Prober.Run(ctx, ProbeTarget(t, password)), nil
+	target := ProbeTarget(t, password)
+	if t.WireGuardProfileID != nil {
+		w, err := s.GetWireGuardProfile(ctx, *t.WireGuardProfileID)
+		if err != nil {
+			return trunkprobe.Result{}, err
+		}
+		target.TunnelName, target.TunnelState, target.TunnelDetail = w.Name, w.Status, w.StatusDetail
+	}
+	return s.Prober.Run(ctx, target), nil
 }
 
 // InternationalAlert returns the "unusual calling abroad" alert's limits.

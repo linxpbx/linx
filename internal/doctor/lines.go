@@ -12,8 +12,9 @@ import (
 )
 
 // linesQuery reads what the "Phone lines" checks need (docs/TRUNKS.md
-// §10): the country, every trunk (never its password), and extensions
-// whose number clashes with the country's numbering.
+// §10): the country, every trunk (never its password), extensions whose
+// number clashes with the country's numbering, and every WireGuard
+// tunnel's state (never its keys).
 const linesQuery = `SELECT json_build_object(
 	'country', (SELECT country FROM pbx_setting),
 	'trunks', coalesce((SELECT json_agg(json_build_object(
@@ -23,7 +24,11 @@ const linesQuery = `SELECT json_build_object(
 		'status', t.status, 'detail', t.status_detail, 'confirmed_by', coalesce(t.unencrypted_confirmed_by, ''))
 		ORDER BY t.outbound_priority NULLS LAST, t.name) FROM trunk t), '[]'::json),
 	'clashes', (SELECT count(*) FROM extension e, pbx_setting s
-		WHERE e.deleted_at IS NULL AND numbering_extension_clash(s.country, e.number) IS NOT NULL))`
+		WHERE e.deleted_at IS NULL AND numbering_extension_clash(s.country, e.number) IS NOT NULL),
+	'tunnels', coalesce((SELECT json_agg(json_build_object(
+		'name', w.name, 'status', w.status, 'detail', w.status_detail,
+		'used', EXISTS (SELECT 1 FROM trunk t WHERE t.wireguard_profile_id = w.id AND t.enabled))
+		ORDER BY w.name) FROM wireguard_profile w), '[]'::json))`
 
 type lineRow struct {
 	ID          string `json:"id"`
@@ -42,11 +47,25 @@ type lineRow struct {
 	ConfirmedBy string `json:"confirmed_by"`
 }
 
-type linesState struct {
-	Country string    `json:"country"`
-	Trunks  []lineRow `json:"trunks"`
-	Clashes int       `json:"clashes"`
+type tunnelRow struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+	Used   bool   `json:"used"`
 }
+
+type linesState struct {
+	Country string      `json:"country"`
+	Trunks  []lineRow   `json:"trunks"`
+	Clashes int         `json:"clashes"`
+	Tunnels []tunnelRow `json:"tunnels"`
+}
+
+// wireguardContainer is compose.yaml's linx-wireguard (docs/TRUNKS.md §7).
+const wireguardContainer = "linx-wireguard"
+
+// wireGuardModule exists while the host's kernel has WireGuard loaded.
+const wireGuardModule = "/sys/module/wireguard"
 
 // Lines checks the phone lines to the outside world (docs/TRUNKS.md §10):
 // each line works (asked of Asterisk now, the same way the control plane
@@ -140,11 +159,46 @@ func Lines(ctx context.Context, env Env) []Result {
 		rs.ok("Emergency numbers can be called (they're always allowed, on the first line that works).")
 	}
 
+	tunnels(ctx, env, &rs, st.Tunnels)
+
 	if st.Clashes > 0 {
 		rs.warn(fmt.Sprintf("%s can't be dialled: their numbers are also outside or emergency numbers here.", count(st.Clashes, "extension")),
 			"Give them other numbers (extensions can't start with 0 or be an emergency or service number).")
 	}
 	return rs
+}
+
+// tunnels checks the WireGuard tunnels (docs/TRUNKS.md §7): each one's
+// handshake as linx-wireguard last reported it, the service itself, and
+// the kernel module it needs.
+func tunnels(ctx context.Context, env Env, rs *results, list []tunnelRow) {
+	if len(list) == 0 {
+		return
+	}
+	if env.Stat != nil {
+		if _, err := env.Stat(wireGuardModule); err != nil {
+			rs.fail("This server's kernel hasn't loaded WireGuard, so no tunnel can come up.",
+				"Load it: sudo modprobe wireguard (sudo linx setup makes it load at every start)")
+		}
+	}
+	if status, _, err := containerState(ctx, env.Runner, wireguardContainer); err != nil || status != "running" {
+		rs.fail("Linx's WireGuard service isn't running, so tunnels can't come back after the phone system restarts.",
+			"sudo docker logs --tail 50 "+wireguardContainer+", then: sudo docker start "+wireguardContainer)
+	}
+	for _, w := range list {
+		label := fmt.Sprintf("WireGuard tunnel %q", w.Name)
+		fix := "Check the provider's address and keys: sudo linx trunk wireguard list"
+		switch {
+		case w.Status == "up":
+			rs.ok(fmt.Sprintf("%s is up: %s", label, w.Detail))
+		case !w.Used:
+			rs.warn(fmt.Sprintf("%s (no line uses it) is %s: %s", label, w.Status, w.Detail), fix)
+		case w.Status == "down":
+			rs.fail(fmt.Sprintf("%s is down: %s Its lines can't work.", label, w.Detail), fix)
+		default:
+			rs.warn(fmt.Sprintf("%s: %s", label, w.Detail), "Run doctor again in a minute. If it stays like this: "+fix)
+		}
+	}
 }
 
 // pinnedExpiry warns before a pinned certificate expires: after that,

@@ -204,6 +204,17 @@ func TestPhonesTrunkTransport(t *testing.T) {
 	want(t, f.phones(), installer.OK, "only accepts encrypted phone connections")
 }
 
+func TestPhonesWireGuardTransports(t *testing.T) {
+	f := phonesFixture(t)
+	f.runner[astCLI+"pjsip show transports"] = transport +
+		"Transport:  transport-wg-tls          tls      0      0  0.0.0.0:5064\n" +
+		"Transport:  transport-wg-udp          udp      0      0  0.0.0.0:5063\n"
+	want(t, f.phones(), installer.OK, "only accepts encrypted phone connections")
+	// On any other port, it's not Linx's.
+	f.runner[astCLI+"pjsip show transports"] = transport + "Transport:  transport-wg-udp          udp      0      0  0.0.0.0:5060\n"
+	want(t, f.phones(), installer.Fail, "accepts connections without encryption")
+}
+
 func TestPhonesStarting(t *testing.T) {
 	f := phonesFixture(t)
 	f.runner[inspect+"linx-asterisk"] = "running starting\n"

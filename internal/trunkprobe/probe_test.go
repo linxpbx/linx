@@ -305,9 +305,13 @@ func TestProbePlain(t *testing.T) {
 		t.Fatalf("got %s, want %s: %+v", results(r), want, r.Steps)
 	}
 
-	r = newProber().Run(ctx, Target{Host: "sip.test", Transport: TLS, WireGuard: true})
-	if results(r) != "address=skipped" || !r.OK {
-		t.Fatalf("WireGuard: %s", results(r))
+	r = newProber().Run(ctx, Target{Host: "10.6.0.1", Transport: UDP, WireGuard: true, TunnelName: "VPN", TunnelState: "up", TunnelDetail: "Last handshake 20 seconds ago."})
+	if results(r) != "tunnel=ok address=skipped" || !r.OK || !strings.Contains(r.Steps[0].Words, `"VPN": Last handshake`) {
+		t.Fatalf("WireGuard: %s %+v", results(r), r.Steps)
+	}
+	r = newProber().Run(ctx, Target{Host: "10.6.0.1", Transport: UDP, WireGuard: true, TunnelState: "down"})
+	if results(r) != "tunnel=failed address=skipped" || r.OK {
+		t.Fatalf("WireGuard down: %s", results(r))
 	}
 }
 

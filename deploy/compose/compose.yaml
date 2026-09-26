@@ -122,6 +122,10 @@ services:
       # Asterisk's report of each trunk's state (trunk.status_changed, the
       # trunk-down alert).
       - trunk-status:/var/lib/linx/trunk-status:ro
+      # Writes the WireGuard tunnels, private keys included, for
+      # linx-wireguard (docs/TRUNKS.md §7), and reads its report back.
+      - wireguard:/var/lib/linx/wireguard
+      - wireguard-status:/var/lib/linx/wireguard-status:ro
       # linx-certd's certificate, for HTTPS on 8443 (ADR-037): the web
       # client, the API and /sip. Picked up again on renewal by itself. This
       # image's user (65532) is certd's, so it can read privkey.pem.
@@ -279,6 +283,34 @@ services:
     mem_limit: 256m
     pids_limit: 512
 
+  # WireGuard tunnels for phone lines that use one (docs/TRUNKS.md §7,
+  # ADR-046). It lives in Asterisk's network namespace, so Asterisk's
+  # traffic to such a provider goes through the tunnel while Asterisk
+  # itself holds no capability, and no other container's routes change.
+  # The only container with NET_ADMIN, and only in that namespace. It
+  # starts as root just to keep NET_ADMIN as an ambient capability and run
+  # on as uid 65532 (hence SETUID/SETGID, gone after that switch);
+  # no-new-privileges and the bounding set keep it from regaining anything.
+  # When Asterisk restarts it gets a new namespace: the agent notices it's
+  # been left behind, exits, and "restart" brings it back in the new one.
+  # Needs the host's wireguard kernel module (linx setup loads it).
+  wireguard:
+    image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-wireguard:${LINX_VERSION:?set by linx setup}
+    container_name: linx-wireguard
+    restart: unless-stopped
+    network_mode: service:asterisk
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - wireguard:/var/lib/linx/wireguard:ro
+      - wireguard-status:/var/lib/linx/wireguard-status
+    depends_on: [asterisk]
+    mem_limit: 64m
+    pids_limit: 32
+
   # "Linx takes 443" (docs/WEB.md §3, ADR-009): TCP 443 by name, without
   # decrypting. turn.<domain> goes to coturn's TLS port, everything else to
   # the control plane with the visitor's address (PROXY v2). Only with that
@@ -402,6 +434,23 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: uid=100,gid=101,mode=0755,size=64k
+  # The WireGuard tunnels with their private keys (docs/TRUNKS.md §7): in
+  # memory only, written by the control plane and read by linx-wireguard,
+  # which run as the same user; nobody else.
+  wireguard:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=65532,gid=65532,mode=0700,size=256k
+  # Each tunnel's last handshake (internal/wgconf): written by
+  # linx-wireguard, read by the control plane. No keys.
+  wireguard-status:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=65532,gid=65532,mode=0755,size=64k
   postgres-data:
   asterisk-state:
   step-ca:

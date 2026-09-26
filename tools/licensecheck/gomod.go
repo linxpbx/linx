@@ -35,8 +35,12 @@ var (
 
 // checkGo returns the number of modules checked and any problems.
 func checkGo() (int, []string, error) {
-	out, err := exec.Command("go", "list", "-deps",
-		"-f", "{{with .Module}}{{if not .Main}}{{.Path}}@{{.Version}} {{.Dir}}{{end}}{{end}}", "./...").Output()
+	// For Linux, where every Linx binary runs: some modules (netlink, for
+	// linx-wireguard) are only linked there.
+	cmd := exec.Command("go", "list", "-deps",
+		"-f", "{{with .Module}}{{if not .Main}}{{.Path}}@{{.Version}} {{.Dir}}{{end}}{{end}}", "./...")
+	cmd.Env = append(os.Environ(), "GOOS=linux")
+	out, err := cmd.Output()
 	if err != nil {
 		return 0, nil, fmt.Errorf("go list: %w", err)
 	}

@@ -8,7 +8,7 @@ SHELL := /bin/bash
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X linxpbx.com/linx/internal/version.Version=$(VERSION) -X linxpbx.com/linx/internal/version.Commit=$(COMMIT)
-GO_BINS := cmd/linx services/control-plane services/certd services/asterisk-entrypoint services/coturn-entrypoint
+GO_BINS := cmd/linx services/control-plane services/certd services/asterisk-entrypoint services/coturn-entrypoint services/wireguard
 
 .PHONY: help
 help: ## Show available commands
@@ -61,8 +61,8 @@ test-docker: ## Run tests that need Docker (internal CA, real Postgres)
 	else echo "$$out" | grep -Ev '^(ok|\?) '; echo "docker tests: FAILED"; exit 1; fi
 
 .PHONY: test-calls
-test-calls: ## Phone engine call suite only: Asterisk + SIPp over TLS/SRTP (needs make image SERVICE=asterisk)
-	@if out=$$(LINX_DOCKER_TESTS=1 go test -count=1 -v -run "TestCallsDocker|TestTrunksDocker" ./internal/calltest/ 2>&1); then \
+test-calls: ## Phone engine call suite only: Asterisk + SIPp over TLS/SRTP (needs make image SERVICE=asterisk and SERVICE=wireguard)
+	@if out=$$(LINX_DOCKER_TESTS=1 go test -count=1 -v -run "TestCallsDocker|TestTrunksDocker|TestWireGuardDocker" ./internal/calltest/ 2>&1); then \
 		if echo "$$out" | grep -q -- "--- SKIP"; then echo "$$out" | grep -A2 -- "--- SKIP"; echo "call suite: SKIPPED"; exit 1; fi; \
 		echo "call suite: ok"; \
 	else echo "$$out" | grep -v '^=== ' | tail -80; echo "call suite: FAILED"; exit 1; fi

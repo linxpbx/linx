@@ -153,6 +153,15 @@ type WireGuardProfile struct {
 	PersistentKeepalive  *int
 	Version              int
 	CreatedAt, UpdatedAt time.Time
+	// Status is the tunnel's state as linx-wireguard last reported it
+	// (wgconf's State constants), kept by the Monitor; not a setting.
+	Status          string
+	StatusDetail    string
+	StatusSince     *time.Time
+	LastHandshakeAt *time.Time
+	// Notes are said once, when the profile is created (an imported
+	// configuration's AllowedIPs narrowed, say); not stored.
+	Notes []string
 }
 
 func wgSealID(id uuid.UUID) string          { return "wireguard_profile:" + id.String() }
@@ -223,6 +232,23 @@ func OpenPassword(sealer *dbsecret.Sealer, t Trunk) (string, error) {
 	}
 	b, err := sealer.Open(sealID(t.ID), t.PasswordEnc)
 	return string(b), err
+}
+
+// OpenWireGuardKeys opens w's private key and (if it has one) preshared
+// key, for rendering its tunnel (internal/trunkconf).
+func OpenWireGuardKeys(sealer *dbsecret.Sealer, w WireGuardProfile) (private, preshared string, err error) {
+	b, err := sealer.Open(wgSealID(w.ID), w.PrivateKeyEnc)
+	if err != nil {
+		return "", "", err
+	}
+	if len(w.PresharedKeyEnc) > 0 {
+		p, err := sealer.Open(wgPresharedSealID(w.ID), w.PresharedKeyEnc)
+		if err != nil {
+			return "", "", err
+		}
+		preshared = string(p)
+	}
+	return string(b), preshared, nil
 }
 
 // Endpoint is the name Asterisk knows t by (its PJSIP endpoint, AOR, auth,

@@ -150,6 +150,10 @@ func PlainSIPTransports(cliOutput string) (bad []string, ok bool) {
 		case f[2] == "tls" && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.SIPPort)):
 		case f[2] == "wss" && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.SIPWSPort)):
 		case strings.HasPrefix(f[1], "transport-trunk-") && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.PlainTrunkPort)):
+		// Trunks through WireGuard tunnels (docs/TRUNKS.md §7): never
+		// published, and the tunnel encrypts.
+		case f[1] == asteriskconf.WireGuardTLSTransport && f[2] == "tls" && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.WireGuardTLSPort)):
+		case strings.HasPrefix(f[1], "transport-wg-") && strings.HasSuffix(f[len(f)-1], ":"+strconv.Itoa(asteriskconf.WireGuardPlainPort)):
 		default:
 			bad = append(bad, f[1]+" ("+f[2]+" "+f[len(f)-1]+")")
 		}

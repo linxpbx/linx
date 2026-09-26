@@ -192,6 +192,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		return 1
 	}
 	plan = append(plan, pp...)
+	plan = append(plan, installer.WireGuardPlan()...)
 
 	// 5. Optional container management UI.
 	if ask {

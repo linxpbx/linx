@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/trunkstatus"
+	"linxpbx.com/linx/internal/wgconf"
 )
 
 type monitorStore struct {
@@ -127,5 +128,81 @@ func TestMonitor(t *testing.T) {
 	check()
 	if len(al.open) != 0 {
 		t.Errorf("alerts still open after the lines came back: %v", al.open)
+	}
+}
+
+type tunnelStore struct {
+	profiles []WireGuardProfile
+}
+
+func (s *tunnelStore) AllWireGuardProfiles(context.Context) ([]WireGuardProfile, error) {
+	return s.profiles, nil
+}
+func (s *tunnelStore) SetWireGuardStatus(_ context.Context, id uuid.UUID, status, detail string, hs *time.Time, _ time.Time) error {
+	for i := range s.profiles {
+		if s.profiles[i].ID == id {
+			s.profiles[i].Status, s.profiles[i].StatusDetail, s.profiles[i].LastHandshakeAt = status, detail, hs
+		}
+	}
+	return nil
+}
+
+func TestMonitorTunnels(t *testing.T) {
+	dir, wgDir := t.TempDir(), t.TempDir()
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	vpn := WireGuardProfile{ID: uuid.New(), TenantID: uuid.New(), Name: "Provider VPN", Status: "unknown"}
+	unused := WireGuardProfile{ID: uuid.New(), TenantID: vpn.TenantID, Name: "Spare", Status: "unknown"}
+	line := Trunk{ID: uuid.New(), TenantID: vpn.TenantID, Name: "VPN line", Kind: KindLANPeer, Enabled: true, Status: "reachable",
+		WireGuardProfileID: &vpn.ID}
+	st := &monitorStore{trunks: []Trunk{line}}
+	ts := &tunnelStore{profiles: []WireGuardProfile{vpn, unused}}
+	al := &fakeAlerter{open: map[string]string{}, messages: map[string]string{}}
+	m := &Monitor{Store: st, Alerts: al, Dir: dir, Tunnels: ts, WireGuardDir: wgDir, Now: func() time.Time { return now },
+		Log: slog.New(slog.DiscardHandler)}
+	if err := trunkstatus.Write(dir, trunkstatus.File{WrittenAt: now, Trunks: map[string]trunkstatus.Trunk{
+		line.Endpoint(): {Contact: trunkstatus.ContactAvail}}}); err != nil {
+		t.Fatal(err)
+	}
+	report := func(hs time.Time) {
+		t.Helper()
+		if err := wgconf.WriteStatus(wgDir, wgconf.Status{WrittenAt: now, Tunnels: map[string]wgconf.TunnelStatus{
+			vpn.ID.String():    {UpSince: now.Add(-time.Hour), LastHandshake: &hs},
+			unused.ID.String(): {UpSince: now.Add(-time.Hour)},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Up: the line keeps Asterisk's word.
+	report(now.Add(-time.Minute))
+	if err := m.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if ts.profiles[0].Status != wgconf.StateUp || ts.profiles[0].LastHandshakeAt == nil || st.trunks[0].Status != trunkstatus.StatusReachable {
+		t.Fatalf("up: %+v / %+v", ts.profiles[0], st.trunks[0])
+	}
+	// The unused one never shook hands: down, but nothing to alert about.
+	if ts.profiles[1].Status != wgconf.StateDown || len(al.open) != 0 {
+		t.Errorf("unused: %+v, alerts %v", ts.profiles[1], al.open)
+	}
+
+	// No handshake for 4 minutes: the tunnel and its line are down, and
+	// the tunnel's alert names the line.
+	report(now.Add(-4 * time.Minute))
+	m.Check(context.Background())
+	key := TunnelDownAlertKey(vpn.ID)
+	if ts.profiles[0].Status != wgconf.StateDown || st.trunks[0].Status != trunkstatus.StatusUnreachable ||
+		!strings.Contains(st.trunks[0].StatusDetail, `WireGuard tunnel "Provider VPN" is down`) {
+		t.Fatalf("down: %+v / %+v", ts.profiles[0], st.trunks[0])
+	}
+	if _, open := al.open[key]; !open || !strings.Contains(al.messages[key], `"VPN line"`) {
+		t.Errorf("alerts %v %v", al.open, al.messages)
+	}
+
+	// Back: resolved.
+	report(now.Add(-10 * time.Second))
+	m.Check(context.Background())
+	if _, open := al.open[key]; open || ts.profiles[0].Status != wgconf.StateUp {
+		t.Errorf("back up: alerts %v, %+v", al.open, ts.profiles[0])
 	}
 }

@@ -212,3 +212,31 @@ func TestTrunkFieldsForAsterisk(t *testing.T) {
 		t.Error("a caller ID that isn't a number was accepted")
 	}
 }
+
+func TestWireGuardTrunkNeedsAnAddress(t *testing.T) {
+	id := uuid.New()
+	tr := Trunk{Name: "VPN", Kind: KindLANPeer, Host: "sip.provider.test", Port: 5060, Transport: TransportUDP, MediaEncryption: MediaNone,
+		CertTrust: CertPublic, DialFormat: DialLocal, MaxCalls: 4, WireGuardProfileID: &id}
+	if err := checkTrunkFields(&tr); err == nil || !strings.Contains(err.Error(), "IPv4 address") {
+		t.Errorf("a name through a tunnel: %v", err)
+	}
+	tr.Host = "10.6.0.1"
+	if err := checkTrunkFields(&tr); err != nil {
+		t.Errorf("an address through a tunnel: %v", err)
+	}
+	if tr.Unencrypted() {
+		t.Error("plain SIP through a tunnel counts as unencrypted")
+	}
+}
+
+func TestSplitNote(t *testing.T) {
+	if n := splitNote("0.0.0.0/0, ::/0"); !strings.Contains(n, "sent all traffic through the tunnel") {
+		t.Errorf("everything: %q", n)
+	}
+	if n := splitNote("10.6.0.0/24"); !strings.Contains(n, "(10.6.0.0/24) aren't used") {
+		t.Errorf("a network: %q", n)
+	}
+	if n := splitNote(""); n != "" {
+		t.Errorf("none: %q", n)
+	}
+}

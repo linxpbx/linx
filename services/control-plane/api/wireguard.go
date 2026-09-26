@@ -6,14 +6,23 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/trunk"
+	"linxpbx.com/linx/internal/wgconf"
 )
 
 func toWireguardProfile(w trunk.WireGuardProfile) WireguardProfile {
-	return WireguardProfile{
+	p := WireguardProfile{
 		Id: w.ID, Name: w.Name, Address: w.Address, PublicKey: w.PublicKey, PeerPublicKey: w.PeerPublicKey,
 		PeerEndpointHost: w.PeerEndpointHost, PeerEndpointPort: w.PeerEndpointPort, PersistentKeepalive: w.PersistentKeepalive,
-		CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt, Etag: trunk.ETag(w.Version),
+		Status: WireguardProfileStatus(w.Status), StatusDetail: w.StatusDetail, StatusSince: w.StatusSince,
+		LastHandshakeAt: w.LastHandshakeAt, CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt, Etag: trunk.ETag(w.Version),
 	}
+	if p.Status == "" {
+		p.Status = WireguardProfileStatus(wgconf.StateUnknown)
+	}
+	if len(w.Notes) > 0 {
+		p.Notes = &w.Notes
+	}
+	return p
 }
 
 func (s *Server) ListWireguardProfiles(ctx context.Context, req ListWireguardProfilesRequestObject) (ListWireguardProfilesResponseObject, error) {

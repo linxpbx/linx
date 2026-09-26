@@ -185,8 +185,10 @@ func main() {
 	// Trunks reach Asterisk as a rendered file (ADR-043, internal/trunkconf):
 	// written at start, on every trunk change, and every minute (providers'
 	// addresses can change on their own).
+	// WireGuard profiles too, for linx-wireguard (docs/TRUNKS.md §7).
 	trunkFiles := &trunkconf.Renderer{Store: st, Sealer: sealer, Log: log,
-		Dir: envOr(os.Getenv, "LINX_TRUNKS_DIR", "/var/lib/linx/trunks")}
+		Dir:          envOr(os.Getenv, "LINX_TRUNKS_DIR", "/var/lib/linx/trunks"),
+		WireGuardDir: envOr(os.Getenv, "LINX_WIREGUARD_DIR", "/var/lib/linx/wireguard")}
 	trunks.OnChange = trunkFiles.Changed
 
 	// Browsers' phone lines (docs/WEB.md §5): relay credentials, and the
@@ -224,12 +226,20 @@ func main() {
 	callAlerts := &trunk.CallAlerts{Store: st, Alerts: engine, InProgress: tracker.OutsideCallsInProgress, Now: time.Now, Log: log}
 	tracker.Watch = callAlerts
 	// Each trunk's state from Asterisk's report, trunk.status_changed and
-	// the "trunk is down" alert.
+	// the "trunk is down" alert; each WireGuard tunnel's from
+	// linx-wireguard's, and the "tunnel is down" alert.
 	trunkMonitor := &trunk.Monitor{Store: st, Alerts: engine, Now: time.Now, Log: log,
-		Dir: envOr(os.Getenv, "LINX_TRUNK_STATUS_DIR", "/var/lib/linx/trunk-status")}
+		Dir:          envOr(os.Getenv, "LINX_TRUNK_STATUS_DIR", "/var/lib/linx/trunk-status"),
+		Tunnels:      st,
+		WireGuardDir: envOr(os.Getenv, "LINX_WIREGUARD_STATUS_DIR", "/var/lib/linx/wireguard-status")}
 	trunks.OnDeleted = func(ctx context.Context, tenant, id uuid.UUID) {
 		if err := engine.Resolve(ctx, tenant, trunk.DownAlertKey(id)); err != nil {
 			log.Error("closing a deleted trunk's alert", "err", err)
+		}
+	}
+	trunks.OnWireGuardProfileDeleted = func(ctx context.Context, tenant, id uuid.UUID) {
+		if err := engine.Resolve(ctx, tenant, trunk.TunnelDownAlertKey(id)); err != nil {
+			log.Error("closing a deleted WireGuard profile's alert", "err", err)
 		}
 	}
 	// The Team list and its live updates (docs/WEB.md §6).

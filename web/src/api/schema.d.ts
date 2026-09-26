@@ -1955,7 +1955,7 @@ export interface components {
             max_calls: number;
             /**
              * Format: uuid
-             * @description The WireGuard profile this trunk connects through. Absent means "Internet" (ADR-024).
+             * @description The WireGuard profile this trunk connects through. Absent means "Internet" (ADR-024). Through a tunnel, `host` must be an IPv4 address (422 `host_must_be_address`): the tunnel carries only addresses known in advance.
              */
             wireguard_profile_id?: string;
             /** @description 1 = tried first for outgoing calls. Absent means this trunk isn't used for outgoing calls. Set with PUT /outbound-routing. */
@@ -2085,7 +2085,7 @@ export interface components {
             ok: boolean;
             steps: {
                 /** @enum {string} */
-                name: "address" | "connection" | "certificate" | "sip" | "login" | "audio_encryption" | "tls_offered";
+                name: "tunnel" | "address" | "connection" | "certificate" | "sip" | "login" | "audio_encryption" | "tls_offered";
                 /** @enum {string} */
                 result: "ok" | "warning" | "failed" | "skipped";
                 /** @description What was found, in plain words. */
@@ -2150,14 +2150,28 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
-            /** @description This end's own tunnel address, e.g. "10.6.0.2/32". */
+            /** @description This end's own tunnel address, e.g. "10.6.0.2/32" (it must include an IPv4 address). */
             address: string;
             /** @description Derived from the private key; give this to the provider if it needs it registered. */
             public_key: string;
             peer_public_key: string;
             peer_endpoint_host: string;
             peer_endpoint_port: number;
+            /** @description Seconds between keep-alives. Absent means Linx's default (25), so the tunnel's state is always known. */
             persistent_keepalive?: number;
+            /**
+             * @description The tunnel's state as Linx's WireGuard service last reported it: `down` after 3 minutes with no handshake (its phone lines are then down too, and the "WireGuard tunnel is down" alert goes out while a line uses it).
+             * @enum {string}
+             */
+            status: "up" | "connecting" | "down" | "unknown";
+            /** @description Why, in plain words. */
+            status_detail: string;
+            /** Format: date-time */
+            status_since?: string;
+            /** Format: date-time */
+            last_handshake_at?: string;
+            /** @description Said once, when the profile is created (e.g. an imported AllowedIPs narrowed to the phone lines' addresses). */
+            notes?: string[];
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */

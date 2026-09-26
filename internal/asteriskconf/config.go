@@ -174,6 +174,20 @@ const (
 	// PlainTrunkPort is those transports' port: never 5060, never
 	// published.
 	PlainTrunkPort = 5062
+	// WireGuardTLSTransport is for trunks over TLS through a WireGuard
+	// tunnel (docs/TRUNKS.md §7): like TLSTransport, but without the
+	// address rewriting, so Asterisk gives such a provider its tunnel
+	// address (the one the kernel sends from), not the LAN's. The trunk
+	// file defines it from WireGuardTLSTemplate only while such a trunk
+	// exists (those are dialled by address, so Asterisk's resolver doesn't
+	// need to know it from the start). Never published.
+	WireGuardTLSTransport = "transport-wg-tls"
+	WireGuardTLSTemplate  = "linx-wg-transport-tls"
+	WireGuardTLSPort      = 5064
+	// WireGuardPlainPort is the trunk file's plain TCP/UDP transports for
+	// trunks through a tunnel ("transport-wg-tcp", "-udp"): no ADR-023
+	// warning, the tunnel encrypts (ADR-024). Never published.
+	WireGuardPlainPort = 5063
 	// TrunksFile and PinnedCAFile are the files in TrunksDir.
 	TrunksFile   = "pjsip_trunks.conf"
 	PinnedCAFile = "pinned-ca.pem"
@@ -570,12 +584,27 @@ verify_server=yes
 [%[10]s](!)
 type=transport
 %[4]s
+; For the trunk file's TLS transport through WireGuard tunnels (docs/TRUNKS.md
+; §7): checked like transport-tls, no address rewriting (the tunnel isn't
+; the LAN).
+[%[13]s](!)
+type=transport
+protocol=tls
+cert_file=%[2]s
+priv_key_file=%[3]s
+method=sslv23
+ca_list_file=%[9]s
+verify_server=yes
+
 [%[11]s]
 type=acl
 %[6]s
 #tryinclude "%[12]s"
+; Trunks through WireGuard tunnels that are up (the entrypoint builds it).
+#tryinclude "%[14]s"
 `, c.SIPPort, filepath.Join(c.CertsDir, "current", "fullchain.pem"), filepath.Join(c.CertsDir, "current", "privkey.pem"),
-		nat, wss, acl, TrunksFile, TLSTransport, c.TrunkCAPath(), TrunkTransportTemplate, ACLName, filepath.Join(c.TrunksDir, TrunksFile))
+		nat, wss, acl, TrunksFile, TLSTransport, c.TrunkCAPath(), TrunkTransportTemplate, ACLName, filepath.Join(c.TrunksDir, TrunksFile),
+		WireGuardTLSTemplate, filepath.Join(c.ConfDir, WireGuardTrunksFile))
 }
 
 // iceSettings are the addresses Asterisk offers browsers for audio (ICE

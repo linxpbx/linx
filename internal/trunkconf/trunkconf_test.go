@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -21,8 +22,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/trunk"
+	"linxpbx.com/linx/internal/wgconf"
 )
 
 func selfSigned(t *testing.T, name string) string {
@@ -135,8 +138,16 @@ func TestRenderRefuses(t *testing.T) {
 
 // fakeStore holds trunks for the Renderer.
 type fakeStore struct {
-	tenant uuid.UUID
-	trunks []trunk.Trunk
+	tenant   uuid.UUID
+	trunks   []trunk.Trunk
+	profiles []trunk.WireGuardProfile
+}
+
+func (f *fakeStore) ListWireGuardProfiles(_ context.Context, _ uuid.UUID, before *uuid.UUID, limit int) ([]trunk.WireGuardProfile, error) {
+	if before != nil {
+		return nil, nil
+	}
+	return f.profiles, nil
 }
 
 func (f *fakeStore) DefaultTenant(context.Context) (uuid.UUID, error) { return f.tenant, nil }
@@ -237,5 +248,75 @@ func waitFor(t *testing.T, cond func() bool) {
 			t.Fatal("timed out")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestRenderWireGuard(t *testing.T) {
+	profile := uuid.Must(uuid.NewV7())
+	vpn := base("Through the tunnel")
+	vpn.Host, vpn.Port, vpn.Transport, vpn.MediaEncryption, vpn.WireGuardProfileID = "10.6.0.1", 5060, trunk.TransportUDP, trunk.MediaNone, &profile
+	vpnTLS := base("TLS through the tunnel")
+	vpnTLS.Host, vpnTLS.WireGuardProfileID = "10.6.0.5", &profile
+	named := base("By name")
+	named.Host, named.WireGuardProfileID = "sip.provider.test", &profile
+	lost := base("Lost profile")
+	other := uuid.New()
+	lost.Host, lost.WireGuardProfileID = "10.9.0.1", &other
+
+	files, problems := Render(Input{
+		Trunks:    []trunk.Trunk{vpn, vpnTLS, named, lost},
+		Passwords: map[uuid.UUID]string{},
+		Addresses: map[string][]netip.Addr{},
+		Tunnels: []wgconf.Profile{{ID: profile, Name: "VPN", Address: "10.6.0.2/24", PrivateKey: "k", PeerPublicKey: "p",
+			Endpoint: netip.MustParseAddrPort("198.51.100.1:51820")}},
+	})
+	joined := strings.Join(problems, "\n")
+	for _, want := range []string{"By name) left out: through a WireGuard tunnel, its address must be an IPv4 address",
+		"Lost profile) left out: its WireGuard profile can't be used"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("problems lack %q:\n%s", want, joined)
+		}
+	}
+	main := string(files.PJSIP)
+	// The tunnel's trunks aren't in the main file: only the transport they
+	// need, and their addresses in the one ACL.
+	if strings.Contains(main, vpn.Endpoint()) || !strings.Contains(main, "[transport-wg-udp]\ntype=transport\nprotocol=udp\nbind=0.0.0.0:5063\n") ||
+		strings.Contains(main, "transport-wg-udp](") || !strings.Contains(main, "permit=10.6.0.1/32") || !strings.Contains(main, "permit=10.6.0.5/32") {
+		t.Errorf("main file:\n%s", main)
+	}
+	if !strings.Contains(main, "[transport-wg-tls](linx-wg-transport-tls)\nbind=0.0.0.0:5064\n") {
+		t.Errorf("no TLS transport for the tunnel's TLS trunk:\n%s", main)
+	}
+	name := asteriskconf.WireGuardTrunkFile(wgconf.InterfaceName(profile))
+	wg := string(files.WireGuardTrunks[name])
+	if len(files.WireGuardTrunks) != 1 || !strings.HasPrefix(wg, "; linx-wireguard: 10.6.0.2 10.6.0.1 10.6.0.5\n") {
+		t.Fatalf("tunnel files %v:\n%s", files.WireGuardTrunks, wg)
+	}
+	for _, want := range []string{"[" + vpn.Endpoint() + "]\ntype=endpoint\ntransport=transport-wg-udp\n",
+		"contact=sip:10.6.0.1:5060;transport=udp", "[" + vpnTLS.Endpoint() + "]\ntype=endpoint\ntransport=transport-wg-tls\n"} {
+		if !strings.Contains(wg, want) {
+			t.Errorf("tunnel file lacks %q:\n%s", want, wg)
+		}
+	}
+	if strings.Contains(wg, "Unencrypted") {
+		t.Error("a trunk through a tunnel is marked unencrypted")
+	}
+	// The agent's tunnel: exactly its trunks' addresses.
+	if len(files.WireGuard.Tunnels) != 1 || fmt.Sprint(files.WireGuard.Tunnels[0].AllowedIPs) != "[10.6.0.1 10.6.0.5]" {
+		t.Errorf("tunnels %+v", files.WireGuard.Tunnels)
+	}
+
+	// Write keeps one file per tunnel, and removes a tunnel's that's gone.
+	dir := t.TempDir()
+	stale := filepath.Join(dir, asteriskconf.WireGuardTrunkFile("linx-wg00000000"))
+	os.WriteFile(stale, []byte("old"), 0o640)
+	if _, err := Write(dir, files); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Error("a gone tunnel's file stayed")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, name)); string(b) != wg {
+		t.Error("tunnel file not written")
 	}
 }

@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -74,4 +75,32 @@ func TestLines(t *testing.T) {
 			t.Errorf("no lines, yet: %q", r.Message)
 		}
 	}
+}
+
+func TestLinesWireGuard(t *testing.T) {
+	f := phonesFixture(t)
+	withTunnels := func(tunnels ...map[string]any) {
+		b, _ := json.Marshal(map[string]any{"country": "AE", "trunks": []map[string]any{ucmLine()}, "clashes": 0, "tunnels": tunnels})
+		f.runner[psqlCmd+linesQuery] = string(b)
+	}
+	f.runner[inspect+"linx-wireguard"] = "running \n"
+	f.env.Stat = func(p string) (fs.FileInfo, error) {
+		if p == "/sys/module/wireguard" {
+			return nil, nil
+		}
+		return nil, fs.ErrNotExist
+	}
+	withTunnels(map[string]any{"name": "Provider VPN", "status": "up", "detail": "Last handshake 20 seconds ago.", "used": true},
+		map[string]any{"name": "Spare", "status": "down", "detail": "No handshake.", "used": false})
+	rs := f.lines()
+	want(t, rs, installer.OK, `WireGuard tunnel "Provider VPN" is up: Last handshake 20 seconds ago.`)
+	want(t, rs, installer.Warn, `WireGuard tunnel "Spare" (no line uses it) is down`)
+
+	withTunnels(map[string]any{"name": "Provider VPN", "status": "down", "detail": "No handshake with the provider for 4 minutes.", "used": true})
+	delete(f.runner, inspect+"linx-wireguard")
+	f.env.Stat = func(string) (fs.FileInfo, error) { return nil, fs.ErrNotExist }
+	rs = f.lines()
+	want(t, rs, installer.Fail, `WireGuard tunnel "Provider VPN" is down: No handshake with the provider for 4 minutes. Its lines can't work.`)
+	want(t, rs, installer.Fail, "Linx's WireGuard service isn't running")
+	want(t, rs, installer.Fail, "kernel hasn't loaded WireGuard")
 }

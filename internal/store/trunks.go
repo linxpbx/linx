@@ -360,16 +360,47 @@ func (s *Store) DeleteDID(ctx context.Context, tenant, id uuid.UUID, audit auth.
 }
 
 const wireguardProfileColumns = `id, tenant_id, name, address, private_key_enc, public_key, peer_public_key,
-	peer_endpoint_host, peer_endpoint_port, preshared_key_enc, persistent_keepalive, version, created_at, updated_at`
+	peer_endpoint_host, peer_endpoint_port, preshared_key_enc, persistent_keepalive, version, created_at, updated_at,
+	status, status_detail, status_since, last_handshake_at`
 
 func scanWireGuardProfile(row pgx.Row) (trunk.WireGuardProfile, error) {
 	var w trunk.WireGuardProfile
 	err := row.Scan(&w.ID, &w.TenantID, &w.Name, &w.Address, &w.PrivateKeyEnc, &w.PublicKey, &w.PeerPublicKey,
-		&w.PeerEndpointHost, &w.PeerEndpointPort, &w.PresharedKeyEnc, &w.PersistentKeepalive, &w.Version, &w.CreatedAt, &w.UpdatedAt)
+		&w.PeerEndpointHost, &w.PeerEndpointPort, &w.PresharedKeyEnc, &w.PersistentKeepalive, &w.Version, &w.CreatedAt, &w.UpdatedAt,
+		&w.Status, &w.StatusDetail, &w.StatusSince, &w.LastHandshakeAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return w, trunk.ErrNotFound
 	}
 	return w, err
+}
+
+// AllWireGuardProfiles returns every tenant's profiles, for the trunk
+// monitor.
+func (s *Store) AllWireGuardProfiles(ctx context.Context) ([]trunk.WireGuardProfile, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+wireguardProfileColumns+` FROM wireguard_profile ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []trunk.WireGuardProfile
+	for rows.Next() {
+		w, err := scanWireGuardProfile(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// SetWireGuardStatus records a tunnel's state. status_since moves only when
+// the status does; version doesn't (it isn't a setting).
+func (s *Store) SetWireGuardStatus(ctx context.Context, id uuid.UUID, status, detail string, lastHandshake *time.Time, at time.Time) error {
+	_, err := s.pool.Exec(ctx, `UPDATE wireguard_profile SET
+			status_since = CASE WHEN status <> $2 THEN $5 ELSE status_since END,
+			status = $2, status_detail = $3, last_handshake_at = $4
+		WHERE id = $1`, id, status, detail, lastHandshake, at)
+	return err
 }
 
 func (s *Store) CreateWireGuardProfile(ctx context.Context, w trunk.WireGuardProfile, audit auth.AuditEntry) error {

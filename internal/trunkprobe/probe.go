@@ -48,8 +48,12 @@ type Target struct {
 	Password  string
 	// SRTP: its calls' audio must be encrypted.
 	SRTP bool
-	// WireGuard: reached through a tunnel (not tested here yet).
-	WireGuard bool
+	// WireGuard: reached through a tunnel, which only Asterisk's network
+	// has (docs/TRUNKS.md §7): the control plane can't test the line
+	// itself, only report the tunnel (TunnelName, TunnelState, one of
+	// wgconf's states, and TunnelDetail).
+	WireGuard                             bool
+	TunnelName, TunnelState, TunnelDetail string
 }
 
 // Step results.
@@ -62,7 +66,7 @@ const (
 
 // Step is one check.
 type Step struct {
-	Name   string `json:"name"`   // address, connection, certificate, sip, login, audio_encryption, tls_offered
+	Name   string `json:"name"`   // tunnel, address, connection, certificate, sip, login, audio_encryption, tls_offered
 	Result string `json:"result"` // ok, warning, failed, skipped
 	Words  string `json:"words"`  // plain words
 }
@@ -185,7 +189,16 @@ func defaultPort(transport string) int {
 func (p *Prober) Run(ctx context.Context, t Target) Result {
 	r := &run{}
 	if t.WireGuard {
-		r.add("address", Skipped, "This line is reached through a WireGuard tunnel; it's tested once Linx brings the tunnel up.")
+		words := fmt.Sprintf("WireGuard tunnel %q: %s", t.TunnelName, t.TunnelDetail)
+		switch t.TunnelState {
+		case "up":
+			r.add("tunnel", OK, words)
+		case "down":
+			r.add("tunnel", Failed, words)
+		default:
+			r.add("tunnel", Warning, words)
+		}
+		r.add("address", Skipped, "This line is only reachable through its tunnel, from the phone system: its connection and login show in its status (linx trunk list) within a minute.")
 		return r.done()
 	}
 	port := t.Port

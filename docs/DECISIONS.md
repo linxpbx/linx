@@ -551,6 +551,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** One more privileged container, scoped to Asterisk's namespace. Needs the host's `wireguard` kernel module (setup loads it). Step 5 must prove recovery after an Asterisk restart.
 
+**As built (2026-09-26).** Recovery: when Asterisk restarts, the agent's namespace loses its network cards; the agent exits and Docker's restart policy starts it in the new namespace (tested). Non-root: it starts as root only to re-run as uid 65532 with NET_ADMIN as an ambient capability (Docker gives non-root users no capabilities), so compose also adds SETUID/SETGID, gone after the switch. Fail-closed addition: Asterisk only loads a tunnel's trunks while the kernel routes their addresses into that tunnel, so its lines' SIP never takes the normal route (e.g. right after an Asterisk restart). Trunks through a tunnel must be given by IPv4 address, and use transports without address rewriting. Details: `docs/TRUNKS.md` §7 "As built".
+
 ## ADR-047 — Firewall for IP-authenticated trunks (owner decision, 2026-09-26)
 
 **Context.** Providers that send calls from fixed addresses need 5061 (5060 for ADR-023 trunks) and the audio ports open to exactly those addresses. The host firewall (`inet linx`, 1B) is installed by `linx setup` as root; nothing in a container may change the host. Design: `docs/TRUNKS.md` §3, §8.

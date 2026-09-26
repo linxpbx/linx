@@ -79,53 +79,86 @@ func waitForFile(path string, limit time.Duration, log *slog.Logger, what, witho
 // (internal/trunkconf: pjsip_trunks.conf, which pjsip.conf includes, and
 // the pinned certificates) change, after rebuilding the TLS transport's CA
 // list from the pinned certificates. Reloading keeps phones' connections,
-// registrations and calls (docs/TRUNKS.md §4).
+// registrations and calls (docs/TRUNKS.md §4). Trunks through a WireGuard
+// tunnel join (and leave) as their tunnel comes up (and goes): only while
+// the kernel routes their addresses into it (docs/TRUNKS.md §7).
 type trunkWatcher struct {
 	cfg    asteriskconf.Config
 	reload func(context.Context) error
 	log    *slog.Logger
+	// source is asteriskconf.KernelSource; tests replace it.
+	source asteriskconf.SourceFor
 	loaded [sha256.Size]byte
+	held   string
 }
 
-// state is a hash of both files' contents (a missing file counts as empty).
-func (w *trunkWatcher) state() [sha256.Size]byte {
+// state is a hash of both files' contents (a missing file counts as empty)
+// and of the tunnels' trunks that may load now, which it returns.
+func (w *trunkWatcher) state() ([sha256.Size]byte, []byte) {
 	h := sha256.New()
 	for _, name := range []string{asteriskconf.TrunksFile, asteriskconf.PinnedCAFile} {
 		b, _ := os.ReadFile(filepath.Join(w.cfg.TrunksDir, name))
 		fmt.Fprintf(h, "%d:", len(b))
 		h.Write(b)
 	}
+	source := w.source
+	if source == nil {
+		source = asteriskconf.KernelSource
+	}
+	wg, held, err := w.cfg.WireGuardTrunks(source)
+	if err != nil {
+		w.log.Error("reading the WireGuard tunnels' trunks; leaving them out", "err", err)
+		wg, held = nil, nil
+	}
+	if s := strings.Join(held, "; "); s != w.held {
+		if s != "" {
+			w.log.Info("trunks through WireGuard waiting for their tunnel", "held", held)
+		}
+		w.held = s
+	}
+	fmt.Fprintf(h, "%d:", len(wg))
+	h.Write(wg)
 	var sum [sha256.Size]byte
 	copy(sum[:], h.Sum(nil))
-	return sum
+	return sum, wg
 }
 
-// Start builds the CA list from what's there now, and records it as what
-// Asterisk is about to load (a change while it's starting gets a spare
-// reload, never a missed one).
-func (w *trunkWatcher) Start() {
-	w.loaded = w.state()
-	if skipped, err := w.cfg.WriteTrunkCA(); err != nil {
-		w.log.Error("building the trunks' CA list", "err", err)
-	} else if skipped > 0 {
+// write puts the CA list and the tunnels' trunks where Asterisk reads them.
+func (w *trunkWatcher) write(wg []byte) error {
+	skipped, err := w.cfg.WriteTrunkCA()
+	if err != nil {
+		return fmt.Errorf("building the trunks' CA list: %w", err)
+	}
+	if skipped > 0 {
 		w.log.Warn("pinned trunk certificates that can't be read were left out", "count", skipped)
+	}
+	if _, err := w.cfg.WriteWireGuardTrunks(wg); err != nil {
+		return fmt.Errorf("writing the WireGuard tunnels' trunks: %w", err)
+	}
+	return nil
+}
+
+// Start writes what's there now, and records it as what Asterisk is about
+// to load (a change while it's starting gets a spare reload, never a
+// missed one).
+func (w *trunkWatcher) Start() {
+	s, wg := w.state()
+	w.loaded = s
+	if err := w.write(wg); err != nil {
+		w.log.Error("preparing the trunks", "err", err)
 	}
 }
 
 // Check reloads if the trunks changed; a failed reload is retried at the
 // next check.
 func (w *trunkWatcher) Check(ctx context.Context) {
-	s := w.state()
+	s, wg := w.state()
 	if s == w.loaded {
 		return
 	}
-	skipped, err := w.cfg.WriteTrunkCA()
-	if err != nil {
-		w.log.Error("building the trunks' CA list; retrying", "err", err)
+	if err := w.write(wg); err != nil {
+		w.log.Error(err.Error() + "; retrying")
 		return
-	}
-	if skipped > 0 {
-		w.log.Warn("pinned trunk certificates that can't be read were left out", "count", skipped)
 	}
 	if err := w.reload(ctx); err != nil {
 		w.log.Error("reloading the trunks failed; retrying at the next check", "err", err)

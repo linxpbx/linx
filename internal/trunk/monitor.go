@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/trunkstatus"
+	"linxpbx.com/linx/internal/wgconf"
 )
 
 // DownHoldBack is how long a trunk must stay down before the alert goes
@@ -29,6 +31,12 @@ type MonitorStore interface {
 	SetTrunkStatus(ctx context.Context, tenant, id uuid.UUID, status, detail string, at time.Time) (bool, error)
 }
 
+// TunnelStore is the database access watching WireGuard tunnels needs.
+type TunnelStore interface {
+	AllWireGuardProfiles(ctx context.Context) ([]WireGuardProfile, error)
+	SetWireGuardStatus(ctx context.Context, id uuid.UUID, status, detail string, lastHandshake *time.Time, at time.Time) error
+}
+
 // Alerter is the part of the alert engine the Monitor uses.
 type Alerter interface {
 	FireAfter(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string, holdBack time.Duration) error
@@ -38,16 +46,24 @@ type Alerter interface {
 // DownAlertKey is the "trunk is down" alert's key.
 func DownAlertKey(id uuid.UUID) string { return "trunk.down:" + id.String() }
 
+// TunnelDownAlertKey is the "WireGuard tunnel is down" alert's key.
+func TunnelDownAlertKey(id uuid.UUID) string { return "wireguard.down:" + id.String() }
+
 // Monitor keeps every trunk's status in step with what Asterisk reports
 // (internal/trunkstatus), and raises and clears the "trunk is down" alert.
 type Monitor struct {
 	Store  MonitorStore
 	Alerts Alerter
 	// Dir is where Asterisk's entrypoint writes the status file.
-	Dir      string
-	Interval time.Duration
-	Now      func() time.Time
-	Log      *slog.Logger
+	Dir string
+	// Tunnels and WireGuardDir (where linx-wireguard writes its report,
+	// internal/wgconf) watch the WireGuard tunnels; nil Tunnels: not
+	// watched.
+	Tunnels      TunnelStore
+	WireGuardDir string
+	Interval     time.Duration
+	Now          func() time.Time
+	Log          *slog.Logger
 
 	stale bool
 }
@@ -102,6 +118,11 @@ func (m *Monitor) Check(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var errs []error
+	tunnels, err := m.checkTunnels(ctx, trunks, now)
+	if err != nil {
+		errs = append(errs, err)
+	}
 	type decided struct {
 		t              Trunk
 		status, detail string
@@ -115,6 +136,9 @@ func (m *Monitor) Check(ctx context.Context) error {
 		switch {
 		case !t.Enabled:
 			status, detail = trunkstatus.StatusDisabled, "It's turned off."
+		case t.WireGuardProfileID != nil && tunnels[*t.WireGuardProfileID].state == wgconf.StateDown:
+			tun := tunnels[*t.WireGuardProfileID]
+			status, detail = trunkstatus.StatusUnreachable, fmt.Sprintf("Its WireGuard tunnel %q is down: %s", tun.name, tun.detail)
 		case fresh:
 			status, detail = trunkstatus.Decide(t.Kind == KindRegistration, file.Trunks[t.Endpoint()])
 		case t.Status == trunkstatus.StatusDisabled:
@@ -127,7 +151,6 @@ func (m *Monitor) Check(ctx context.Context) error {
 		}
 	}
 
-	var errs []error
 	for _, d := range all {
 		t := d.t
 		if d.status != t.Status || d.detail != t.StatusDetail {
@@ -164,4 +187,64 @@ func (m *Monitor) Check(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+type tunnelState struct{ name, state, detail string }
+
+// checkTunnels records every WireGuard tunnel's state from linx-wireguard's
+// report, and raises the "tunnel is down" alert for one that trunks use
+// (docs/TRUNKS.md §7: no handshake for wgconf.DownAfter).
+func (m *Monitor) checkTunnels(ctx context.Context, trunks []Trunk, now time.Time) (map[uuid.UUID]tunnelState, error) {
+	out := map[uuid.UUID]tunnelState{}
+	if m.Tunnels == nil {
+		return out, nil
+	}
+	profiles, err := m.Tunnels.AllWireGuardProfiles(ctx)
+	if err != nil {
+		return out, err
+	}
+	report, readErr := wgconf.ReadStatus(m.WireGuardDir)
+	var errs []error
+	for _, p := range profiles {
+		state, detail := wgconf.Decide(report, readErr, p.ID, now)
+		out[p.ID] = tunnelState{p.Name, state, detail}
+		var handshake *time.Time
+		if s, ok := report.Tunnels[p.ID.String()]; ok && readErr == nil {
+			handshake = s.LastHandshake
+		}
+		if state != p.Status || detail != p.StatusDetail || !sameTime(handshake, p.LastHandshakeAt) {
+			if err := m.Tunnels.SetWireGuardStatus(ctx, p.ID, state, detail, handshake, now); err != nil {
+				errs = append(errs, err)
+			}
+			if state != p.Status {
+				m.Log.Info("WireGuard tunnel state changed", "profile", p.ID, "name", p.Name, "from", p.Status, "to", state)
+			}
+		}
+		var lines []string
+		for _, t := range trunks {
+			if t.Enabled && t.WireGuardProfileID != nil && *t.WireGuardProfileID == p.ID {
+				lines = append(lines, fmt.Sprintf("%q", t.Name))
+			}
+		}
+		switch {
+		case state == wgconf.StateDown && len(lines) > 0:
+			msg := detail + " Phone lines through it can't work: " + strings.Join(lines, ", ") + "."
+			if err := m.Alerts.FireAfter(ctx, p.TenantID, TunnelDownAlertKey(p.ID), "warning",
+				fmt.Sprintf("WireGuard tunnel %q is down", p.Name), msg, "", 0); err != nil {
+				errs = append(errs, err)
+			}
+		case state == wgconf.StateUp, len(lines) == 0:
+			if err := m.Alerts.Resolve(ctx, p.TenantID, TunnelDownAlertKey(p.ID)); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return out, errors.Join(errs...)
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Equal(*b)
 }

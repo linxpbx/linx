@@ -3201,7 +3201,9 @@ components:
         wireguard_profile_id:
           type: string
           format: uuid
-          description: The WireGuard profile this trunk connects through. Absent means "Internet" (ADR-024).
+          description: >-
+            The WireGuard profile this trunk connects through. Absent means "Internet" (ADR-024). Through a tunnel,
+            `host` must be an IPv4 address (422 `host_must_be_address`): the tunnel carries only addresses known in advance.
         outbound_priority:
           type: integer
           description: 1 = tried first for outgoing calls. Absent means this trunk isn't used for outgoing calls. Set with PUT /outbound-routing.
@@ -3459,7 +3461,7 @@ components:
             properties:
               name:
                 type: string
-                enum: [address, connection, certificate, sip, login, audio_encryption, tls_offered]
+                enum: [tunnel, address, connection, certificate, sip, login, audio_encryption, tls_offered]
               result:
                 type: string
                 enum: [ok, warning, failed, skipped]
@@ -3580,7 +3582,7 @@ components:
     WireguardProfile:
       description: A WireGuard tunnel trunks can be reached through (docs/TRUNKS.md §7). Its keys are write-only and never returned.
       type: object
-      required: [id, name, address, public_key, peer_public_key, peer_endpoint_host, peer_endpoint_port, created_at, updated_at, etag]
+      required: [id, name, address, public_key, peer_public_key, peer_endpoint_host, peer_endpoint_port, status, status_detail, created_at, updated_at, etag]
       properties:
         id:
           type: string
@@ -3589,7 +3591,7 @@ components:
           type: string
         address:
           type: string
-          description: This end's own tunnel address, e.g. "10.6.0.2/32".
+          description: This end's own tunnel address, e.g. "10.6.0.2/32" (it must include an IPv4 address).
         public_key:
           type: string
           description: Derived from the private key; give this to the provider if it needs it registered.
@@ -3601,6 +3603,27 @@ components:
           type: integer
         persistent_keepalive:
           type: integer
+          description: Seconds between keep-alives. Absent means Linx's default (25), so the tunnel's state is always known.
+        status:
+          type: string
+          enum: [up, connecting, down, unknown]
+          description: >-
+            The tunnel's state as Linx's WireGuard service last reported it: `down` after 3 minutes with no handshake
+            (its phone lines are then down too, and the "WireGuard tunnel is down" alert goes out while a line uses it).
+        status_detail:
+          type: string
+          description: Why, in plain words.
+        status_since:
+          type: string
+          format: date-time
+        last_handshake_at:
+          type: string
+          format: date-time
+        notes:
+          type: array
+          items:
+            type: string
+          description: Said once, when the profile is created (e.g. an imported AllowedIPs narrowed to the phone lines' addresses).
         created_at:
           type: string
           format: date-time
