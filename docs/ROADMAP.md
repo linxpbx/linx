@@ -28,6 +28,10 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
   - email sending
   - Domain & DNS
 - Simple mode and the getting-started checklist.
+- **Built for any admin, however new to phone systems** (owner direction 2026-09-26; applies to every admin and user screen, in every phase):
+  - First-run web setup wizard includes the numbering plan: how many digits extensions have (e.g. 3 → 100–999), where numbering starts, with a plain explanation and a sensible default. It also sets up the first extensions.
+  - Creating anything (extension, person, trunk, ring group, …) offers two paths: a guided step-by-step wizard, or **quick create** with only the fields that are truly required. Everything else gets a safe default and can be edited later.
+  - Plain words, a recommended choice at each step, and no screen that needs telecom knowledge to finish.
 - Web client audio calls over WSS/TURN-TLS; CDR; voicemail with email delivery.
 - **Exit:** a web-to-web and web-to-trunk call on profile A with UDP blocked, and the SIPp suite green.
 
