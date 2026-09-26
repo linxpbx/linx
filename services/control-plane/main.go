@@ -33,6 +33,7 @@ import (
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/health"
+	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
@@ -61,6 +62,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "user" {
 		os.Exit(runUserCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "route" {
+		os.Exit(runRouteCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(runHealthcheck(os.Getenv, nil))
@@ -97,6 +101,20 @@ func main() {
 	if err := db.SetSIPDomain(startCtx, pool, sipDomain); err != nil {
 		log.Error("phone system domain", "err", err)
 		os.Exit(1)
+	}
+
+	// Outgoing calls are decided in the database from libphonenumber's data
+	// (ADR-044); a new version of the library brings new data.
+	numberingData, err := numbering.Build()
+	if err != nil {
+		log.Error("numbering data", "err", err)
+		os.Exit(1)
+	}
+	if changed, err := store.New(pool).SyncNumbering(startCtx, numberingData, time.Now().UTC()); err != nil {
+		log.Error("numbering data", "err", err)
+		os.Exit(1)
+	} else if changed {
+		log.Info("numbering data updated", "version", numberingData.Version)
 	}
 
 	encKey, err := dbsecret.LoadKey(dbsecret.KeyPathFromEnv(os.Getenv))

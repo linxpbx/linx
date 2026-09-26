@@ -1,0 +1,156 @@
+package numbering
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/nyaruka/phonenumbers"
+	"golang.org/x/text/language"
+	"golang.org/x/text/language/display"
+)
+
+// Route is the outgoing-call decision (numbering_route in the database).
+type Route struct {
+	Result
+	Allowed bool
+	Reason  string // one of the Reason constants
+}
+
+// Why a call is or isn't allowed.
+const (
+	ReasonEmergency     = "emergency"      // always allowed
+	ReasonInvalid       = "invalid"        // not a number
+	ReasonUnknownCaller = "unknown_caller" // the caller's extension doesn't exist or is turned off
+	ReasonNoLines       = "no_lines"       // no outside lines yet
+)
+
+// Clash is an extension whose number can't be used in the country
+// (numbering_extension_clash).
+type Clash struct {
+	Number string
+	Reason string // one of the Clash constants
+}
+
+// Why an extension number is reserved.
+const (
+	ClashNationalPrefix      = "national_prefix"
+	ClashInternationalPrefix = "international_prefix"
+	ClashEmergency           = "emergency"
+	ClashService             = "service"
+)
+
+// ClashText explains in plain words why number can't be an extension in
+// country.
+func ClashText(number, reason string, country string) string {
+	c := Countries[country]
+	switch reason {
+	case ClashNationalPrefix, ClashInternationalPrefix:
+		return fmt.Sprintf("Extension numbers can't start with %s: in %s that's how people start dialling outside numbers.",
+			firstDigit(number), CountryName(country, c))
+	case ClashEmergency:
+		return fmt.Sprintf("%s is an emergency number in %s, so it can't be an extension.", number, CountryName(country, c))
+	case ClashService:
+		return fmt.Sprintf("%s is a short service number in %s, so it can't be an extension.", number, CountryName(country, c))
+	}
+	return fmt.Sprintf("%s can't be an extension number.", number)
+}
+
+func firstDigit(n string) string {
+	if n == "" {
+		return n
+	}
+	return n[:1]
+}
+
+// CountryName is a region's name in English ("United Kingdom").
+func CountryName(region string, c Country) string {
+	if c.Name != "" {
+		return c.Name
+	}
+	if region == "001" {
+		return "no single country (an international service)"
+	}
+	r, err := language.ParseRegion(region)
+	if err != nil {
+		return region
+	}
+	if name := display.English.Regions().Name(r); name != "" {
+		return name
+	}
+	return region
+}
+
+// Kind names what the number is, in plain words.
+func (r Result) Kind() string {
+	switch r.Category {
+	case Emergency:
+		return "Emergency number (" + r.Label + ")"
+	case Service:
+		return "Short service number"
+	case Invalid:
+		return "Not a phone number"
+	case International:
+		return "International number in " + CountryName(r.Region, Countries[r.Region])
+	case Premium:
+		if r.Region != "" && !Supported(r.Region) {
+			return "Premium-rate number (expensive to call) in " + CountryName(r.Region, Countries[r.Region])
+		}
+		return "Premium-rate number (expensive to call)"
+	}
+	switch r.NumberType {
+	case TypeFixedLine:
+		return "Landline"
+	case TypeFixedLineOrMobile:
+		return "Landline or mobile number"
+	case TypeMobile:
+		return "Mobile number"
+	case TypeTollFree:
+		return "Toll-free number"
+	case TypeSharedCost:
+		return "Shared-cost number (the caller pays part of the cost)"
+	case TypeUAN:
+		return "Company number (one number for a whole company)"
+	case TypeVoIP:
+		return "Internet phone number"
+	case TypePersonalNumber:
+		return "Personal number"
+	case TypePager:
+		return "Pager number"
+	case TypeVoicemail:
+		return "Voicemail access number"
+	}
+	return "Phone number"
+}
+
+// Pretty is the number written for people: "+971 50 123 4567".
+func (r Result) Pretty() string {
+	if r.E164 == "" {
+		return r.Dial
+	}
+	n, err := phonenumbers.Parse(r.E164, "")
+	if err != nil {
+		return r.E164
+	}
+	return phonenumbers.Format(n, phonenumbers.INTERNATIONAL)
+}
+
+// Explain describes the decision for a call from extension from, in plain
+// words, as `linx route test` prints it.
+func (r Route) Explain(dialled, from, country string) string {
+	var b strings.Builder
+	switch {
+	case r.Reason == ReasonUnknownCaller:
+		fmt.Fprintf(&b, "Extension %s doesn't exist or is turned off, so it can't call out.\n", from)
+		return b.String()
+	case r.Category == Invalid:
+		fmt.Fprintf(&b, "%q isn't a number that can be called from %s.\n", dialled, CountryName(country, Countries[country]))
+		return b.String()
+	}
+	fmt.Fprintf(&b, "%s: %s.\n", r.Kind(), r.Pretty())
+	if r.Reason == ReasonEmergency {
+		b.WriteString("Always allowed, for everyone, and never limited.\n")
+	}
+	// Lines (trunks) arrive in the next steps of Phase 1D.
+	b.WriteString("Linx has no outside lines yet, so the call can't go out until one is added.\n")
+	return b.String()
+}

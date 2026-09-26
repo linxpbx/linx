@@ -2286,7 +2286,7 @@ components:
           format: uuid
         number:
           type: string
-          description: 2 to 6 digits, unique.
+          description: 2 to 6 digits, unique. Refused (422 number_reserved) if it starts like an outside number in the country Linx is set up in (0 in the UAE) or is an emergency or short service number there (999, 112, 901, ...).
         display_name:
           type: string
         email:
@@ -2311,7 +2311,7 @@ components:
         number:
           type: string
           maxLength: 20
-          description: 2 to 6 digits.
+          description: 2 to 6 digits; same rules as when creating.
         display_name:
           type: string
           maxLength: 100

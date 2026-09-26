@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"linxpbx.com/linx/internal/auth"
@@ -43,6 +44,18 @@ func TestExtensionEndpoints(t *testing.T) {
 		r := e.do(http.MethodPost, "/api/v1/extensions", admin, map[string]any{"number": "101", "display_name": "Someone else"})
 		if r.status != http.StatusConflict || r.problemCode(t) != "number_duplicate" {
 			t.Fatalf("duplicate: %d %s", r.status, r.body)
+		}
+	})
+
+	t.Run("numbers that look like outside or emergency numbers are refused", func(t *testing.T) {
+		for number, detail := range map[string]string{
+			"0123": "can't start with 0",
+			"999":  "999 is an emergency number in United Arab Emirates",
+		} {
+			r := e.do(http.MethodPost, "/api/v1/extensions", admin, map[string]any{"number": number, "display_name": "X"})
+			if r.status != http.StatusUnprocessableEntity || r.problemCode(t) != "number_reserved" || !strings.Contains(string(r.body), detail) {
+				t.Fatalf("%s: %d %s", number, r.status, r.body)
+			}
 		}
 	})
 

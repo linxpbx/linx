@@ -527,6 +527,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Numbering data updates with the library (Dependabot). `linx_asterisk` gains `EXECUTE` on one function and `SELECT` on the rule tables. Only countries we test are offered at first (UAE; others added with their test corpus).
 
+**As built (1D step 1, 2026-09-26).** `linx_asterisk` gets `EXECUTE` on `asterisk.linx_route_outbound` only, **not** `SELECT` on the rule tables: the function is `SECURITY DEFINER` (fixed `search_path`), so Asterisk can't read any table behind it, including the trunk tables later steps add. The tables hold every region's data (international numbers are checked and typed too: a premium number abroad counts as premium); the control plane rewrites them at start when the library's data version changes. The PostgreSQL functions repeat libphonenumber's parsing step for step and agreed with it on all 30,632 numbers of the UAE corpus on the first run; a unit test fails if a data update brings a regular-expression construct they weren't checked with.
+
 ## ADR-045 — Trunk certificates (owner decision, 2026-09-26)
 
 **Context.** Many providers and LAN devices (the owner's UCM6304) use certificates from their own CA. The security rules never allow switching certificate checks off. Design: `docs/TRUNKS.md` §6.

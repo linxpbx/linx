@@ -1445,7 +1445,7 @@ export interface components {
         Extension: {
             /** Format: uuid */
             id: string;
-            /** @description 2 to 6 digits, unique. */
+            /** @description 2 to 6 digits, unique. Refused (422 number_reserved) if it starts like an outside number in the country Linx is set up in (0 in the UAE) or is an emergency or short service number there (999, 112, 901, ...). */
             number: string;
             display_name: string;
             email?: string;
@@ -1458,7 +1458,7 @@ export interface components {
             etag: string;
         };
         ExtensionCreate: {
-            /** @description 2 to 6 digits. */
+            /** @description 2 to 6 digits; same rules as when creating. */
             number: string;
             display_name: string;
             email?: string;

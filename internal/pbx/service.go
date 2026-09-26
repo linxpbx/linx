@@ -14,6 +14,7 @@ import (
 
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/numbering"
 )
 
 // Service is what the API's extension and device endpoints do. Caller
@@ -82,6 +83,12 @@ func checkNumber(number string) error {
 	return nil
 }
 
+// reserved explains an extension number that looks like an outside or
+// emergency number.
+func reserved(r *ReservedNumberError) *apihttp.Error {
+	return invalid("number_reserved", numbering.ClashText(r.Number, r.Reason, r.Country))
+}
+
 func checkDisplayName(name string) error {
 	n := len([]rune(name))
 	if n < 1 || n > 100 {
@@ -124,6 +131,9 @@ func (s *Service) CreateExtension(ctx context.Context, in ExtensionInput) (Exten
 		if errors.Is(err, ErrDuplicate) {
 			return Extension{}, &apihttp.Error{Status: http.StatusConflict, Code: "number_duplicate",
 				Detail: fmt.Sprintf("Extension %s already exists.", e.Number)}
+		}
+		if r, ok := errors.AsType[*ReservedNumberError](err); ok {
+			return Extension{}, reserved(r)
 		}
 		return Extension{}, err
 	}
@@ -210,6 +220,9 @@ func (s *Service) UpdateExtension(ctx context.Context, id uuid.UUID, patch Exten
 	if errors.Is(err, ErrDuplicate) {
 		return Extension{}, &apihttp.Error{Status: http.StatusConflict, Code: "number_duplicate",
 			Detail: fmt.Sprintf("Extension %s already exists.", e.Number)}
+	}
+	if r, ok := errors.AsType[*ReservedNumberError](err); ok {
+		return Extension{}, reserved(r)
 	}
 	return updated, err
 }

@@ -20,6 +20,7 @@ Commands:
   doctor    Check that everything is working (run with sudo)
   api-key   Create, list or revoke API keys (run with sudo; see linx api-key help)
   user      Add people and issue set-password links (run with sudo; see linx user help)
+  route     Show what would happen to an outgoing call, without making it (run with sudo; see linx route help)
   version   Show the Linx version
   help      Show this help
 `
@@ -48,6 +49,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runAPIKey(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
 	case "user":
 		return runUser(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
+	case "route":
+		return runRoute(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
 	default:
 		fmt.Fprintf(stderr, "linx: unknown command %q\n\n%s", args[0], usage)
 		return 2

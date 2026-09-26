@@ -31,6 +31,17 @@ var (
 	ErrRevoked        = errors.New("revoked")
 )
 
+// ReservedNumberError is returned for an extension number that looks like
+// an outside or emergency number in the country Linx is set up in
+// (docs/TRUNKS.md §5; numbering.Clash* reasons).
+type ReservedNumberError struct {
+	Number, Reason, Country string
+}
+
+func (e *ReservedNumberError) Error() string {
+	return "extension number " + e.Number + " is reserved (" + e.Reason + ")"
+}
+
 // Extension is a number people have, e.g. "101" (docs/PBX.md §1, §3).
 type Extension struct {
 	ID, TenantID         uuid.UUID

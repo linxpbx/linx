@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
 )
 
@@ -31,9 +33,24 @@ func newFakePbxStore() *fakePbxStore {
 	return &fakePbxStore{extensions: map[uuid.UUID]pbx.Extension{}, devices: map[uuid.UUID]pbx.Device{}}
 }
 
+// reservedNumber stands in for migration 0016's extension-number check,
+// for two of the UAE's cases.
+func reservedNumber(number string) error {
+	switch {
+	case strings.HasPrefix(number, "0"):
+		return &pbx.ReservedNumberError{Number: number, Reason: numbering.ClashNationalPrefix, Country: "AE"}
+	case number == "999":
+		return &pbx.ReservedNumberError{Number: number, Reason: numbering.ClashEmergency, Country: "AE"}
+	}
+	return nil
+}
+
 func (f *fakePbxStore) CreateExtension(_ context.Context, e pbx.Extension, a auth.AuditEntry) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := reservedNumber(e.Number); err != nil {
+		return err
+	}
 	for _, x := range f.extensions {
 		if x.TenantID == e.TenantID && x.Number == e.Number && x.DeletedAt == nil {
 			return pbx.ErrDuplicate
@@ -76,6 +93,11 @@ func (f *fakePbxStore) UpdateExtension(_ context.Context, e pbx.Extension, a aut
 	}
 	if cur.Version != e.Version {
 		return pbx.Extension{}, pbx.ErrVersionChanged
+	}
+	if cur.Number != e.Number {
+		if err := reservedNumber(e.Number); err != nil {
+			return pbx.Extension{}, err
+		}
 	}
 	for _, x := range f.extensions {
 		if x.ID != e.ID && x.TenantID == e.TenantID && x.Number == e.Number && x.DeletedAt == nil {

@@ -14,6 +14,7 @@ import (
 
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/db/dbtest"
+	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/store"
 )
 
@@ -199,7 +200,37 @@ func TestAsteriskRealtimeDocker(t *testing.T) {
 		}
 	}
 
-	for _, table := range []string{"tenant", "extension", "device", "api_key", "webhook_endpoint", "alert_channel", "user_session", "app_user"} {
+	// Outgoing calls (migration 0016): Asterisk asks one function, which
+	// reads the tables behind it with its owner's rights. The caller is a
+	// live device's SIP username; anything else is an unknown caller.
+	data, err := numbering.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.New(pool).SyncNumbering(ctx, data, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ endpoint, dialled, want string }{
+		{"d_1a2b3c4d", "0501234567", "mobile +971501234567 f no_lines"},
+		{"d_1a2b3c4d", "999", "emergency 999 t emergency"},
+		{"d_9z8y7x6w", "999", "emergency 999 f unknown_caller"},
+		{"101", "999", "emergency 999 f unknown_caller"},
+	} {
+		var got string
+		if err := astPool.QueryRow(ctx, `SELECT concat_ws(' ', category, dial, allowed, reason)
+			FROM asterisk.linx_route_outbound($1, $2)`, c.endpoint, c.dialled).Scan(&got); err != nil {
+			t.Fatalf("linx_route_outbound(%s, %s): %v", c.endpoint, c.dialled, err)
+		}
+		if got != c.want {
+			t.Errorf("linx_route_outbound(%s, %s) = %q, want %q", c.endpoint, c.dialled, got, c.want)
+		}
+	}
+	if _, err := astPool.Exec(ctx, "SELECT numbering_classify('AE', '0501234567')"); err == nil {
+		t.Error("linx_asterisk could run numbering_classify on the tables directly; want permission denied")
+	}
+
+	for _, table := range []string{"tenant", "extension", "device", "api_key", "webhook_endpoint", "alert_channel", "user_session", "app_user",
+		"pbx_setting", "numbering_region", "numbering_desc", "numbering_short", "numbering_always", "numbering_data"} {
 		if _, err := astPool.Exec(ctx, "SELECT 1 FROM "+table+" LIMIT 1"); err == nil {
 			t.Errorf("linx_asterisk could read table %s directly; want permission denied", table)
 		}

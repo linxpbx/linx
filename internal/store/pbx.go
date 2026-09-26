@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/pbx"
@@ -46,6 +47,9 @@ func (s *Store) CreateExtension(ctx context.Context, e pbx.Extension, audit auth
 		if err != nil {
 			if IsUniqueViolation(err) {
 				return pbx.ErrDuplicate
+			}
+			if r := reservedNumber(err, e.Number); r != nil {
+				return r
 			}
 			return fmt.Errorf("creating extension: %w", err)
 		}
@@ -114,6 +118,9 @@ func (s *Store) UpdateExtension(ctx context.Context, e pbx.Extension, audit auth
 		if err != nil {
 			if IsUniqueViolation(err) {
 				return pbx.ErrDuplicate
+			}
+			if r := reservedNumber(err, e.Number); r != nil {
+				return r
 			}
 			return err
 		}
@@ -317,6 +324,16 @@ func (s *Store) RevokeDevice(ctx context.Context, tenant, id uuid.UUID, at time.
 		return insertAudit(ctx, tx, audit)
 	})
 	return out, err
+}
+
+// reservedNumber turns migration 0016's extension-number check into
+// *pbx.ReservedNumberError, or returns nil for any other error.
+func reservedNumber(err error, number string) *pbx.ReservedNumberError {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.ConstraintName == "extension_number_reserved" {
+		return &pbx.ReservedNumberError{Number: number, Reason: pgErr.Detail, Country: pgErr.Hint}
+	}
+	return nil
 }
 
 func emptyStrToNil(s string) *string {
