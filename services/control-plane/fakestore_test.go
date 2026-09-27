@@ -29,6 +29,7 @@ type fakeStore struct {
 	extensions map[string]pbx.Extension
 	auditLog   []auth.AuditLogEntry
 	settings   *settings.Settings
+	passkeys   []auth.Passkey
 }
 
 func newFakeStore() *fakeStore {

@@ -5,7 +5,9 @@
 // for calls (Chromium's "disable_non_proxied_udp" policy, as on a network
 // that blocks UDP), so his audio must go through Linx's relay over TLS.
 // Then calls to and from the SIPp softphone on 103, the Opus echo test, and
-// signing out dropping the phone line at once.
+// signing out dropping the phone line at once. Separately, an admin sets up
+// their account with a passkey (Chromium's virtual authenticator) and signs
+// back in with it, no email or password.
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 
 const base = process.env.LINX_BASE_URL ?? "";
@@ -47,6 +49,9 @@ async function signIn(browser: Browser, token: string): Promise<Page> {
     if (m.type() === "error") console.log(`[${token.slice(0, 4)}] ${m.text()}`);
   });
   await page.goto(`/setup/${token}`);
+  // An ordinary person choosing a password only gets no warning box.
+  await page.getByRole("radio", { name: /Password only/ }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await page.getByLabel("New password").fill(PASSWORD);
   await page.getByLabel("Type it again").fill(PASSWORD);
   await page.getByRole("button", { name: "Save password" }).click();
@@ -208,4 +213,68 @@ test("browsers call each other, one with UDP blocked", async () => {
 
   await a.close();
   await b.close();
+});
+
+test("an admin sets up with a passkey and signs in with it", async () => {
+  const browser = await launch();
+  const context = await browser.newContext({ baseURL: base });
+  const page = await context.newPage();
+  // A step that can't happen fails in 30 s with its name, not at the
+  // suite's timeout.
+  page.setDefaultTimeout(30_000);
+  page.on("console", (m) => { if (m.type() === "error") console.log(`[admin] ${m.text()}`); });
+  page.on("response", (r) => { if (r.status() >= 400) console.log(`[admin] ${r.request().method()} ${r.url()} ${r.status()}`); });
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("WebAuthn.enable");
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true,
+      isUserVerified: true, automaticPresenceSimulation: true,
+    },
+  });
+  await page.goto(`/setup/${process.env.LINX_SETUP_ADMIN ?? ""}`);
+  await expect(page.getByRole("radio", { name: /Passkey/ })).toBeChecked();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create passkey" }).click();
+  await expect(page.getByLabel("Name this passkey")).not.toBeEmpty();
+  await page.getByRole("button", { name: "Save passkey" }).click();
+  await expect(page.getByRole("list", { name: "Recovery codes" }).getByRole("listitem")).toHaveCount(10);
+  await page.getByRole("checkbox", { name: "I've saved these codes" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Skip" }).click();
+  await expect(page.getByTestId("account-menu")).toBeVisible({ timeout: 30_000 });
+
+  await page.goto("/account");
+  await expect(page.getByRole("list", { name: "Your passkeys" }).getByRole("listitem")).toHaveCount(1);
+
+  // Resolves when the page has signed in with the passkey (the answer's POST).
+  const passkeySignIn = () => page.waitForResponse((r) =>
+    new URL(r.url()).pathname === "/api/v1/session/passkey" && r.request().method() === "POST");
+  const signedInWithPasskey = async (answered: ReturnType<typeof passkeySignIn>) => {
+    expect((await answered).status()).toBe(200);
+    await expect(page.getByTestId("account-menu")).toBeVisible({ timeout: 30_000 });
+    const me = await page.evaluate(async () => (await fetch("/api/v1/me")).json() as Promise<{ role: string; pending: boolean; passkeys: number }>);
+    expect(me).toMatchObject({ role: "admin", pending: false, passkeys: 1 });
+  };
+  const signOut = async () => {
+    await page.getByTestId("account-menu").click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
+  };
+
+  // The email box's autofill: the virtual authenticator picks the passkey
+  // by itself, as a person would from the browser's suggestion.
+  let answered = passkeySignIn();
+  await signOut();
+  await signedInWithPasskey(answered);
+
+  // The button, in a browser without autofill for passkeys.
+  await page.addInitScript(() => {
+    PublicKeyCredential.isConditionalMediationAvailable = async () => false;
+  });
+  await signOut();
+  await page.reload();
+  answered = passkeySignIn();
+  await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+  await signedInWithPasskey(answered);
+  await browser.close();
 });

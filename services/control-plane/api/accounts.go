@@ -11,6 +11,7 @@ import (
 func toUser(u auth.User) User {
 	out := User{
 		Id: u.ID, Email: u.Email, Name: u.Name, Role: Role(u.Role), MfaEnabled: u.MFAEnabled,
+		Passkeys: &u.PasskeyCount, HasPassword: ptr(u.HasPassword()), PasswordOnly: ptr(!u.HasSecondStep()),
 		Disabled: u.DisabledAt != nil, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, Etag: auth.ETag(u.Version),
 	}
 	if u.ExtensionID != nil {
@@ -119,7 +120,7 @@ func (s *Server) CreateUserSetupLink(ctx context.Context, req CreateUserSetupLin
 }
 
 func (s *Server) ChangeMyPassword(ctx context.Context, req ChangeMyPasswordRequestObject) (ChangeMyPasswordResponseObject, error) {
-	if err := s.accounts.ChangePassword(ctx, req.Body.CurrentPassword, req.Body.NewPassword); err != nil {
+	if err := s.accounts.ChangePassword(ctx, deref(req.Body.CurrentPassword), req.Body.NewPassword); err != nil {
 		e, err := apiError(err)
 		if e == nil {
 			return nil, err
@@ -151,4 +152,61 @@ func (s *Server) ConfirmMyMfaEnrollment(ctx context.Context, req ConfirmMyMfaEnr
 		return ConfirmMyMfaEnrollmentdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
 	return ConfirmMyMfaEnrollment200JSONResponse{RecoveryCodes: codes}, nil
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// ToPasskey is a passkey as the API shows it: never its key or counter.
+func ToPasskey(p auth.Passkey) Passkey {
+	return Passkey{Id: p.ID, Name: p.Name, Synced: p.BackupState, CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt}
+}
+
+func (s *Server) ListMyPasskeys(ctx context.Context, _ ListMyPasskeysRequestObject) (ListMyPasskeysResponseObject, error) {
+	keys, err := s.accounts.ListPasskeys(ctx)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return ListMyPasskeysdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	list := PasskeyList{Items: make([]Passkey, 0, len(keys))}
+	for _, k := range keys {
+		list.Items = append(list.Items, ToPasskey(k))
+	}
+	return ListMyPasskeys200JSONResponse(list), nil
+}
+
+func (s *Server) RenameMyPasskey(ctx context.Context, req RenameMyPasskeyRequestObject) (RenameMyPasskeyResponseObject, error) {
+	p, err := s.accounts.RenamePasskey(ctx, req.Id, req.Body.Name)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return RenameMyPasskeydefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return RenameMyPasskey200JSONResponse(ToPasskey(p)), nil
+}
+
+func (s *Server) RemoveMyPasskey(ctx context.Context, req RemoveMyPasskeyRequestObject) (RemoveMyPasskeyResponseObject, error) {
+	if err := s.accounts.RemovePasskey(ctx, req.Id, deref(req.Params.AcceptPasswordOnly)); err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return RemoveMyPasskeydefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return RemoveMyPasskey204Response{}, nil
+}
+
+func (s *Server) AcceptPasswordOnly(ctx context.Context, _ AcceptPasswordOnlyRequestObject) (AcceptPasswordOnlyResponseObject, error) {
+	if err := s.accounts.AcceptPasswordOnly(ctx); err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return AcceptPasswordOnlydefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return AcceptPasswordOnly204Response{}, nil
 }

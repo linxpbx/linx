@@ -46,6 +46,94 @@ func TestAccountsDocker(t *testing.T) {
 		return u
 	}
 
+	t.Run("passkeys", func(t *testing.T) {
+		u := newUser("passkeys@example.com", auth.RoleAdmin)
+		if err := s.AcceptPasswordOnly(ctx, tenant, u.ID, now, audit("user.password_only_accepted")); err != nil {
+			t.Fatal(err)
+		}
+		key := func(n byte) auth.Passkey {
+			cred := make([]byte, 32)
+			cred[0] = n
+			cred[1] = byte(len(u.ID.String()))
+			copy(cred[2:], u.ID[:])
+			return auth.Passkey{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, UserID: u.ID, CredentialID: cred,
+				PublicKey: []byte{0xa5}, SignCount: 4294967295, BackupEligible: true, BackupState: true,
+				Transports: []string{"internal"}, AttestationFormat: "none", Name: "Key", CreatedAt: now}
+		}
+		first := key(0)
+		codes := [][]byte{make([]byte, 32)}
+		if err := s.AddPasskey(ctx, first, codes, audit("user.passkey_added")); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.User(ctx, tenant, u.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.PasskeyCount != 1 || got.PasswordOnlyAcceptedAt != nil || len(got.RecoveryCodeHashes) != 1 {
+			t.Fatalf("after adding: %d passkeys, password only %v, %d codes", got.PasskeyCount, got.PasswordOnlyAcceptedAt, len(got.RecoveryCodeHashes))
+		}
+		if err := s.AddPasskey(ctx, first, nil, audit("user.passkey_added")); !errors.Is(err, auth.ErrDuplicate) {
+			t.Fatalf("same credential again: %v", err)
+		}
+		byCred, err := s.PasskeyByCredentialID(ctx, first.CredentialID)
+		if err != nil || byCred.SignCount != 4294967295 || byCred.UserID != u.ID || !byCred.BackupState {
+			t.Fatalf("PasskeyByCredentialID: %+v, %v", byCred, err)
+		}
+		for i := byte(1); i < auth.MaxPasskeys; i++ {
+			if err := s.AddPasskey(ctx, key(i), nil, audit("user.passkey_added")); err != nil {
+				t.Fatalf("passkey %d: %v", i+1, err)
+			}
+		}
+		if err := s.AddPasskey(ctx, key(99), nil, audit("user.passkey_added")); !errors.Is(err, auth.ErrLimit) {
+			t.Fatalf("eleventh passkey: %v", err)
+		}
+		if err := s.UsePasskey(ctx, first.ID, 7, false, now); err != nil {
+			t.Fatal(err)
+		}
+		renamed, err := s.RenamePasskey(ctx, tenant, u.ID, first.ID, "Phone", audit("user.passkey_renamed"))
+		if err != nil || renamed.Name != "Phone" || renamed.SignCount != 7 || renamed.BackupState || renamed.LastUsedAt == nil {
+			t.Fatalf("RenamePasskey: %+v, %v", renamed, err)
+		}
+		if _, err := s.RenamePasskey(ctx, tenant, uuid.New(), first.ID, "Theirs", audit("x")); !errors.Is(err, auth.ErrNotFound) {
+			t.Fatalf("renaming someone else's passkey: %v", err)
+		}
+		keys, err := s.Passkeys(ctx, tenant, u.ID)
+		if err != nil || len(keys) != auth.MaxPasskeys {
+			t.Fatalf("Passkeys: %d, %v", len(keys), err)
+		}
+		for i, k := range keys {
+			last := i == len(keys)-1
+			if err := s.DeletePasskey(ctx, tenant, u.ID, k.ID, last, now, audit("user.passkey_removed")); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := s.User(ctx, tenant, u.ID)
+			if !last && len(got.RecoveryCodeHashes) != 1 {
+				t.Fatalf("recovery codes went with passkey %d of %d", i+1, len(keys))
+			}
+			if last && (len(got.RecoveryCodeHashes) != 0 || got.PasswordOnlyAcceptedAt == nil || got.PasskeyCount != 0) {
+				t.Fatalf("after the last one: %+v", got)
+			}
+		}
+		if err := s.DeletePasskey(ctx, tenant, u.ID, first.ID, false, now, audit("x")); !errors.Is(err, auth.ErrNotFound) {
+			t.Fatalf("deleting twice: %v", err)
+		}
+		// Reset authenticator takes passkeys too.
+		if err := s.AddPasskey(ctx, key(50), nil, audit("user.passkey_added")); err != nil {
+			t.Fatal(err)
+		}
+		reset, err := s.ResetMFA(ctx, tenant, u.ID, now, audit("user.mfa_reset"))
+		if err != nil || reset.PasskeyCount != 0 || reset.PasswordOnlyAcceptedAt != nil {
+			t.Fatalf("ResetMFA: %+v, %v", reset, err)
+		}
+		// A passkey-only account has an empty password hash.
+		if err := s.SetPassword(ctx, tenant, u.ID, "", now, true, audit("user.password_set")); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.User(ctx, tenant, u.ID); got.HasPassword() {
+			t.Fatal("empty password hash should mean no password")
+		}
+	})
+
 	t.Run("create and duplicate email", func(t *testing.T) {
 		u := newUser("person@example.com", auth.RoleUser)
 		got, err := s.User(ctx, tenant, u.ID)

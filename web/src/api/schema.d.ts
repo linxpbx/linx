@@ -1095,7 +1095,7 @@ export interface paths {
         };
         /**
          * Check a set-password link before asking for a password
-         * @description 204 if the link can still be used; 400 `setup_link_invalid` if it was used, has expired or doesn't exist (the page then says so instead of showing the password form). A link that fails counts against the caller's address like a failed sign-in. Served by a hand-written handler (excluded from code generation).
+         * @description 200 with the link's person if it can still be used; 400 `setup_link_invalid` if it was used, has expired or doesn't exist (the page then says so instead of showing the password form). A link that fails counts against the caller's address like a failed sign-in. Served by a hand-written handler (excluded from code generation).
          */
         get: operations["checkSetupLink"];
         put?: never;
@@ -1256,6 +1256,254 @@ export interface paths {
          * @description Returns 10 recovery codes, shown once. If the caller's session was still pending MFA, it's promoted to a full session.
          */
         post: operations["confirmMyMfaEnrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/passkey/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with a passkey (ask the device)
+         * @description Returns the options for the browser's PublicKeyCredential.parse*OptionsFromJSON and sets the __Host-linx_passkey cookie (5 minutes, single use) that binds the challenge to this browser. No email: the device offers its passkeys for this server (discoverable credentials, user verification required). A whole sign-in, both steps, for admins too (docs/ADMIN.md §5). Needs no session. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+         */
+        post: operations["createPasskeySessionOptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with a passkey (the device's answer)
+         * @description The device's answer to the challenge from .../options, as PublicKeyCredential.toJSON() gives it. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+         */
+        post: operations["createPasskeySession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/mfa/passkey/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in (step 2: a passkey) (ask the device)
+         * @description Returns the options for the browser's PublicKeyCredential.parse*OptionsFromJSON and sets the __Host-linx_passkey cookie (5 minutes, single use) that binds the challenge to this browser. For a session pending its second step whose person has a passkey (`methods` includes `passkey`). Needs the session cookie and CSRF header. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+         */
+        post: operations["verifySessionMfaPasskeyOptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/mfa/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in (step 2: a passkey) (the device's answer)
+         * @description The device's answer to the challenge from .../options, as PublicKeyCredential.toJSON() gives it. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+         */
+        post: operations["verifySessionMfaPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/confirm/passkey/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * "Confirm it's you" with a passkey (ask the device)
+         * @description Returns the options for the browser's PublicKeyCredential.parse*OptionsFromJSON and sets the __Host-linx_passkey cookie (5 minutes, single use) that binds the challenge to this browser. One of the person's own passkeys, for the actions that need a fresh proof (docs/ADMIN.md §7). Needs a whole (not pending) session and the CSRF header. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+         */
+        post: operations["confirmSessionPasskeyOptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/confirm/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * "Confirm it's you" with a passkey (the device's answer)
+         * @description The device's answer to the challenge from .../options, as PublicKeyCredential.toJSON() gives it. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+         */
+        post: operations["confirmSessionPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/passkeys/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a passkey to my account (ask the device)
+         * @description Returns the options for the browser's PublicKeyCredential.parse*OptionsFromJSON and sets the __Host-linx_passkey cookie (5 minutes, single use) that binds the challenge to this browser. At most 10. In a whole session this needs "confirm it's you" (a new passkey is a new way in); a session pending its second step's setup may add its first one, which finishes signing in. Needs the session cookie and CSRF header. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+         */
+        post: operations["addMyPasskeyOptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/setup-links/{token}/passkey/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set up an account with a passkey instead of a password (ask the device)
+         * @description Returns the options for the browser's PublicKeyCredential.parse*OptionsFromJSON and sets the __Host-linx_passkey cookie (5 minutes, single use) that binds the challenge to this browser. The "Passkey" choice on a set-password link (docs/ADMIN.md §5), only for an account with no passkey or authenticator yet (409 `second_step_exists`). The link is used up, any password the account had is removed, and every other session ends. Needs no session. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+         */
+        post: operations["completeSetupLinkPasskeyOptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/setup-links/{token}/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set up an account with a passkey instead of a password (the device's answer)
+         * @description The device's answer to the challenge from .../options, as PublicKeyCredential.toJSON() gives it. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+         */
+        post: operations["completeSetupLinkPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/passkeys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List my passkeys */
+        get: operations["listMyPasskeys"];
+        put?: never;
+        /**
+         * Add a passkey to my account (the device's answer)
+         * @description The device's answer to the challenge from POST /me/passkeys/options, as PublicKeyCredential.toJSON() gives it. At most 10 passkeys. In a whole session this needs "confirm it's you" (a new passkey is a new way in); a session pending its second step's setup may add its first one, which finishes signing in. Served by a hand-written handler (excluded from code generation): it clears the challenge cookie.
+         */
+        post: operations["addMyPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/passkeys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of my passkeys
+         * @description Needs "confirm it's you" (docs/ADMIN.md §7). Refused (409 `last_sign_in_method`) when it's the only way a person without a password can sign in. When it's an admin's last passkey and they have no authenticator app, 409 `password_only_warning` unless accept_password_only=true: they'd sign in with a password only (not recommended, docs/ADMIN.md §5).
+         */
+        delete: operations["removeMyPasskey"];
+        options?: never;
+        head?: never;
+        /** Rename one of my passkeys */
+        patch: operations["renameMyPasskey"];
+        trace?: never;
+    };
+    "/api/v1/me/password-only": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose to sign in with a password only
+         * @description For an admin whose sign-in is waiting on setting up a passkey or an authenticator app (`mfa_setup_required`): they accept the "not recommended" warning and sign in with a password only (docs/ADMIN.md §5, owner decision 2026-09-27). Finishes that sign-in. Refused (409 `second_step_exists`) once the person has a passkey or authenticator.
+         */
+        post: operations["acceptPasswordOnly"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1539,6 +1787,13 @@ export interface components {
             extension_id?: string;
             /** @description Whether a signed-in person has turned on an authenticator app. */
             mfa_enabled?: boolean;
+            /** @description How many passkeys a signed-in person has. */
+            passkeys?: number;
+            /** @description False for a person who set up their account with a passkey only. */
+            has_password?: boolean;
+            /** @description A signed-in person with no passkey and no authenticator app: for an admin, the "not recommended" reminder (docs/ADMIN.md §5). */
+            password_only?: boolean;
+            recovery_codes_left?: number;
             /** @description The number of that extension, e.g. "101". */
             extension?: string;
             presence?: components["schemas"]["Presence"];
@@ -2442,10 +2697,55 @@ export interface components {
         };
         SessionStatus: {
             /**
-             * @description `mfa_verify_required`: POST /session/mfa with a code from an already-enrolled authenticator app. `mfa_setup_required`: the account must enroll (POST /me/mfa) before it can do anything else.
+             * @description `mfa_verify_required`: finish with one of `methods` (POST /session/mfa with an authenticator or recovery code, or /session/mfa/passkey). `mfa_setup_required`: an admin must add a passkey (/me/passkeys) or an authenticator app (/me/mfa), or choose a password only (/me/password-only), before doing anything else.
              * @enum {string}
              */
             status: "signed_in" | "mfa_verify_required" | "mfa_setup_required";
+            /** @description What can finish a `mfa_verify_required` sign-in. */
+            methods?: ("authenticator" | "passkey" | "recovery_code")[];
+            /** @description Shown once, when a passkey set up through a setup link is the account's first second step. */
+            recovery_codes?: string[];
+        };
+        SetupLinkInfo: {
+            email: string;
+            name: string;
+            role: components["schemas"]["Role"];
+            /** @description The account already has a passkey or authenticator app: the link only sets a new password, and the second step is still asked for. */
+            has_second_step: boolean;
+            /** @description False when the server has no domain set (passkeys need one). */
+            passkeys_available: boolean;
+        };
+        PasskeyAnswer: {
+            /** @description PublicKeyCredential.toJSON(). */
+            credential: {
+                [key: string]: unknown;
+            };
+        };
+        PasskeyNew: {
+            /** @description e.g. "Mohammed's iPhone". */
+            name: string;
+            /** @description PublicKeyCredential.toJSON(). */
+            credential: {
+                [key: string]: unknown;
+            };
+        };
+        Passkey: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Backed up to the device maker's cloud (e.g. iCloud Keychain) when last used. */
+            synced: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_used_at?: string;
+        };
+        PasskeyList: {
+            items: components["schemas"]["Passkey"][];
+        };
+        PasskeyAdded: {
+            passkey: components["schemas"]["Passkey"];
+            recovery_codes?: string[];
         };
         MfaCode: {
             /** @description A 6-digit authenticator code, or a recovery code. */
@@ -2550,6 +2850,10 @@ export interface components {
             /** Format: uuid */
             extension_id?: string;
             mfa_enabled: boolean;
+            passkeys?: number;
+            has_password?: boolean;
+            /** @description No passkey and no authenticator app ("Password only ⚠" for an admin). */
+            password_only?: boolean;
             disabled: boolean;
             /** Format: date-time */
             created_at: string;
@@ -2588,7 +2892,8 @@ export interface components {
             setup_link_token: string;
         };
         PasswordChange: {
-            current_password: string;
+            /** @description Required when the account has a password. A passkey-only account adding its first password leaves it out and needs "confirm it's you" instead. */
+            current_password?: string;
             /** @description At least 12 characters. */
             new_password: string;
         };
@@ -4677,11 +4982,13 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The link can be used. */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["SetupLinkInfo"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -4700,11 +5007,13 @@ export interface operations {
                 "application/json": {
                     /** @description At least 12 characters. */
                     password: string;
+                    /** @description The "Password only" choice (docs/ADMIN.md §5): for an admin, the "not recommended" warning was shown and accepted, so no passkey or authenticator is asked for. Refused (409 `second_step_exists`) for an account that already has one. */
+                    password_only?: boolean;
                 };
             };
         };
         responses: {
-            /** @description Signed in, or pending first-run MFA enrollment. */
+            /** @description Signed in, or pending its second step (or that step's setup). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4954,6 +5263,352 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MfaConfirmed"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createPasskeySessionOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Options for navigator.credentials. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createPasskeySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyAnswer"];
+            };
+        };
+        responses: {
+            /** @description Signed in; sets the session cookies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    verifySessionMfaPasskeyOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Options for navigator.credentials. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    verifySessionMfaPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyAnswer"];
+            };
+        };
+        responses: {
+            /** @description Signed in. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    confirmSessionPasskeyOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Options for navigator.credentials. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    confirmSessionPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyAnswer"];
+            };
+        };
+        responses: {
+            /** @description Confirmed for 10 minutes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    addMyPasskeyOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Options for navigator.credentials. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    completeSetupLinkPasskeyOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Options for navigator.credentials. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    completeSetupLinkPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyNew"];
+            };
+        };
+        responses: {
+            /** @description Signed in; recovery_codes shown once. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listMyPasskeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's own passkeys, oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    addMyPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasskeyNew"];
+            };
+        };
+        responses: {
+            /** @description Added. recovery_codes is present (shown once) when this is the person's first second step. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyAdded"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    removeMyPasskey: {
+        parameters: {
+            query?: {
+                accept_password_only?: boolean;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    renameMyPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Renamed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Passkey"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    acceptPasswordOnly: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description The warning was shown and accepted.
+                     * @enum {boolean}
+                     */
+                    accept: true;
+                };
+            };
+        };
+        responses: {
+            /** @description Recorded; the session is signed in. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

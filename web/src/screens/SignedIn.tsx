@@ -7,6 +7,7 @@ import { useTeam } from "@/hooks/useTeam";
 import { navigate } from "@/hooks/useRoute";
 import { PhoneContext } from "@/phone/context";
 import { PhoneLine } from "@/phone/line";
+import { AccountScreen } from "./Account";
 import { DialerScreen } from "./Dialer";
 import { SettingsScreen } from "./Settings";
 import { Shell, type Screen } from "./Shell";
@@ -27,7 +28,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
     line.setDirectory((n) => members?.find((m) => m.extension === n)?.name);
   }, [line, team.members]);
 
-  const screen: Screen = path === "/team" ? "team" : path === "/settings" ? "settings" : "dialer";
+  const screen: Screen = path === "/team" ? "team" : path === "/settings" ? "settings" : path === "/account" ? "account" : "dialer";
 
   const changePresence = async (p: Presence) => {
     const before = presence;
@@ -51,6 +52,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
         {(query) =>
           screen === "team" ? <TeamScreen members={team.members} query={query} />
             : screen === "settings" ? <SettingsScreen />
+              : screen === "account" ? <AccountScreen />
               : <DialerScreen members={team.members} />}
       </Shell>
     </PhoneContext.Provider>

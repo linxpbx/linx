@@ -3,7 +3,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api, type Me } from "@/api/client";
 import { navigate, usePath } from "@/hooks/useRoute";
-import { SignInScreen, type SignInStep } from "@/screens/SignIn";
+import { SignInScreen, type SecondStepMethod, type SignInStep } from "@/screens/SignIn";
 
 // Everything after sign-in (the phone line, JsSIP, the screens) loads
 // separately, so the sign-in page stays small (docs/WEB.md §6).
@@ -11,7 +11,7 @@ const SignedIn = lazy(() => import("@/screens/SignedIn"));
 
 type Auth =
   | { state: "loading" }
-  | { state: "signed-out"; step: SignInStep }
+  | { state: "signed-out"; step: SignInStep; methods?: SecondStepMethod[] }
   | { state: "signed-in"; me: Me };
 
 const SETUP = /^\/setup\/([^/]+)$/;
@@ -26,7 +26,12 @@ export function App() {
     if (!data || data.type !== "user") {
       setAuth({ state: "signed-out", step: "password" });
     } else if (data.pending) {
-      setAuth({ state: "signed-out", step: data.mfa_enabled ? "code" : "enroll" });
+      // Waiting on the second step, or (an admin with none) on setting one up.
+      const methods: SecondStepMethod[] = [];
+      if (data.mfa_enabled) methods.push("authenticator");
+      if (data.passkeys) methods.push("passkey");
+      if (data.recovery_codes_left) methods.push("recovery_code");
+      setAuth({ state: "signed-out", step: methods.length ? "code" : "enroll", methods });
     } else {
       setAuth({ state: "signed-in", me: data });
     }
@@ -40,7 +45,7 @@ export function App() {
   if (auth.state === "loading") return <div className="min-h-dvh" aria-busy="true" />;
   if (auth.state === "signed-out") {
     return (
-      <SignInScreen key={setupToken ?? auth.step} initialStep={auth.step} setupToken={setupToken}
+      <SignInScreen key={setupToken ?? auth.step} initialStep={auth.step} initialMethods={auth.methods} setupToken={setupToken}
         onSignedIn={() => { navigate("/", true); void loadMe(); }} />
     );
   }

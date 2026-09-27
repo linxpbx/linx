@@ -21,7 +21,7 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-signin`);
       await page.getByLabel("Email").fill("mohammed@example.com");
       await page.getByLabel("Password").fill("wrong password here");
-      await page.getByRole("button", { name: "Sign in" }).click();
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
       await expect(page.getByRole("alert")).toHaveText("Wrong email or password.");
       await shot(page, `${scheme}-signin-error`);
     });
@@ -30,7 +30,15 @@ for (const scheme of ["light", "dark"] as const) {
       await fakeServer(page, { pending: "code" });
       await page.goto("/");
       await expect(page.getByRole("heading", { name: "Enter your code" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Use a passkey instead" })).toBeVisible();
       await shot(page, `${scheme}-signin-code`);
+    });
+
+    test("passkey as the second step", async ({ page }) => {
+      await fakeServer(page, { pending: "passkey" });
+      await page.goto("/");
+      await expect(page.getByRole("heading", { name: "Use your passkey" })).toBeVisible();
+      await shot(page, `${scheme}-signin-passkey-step`);
     });
 
     test("authenticator code: used, timed out, start over", async ({ page }) => {
@@ -54,9 +62,25 @@ for (const scheme of ["light", "dark"] as const) {
     test("first sign-in", async ({ page }) => {
       await fakeServer(page);
       await page.goto("/setup/abc123");
+      await expect(page.getByRole("heading", { name: "Welcome to Linx" })).toBeVisible();
+      await expect(page.getByRole("radio", { name: /Passkey/ })).toBeChecked();
+      await shot(page, `${scheme}-setup-choose`);
+
+      await page.getByRole("radio", { name: /Password only/ }).click();
+      await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+      await shot(page, `${scheme}-setup-password-only`);
+      await page.getByRole("checkbox", { name: "I understand, use a password only" }).click();
+      await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
+
+      await page.getByRole("radio", { name: /authenticator app/ }).click();
+      await page.getByRole("button", { name: "Continue" }).click();
       await expect(page.getByRole("heading", { name: "Choose a password" })).toBeVisible();
       await page.getByLabel("New password").fill("correct horse");
       await shot(page, `${scheme}-setup-password`);
+      await page.getByRole("button", { name: "Choose another way" }).click();
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByRole("heading", { name: "Create your passkey" })).toBeVisible();
+      await shot(page, `${scheme}-setup-passkey`);
     });
 
     test("used setup link", async ({ page }) => {
@@ -67,11 +91,25 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-setup-link-used`);
     });
 
-    test("authenticator setup", async ({ page }) => {
+    test("second step setup", async ({ page }) => {
       await fakeServer(page, { pending: "enroll" });
       await page.goto("/");
+      await expect(page.getByRole("heading", { name: "Add a second way to sign in" })).toBeVisible();
+      await shot(page, `${scheme}-setup-second-step`);
+      await page.getByRole("radio", { name: /authenticator app/ }).click();
+      await page.getByRole("button", { name: "Continue" }).click();
       await expect(page.getByAltText("QR code for your authenticator app")).toBeVisible();
       await shot(page, `${scheme}-setup-mfa`);
+    });
+
+    test("my account", async ({ page }) => {
+      await fakeServer(page, { signedIn: true });
+      await page.goto("/account");
+      await expect(page.getByRole("list", { name: "Your passkeys" })).toContainText("Mohammed's iPhone");
+      await shot(page, `${scheme}-account`);
+      await page.getByRole("button", { name: "Remove" }).first().click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await shot(page, `${scheme}-account-remove-passkey`);
     });
 
     test("team, dialer, settings, calls", async ({ page }) => {
@@ -113,6 +151,18 @@ for (const scheme of ["light", "dark"] as const) {
 
 test.describe("phone width", () => {
   test.use({ viewport: { width: 390, height: 844 } });
+  test("sign-in and my account", async ({ page }) => {
+    await fakeServer(page);
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: "Sign in with a passkey" })).toBeVisible();
+    await shot(page, "phone-signin");
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await fakeServer(page, { signedIn: true });
+    await page.goto("/account");
+    await expect(page.getByRole("list", { name: "Your passkeys" })).toBeVisible();
+    await shot(page, "phone-account");
+  });
+
   test("team and a call", async ({ page }) => {
     const sip = await fakeServer(page, { signedIn: true });
     await page.goto("/team");

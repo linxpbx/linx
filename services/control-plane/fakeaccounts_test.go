@@ -417,3 +417,15 @@ func (f *fakeStore) RecordLockedAttempt(_ context.Context, _, user uuid.UUID, at
 	f.users[user] = u
 	return u.FailureWindowCount == 20, nil
 }
+
+func (f *fakeStore) AcceptPasswordOnly(_ context.Context, _, user uuid.UUID, at time.Time, _ auth.AuditEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.users[user]
+	if !ok {
+		return auth.ErrNotFound
+	}
+	u.PasswordOnlyAcceptedAt = &at
+	f.users[user] = u
+	return nil
+}

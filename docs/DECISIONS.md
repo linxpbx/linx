@@ -609,6 +609,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** New Go dependency (licence check). Chromium's virtual authenticator makes it testable in Playwright.
 
+**As built (2026-09-27).** go-webauthn v0.18.2 (its dependencies: fxamacker/cbor MIT, go-webauthn/x BSD, golang-jwt MIT, google/go-tpm Apache-2.0, tinylib/msgp MIT, go-viper/mapstructure MIT; licence check passes). Challenges kept in the control plane's memory, bound to a `__Host-linx_passkey` cookie. A passkey sign-in isn't held back by the wrong-password lockout. A setup link's passkey choice is only for accounts without a second step and removes any old password. Details: `docs/ADMIN.md` §5 "As built".
+
 ## ADR-052 — Company sign-in (owner decision, 2026-09-26)
 
 **Context.** The brief asks for OIDC (Authentik, Keycloak, Entra); ADR-036 left it for 1E. Design: `docs/ADMIN.md` §6.

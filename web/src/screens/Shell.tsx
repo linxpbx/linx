@@ -2,7 +2,7 @@
 // screen, and the call panel on the right while a call is on.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  BarChart3, Check, Clock, Grid3x3, Inbox, LogOut, Phone, Search, Settings as SettingsIcon, Users, Video, Voicemail,
+  BarChart3, Check, CircleUser, Clock, Grid3x3, Inbox, LogOut, Phone, Search, Settings as SettingsIcon, Users, Video, Voicemail,
 } from "lucide-react";
 import type { Me, Presence, TeamMember } from "@/api/client";
 import { LogoMark, Wordmark } from "@/components/brand";
@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
-export type Screen = "dialer" | "team" | "settings";
+export type Screen = "dialer" | "team" | "settings" | "account";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
@@ -91,6 +91,10 @@ function AccountMenu({ me, presence, onPresence, onSignOut }:
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => navigate("/account")}>
+          <CircleUser aria-hidden="true" className="size-4" />
+          My account
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={onSignOut}>
           <LogOut aria-hidden="true" className="size-4" />
           Sign out

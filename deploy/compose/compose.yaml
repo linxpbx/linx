@@ -83,6 +83,9 @@ services:
       LINX_DB_USER: linx
       # For device SIP settings, "sip.<domain>" (docs/PBX.md §5).
       LINX_DOMAIN: ${LINX_DOMAIN:?set by linx setup}
+      # The phone networks from setup: "only from my home/office network"
+      # admits admins from these too (docs/ADMIN.md §3).
+      LINX_SIP_NETWORKS: ${LINX_SIP_NETWORKS:?set by linx setup}
       # The front door (docs/WEB.md §3): the only peers that may, and must,
       # send the visitor's address in a PROXY protocol header on 8443
       # (Pangolin's address, or linx-sni); set by linx setup.

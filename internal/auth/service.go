@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/apihttp"
@@ -38,6 +39,12 @@ type Accounts struct {
 	// Log is for audit writes that fail (the response is already decided);
 	// nil logs to slog.Default.
 	Log *slog.Logger
+	// WebAuthn is the passkey relying party (NewWebAuthn); nil turns
+	// passkeys off (no domain set). Passkeys is their storage.
+	WebAuthn *webauthn.WebAuthn
+	Passkeys PasskeyStore
+
+	ceremonies ceremonies
 }
 
 func (a *Accounts) sessionsEnded(ctx context.Context, user uuid.UUID, session *uuid.UUID) {
@@ -55,6 +62,11 @@ func notFound(what string) *apihttp.Error {
 func notASession() *apihttp.Error {
 	return &apihttp.Error{Status: http.StatusBadRequest, Code: "not_a_session",
 		Detail: "This only works for a signed-in browser session."}
+}
+
+func secondStepExists() *apihttp.Error {
+	return &apihttp.Error{Status: http.StatusConflict, Code: "second_step_exists",
+		Detail: "This account already has a passkey or an authenticator app. Sign in with it first."}
 }
 
 func invalidLink() *apihttp.Error {
@@ -427,14 +439,34 @@ func (a *Accounts) newSession(ctx context.Context, u User, mfaVerified bool, ip 
 	return s, token, csrf, nil
 }
 
-func statusFor(mfaVerified, mfaEnabled bool) string {
-	if mfaVerified {
+// passwordSignInDone reports whether a password (or a setup link's new
+// password) is a whole sign-in for u: only when u has no second step and
+// isn't an admin who still has to set one up (docs/ADMIN.md §5).
+func passwordSignInDone(u User) bool { return !u.HasSecondStep() && !u.needsSecondStepSetup() }
+
+func statusFor(u User, done bool) string {
+	if done {
 		return "signed_in"
 	}
-	if mfaEnabled {
+	if u.HasSecondStep() {
 		return "mfa_verify_required"
 	}
 	return "mfa_setup_required"
+}
+
+// passwordOutcome is the session a correct password gets u: whole, or
+// pending the second step (or setting one up).
+func (a *Accounts) passwordOutcome(ctx context.Context, u User, ip netip.Addr, userAgent string, now time.Time) (SessionOutcome, error) {
+	done := passwordSignInDone(u)
+	sess, token, csrf, err := a.newSession(ctx, u, done, ip, userAgent, now)
+	if err != nil {
+		return SessionOutcome{}, err
+	}
+	out := SessionOutcome{Session: sess, Token: token, CSRF: csrf, Status: statusFor(u, done)}
+	if out.Status == "mfa_verify_required" {
+		out.Methods = u.SecondStepMethods()
+	}
+	return out, nil
 }
 
 // SignIn is step one of signing in: email and password (docs/WEB.md §4).
@@ -478,7 +510,12 @@ func (a *Accounts) SignIn(ctx context.Context, tenant uuid.UUID, email, password
 		a.auditSignIn(ctx, attempt)
 		return SessionOutcome{}, lockedError(*u.LockedUntil)
 	}
-	if !VerifyPassword(u.PasswordHash, password) {
+	if !u.HasPassword() {
+		// A passkey-only account: no password can match, but take as long as
+		// checking one would, and count the try like any wrong password.
+		VerifyPassword(unknownUserHash, password)
+	}
+	if !u.HasPassword() || !VerifyPassword(u.PasswordHash, password) {
 		if a.Failures != nil {
 			a.Failures.Allow(ipKey, now)
 		}
@@ -502,13 +539,13 @@ func (a *Accounts) SignIn(ctx context.Context, tenant uuid.UUID, email, password
 	if a.Alerts != nil {
 		_ = a.Alerts.Resolve(ctx, tenant, loginGuessKey(u.ID))
 	}
-	mfaVerified := !u.MFAEnabled && !requiresMFA(u.Role)
-	sess, token, csrf, err := a.newSession(ctx, u, mfaVerified, ip, userAgent, now)
+	out, err := a.passwordOutcome(ctx, u, ip, userAgent, now)
 	if err != nil {
 		return SessionOutcome{}, err
 	}
+	attempt.method = "password"
 	a.auditSignIn(ctx, attempt)
-	return SessionOutcome{Session: sess, Token: token, CSRF: csrf, Status: statusFor(mfaVerified, u.MFAEnabled)}, nil
+	return out, nil
 }
 
 // signInAttempt is one sign-in step's outcome for the audit log: reason is
@@ -652,18 +689,23 @@ func (a *Accounts) usableSetupLink(ctx context.Context, token string, ip netip.A
 }
 
 // CheckSetupLink reports whether a set-password link can still be used, so
-// the page can say it can't before asking for a password.
-func (a *Accounts) CheckSetupLink(ctx context.Context, token string, ip netip.Addr) error {
-	_, _, err := a.usableSetupLink(ctx, token, ip, a.Now().UTC())
-	return err
+// the page can say it can't before asking for a password, and returns its
+// person: the page shows their email and offers the passkey and
+// password-only choices only to someone with no second step yet.
+func (a *Accounts) CheckSetupLink(ctx context.Context, token string, ip netip.Addr) (User, error) {
+	_, u, err := a.usableSetupLink(ctx, token, ip, a.Now().UTC())
+	return u, err
 }
 
 // CompleteSetup is a new person's first sign-in through their one-time link
 // (docs/WEB.md §4), or an existing person's password reset: they pick a
 // password, any other session of theirs ends, and they're signed in at once
-// (still pending MFA enrollment if their role requires it, or their
-// authenticator code if they already have one: a link never skips it).
-func (a *Accounts) CompleteSetup(ctx context.Context, linkToken, password string, ip netip.Addr, userAgent string) (SessionOutcome, error) {
+// (still pending a second step's setup if their role requires one, or their
+// second step if they already have one: a link never skips it).
+// passwordOnly is the "Password only" choice (docs/ADMIN.md §5): for an
+// admin it means they accepted the "not recommended" warning, so no second
+// step is asked for; it's refused for someone who already has one.
+func (a *Accounts) CompleteSetup(ctx context.Context, linkToken, password string, passwordOnly bool, ip netip.Addr, userAgent string) (SessionOutcome, error) {
 	if err := CheckPasswordPolicy(password); err != nil {
 		return SessionOutcome{}, badRequest("password_invalid", err.Error())
 	}
@@ -671,6 +713,9 @@ func (a *Accounts) CompleteSetup(ctx context.Context, linkToken, password string
 	link, u, err := a.usableSetupLink(ctx, linkToken, ip, now)
 	if err != nil {
 		return SessionOutcome{}, err
+	}
+	if passwordOnly && u.HasSecondStep() {
+		return SessionOutcome{}, secondStepExists()
 	}
 	hash, err := HashPassword(password)
 	if err != nil {
@@ -691,12 +736,16 @@ func (a *Accounts) CompleteSetup(ctx context.Context, linkToken, password string
 		return SessionOutcome{}, err
 	}
 	a.sessionsEnded(ctx, u.ID, nil)
-	mfaVerified := !u.MFAEnabled && !requiresMFA(u.Role)
-	sess, token, csrf, err := a.newSession(ctx, u, mfaVerified, ip, userAgent, now)
-	if err != nil {
-		return SessionOutcome{}, err
+	if passwordOnly && requiresMFA(u.Role) && u.PasswordOnlyAcceptedAt == nil {
+		if err := a.Store.AcceptPasswordOnly(ctx, u.TenantID, u.ID, now, AuditEntry{
+			TenantID: &u.TenantID, Actor: "user:" + u.ID.String(), IP: ip, Action: "user.password_only_accepted",
+			Target: "user:" + u.ID.String(), Result: ResultOK,
+		}); err != nil {
+			return SessionOutcome{}, err
+		}
+		u.PasswordOnlyAcceptedAt = &now
 	}
-	return SessionOutcome{Session: sess, Token: token, CSRF: csrf, Status: statusFor(mfaVerified, u.MFAEnabled)}, nil
+	return a.passwordOutcome(ctx, u, ip, userAgent, now)
 }
 
 // VerifyMFA is step two of signing in: the authenticator code (or a
@@ -723,8 +772,8 @@ func (a *Accounts) VerifyMFA(ctx context.Context, code string) error {
 	if err != nil {
 		return err
 	}
-	if !u.MFAEnabled || len(u.MFASecretEnc) == 0 {
-		return badRequest("mfa_not_enrolled", "Set up an authenticator app first: POST /me/mfa.")
+	if !u.HasSecondStep() {
+		return badRequest("mfa_not_enrolled", "Set up a passkey or an authenticator app first.")
 	}
 	attempt := signInAttempt{tenant: sess.TenantID, user: &u, ip: ClientIPFromContext(ctx), code: true}
 	if u.LockedUntil != nil && now.Before(*u.LockedUntil) {
@@ -789,19 +838,21 @@ const (
 // a later step than the last one accepted, a recovery code only while it's
 // still stored.
 func (a *Accounts) checkMFACode(ctx context.Context, u User, code string, now time.Time) (mfaCodeResult, error) {
-	secret, err := a.Sealer.Open(mfaRowID(u.ID), u.MFASecretEnc)
-	if err != nil {
-		return "", fmt.Errorf("opening MFA secret: %w", err)
-	}
-	if step, ok := MatchTOTPCode(secret, code, now); ok {
-		fresh, err := a.Store.UseTOTPStep(ctx, u.TenantID, u.ID, step)
+	if u.MFAEnabled && len(u.MFASecretEnc) > 0 {
+		secret, err := a.Sealer.Open(mfaRowID(u.ID), u.MFASecretEnc)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("opening MFA secret: %w", err)
 		}
-		if !fresh {
-			return codeUsed, nil
+		if step, ok := MatchTOTPCode(secret, code, now); ok {
+			fresh, err := a.Store.UseTOTPStep(ctx, u.TenantID, u.ID, step)
+			if err != nil {
+				return "", err
+			}
+			if !fresh {
+				return codeUsed, nil
+			}
+			return codeAuthenticator, nil
 		}
-		return codeAuthenticator, nil
 	}
 	norm := normalizeRecoveryCode(code)
 	for _, stored := range u.RecoveryCodeHashes {
@@ -838,8 +889,15 @@ func (a *Accounts) BeginMFAEnrollment(ctx context.Context) (secret, otpauthURL s
 	if err != nil {
 		return "", "", err
 	}
-	if caller.Pending && u.MFAEnabled {
+	if caller.Pending && u.HasSecondStep() {
 		return "", "", mfaVerifyFirst()
+	}
+	if !caller.Pending {
+		// A new authenticator is a new way in: a borrowed session mustn't be
+		// able to add one without a fresh proof (docs/ADMIN.md §7).
+		if err := RequireConfirmed(ctx, a.Now()); err != nil {
+			return "", "", err
+		}
 	}
 	raw, err := NewTOTPSecret()
 	if err != nil {
@@ -874,7 +932,7 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 	if err != nil {
 		return nil, err
 	}
-	if caller.Pending && u.MFAEnabled {
+	if caller.Pending && u.HasSecondStep() {
 		return nil, mfaVerifyFirst()
 	}
 	if len(u.MFAPendingSecretEnc) == 0 {
@@ -899,12 +957,23 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 	if err := a.Store.ConfirmMFA(ctx, u.TenantID, u.ID, hashes, step, now, audit); err != nil {
 		return nil, err
 	}
-	if sess, ok := SessionFromContext(ctx); ok && !sess.MFAVerified {
-		if err := a.Store.PromoteSession(ctx, sess.ID); err != nil {
-			return nil, err
-		}
+	if err := a.promotePending(ctx, now); err != nil {
+		return nil, err
 	}
 	return codes, nil
+}
+
+// promotePending turns the request's session, if it was pending its
+// second step's setup, into a whole one that has just proved identity.
+func (a *Accounts) promotePending(ctx context.Context, now time.Time) error {
+	sess, ok := SessionFromContext(ctx)
+	if !ok || sess.MFAVerified {
+		return nil
+	}
+	if err := a.Store.PromoteSession(ctx, sess.ID); err != nil {
+		return err
+	}
+	return a.Store.ConfirmSession(ctx, sess.ID, now)
 }
 
 // checkTOTPOnly checks code against the pending (unconfirmed) enrollment
@@ -953,13 +1022,23 @@ func (a *Accounts) Confirm(ctx context.Context, password, code string) error {
 	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
 		return tooManyFailuresErr()
 	}
+	if !u.HasPassword() {
+		return &apihttp.Error{Status: http.StatusBadRequest, Code: "password_not_set",
+			Detail: "You don't have a password. Use your passkey to confirm."}
+	}
 	if !VerifyPassword(u.PasswordHash, password) {
 		if a.Failures != nil {
 			a.Failures.Allow(ipKey, now)
 		}
 		return &apihttp.Error{Status: http.StatusUnauthorized, Code: "password_invalid", Detail: "Your password is incorrect."}
 	}
-	if u.MFAEnabled {
+	if !u.MFAEnabled && u.PasskeyCount > 0 && strings.TrimSpace(code) == "" {
+		// Signing in takes the password and the passkey; confirming mustn't
+		// take less. A recovery code in code still works.
+		return &apihttp.Error{Status: http.StatusBadRequest, Code: "passkey_required",
+			Detail: "Use your passkey to confirm, or type one of your recovery codes."}
+	}
+	if u.HasSecondStep() {
 		method, err := a.checkMFACode(ctx, u, code, now)
 		if err != nil {
 			return err
@@ -1037,9 +1116,12 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 	if err != nil {
 		return err
 	}
+	now := a.Now().UTC()
+	if !u.HasPassword() {
+		return a.addPassword(ctx, u, newPassword, now)
+	}
 	// A wrong current password draws on the same per-address budget as a
 	// wrong sign-in, so a borrowed session can't be used to guess it.
-	now := a.Now().UTC()
 	ipKey := IPKey(ClientIPFromContext(ctx))
 	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
 		return tooManyFailuresErr()
@@ -1066,6 +1148,28 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 	}
 	a.sessionsEnded(ctx, u.ID, nil)
 	return nil
+}
+
+// addPassword gives a passkey-only account a password ("Add a password" in
+// My account, docs/ui/ADMIN_SCREENS_PHASE1E.md §11). There's no current
+// password to check, so it needs a fresh "confirm it's you" (their
+// passkey) instead. Nothing that worked stops working, so no session ends.
+func (a *Accounts) addPassword(ctx context.Context, u User, newPassword string, now time.Time) error {
+	if err := RequireConfirmed(ctx, now); err != nil {
+		return err
+	}
+	if err := CheckPasswordPolicy(newPassword); err != nil {
+		return badRequest("password_invalid", err.Error())
+	}
+	hash, err := HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	_, audit, err := userAudit(ctx, "user.password_added", "user:"+u.ID.String())
+	if err != nil {
+		return err
+	}
+	return a.Store.SetPassword(ctx, u.TenantID, u.ID, hash, now, false, audit)
 }
 
 // SignOut revokes the caller's session (docs/WEB.md §4).

@@ -564,17 +564,20 @@ func (h *harness) provision(t *testing.T) {
 	}
 	h.call("POST", "/api/v1/extensions/"+ext.ID+"/devices", map[string]string{"name": "SIPp"}, &dev)
 
-	person := func(email, name, ext string) string {
-		out := h.docker("exec", "linx-control-plane", "/usr/local/bin/service", "user", "create",
-			"--email", email, "--name", name, "--role", "user", "--extension", ext)
+	person := func(email, name, role string, extra ...string) string {
+		args := append([]string{"exec", "linx-control-plane", "/usr/local/bin/service", "user", "create",
+			"--email", email, "--name", name, "--role", role}, extra...)
+		out := h.docker(args...)
 		m := linkRe.FindStringSubmatch(out)
 		if m == nil {
 			t.Fatalf("no set-password link in:\n%s", out)
 		}
 		return m[1]
 	}
-	aisha := person("aisha@linx.test", "Aisha Rahman", "101")
-	omar := person("omar@linx.test", "Omar Khalil", "102")
+	aisha := person("aisha@linx.test", "Aisha Rahman", "user", "--extension", "101")
+	omar := person("omar@linx.test", "Omar Khalil", "user", "--extension", "102")
+	// An admin who sets up with a passkey (Chromium's virtual authenticator).
+	owner := person("owner@linx.test", "Owner", "admin")
 
 	// The softphone on 103 signs in over TLS from linx-public and answers
 	// whatever rings it.
@@ -618,7 +621,7 @@ func (h *harness) provision(t *testing.T) {
 		"--volume", web+":/web", "--workdir", "/web",
 		"--env", "LINX_BASE_URL=https://meet."+domain,
 		"--env", "LINX_TEST_SPKI="+os.Getenv("LINX_TEST_SPKI"),
-		"--env", "LINX_SETUP_A="+aisha, "--env", "LINX_SETUP_B="+omar,
+		"--env", "LINX_SETUP_A="+aisha, "--env", "LINX_SETUP_B="+omar, "--env", "LINX_SETUP_ADMIN="+owner,
 		"--env", "CI=1",
 		playwrightImage, "npx", "--no-install", "playwright", "test", "--config", "e2e/calls.config.ts")
 	// The softphone calls a browser when the suite says it's ready for it

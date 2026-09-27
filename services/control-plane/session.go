@@ -32,15 +32,17 @@ func registerSessionHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 			return
 		}
 		setSessionCookies(w, out)
-		writeJSON(w, http.StatusOK, sessionStatusBody{Status: out.Status})
+		writeJSON(w, http.StatusOK, statusBody(out))
 	}))))
 
 	mux.Handle("GET /api/v1/setup-links/{token}", apihttp.NoStore(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := accounts.CheckSetupLink(r.Context(), r.PathValue("token"), authn.IPs.ClientIP(r)); err != nil {
+		u, err := accounts.CheckSetupLink(r.Context(), r.PathValue("token"), authn.IPs.ClientIP(r))
+		if err != nil {
 			writeAccountError(w, err)
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		writeJSON(w, http.StatusOK, setupLinkInfoBody{Email: u.Email, Name: u.Name, Role: u.Role,
+			HasSecondStep: u.HasSecondStep(), Passkeys: accounts.WebAuthn != nil})
 	})))
 
 	mux.Handle("POST /api/v1/setup-links/{token}", apihttp.NoStore(apihttp.LimitBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,13 +50,13 @@ func registerSessionHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 		if !decodeJSON(w, r, &body) {
 			return
 		}
-		out, err := accounts.CompleteSetup(r.Context(), r.PathValue("token"), body.Password, authn.IPs.ClientIP(r), r.UserAgent())
+		out, err := accounts.CompleteSetup(r.Context(), r.PathValue("token"), body.Password, body.PasswordOnly, authn.IPs.ClientIP(r), r.UserAgent())
 		if err != nil {
 			writeAccountError(w, err)
 			return
 		}
 		setSessionCookies(w, out)
-		writeJSON(w, http.StatusOK, sessionStatusBody{Status: out.Status})
+		writeJSON(w, http.StatusOK, statusBody(out))
 	}))))
 
 	// These two act on the caller's own existing session, so they go
@@ -95,6 +97,8 @@ func registerSessionHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 		}
 		writeJSON(w, http.StatusOK, sessionStatusBody{Status: "signed_in"})
 	})))))
+
+	registerPasskeyHandlers(mux, authn, accounts, tenant)
 }
 
 type confirmSessionBody struct {
@@ -108,7 +112,16 @@ type signInBody struct {
 }
 
 type setupLinkBody struct {
-	Password string `json:"password"`
+	Password     string `json:"password"`
+	PasswordOnly bool   `json:"password_only"`
+}
+
+type setupLinkInfoBody struct {
+	Email         string `json:"email"`
+	Name          string `json:"name"`
+	Role          string `json:"role"`
+	HasSecondStep bool   `json:"has_second_step"`
+	Passkeys      bool   `json:"passkeys_available"`
 }
 
 type mfaCodeBody struct {
@@ -116,7 +129,13 @@ type mfaCodeBody struct {
 }
 
 type sessionStatusBody struct {
-	Status string `json:"status"`
+	Status        string   `json:"status"`
+	Methods       []string `json:"methods,omitempty"`
+	RecoveryCodes []string `json:"recovery_codes,omitempty"`
+}
+
+func statusBody(out auth.SessionOutcome) sessionStatusBody {
+	return sessionStatusBody{Status: out.Status, Methods: out.Methods, RecoveryCodes: out.RecoveryCodes}
 }
 
 // setSessionCookies sets the __Host- session and CSRF cookies (docs/WEB.md

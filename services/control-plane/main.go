@@ -192,7 +192,16 @@ func main() {
 	// People accounts and sessions (docs/WEB.md §4): the "someone is
 	// guessing a password" alert reuses this same engine, and sign-in
 	// failures share the per-address budget a bad API key or token draws on.
-	accounts := &auth.Accounts{Store: st, Sealer: sealer, Alerts: engine, Failures: authn.Failures, Now: time.Now, Log: log}
+	accounts := &auth.Accounts{Store: st, Sealer: sealer, Alerts: engine, Failures: authn.Failures, Now: time.Now, Log: log, Passkeys: st}
+	// Passkeys need the domain: it's their relying party (ADR-051).
+	if d := os.Getenv("LINX_DOMAIN"); d != "" {
+		wa, err := auth.NewWebAuthn(d)
+		if err != nil {
+			log.Error("passkeys", "err", err)
+			os.Exit(1)
+		}
+		accounts.WebAuthn = wa
+	}
 
 	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
 	// Trunk tests connect only where a phone line can be: never to Linx's

@@ -54,7 +54,14 @@ func postJSON(t *testing.T, env *testEnv, path string, body any, cookies []*http
 }
 
 func cookiesAndCSRF(resp *http.Response) ([]*http.Cookie, string) {
-	cookies := resp.Cookies()
+	// Like a browser, drop the ones the response deletes (the passkey
+	// challenge cookie, once answered).
+	var cookies []*http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.MaxAge >= 0 {
+			cookies = append(cookies, c)
+		}
+	}
 	var csrf string
 	for _, c := range cookies {
 		if c.Name == auth.CSRFCookieName {
@@ -262,7 +269,7 @@ func TestCheckSetupLink(t *testing.T) {
 		resp.Body.Close()
 		return resp.StatusCode
 	}
-	if got := status(token); got != http.StatusNoContent {
+	if got := status(token); got != http.StatusOK {
 		t.Fatalf("fresh link: %d", got)
 	}
 	resp := postJSON(t, env, "/api/v1/setup-links/"+token, map[string]string{"password": "a fine long passphrase 1"}, nil, "")

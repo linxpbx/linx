@@ -30,13 +30,15 @@ var (
 
 const userColumns = `id, tenant_id, email, name, role, extension_id, password_hash, password_updated_at,
 	mfa_secret_enc, mfa_pending_secret_enc, mfa_enabled, recovery_code_hashes, failed_attempts, locked_until,
-	failure_window_start, failure_window_count, disabled_at, version, created_at, updated_at, presence, mfa_last_step`
+	failure_window_start, failure_window_count, disabled_at, version, created_at, updated_at, presence, mfa_last_step,
+	password_only_accepted_at, (SELECT count(*) FROM user_passkey pk WHERE pk.user_id = app_user.id)::int`
 
 func scanUser(row pgx.Row) (auth.User, error) {
 	var u auth.User
 	err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Role, &u.ExtensionID, &u.PasswordHash, &u.PasswordUpdatedAt,
 		&u.MFASecretEnc, &u.MFAPendingSecretEnc, &u.MFAEnabled, &u.RecoveryCodeHashes, &u.FailedAttempts, &u.LockedUntil,
-		&u.FailureWindowStart, &u.FailureWindowCount, &u.DisabledAt, &u.Version, &u.CreatedAt, &u.UpdatedAt, &u.Presence, &u.MFALastStep)
+		&u.FailureWindowStart, &u.FailureWindowCount, &u.DisabledAt, &u.Version, &u.CreatedAt, &u.UpdatedAt, &u.Presence, &u.MFALastStep,
+		&u.PasswordOnlyAcceptedAt, &u.PasskeyCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return u, auth.ErrNotFound
 	}
@@ -213,7 +215,8 @@ func (s *Store) ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recovery
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE app_user SET
 				mfa_secret_enc = mfa_pending_secret_enc, mfa_pending_secret_enc = NULL,
-				mfa_enabled = true, recovery_code_hashes = $3, mfa_last_step = $5, updated_at = $4, version = version + 1
+				mfa_enabled = true, recovery_code_hashes = $3, mfa_last_step = $5, password_only_accepted_at = NULL,
+				updated_at = $4, version = version + 1
 			WHERE id = $1 AND tenant_id = $2 AND mfa_pending_secret_enc IS NOT NULL`, user, tenant, recoveryHashes, at, totpStep)
 		if err != nil {
 			return fmt.Errorf("confirming MFA: %w", err)
@@ -226,14 +229,19 @@ func (s *Store) ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recovery
 }
 
 // ResetMFA clears an account's authenticator, confirmed and pending,
-// recovery codes and step memory (docs/ADMIN.md §7).
+// passkeys, recovery codes, step memory and "password only" choice
+// (docs/ADMIN.md §7).
 func (s *Store) ResetMFA(ctx context.Context, tenant, user uuid.UUID, at time.Time, audit auth.AuditEntry) (auth.User, error) {
 	var out auth.User
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM user_passkey WHERE user_id = $1 AND tenant_id = $2`, user, tenant); err != nil {
+			return fmt.Errorf("removing passkeys: %w", err)
+		}
 		var err error
 		out, err = scanUser(tx.QueryRow(ctx, `UPDATE app_user SET
 				mfa_secret_enc = NULL, mfa_pending_secret_enc = NULL, mfa_enabled = false,
-				recovery_code_hashes = '{}', mfa_last_step = NULL, version = version + 1, updated_at = $3
+				recovery_code_hashes = '{}', mfa_last_step = NULL, password_only_accepted_at = NULL,
+				version = version + 1, updated_at = $3
 			WHERE id = $1 AND tenant_id = $2 RETURNING `+userColumns, user, tenant, at))
 		if err != nil {
 			return err
@@ -241,6 +249,20 @@ func (s *Store) ResetMFA(ctx context.Context, tenant, user uuid.UUID, at time.Ti
 		return insertAudit(ctx, tx, audit)
 	})
 	return out, err
+}
+
+func (s *Store) AcceptPasswordOnly(ctx context.Context, tenant, user uuid.UUID, at time.Time, audit auth.AuditEntry) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE app_user SET password_only_accepted_at = $3, updated_at = $3, version = version + 1
+			WHERE id = $1 AND tenant_id = $2`, user, tenant, at)
+		if err != nil {
+			return fmt.Errorf("recording password only: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return auth.ErrNotFound
+		}
+		return insertAudit(ctx, tx, audit)
+	})
 }
 
 func (s *Store) UseTOTPStep(ctx context.Context, tenant, user uuid.UUID, step int64) (bool, error) {

@@ -22,8 +22,15 @@ type Json = Record<string, unknown>;
 
 export interface FakeOptions {
   signedIn?: boolean;
-  pending?: "code" | "enroll";
+  // code: an authenticator app and a passkey; passkey: a passkey only;
+  // enroll: an admin with no second step yet.
+  pending?: "code" | "passkey" | "enroll";
 }
+
+export const PASSKEYS = [
+  { id: "0199a1", name: "Mohammed's iPhone", synced: true, created_at: "2026-09-01T09:00:00Z", last_used_at: new Date().toISOString() },
+  { id: "0199a2", name: "Mac — Safari", synced: true, created_at: "2026-09-02T09:00:00Z", last_used_at: new Date(Date.now() - 3 * 86_400_000).toISOString() },
+];
 
 export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   if (process.env.LINX_E2E_DEBUG) {
@@ -43,15 +50,18 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       }
       return route.fulfill(json({
         id: "0199", type: "user", role: "admin", scopes: opts.pending ? [] : ["team:read"], pending: !!opts.pending,
-        email: ME.email, name: ME.name, extension: ME.extension, presence: "available", mfa_enabled: opts.pending !== "enroll",
+        email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
+        mfa_enabled: opts.pending === "code" || !opts.pending, passkeys: opts.pending === "enroll" ? 0 : opts.pending === "code" ? 1 : PASSKEYS.length,
+        has_password: true, password_only: opts.pending === "enroll", recovery_codes_left: opts.pending === "enroll" ? 0 : 8,
       }));
     }
     if (p.startsWith("/api/v1/setup-links/") && method === "GET") {
       if (p.endsWith("/used")) {
         return route.fulfill(json({ type: "about:blank", title: "Bad Request", status: 400, code: "setup_link_invalid", detail: "Used." }, 400));
       }
-      return route.fulfill({ status: 204 });
+      return route.fulfill(json({ email: ME.email, name: ME.name, role: "system_admin", has_second_step: false, passkeys_available: true }));
     }
+    if (p === "/api/v1/me/passkeys" && method === "GET") return route.fulfill(json({ items: PASSKEYS }));
     if (p === "/api/v1/session" && method === "POST") {
       return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "sign_in_invalid", detail: "Wrong email or password." }, 401));
     }

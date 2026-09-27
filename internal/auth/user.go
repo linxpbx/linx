@@ -14,6 +14,9 @@ import (
 // so starting (or restarting) enrollment never disturbs an
 // already-confirmed secret until the new one is confirmed in turn.
 // RecoveryCodeHashes are SHA-256, one per unused recovery code.
+//
+// PasswordHash is empty for a person who set up their account with a
+// passkey and hasn't added a password (docs/ADMIN.md §5).
 type User struct {
 	ID, TenantID uuid.UUID
 	Email, Name  string
@@ -31,6 +34,12 @@ type User struct {
 	// MFALastStep is the TOTP step of the last authenticator code accepted
 	// (migration 0015): each code works once.
 	MFALastStep *int64
+	// PasskeyCount is how many passkeys the person has (read-only here:
+	// counted from user_passkey). PasswordOnlyAcceptedAt is set when an
+	// admin chose to sign in with a password only and accepted the warning
+	// (docs/ADMIN.md §5, migration 0022).
+	PasskeyCount           int
+	PasswordOnlyAcceptedAt *time.Time
 
 	// FailedAttempts and LockedUntil are per-account lockout (docs/WEB.md
 	// §4); FailureWindowStart/-Count are the separate rolling hour the
@@ -104,6 +113,10 @@ type UserStore interface {
 	// does that (a plain password change doesn't need to).
 	ResetMFA(ctx context.Context, tenant, user uuid.UUID, at time.Time, audit AuditEntry) (User, error)
 
+	// AcceptPasswordOnly records an admin's choice to sign in with a
+	// password only, warning accepted (docs/ADMIN.md §5).
+	AcceptPasswordOnly(ctx context.Context, tenant, user uuid.UUID, at time.Time, audit AuditEntry) error
+
 	// RecordLoginSuccess clears lockout and the guessing-password window.
 	RecordLoginSuccess(ctx context.Context, tenant, user uuid.UUID, at time.Time) error
 	// RecordLoginFailure applies lockout and the rolling window, returning
@@ -151,9 +164,43 @@ func loginGuessKey(user uuid.UUID) string { return "login_guessing:" + user.Stri
 
 func mfaRowID(user uuid.UUID) string { return "app_user:mfa:" + user.String() }
 
-// requiresMFA reports whether role must have MFA turned on to sign in
-// (ADR-036: required for admin/system_admin, optional otherwise).
+// requiresMFA reports whether role must have a second step (a passkey or
+// an authenticator app) to sign in, unless the person chose a password only
+// (ADR-036: required for admin/system_admin, optional otherwise; password
+// only allowed with a warning since 2026-09-27, docs/ADMIN.md §5).
 func requiresMFA(role string) bool { return role == RoleAdmin || role == RoleSystemAdmin }
+
+// HasSecondStep reports whether u signs in with more than a password: an
+// authenticator app or at least one passkey. With one, a password alone is
+// never enough to sign in (docs/ADMIN.md §5).
+func (u User) HasSecondStep() bool { return u.MFAEnabled || u.PasskeyCount > 0 }
+
+// HasPassword reports whether u has a password at all (a passkey-only
+// account doesn't).
+func (u User) HasPassword() bool { return u.PasswordHash != "" }
+
+// needsSecondStepSetup reports whether u must set up a passkey or
+// authenticator (or accept signing in with a password only) before a
+// password sign-in counts: admins who have done neither.
+func (u User) needsSecondStepSetup() bool {
+	return requiresMFA(u.Role) && !u.HasSecondStep() && u.PasswordOnlyAcceptedAt == nil
+}
+
+// SecondStepMethods lists what can finish u's sign-in after the password:
+// "authenticator", "recovery_code", "passkey".
+func (u User) SecondStepMethods() []string {
+	var m []string
+	if u.MFAEnabled {
+		m = append(m, "authenticator")
+	}
+	if u.PasskeyCount > 0 {
+		m = append(m, "passkey")
+	}
+	if len(u.RecoveryCodeHashes) > 0 {
+		m = append(m, "recovery_code")
+	}
+	return m
+}
 
 // SessionOutcome is a new or promoted session, and the raw cookie values
 // shown to the browser once.
@@ -161,10 +208,16 @@ type SessionOutcome struct {
 	Session UserSession
 	Token   string
 	CSRF    string
-	// Status is "signed_in", "mfa_verify_required" (an authenticator code
-	// is needed for an already-enrolled account) or "mfa_setup_required"
-	// (the account must enroll before it can do anything else).
+	// Status is "signed_in", "mfa_verify_required" (a second step is needed
+	// for an account that has one) or "mfa_setup_required" (an admin must
+	// set one up, or choose a password only, before doing anything else).
 	Status string
+	// Methods is what can finish a "mfa_verify_required" sign-in
+	// (User.SecondStepMethods).
+	Methods []string
+	// RecoveryCodes are shown once, when a passkey set up through a setup
+	// link is the account's first second step.
+	RecoveryCodes []string
 }
 
 func trimUserAgent(s string) string {

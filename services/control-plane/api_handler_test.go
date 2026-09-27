@@ -109,7 +109,10 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	calls := &fakeCalls{connected: true}
 	authn.Sessions = st
-	accounts := &auth.Accounts{Store: st, Sealer: sender.Sealer, Alerts: nil, Failures: authn.Failures, Now: time.Now}
+	accounts := &auth.Accounts{Store: st, Sealer: sender.Sealer, Alerts: nil, Failures: authn.Failures, Now: time.Now, Passkeys: st}
+	if accounts.WebAuthn, err = auth.NewWebAuthn("linx.example.com"); err != nil {
+		t.Fatal(err)
+	}
 	turnIssuer := &turn.Issuer{Secret: []byte("test-turn-secret"), URLs: turn.DefaultURLs("linx.example.com"), Now: time.Now}
 	teamStore := &fakeTeamStore{presence: map[uuid.UUID]string{}}
 	team := &pbx.Team{Store: teamStore, Calls: calls}
@@ -683,9 +686,12 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	// /me/web-phone and /me/turn-credentials are the signed-in person's own
 	// phone line and relay access, refused to anything but a finished
 	// sign-in (docs/WEB.md §5). /me/presence is the signed-in person's own
-	// status, likewise refused to anything else.
+	// status, likewise refused to anything else. /me/passkeys* and
+	// /me/password-only are the signed-in person's own passkeys and sign-in
+	// choice (docs/ADMIN.md §5), refused to anything but a session.
 	anyCredential := []string{"GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
-		"IssueMyWebPhone", "GetMyTurnCredentials", "SetMyPresence"}
+		"IssueMyWebPhone", "GetMyTurnCredentials", "SetMyPresence",
+		"ListMyPasskeys", "RenameMyPasskey", "RemoveMyPasskey", "AcceptPasswordOnly"}
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
 			sec := spec.Security

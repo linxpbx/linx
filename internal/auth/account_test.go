@@ -25,6 +25,7 @@ type fakeAccountStore struct {
 	users    map[uuid.UUID]User
 	links    map[string]SetupLink // by token hash, hex-ish (string of bytes)
 	sessions map[uuid.UUID]UserSession
+	passkeys map[uuid.UUID]Passkey
 }
 
 func newFakeAccountStore() *fakeAccountStore {
@@ -288,6 +289,12 @@ func (f *fakeAccountStore) ResetMFA(_ context.Context, tenant, user uuid.UUID, a
 		return User{}, ErrNotFound
 	}
 	u.MFASecretEnc, u.MFAPendingSecretEnc, u.MFAEnabled, u.RecoveryCodeHashes, u.MFALastStep = nil, nil, false, nil, nil
+	for id, p := range f.passkeys {
+		if p.UserID == user {
+			delete(f.passkeys, id)
+		}
+	}
+	u.PasskeyCount, u.PasswordOnlyAcceptedAt = 0, nil
 	u.Version++
 	u.UpdatedAt = at
 	f.users[user] = u
@@ -449,7 +456,7 @@ func TestFullSignInFlow(t *testing.T) {
 		t.Fatalf("email should be lower-cased, got %q", u.Email)
 	}
 
-	out, err := a.CompleteSetup(ctx, token, "a fine long passphrase 1", ip, "test-agent")
+	out, err := a.CompleteSetup(ctx, token, "a fine long passphrase 1", false, ip, "test-agent")
 	if err != nil {
 		t.Fatalf("CompleteSetup: %v", err)
 	}
@@ -459,7 +466,7 @@ func TestFullSignInFlow(t *testing.T) {
 	if out.Session.MFAVerified {
 		t.Fatal("an admin's session shouldn't be verified before MFA is even enrolled")
 	}
-	if _, err := a.CompleteSetup(ctx, token, "another passphrase entirely", ip, "test-agent"); err == nil {
+	if _, err := a.CompleteSetup(ctx, token, "another passphrase entirely", false, ip, "test-agent"); err == nil {
 		t.Fatal("a used setup link should be refused a second time")
 	}
 
@@ -528,7 +535,7 @@ func TestMiddlewareSessionCookieAndCSRF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := a.CompleteSetup(adminCtx, token, "a perfectly fine passphrase", ip, "ua")
+	out, err := a.CompleteSetup(adminCtx, token, "a perfectly fine passphrase", false, ip, "ua")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -612,7 +619,7 @@ func TestSignInLockout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.CompleteSetup(adminCtx, token, "the correct passphrase here", ip, "ua"); err != nil {
+	if _, err := a.CompleteSetup(adminCtx, token, "the correct passphrase here", false, ip, "ua"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -641,7 +648,7 @@ func TestVerifyMFALockout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := a.CompleteSetup(adminCtx, token, "a fine long passphrase 2", ip, "ua")
+	out, err := a.CompleteSetup(adminCtx, token, "a fine long passphrase 2", false, ip, "ua")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +702,7 @@ func TestMFAReEnrollmentDoesNotDisableExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := a.CompleteSetup(adminCtx, token, "a fine long passphrase 3", ip, "ua")
+	out, err := a.CompleteSetup(adminCtx, token, "a fine long passphrase 3", false, ip, "ua")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -746,7 +753,7 @@ func enrolledUser(t *testing.T, a *Accounts, adminCtx context.Context, email, ro
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := a.CompleteSetup(adminCtx, token, password, ip, "ua")
+	out, err := a.CompleteSetup(adminCtx, token, password, false, ip, "ua")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -821,7 +828,7 @@ func TestSetupLinkKeepsMFA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := a.CompleteSetup(ctx, token, "the second passphrase here", ip, "ua")
+	out, err := a.CompleteSetup(ctx, token, "the second passphrase here", false, ip, "ua")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -920,7 +927,7 @@ func TestGuessingAlertFires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.CompleteSetup(adminCtx, token, "the real passphrase here", netip.MustParseAddr("203.0.113.50"), "ua"); err != nil {
+	if _, err := a.CompleteSetup(adminCtx, token, "the real passphrase here", false, netip.MustParseAddr("203.0.113.50"), "ua"); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 20 {
@@ -1027,7 +1034,7 @@ func TestSignInAudited(t *testing.T) {
 	want := []struct{ action, actor, target, result, reason, method string }{
 		{"user.sign_in", "anonymous", "", ResultDenied, "unknown_email", ""},
 		{"user.sign_in", "anonymous", target, ResultDenied, "wrong_password", ""},
-		{"user.sign_in", "anonymous", target, ResultOK, "", ""},
+		{"user.sign_in", "anonymous", target, ResultOK, "", "password"},
 		{"user.sign_in_code", target, target, ResultDenied, "code_invalid", ""},
 		{"user.sign_in_code", target, target, ResultOK, "", "authenticator"},
 	}
@@ -1063,7 +1070,7 @@ func TestUnlockUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.CompleteSetup(adminCtx, token, "the locked person's passphrase", netip.MustParseAddr("203.0.113.60"), "ua"); err != nil {
+	if _, err := a.CompleteSetup(adminCtx, token, "the locked person's passphrase", false, netip.MustParseAddr("203.0.113.60"), "ua"); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 5 {
@@ -1101,4 +1108,94 @@ func TestUnlockUser(t *testing.T) {
 	}
 	_, err = a.UnlockUser(adminCtx, uuid.New())
 	wantCode(t, err, "not_found")
+}
+
+func (f *fakeAccountStore) AcceptPasswordOnly(_ context.Context, _, user uuid.UUID, at time.Time, _ AuditEntry) error {
+	u, ok := f.users[user]
+	if !ok {
+		return ErrNotFound
+	}
+	u.PasswordOnlyAcceptedAt = &at
+	f.users[user] = u
+	return nil
+}
+
+// Passkeys: the fake keeps User.PasskeyCount in step, as the real store's
+// count does.
+func (f *fakeAccountStore) Passkeys(_ context.Context, tenant, user uuid.UUID) ([]Passkey, error) {
+	out := []Passkey{}
+	for _, p := range f.passkeys {
+		if p.TenantID == tenant && p.UserID == user {
+			out = append(out, p)
+		}
+	}
+	slices.SortFunc(out, func(a, b Passkey) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	return out, nil
+}
+
+func (f *fakeAccountStore) PasskeyByCredentialID(_ context.Context, id []byte) (Passkey, error) {
+	for _, p := range f.passkeys {
+		if string(p.CredentialID) == string(id) {
+			return p, nil
+		}
+	}
+	return Passkey{}, ErrNotFound
+}
+
+func (f *fakeAccountStore) AddPasskey(_ context.Context, p Passkey, recovery [][]byte, _ AuditEntry) error {
+	u := f.users[p.UserID]
+	if u.PasskeyCount >= MaxPasskeys {
+		return ErrLimit
+	}
+	for _, q := range f.passkeys {
+		if string(q.CredentialID) == string(p.CredentialID) {
+			return ErrDuplicate
+		}
+	}
+	if f.passkeys == nil {
+		f.passkeys = map[uuid.UUID]Passkey{}
+	}
+	f.passkeys[p.ID] = p
+	u.PasskeyCount++
+	u.PasswordOnlyAcceptedAt = nil
+	if recovery != nil {
+		u.RecoveryCodeHashes = recovery
+	}
+	f.users[p.UserID] = u
+	return nil
+}
+
+func (f *fakeAccountStore) UsePasskey(_ context.Context, id uuid.UUID, count uint32, backup bool, at time.Time) error {
+	p := f.passkeys[id]
+	p.SignCount, p.BackupState, p.LastUsedAt = count, backup, &at
+	f.passkeys[id] = p
+	return nil
+}
+
+func (f *fakeAccountStore) RenamePasskey(_ context.Context, tenant, user, id uuid.UUID, name string, _ AuditEntry) (Passkey, error) {
+	p, ok := f.passkeys[id]
+	if !ok || p.TenantID != tenant || p.UserID != user {
+		return Passkey{}, ErrNotFound
+	}
+	p.Name = name
+	f.passkeys[id] = p
+	return p, nil
+}
+
+func (f *fakeAccountStore) DeletePasskey(_ context.Context, tenant, user, id uuid.UUID, passwordOnly bool, at time.Time, _ AuditEntry) error {
+	p, ok := f.passkeys[id]
+	if !ok || p.TenantID != tenant || p.UserID != user {
+		return ErrNotFound
+	}
+	delete(f.passkeys, id)
+	u := f.users[user]
+	u.PasskeyCount--
+	if !u.MFAEnabled && u.PasskeyCount == 0 {
+		u.RecoveryCodeHashes = nil
+	}
+	if passwordOnly {
+		u.PasswordOnlyAcceptedAt = &at
+	}
+	f.users[user] = u
+	return nil
 }

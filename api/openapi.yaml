@@ -1841,16 +1841,21 @@ paths:
       operationId: checkSetupLink
       summary: Check a set-password link before asking for a password
       description: >-
-        204 if the link can still be used; 400 `setup_link_invalid` if it
-        was used, has expired or doesn't exist (the page then says so
-        instead of showing the password form). A link that fails counts
-        against the caller's address like a failed sign-in. Served by a
-        hand-written handler (excluded from code generation).
+        200 with the link's person if it can still be used; 400
+        `setup_link_invalid` if it was used, has expired or doesn't exist
+        (the page then says so instead of showing the password form). A
+        link that fails counts against the caller's address like a failed
+        sign-in. Served by a hand-written handler (excluded from code
+        generation).
       tags: [sessions]
       security: []
       responses:
-        "204":
+        "200":
           description: The link can be used.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupLinkInfo"
         default:
           $ref: "#/components/responses/Problem"
     post:
@@ -1873,9 +1878,17 @@ paths:
                 password:
                   type: string
                   description: At least 12 characters.
+                password_only:
+                  type: boolean
+                  description: >-
+                    The "Password only" choice (docs/ADMIN.md §5): for an
+                    admin, the "not recommended" warning was shown and
+                    accepted, so no passkey or authenticator is asked for.
+                    Refused (409 `second_step_exists`) for an account that
+                    already has one.
       responses:
         "200":
-          description: Signed in, or pending first-run MFA enrollment.
+          description: Signed in, or pending its second step (or that step's setup).
           content:
             application/json:
               schema:
@@ -2097,6 +2110,352 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MfaConfirmed"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/passkey/options:
+    post:
+      operationId: createPasskeySessionOptions
+      summary: "Sign in with a passkey (ask the device)"
+      description: >-
+        Returns the options for the browser's
+        PublicKeyCredential.parse*OptionsFromJSON and sets the
+        __Host-linx_passkey cookie (5 minutes, single use) that binds the
+        challenge to this browser. No email: the device offers its passkeys for this server (discoverable credentials, user verification required). A whole sign-in, both steps, for admins too (docs/ADMIN.md §5). Needs no session. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+      tags: [sessions]
+      security: []
+      responses:
+        "200":
+          description: Options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/passkey:
+    post:
+      operationId: createPasskeySession
+      summary: "Sign in with a passkey (the device's answer)"
+      description: >-
+        The device's answer to the challenge from .../options, as
+        PublicKeyCredential.toJSON() gives it. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyAnswer"
+      responses:
+        "200":
+          description: Signed in; sets the session cookies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/mfa/passkey/options:
+    post:
+      operationId: verifySessionMfaPasskeyOptions
+      summary: "Sign in (step 2: a passkey) (ask the device)"
+      description: >-
+        Returns the options for the browser's
+        PublicKeyCredential.parse*OptionsFromJSON and sets the
+        __Host-linx_passkey cookie (5 minutes, single use) that binds the
+        challenge to this browser. For a session pending its second step whose person has a passkey (`methods` includes `passkey`). Needs the session cookie and CSRF header. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+      tags: [sessions]
+      security: []
+      responses:
+        "200":
+          description: Options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/mfa/passkey:
+    post:
+      operationId: verifySessionMfaPasskey
+      summary: "Sign in (step 2: a passkey) (the device's answer)"
+      description: >-
+        The device's answer to the challenge from .../options, as
+        PublicKeyCredential.toJSON() gives it. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyAnswer"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/confirm/passkey/options:
+    post:
+      operationId: confirmSessionPasskeyOptions
+      summary: "\"Confirm it's you\" with a passkey (ask the device)"
+      description: >-
+        Returns the options for the browser's
+        PublicKeyCredential.parse*OptionsFromJSON and sets the
+        __Host-linx_passkey cookie (5 minutes, single use) that binds the
+        challenge to this browser. One of the person's own passkeys, for the actions that need a fresh proof (docs/ADMIN.md §7). Needs a whole (not pending) session and the CSRF header. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+      tags: [sessions]
+      security: []
+      responses:
+        "200":
+          description: Options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/confirm/passkey:
+    post:
+      operationId: confirmSessionPasskey
+      summary: "\"Confirm it's you\" with a passkey (the device's answer)"
+      description: >-
+        The device's answer to the challenge from .../options, as
+        PublicKeyCredential.toJSON() gives it. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyAnswer"
+      responses:
+        "200":
+          description: Confirmed for 10 minutes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/passkeys/options:
+    post:
+      operationId: addMyPasskeyOptions
+      summary: "Add a passkey to my account (ask the device)"
+      description: >-
+        Returns the options for the browser's
+        PublicKeyCredential.parse*OptionsFromJSON and sets the
+        __Host-linx_passkey cookie (5 minutes, single use) that binds the
+        challenge to this browser. At most 10. In a whole session this needs "confirm it's you" (a new passkey is a new way in); a session pending its second step's setup may add its first one, which finishes signing in. Needs the session cookie and CSRF header. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+      tags: [sessions]
+      security: []
+      responses:
+        "200":
+          description: Options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/setup-links/{token}/passkey/options:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: completeSetupLinkPasskeyOptions
+      summary: "Set up an account with a passkey instead of a password (ask the device)"
+      description: >-
+        Returns the options for the browser's
+        PublicKeyCredential.parse*OptionsFromJSON and sets the
+        __Host-linx_passkey cookie (5 minutes, single use) that binds the
+        challenge to this browser. The "Passkey" choice on a set-password link (docs/ADMIN.md §5), only for an account with no passkey or authenticator yet (409 `second_step_exists`). The link is used up, any password the account had is removed, and every other session ends. Needs no session. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+      tags: [sessions]
+      security: []
+      responses:
+        "200":
+          description: Options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/setup-links/{token}/passkey:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: completeSetupLinkPasskey
+      summary: "Set up an account with a passkey instead of a password (the device's answer)"
+      description: >-
+        The device's answer to the challenge from .../options, as
+        PublicKeyCredential.toJSON() gives it. Served by a hand-written handler (excluded from code generation): it sets or clears cookies.
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyNew"
+      responses:
+        "200":
+          description: Signed in; recovery_codes shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/passkeys:
+    get:
+      operationId: listMyPasskeys
+      summary: List my passkeys
+      tags: [people]
+      responses:
+        "200":
+          description: The caller's own passkeys, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: addMyPasskey
+      summary: "Add a passkey to my account (the device's answer)"
+      description: >-
+        The device's answer to the challenge from POST
+        /me/passkeys/options, as PublicKeyCredential.toJSON() gives it. At
+        most 10 passkeys. In a whole session this needs "confirm it's you"
+        (a new passkey is a new way in); a session pending its second
+        step's setup may add its first one, which finishes signing in.
+        Served by a hand-written handler (excluded from code generation):
+        it clears the challenge cookie.
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyNew"
+      responses:
+        "201":
+          description: Added. recovery_codes is present (shown once) when this is the person's first second step.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyAdded"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/passkeys/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      operationId: renameMyPasskey
+      summary: Rename one of my passkeys
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 60
+      responses:
+        "200":
+          description: Renamed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Passkey"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: removeMyPasskey
+      summary: Remove one of my passkeys
+      description: >-
+        Needs "confirm it's you" (docs/ADMIN.md §7). Refused (409
+        `last_sign_in_method`) when it's the only way a person without a
+        password can sign in. When it's an admin's last passkey and they
+        have no authenticator app, 409 `password_only_warning` unless
+        accept_password_only=true: they'd sign in with a password only (not
+        recommended, docs/ADMIN.md §5).
+      tags: [people]
+      parameters:
+        - name: accept_password_only
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "204":
+          description: Removed.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/password-only:
+    post:
+      operationId: acceptPasswordOnly
+      summary: Choose to sign in with a password only
+      description: >-
+        For an admin whose sign-in is waiting on setting up a passkey or an
+        authenticator app (`mfa_setup_required`): they accept the "not
+        recommended" warning and sign in with a password only (docs/ADMIN.md
+        §5, owner decision 2026-09-27). Finishes that sign-in. Refused (409
+        `second_step_exists`) once the person has a passkey or authenticator.
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accept]
+              properties:
+                accept:
+                  type: boolean
+                  enum: [true]
+                  description: The warning was shown and accepted.
+      responses:
+        "204":
+          description: Recorded; the session is signed in.
         default:
           $ref: "#/components/responses/Problem"
 
@@ -2406,6 +2765,19 @@ components:
         mfa_enabled:
           type: boolean
           description: Whether a signed-in person has turned on an authenticator app.
+        passkeys:
+          type: integer
+          description: How many passkeys a signed-in person has.
+        has_password:
+          type: boolean
+          description: False for a person who set up their account with a passkey only.
+        password_only:
+          type: boolean
+          description: >-
+            A signed-in person with no passkey and no authenticator app:
+            for an admin, the "not recommended" reminder (docs/ADMIN.md §5).
+        recovery_codes_left:
+          type: integer
         extension:
           type: string
           description: The number of that extension, e.g. "101".
@@ -4121,10 +4493,107 @@ components:
           type: string
           enum: [signed_in, mfa_verify_required, mfa_setup_required]
           description: >-
-            `mfa_verify_required`: POST /session/mfa with a code from an
-            already-enrolled authenticator app. `mfa_setup_required`: the
-            account must enroll (POST /me/mfa) before it can do anything
+            `mfa_verify_required`: finish with one of `methods` (POST
+            /session/mfa with an authenticator or recovery code, or
+            /session/mfa/passkey). `mfa_setup_required`: an admin must add a
+            passkey (/me/passkeys) or an authenticator app (/me/mfa), or
+            choose a password only (/me/password-only), before doing anything
             else.
+        methods:
+          type: array
+          items:
+            type: string
+            enum: [authenticator, passkey, recovery_code]
+          description: What can finish a `mfa_verify_required` sign-in.
+        recovery_codes:
+          type: array
+          items:
+            type: string
+          description: Shown once, when a passkey set up through a setup link is the account's first second step.
+
+    SetupLinkInfo:
+      type: object
+      required: [email, name, role, has_second_step, passkeys_available]
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        has_second_step:
+          type: boolean
+          description: >-
+            The account already has a passkey or authenticator app: the
+            link only sets a new password, and the second step is still
+            asked for.
+        passkeys_available:
+          type: boolean
+          description: False when the server has no domain set (passkeys need one).
+
+    PasskeyAnswer:
+      type: object
+      additionalProperties: false
+      required: [credential]
+      properties:
+        credential:
+          type: object
+          additionalProperties: true
+          description: PublicKeyCredential.toJSON().
+
+    PasskeyNew:
+      type: object
+      additionalProperties: false
+      required: [name, credential]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+          description: e.g. "Mohammed's iPhone".
+        credential:
+          type: object
+          additionalProperties: true
+          description: PublicKeyCredential.toJSON().
+
+    Passkey:
+      type: object
+      required: [id, name, synced, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        synced:
+          type: boolean
+          description: Backed up to the device maker's cloud (e.g. iCloud Keychain) when last used.
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+
+    PasskeyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Passkey"
+
+    PasskeyAdded:
+      type: object
+      required: [passkey]
+      properties:
+        passkey:
+          $ref: "#/components/schemas/Passkey"
+        recovery_codes:
+          type: array
+          items:
+            type: string
 
     MfaCode:
       type: object
@@ -4340,6 +4809,13 @@ components:
           format: uuid
         mfa_enabled:
           type: boolean
+        passkeys:
+          type: integer
+        has_password:
+          type: boolean
+        password_only:
+          type: boolean
+          description: No passkey and no authenticator app ("Password only ⚠" for an admin).
         disabled:
           type: boolean
         created_at:
@@ -4419,10 +4895,14 @@ components:
     PasswordChange:
       type: object
       additionalProperties: false
-      required: [current_password, new_password]
+      required: [new_password]
       properties:
         current_password:
           type: string
+          description: >-
+            Required when the account has a password. A passkey-only account
+            adding its first password leaves it out and needs "confirm it's
+            you" instead.
         new_password:
           type: string
           description: At least 12 characters.

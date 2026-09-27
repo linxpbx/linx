@@ -116,6 +116,8 @@ func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponse
 		if uid, err := uuid.Parse(p.ID); err == nil {
 			if u, err := s.accounts.GetUser(ctx, uid); err == nil {
 				me.Email, me.Name, me.MfaEnabled = &u.Email, &u.Name, &u.MFAEnabled
+				me.Passkeys, me.HasPassword, me.PasswordOnly = &u.PasskeyCount, ptr(u.HasPassword()), ptr(!u.HasSecondStep())
+				me.RecoveryCodesLeft = ptr(len(u.RecoveryCodeHashes))
 				me.ExtensionId = u.ExtensionID
 				s.meExtras(ctx, &me, u.ExtensionID, u.Presence)
 			}
