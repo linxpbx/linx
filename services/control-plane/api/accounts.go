@@ -82,6 +82,9 @@ func (s *Server) UpdateUser(ctx context.Context, req UpdateUserRequestObject) (U
 		}
 		return UpdateUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
+	if req.Body.Disabled != nil && *req.Body.Disabled {
+		s.revokeCredentialsCreatedBy(ctx, req.Id)
+	}
 	out := s.toUser(u)
 	return UpdateUser200JSONResponse{Body: out, Headers: UpdateUser200ResponseHeaders{ETag: &out.Etag}}, nil
 }
@@ -106,6 +109,7 @@ func (s *Server) DisableUser(ctx context.Context, req DisableUserRequestObject) 
 		}
 		return DisableUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
+	s.revokeCredentialsCreatedBy(ctx, req.Id)
 	return DisableUser204Response{}, nil
 }
 

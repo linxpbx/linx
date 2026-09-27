@@ -137,6 +137,11 @@ func TestRoles(t *testing.T) {
 	if CanGrantRole(RoleAdmin, RoleSystemAdmin) || CanGrantRole(RoleReporter, RoleAdmin) || CanGrantRole(RoleUser, RoleReporter) {
 		t.Fatal("a role can grant a higher one")
 	}
+	// Reporter sees every admin page read-only (docs/ADMIN.md §3), which
+	// includes the Extensions screen's Phones column.
+	if !slices.Contains(roleCeilings[RoleReporter], "devices:read") {
+		t.Fatal("reporter should hold devices:read")
+	}
 	if got := Effective([]string{"webhooks:write", "extensions:read", "nope"}, RoleUser); !slices.Equal(got, []string{"extensions:read"}) {
 		t.Fatalf("Effective = %v", got)
 	}

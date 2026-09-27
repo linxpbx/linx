@@ -107,6 +107,45 @@ func (s *Server) listCredentials(ctx context.Context, kind string, limit *Limit,
 		})
 }
 
+// revokeCredentialsCreatedBy revokes every API key and OAuth client the
+// given person created, called when they're disabled: otherwise a
+// credential they issued while they could still act keeps working at its
+// original scope indefinitely, even once the account that made it can't
+// sign in at all — easy to miss during offboarding (docs/ADMIN.md §4
+// People, "Disable"). Best-effort: a failure here doesn't undo the
+// disable itself, which has already succeeded.
+func (s *Server) revokeCredentialsCreatedBy(ctx context.Context, user uuid.UUID) {
+	p, ok := auth.PrincipalFromContext(ctx)
+	if !ok {
+		return
+	}
+	creator := "user:" + user.String()
+	for _, kind := range []string{auth.TypeAPIKey, auth.TypeOAuthClient} {
+		var before *uuid.UUID
+		for {
+			creds, err := s.store.ListCredentials(ctx, kind, p.TenantID, before, 200)
+			if err != nil || len(creds) == 0 {
+				break
+			}
+			for _, c := range creds {
+				if c.CreatedBy != creator || c.RevokedAt != nil {
+					continue
+				}
+				audit := auth.AuditEntry{
+					TenantID: &p.TenantID, Actor: p.Actor(), IP: auth.ClientIPFromContext(ctx),
+					Action: kind + ".revoke", Target: kind + ":" + c.ID.String(), Result: auth.ResultOK,
+					Detail: map[string]any{"reason": "creator_disabled", "created_by": creator},
+				}
+				_, _ = s.store.RevokeCredential(ctx, kind, p.TenantID, c.ID, s.now(), audit)
+			}
+			if len(creds) < 200 {
+				break
+			}
+			before = &creds[len(creds)-1].ID
+		}
+	}
+}
+
 func (s *Server) revokeCredential(ctx context.Context, kind string, id uuid.UUID) error {
 	p, ok := auth.PrincipalFromContext(ctx)
 	if !ok {

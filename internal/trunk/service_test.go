@@ -213,6 +213,45 @@ func TestTrunkFieldsForAsterisk(t *testing.T) {
 	}
 }
 
+func TestTrunkHostCannotBeOneOfLinxsOwnAddresses(t *testing.T) {
+	base := Trunk{Name: "Provider", Kind: KindRegistration, Port: 5061, Transport: TransportTLS, MediaEncryption: MediaSRTP,
+		CertTrust: CertPublic, DialFormat: DialE164, MaxCalls: 4}
+	for _, bad := range []string{"linx-postgres", "linx-ari", "Linx-Private", "localhost", "127.0.0.1", "10.0.0.5", "192.168.1.1", "172.16.0.1", "169.254.1.1", "0.0.0.0"} {
+		tr := base
+		tr.Host = bad
+		if err := checkTrunkFields(&tr); err == nil {
+			t.Errorf("checkTrunkFields with host %q succeeded, want it refused as one of Linx's own addresses", bad)
+		}
+	}
+	// A real provider address, and a WireGuard-routed trunk (which is
+	// supposed to use a private tunnel address), both still work.
+	for _, ok := range []string{"sip.provider.test", "203.0.113.10"} {
+		tr := base
+		tr.Host = ok
+		if err := checkTrunkFields(&tr); err != nil {
+			t.Errorf("checkTrunkFields with host %q = %v, want nil", ok, err)
+		}
+	}
+	id := uuid.New()
+	wg := base
+	wg.Host, wg.WireGuardProfileID = "10.6.0.1", &id
+	if err := checkTrunkFields(&wg); err != nil {
+		t.Errorf("a WireGuard-routed trunk's private tunnel address was refused: %v", err)
+	}
+	// A LAN peer (e.g. a Grandstream UCM on the home/office network) is
+	// exactly what a private address is for; only the never-legitimate
+	// categories (loopback, Linx's own names, ...) stay refused.
+	lan := base
+	lan.Kind, lan.Host = KindLANPeer, "192.168.1.5"
+	if err := checkTrunkFields(&lan); err != nil {
+		t.Errorf("a LAN peer trunk's private address was refused: %v", err)
+	}
+	lan.Host = "127.0.0.1"
+	if err := checkTrunkFields(&lan); err == nil {
+		t.Error("a LAN peer trunk at loopback should still be refused")
+	}
+}
+
 func TestWireGuardTrunkNeedsAnAddress(t *testing.T) {
 	id := uuid.New()
 	tr := Trunk{Name: "VPN", Kind: KindLANPeer, Host: "sip.provider.test", Port: 5060, Transport: TransportUDP, MediaEncryption: MediaNone,

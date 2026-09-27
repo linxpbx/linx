@@ -120,6 +120,28 @@ func checkHost(host string) error {
 	return nil
 }
 
+// ownAddressReason reports why host can never be *any* trunk's address,
+// regardless of kind: one of Linx's own container/service names, or a
+// loopback/unspecified/multicast/link-local IP literal typed directly.
+// This closes the "obviously internal address" case at save time
+// (docs/THREAT_MODEL.md residual risk: trunk host wasn't screened except
+// by the optional connection test); a name that only *resolves* internally
+// still needs the admin to run that test (internal/trunkprobe.RefuseOwn),
+// which checks the address actually reached, not just the string given.
+func ownAddressReason(host string) string {
+	lower := strings.ToLower(host)
+	if lower == "localhost" || strings.HasPrefix(lower, "linx-") {
+		return "it looks like one of Linx's own service names, not a phone line."
+	}
+	if a, err := netip.ParseAddr(host); err == nil {
+		switch {
+		case a.IsLoopback(), a.IsUnspecified(), a.IsMulticast(), a.IsLinkLocalUnicast(), a.IsLinkLocalMulticast():
+			return "that's not an address a phone line can be at."
+		}
+	}
+	return ""
+}
+
 // usernamePattern is what a SIP login can be here: it's written into a SIP
 // URI and Asterisk's config as is.
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._~+=-]{0,128}$`)
@@ -281,11 +303,25 @@ func checkTrunkFields(t *Trunk) error {
 		return err
 	}
 	t.Codecs = codecs
+	if reason := ownAddressReason(t.Host); reason != "" {
+		return invalid("host_not_allowed", "That can't be a phone line's address: "+reason)
+	}
 	if t.WireGuardProfileID != nil {
 		// The tunnel carries only addresses Linx knows in advance
 		// (docs/TRUNKS.md §7): a name could resolve elsewhere, outside it.
 		if a, err := netip.ParseAddr(t.Host); err != nil || !a.Is4() {
 			return invalid("host_must_be_address", "Through a WireGuard tunnel, give the provider's IPv4 address (usually its address inside the tunnel), not a name.")
+		}
+	} else if t.Kind != KindLANPeer {
+		// A private address here would have to be a phone system on the
+		// LAN — that's the "lan_peer" kind (docs/TRUNKS.md §3); for a
+		// provider trunk it's very likely a mistake or a probe at Linx's
+		// own internal services, not a real line (a legitimate LAN system
+		// still goes through the connection test, which resolves and
+		// checks the address actually reached).
+		if a, err := netip.ParseAddr(t.Host); err == nil && a.IsPrivate() {
+			return invalid("host_not_allowed",
+				`That can't be a phone line's address: it's a private address. If this is a phone system on your own network, choose "Grandstream UCM (on the LAN)" or another LAN kind.`)
 		}
 	}
 	return nil

@@ -15,7 +15,16 @@ func TestWatcher(t *testing.T) {
 	dir := t.TempDir()
 	deploy := func(v string) {
 		t.Helper()
-		// Like linx-certd: a new symlink renamed over current.
+		// Like linx-certd: a new version directory with its own
+		// currently-valid certificate, then a new symlink renamed over
+		// current.
+		if err := os.Mkdir(filepath.Join(dir, v), 0o700); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		chain, _ := selfSigned(t, "sip.example.com", time.Now().Add(24*time.Hour))
+		if err := os.WriteFile(filepath.Join(dir, v, "fullchain.pem"), chain, 0o600); err != nil {
+			t.Fatal(err)
+		}
 		tmp := filepath.Join(dir, "current.tmp")
 		if err := os.Symlink(v, tmp); err != nil {
 			t.Fatal(err)
@@ -75,6 +84,13 @@ func TestWatcherFirstCertificateSoon(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go w.Run(ctx, time.Hour)
+	if err := os.Mkdir(filepath.Join(dir, "v1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	chain, _ := selfSigned(t, "sip.example.com", time.Now().Add(24*time.Hour))
+	if err := os.WriteFile(filepath.Join(dir, "v1", "fullchain.pem"), chain, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink("v1", filepath.Join(dir, "current")); err != nil {
 		t.Fatal(err)
 	}
@@ -82,5 +98,54 @@ func TestWatcherFirstCertificateSoon(t *testing.T) {
 	case <-reloaded:
 	case <-time.After(firstCertCheck + 3*time.Second):
 		t.Fatal("the first certificate wasn't picked up within seconds")
+	}
+}
+
+// TestWatcherRefusesAnInvalidCertificate is the fix for a pre-launch audit
+// finding: the watcher used to reload whatever it found at "current" with
+// no check at all. Garbage and an expired certificate must both be
+// refused, without ever calling Reload.
+func TestWatcherRefusesAnInvalidCertificate(t *testing.T) {
+	dir := t.TempDir()
+	reloads := 0
+	w := &Watcher{Dir: dir, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Reload: func(context.Context) error { reloads++; return nil }}
+	ctx := context.Background()
+	w.Start()
+
+	deploySymlink := func(v string) {
+		t.Helper()
+		tmp := filepath.Join(dir, "current.tmp")
+		if err := os.Symlink(v, tmp); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, filepath.Join(dir, "current")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := os.Mkdir(filepath.Join(dir, "garbage"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "garbage", "fullchain.pem"), []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deploySymlink("garbage")
+	w.Check(ctx)
+	if reloads != 0 || w.loaded != "" {
+		t.Fatalf("garbage was reloaded: %d reloads, loaded %q", reloads, w.loaded)
+	}
+
+	if err := os.Mkdir(filepath.Join(dir, "expired"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	chain, _ := selfSigned(t, "sip.example.com", time.Now().Add(-24*time.Hour))
+	if err := os.WriteFile(filepath.Join(dir, "expired", "fullchain.pem"), chain, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deploySymlink("expired")
+	w.Check(ctx)
+	if reloads != 0 || w.loaded != "" {
+		t.Fatalf("an expired certificate was reloaded: %d reloads, loaded %q", reloads, w.loaded)
 	}
 }

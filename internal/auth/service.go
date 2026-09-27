@@ -949,12 +949,26 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 	if err != nil {
 		return nil, err
 	}
+	now := a.Now().UTC()
+	// A wrong enrollment code shares the same per-address budget and
+	// per-account lockout as a wrong password or sign-in MFA code
+	// (docs/WEB.md §4): without this, a session that only has the password
+	// step done could brute-force a 6-digit code with no limit at all,
+	// unlike every other guessable secret in this codebase.
+	ipKey := IPKey(ClientIPFromContext(ctx))
+	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
+		return nil, tooManyFailuresErr()
+	}
 	u, err := a.Store.User(ctx, caller.TenantID, uid)
 	if err != nil {
 		return nil, err
 	}
 	if caller.Pending && u.HasSecondStep() {
 		return nil, mfaVerifyFirst()
+	}
+	if u.LockedUntil != nil && now.Before(*u.LockedUntil) {
+		a.lockedAttempt(ctx, caller.TenantID, u, ipKey, now)
+		return nil, lockedError(*u.LockedUntil)
 	}
 	if len(u.MFAPendingSecretEnc) == 0 {
 		return nil, badRequest("mfa_not_started", "Start enrollment first: POST /me/mfa.")
@@ -964,18 +978,33 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 		return nil, err
 	}
 	if !ok2 {
+		if a.Failures != nil {
+			a.Failures.Allow(ipKey, now)
+		}
+		lockedUntil, alertThreshold, ferr := a.Store.RecordLoginFailure(ctx, caller.TenantID, u.ID, now)
+		if ferr != nil {
+			return nil, unavailableErr()
+		}
+		if alertThreshold {
+			a.fireGuessing(ctx, caller.TenantID, u)
+		}
+		if lockedUntil != nil {
+			return nil, lockedError(*lockedUntil)
+		}
 		return nil, &apihttp.Error{Status: http.StatusUnauthorized, Code: "mfa_code_invalid", Detail: "That code isn't right."}
 	}
 	codes, hashes, err := NewRecoveryCodes()
 	if err != nil {
 		return nil, err
 	}
-	now := a.Now().UTC()
 	_, audit, err := userAudit(ctx, "user.mfa_enabled", "user:"+u.ID.String())
 	if err != nil {
 		return nil, err
 	}
 	if err := a.Store.ConfirmMFA(ctx, u.TenantID, u.ID, hashes, step, now, audit); err != nil {
+		return nil, err
+	}
+	if err := a.Store.RecordLoginSuccess(ctx, u.TenantID, u.ID, now); err != nil {
 		return nil, err
 	}
 	if err := a.promotePending(ctx, now); err != nil {

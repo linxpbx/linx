@@ -688,6 +688,52 @@ func TestVerifyMFALockout(t *testing.T) {
 	}
 }
 
+// TestMFAEnrollmentConfirmLockout guards against guessing the enrollment
+// code itself: unlike every other guessable secret (password, sign-in MFA
+// code, confirm-it's-you), ConfirmMFAEnrollment used to have no throttling
+// at all, so a pending session (reachable with just the password step
+// done) could brute-force a fresh 6-digit code with no limit.
+func TestMFAEnrollmentConfirmLockout(t *testing.T) {
+	a, _, _ := newTestAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	ip := netip.MustParseAddr("203.0.113.22")
+
+	_, token, err := a.CreateUser(adminCtx, UserInput{Email: "enrolllock@example.com", Name: "Person", Role: RoleAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := a.CompleteSetup(adminCtx, token, "a fine long passphrase 3", false, ip, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionCtx := WithSession(WithPrincipal(ctx, out.Session.Principal()), out.Session)
+	secret, _, err := a.BeginMFAEnrollment(sessionCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawSecret, err := totpSecretEncoding.DecodeString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right := totpCode(rawSecret, uint64(a.Now().Unix())/30)
+	wrong := "000000"
+	if wrong == right {
+		wrong = "111111"
+	}
+	for i := 0; i < 5; i++ {
+		if _, err := a.ConfirmMFAEnrollment(sessionCtx, wrong); err == nil {
+			t.Fatal("a wrong enrollment code should never succeed")
+		}
+	}
+	// Even the right code should now be refused: repeated wrong enrollment
+	// codes lock the account the same way repeated wrong passwords do.
+	if _, err := a.ConfirmMFAEnrollment(sessionCtx, right); err == nil {
+		t.Fatal("the account should be locked out after repeated wrong enrollment codes")
+	}
+}
+
 // TestMFAReEnrollmentDoesNotDisableExisting guards against starting a new
 // (unconfirmed) enrollment silently turning MFA off for an account that
 // already has it confirmed and enabled.

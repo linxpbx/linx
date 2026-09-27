@@ -64,7 +64,7 @@ var Roles = []string{RoleSystemAdmin, RoleAdmin, RoleUser, RoleReporter}
 var roleCeilings = map[string][]string{
 	RoleSystemAdmin: Scopes,
 	RoleAdmin:       Scopes,
-	RoleReporter: {"alerts:read", "audit:read", "extensions:read", "routing:read", "system:read",
+	RoleReporter: {"alerts:read", "audit:read", "devices:read", "extensions:read", "routing:read", "system:read",
 		"team:read", "trunks:read", "webhooks:read"},
 	RoleUser: {"extensions:read", "team:read"},
 }
