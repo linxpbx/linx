@@ -50,6 +50,19 @@ func TestPostgresRestoreDocker(t *testing.T) {
 	// Linx's migrations make, so the marker is a value, not a table.
 	exec1(`INSERT INTO tenant (id, name) VALUES (gen_random_uuid(), 'backup')`)
 	exec1(`UPDATE pbx_setting SET backup_requested_at = now(), backup_requested_by = 'user:x'`)
+	// Someone signed in, with a browser phone line: the line belongs to the
+	// session, which the restore ends (found on a real server: deleting the
+	// session was refused).
+	exec1(`INSERT INTO extension (id, tenant_id, number, display_name, created_at, updated_at)
+		SELECT '00000000-0000-7000-8000-000000000001', id, '101', 'Rana', now(), now() FROM tenant`)
+	exec1(`INSERT INTO app_user (id, tenant_id, email, name, role, password_hash, password_updated_at, created_at, updated_at)
+		SELECT '00000000-0000-7000-8000-000000000002', id, 'rana@example.com', 'Rana', 'user', '', now(), now(), now() FROM tenant`)
+	exec1(`INSERT INTO user_session (id, tenant_id, user_id, role, token_hash, csrf_hash, created_at, expires_at, idle_expires_at, last_seen_at)
+		SELECT '00000000-0000-7000-8000-000000000003', id, '00000000-0000-7000-8000-000000000002', 'user',
+			decode(repeat('ab', 32), 'hex'), decode(repeat('cd', 32), 'hex'), now(), now() + interval '1 day', now() + interval '1 day', now() FROM tenant`)
+	exec1(`INSERT INTO device (id, tenant_id, extension_id, name, kind, sip_username, digest_hash, user_session_id, created_at, updated_at)
+		SELECT '00000000-0000-7000-8000-000000000004', id, '00000000-0000-7000-8000-000000000001', 'Browser', 'web', 'd_Web00001',
+			repeat('0', 32), '00000000-0000-7000-8000-000000000003', now(), now() FROM tenant`)
 
 	pgDump := func() []byte {
 		t.Helper()
@@ -101,6 +114,12 @@ func TestPostgresRestoreDocker(t *testing.T) {
 	}
 	if got := query("linx_before_restore", `SELECT name FROM tenant`); got != "live" {
 		t.Errorf("kept database's marker = %q, want the one from before the restore", got)
+	}
+	if got := query("linx", `SELECT count(*) FROM user_session WHERE revoked_at IS NULL`); got != "0" {
+		t.Errorf("%s sign-in sessions came back to life with the restore", got)
+	}
+	if got := query("linx", `SELECT enabled::text || ' ' || (revoked_at IS NOT NULL)::text FROM device WHERE kind = 'web'`); got != "false true" {
+		t.Errorf("the browser phone line wasn't ended with its session: %q", got)
 	}
 	if got := query("linx", `SELECT backup_requested_at IS NULL FROM pbx_setting`); got != "t" {
 		t.Errorf("a pending \"back up now\" came back with the restore")

@@ -272,13 +272,19 @@ func (p Postgres) DropLoaded(ctx context.Context) error {
 
 // Prepare readies the loaded database to go live: every sign-in session
 // ends (people sign in again; a browser session from before the backup
-// must not come back to life), and any backup or restore request the
-// backup happened to hold is dropped.
+// must not come back to life), with its browser phone line, the way signing
+// out ends them (marked ended, not deleted: a line belongs to its session),
+// and any backup or restore request the backup happened to hold is dropped.
 func (p Postgres) Prepare(ctx context.Context) error {
 	// A backup from an older Linx may not have every table yet (the
 	// control plane's migrations add them when it starts).
 	for _, sql := range []string{
-		`DO $$ BEGIN IF to_regclass('user_session') IS NOT NULL THEN DELETE FROM user_session; END IF; END $$`,
+		`DO $$ BEGIN IF to_regclass('user_session') IS NOT NULL THEN
+			UPDATE user_session SET revoked_at = now() WHERE revoked_at IS NULL; END IF; END $$`,
+		`DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'device' AND column_name = 'user_session_id') THEN
+			UPDATE device SET enabled = false, online = false, revoked_at = now(), version = version + 1, updated_at = now()
+				WHERE kind = 'web' AND revoked_at IS NULL; END IF; END $$`,
 		`DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns
 			WHERE table_name = 'pbx_setting' AND column_name = 'backup_requested_at') THEN
 			UPDATE pbx_setting SET backup_requested_at = NULL, backup_requested_by = ''; END IF; END $$`,
