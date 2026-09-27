@@ -60,7 +60,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 
 ## Phase 5 — Hardening and ops
 - Capacity page and benchmark, Pi Lite validation.
-- External storage and encrypted backups with restore tests.
+- ~~External storage and encrypted backups with restore tests.~~ Pulled forward ahead of going live (owner decision, 2026-09-27): see `docs/BACKUP.md`, ADR-055.
 - Load tests and `tc netem` impairment matrix, observability dashboards.
 - Upgrade and rollback, full security review, operator runbook.
 

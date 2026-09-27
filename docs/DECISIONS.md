@@ -636,3 +636,11 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** `@tanstack/react-table` (MIT) for lists, `react-hook-form` (MIT) + `zod` (MIT) for forms, more shadcn/ui components (copied source, MIT) as needed. Versions pinned and checked when added.
 
 **Consequences.** Three new client dependencies, all headless (no styling of their own, so the design tokens stay the only colours).
+
+## ADR-055 — Backup and restore (owner decision, 2026-09-27)
+
+**Context.** Pulled forward from Phase 5 (`docs/ROADMAP.md`) ahead of going live. Design: `docs/BACKUP.md`.
+
+**Decision.** [restic](https://restic.net) (BSD-2-Clause) does the encryption, deduplication and remote storage (local/SFTP/S3-compatible) — no custom crypto or upload code. Two files per backup, always paired: a `pg_dump` of the database, and the Docker secrets a restore can't regenerate (`linx_db_encryption_key`, `linx_jwt_signing_key`), sealed separately. Schedule: daily/weekly/monthly/off, admin-set time, `docs/API.md`'s existing "backup failure" alert. Restore: the encryption-keys step is `linx restore-secrets`, one command over SSH (Docker secrets are host files the control plane's own container is deliberately never given a way to change — that boundary doesn't get an exception here); the database step is the web setup wizard's new first screen ("Set up fresh" or "Restore from a backup"), since the control plane already talks to its own database directly. The repository password is Linx-generated (never admin-chosen), shown once; setting up a destination or downloading a backup needs a fresh "confirm it's you" (ADR-053).
+
+**Consequences.** One new host prerequisite (the `restic` binary, checksum-verified like Asterisk's source). Restore is two steps, not one, because of the Docker-secrets boundary — explained in plain words on the wizard's own screen. A stolen backup file alone reveals nothing without its repository password.
