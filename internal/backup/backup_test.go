@@ -197,6 +197,17 @@ func TestFindSnapshotNotFound(t *testing.T) {
 	}
 }
 
+func TestFindSnapshotWrongPassword(t *testing.T) {
+	f := &fakeRestic{err: []error{errors.New("Fatal: wrong password or no key found")}}
+	_, err := FindSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "nope"}, "latest")
+	if !errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("err = %v, want ErrWrongPassword", err)
+	}
+	if strings.Contains(err.Error(), "restic") || strings.Contains(err.Error(), "Fatal") {
+		t.Fatalf("err = %q, want plain words", err)
+	}
+}
+
 func TestRestoreFilesIncludesOnlyTheStagingDir(t *testing.T) {
 	f := &fakeRestic{}
 	dir := t.TempDir()

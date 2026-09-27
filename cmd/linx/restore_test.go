@@ -23,6 +23,7 @@ import (
 type fakeRestoreHost struct {
 	liveVersion, loadedVersion string
 	missingKey                 bool
+	wrongPassword              bool
 	failRename                 bool
 	unhealthy                  bool
 	calls                      []string // "docker stop linx-control-plane", "psql: ALTER DATABASE ...", ...
@@ -38,6 +39,9 @@ func (f *fakeRestoreHost) run(_ context.Context, w io.Writer, _ []string, name s
 		for i, a := range args {
 			switch a {
 			case "snapshots":
+				if f.wrongPassword {
+					return errors.New("Fatal: wrong password or no key found")
+				}
 				_, _ = io.WriteString(w, `[{"id":"abcdef0123456789","short_id":"abcdef01","time":"2026-09-20T03:00:00Z","tags":["pair:p1"]}]`)
 				return nil
 			case "restore":
@@ -204,6 +208,15 @@ func TestRestoreRefusesANewerBackup(t *testing.T) {
 	}
 	if f.index(`psql postgres: DROP DATABASE IF EXISTS "linx_restore"`) < 0 {
 		t.Errorf("loaded database not cleared: %v", f.calls)
+	}
+}
+
+func TestRestoreWrongPasswordInPlainWords(t *testing.T) {
+	f := &fakeRestoreHost{wrongPassword: true}
+	env := newRestoreEnv(t, f)
+	res, code, _ := runRestoreJSON(t, env, "--yes", "--path", "/mnt/old")
+	if code != 1 || res.Changed || res.Error != backup.ErrWrongPassword.Error() {
+		t.Fatalf("code %d, %+v", code, res)
 	}
 }
 

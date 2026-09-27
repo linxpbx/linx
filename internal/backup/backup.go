@@ -223,6 +223,9 @@ func FindSnapshot(ctx context.Context, runner Runner, t Target, snapshotID strin
 	args := append(resticArgs(t, pf), "snapshots", snapshotID, "--json")
 	var stdout bytes.Buffer
 	if err := runner(ctx, &stdout, t.Env, "restic", args...); err != nil {
+		if wrongPassword(err) {
+			return Snapshot{}, ErrWrongPassword
+		}
 		return Snapshot{}, fmt.Errorf("restic snapshots: %w", err)
 	}
 	var snaps []snapshotMeta
@@ -236,6 +239,17 @@ func FindSnapshot(ctx context.Context, runner Runner, t Target, snapshotID strin
 		}
 	}
 	return Snapshot{}, fmt.Errorf("backup %s isn't a Linx backup (it has no pair id)", snapshotID)
+}
+
+// ErrWrongPassword is FindSnapshot's answer when the password given
+// doesn't open the repository, in the plain words a restore shows.
+var ErrWrongPassword = errors.New("the password doesn't open this backup. Check it's the password saved with this backup")
+
+// wrongPassword reports whether restic refused the repository's password:
+// every version since 0.9 says "wrong password or no key found" (0.17 and
+// later also exit with code 12, which the Runner doesn't pass on).
+func wrongPassword(err error) bool {
+	return strings.Contains(err.Error(), "wrong password or no key found")
 }
 
 // RestoreFiles extracts a snapshot's staging directory — the database dump

@@ -281,6 +281,9 @@ func restorePassword(env restoreEnv, file string, fromStdin bool) (string, error
 func restoreEverything(ctx context.Context, env restoreEnv, t backup.Target, snapshotID string, progress io.Writer) (restoreResult, error) {
 	runner := backup.Runner(env.run)
 	snap, err := backup.FindSnapshot(ctx, runner, t, snapshotID)
+	if errors.Is(err, backup.ErrWrongPassword) {
+		return restoreResult{}, err
+	}
 	if err != nil {
 		return restoreResult{}, fmt.Errorf("couldn't read that backup: %w", err)
 	}

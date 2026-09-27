@@ -16,16 +16,17 @@ Usage:
   linx <command>
 
 Commands:
-  setup     Check this server and install what Linx needs (run with sudo)
-  doctor    Check that everything is working (run with sudo)
-  api-key   Create, list or revoke API keys (run with sudo; see linx api-key help)
-  user      Add people and issue set-password links (run with sudo; see linx user help)
-  trunk     Add, list, test or remove phone lines to the outside world (run with sudo; see linx trunk help)
-  route     Show what would happen to an outgoing call, without making it (run with sudo; see linx route help)
-  backup    Back up the database and the keys a restore needs (run with sudo; see linx backup help)
-  restore   Put everything back from a backup (run with sudo; see linx restore help)
-  version   Show the Linx version
-  help      Show this help
+  setup         Check this server and install what Linx needs (run with sudo)
+  doctor        Check that everything is working (run with sudo)
+  api-key       Create, list or revoke API keys (run with sudo; see linx api-key help)
+  user          Add people and issue set-password links (run with sudo; see linx user help)
+  admin-access  Let admins sign in from anywhere again when "only from my home network" shuts them out (run with sudo)
+  trunk         Add, list, test or remove phone lines to the outside world (run with sudo; see linx trunk help)
+  route         Show what would happen to an outgoing call, without making it (run with sudo; see linx route help)
+  backup        Back up the database and the keys a restore needs (run with sudo; see linx backup help)
+  restore       Put everything back from a backup (run with sudo; see linx restore help)
+  version       Show the Linx version
+  help          Show this help
 `
 
 func main() {
@@ -52,6 +53,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runAPIKey(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
 	case "user":
 		return runUser(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
+	case "admin-access":
+		return runAdminAccess(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
 	case "trunk":
 		return runTrunk(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
 	case "route":
