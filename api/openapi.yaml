@@ -73,6 +73,192 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/settings:
+    get:
+      operationId: getSettings
+      summary: Get the admin portal's settings
+      description: Numbering plan, site kind, Simple mode and where admins may sign in from (docs/ADMIN.md §4, §3).
+      tags: [settings]
+      security:
+        - bearer: [settings:read]
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateSettings
+      summary: Change the settings
+      description: >-
+        JSON Merge Patch: only the fields sent change. Changing
+        `admin_network_restricted` or `admin_networks` needs a fresh
+        "confirm it's you" (docs/ADMIN.md §7).
+      tags: [settings]
+      security:
+        - bearer: [settings:write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/SettingsPatch"
+      responses:
+        "200":
+          description: The settings as they now are.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/numbering/next:
+    get:
+      operationId: nextExtensionNumber
+      summary: The next free extension number
+      description: The lowest unused number in the people range (docs/ADMIN.md §4).
+      tags: [settings]
+      security:
+        - bearer: [extensions:read]
+      responses:
+        "200":
+          description: The next free number.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [number]
+                properties:
+                  number:
+                    type: string
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/setup:
+    get:
+      operationId: getSetup
+      summary: The setup wizard's progress
+      description: >-
+        Resumable (docs/ADMIN.md §4): the wizard's own data is saved to the
+        real resource each step fills in (settings, people, phone lines,
+        the "Everyone" calling level); this is only where to pick back up.
+      tags: [settings]
+      security:
+        - bearer: [settings:read]
+      responses:
+        "200":
+          description: The wizard's progress.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupProgress"
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: updateSetup
+      summary: Move the setup wizard on
+      description: >-
+        Advances (or resumes) the wizard's step. Setting `complete: true`
+        creates the "Everyone" calling level if none exists yet and gives
+        it to every extension without one, new ones too (docs/ADMIN.md §4).
+      tags: [settings]
+      security:
+        - bearer: [settings:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [step]
+              properties:
+                step:
+                  type: integer
+                  minimum: 1
+                  maximum: 7
+                complete:
+                  type: boolean
+      responses:
+        "200":
+          description: The wizard's progress as it now is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupProgress"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/audit-log:
+    get:
+      operationId: listAuditLog
+      summary: The activity log
+      description: Every write, key use for writes, replay and failed auth (docs/API.md §2), newest first.
+      tags: [settings]
+      security:
+        - bearer: [audit:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: actor
+          in: query
+          description: Only entries by this actor, e.g. "user:<id>" or "api_key:<id>".
+          schema:
+            type: string
+        - name: action
+          in: query
+          description: Only entries whose action starts with this, e.g. "user.".
+          schema:
+            type: string
+        - name: target
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: A page of activity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditLogEntryList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/system/status:
+    get:
+      operationId: getSystemStatus
+      summary: System status
+      description: >-
+        What `linx doctor` can see from inside the control plane: services,
+        open alerts, phone lines and WireGuard tunnels (docs/ADMIN.md §9).
+        Host-only checks (firewall, systemd, DNS) stay in `linx doctor`.
+      tags: [settings]
+      security:
+        - bearer: [system:read]
+      responses:
+        "200":
+          description: The status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/api-keys:
     get:
       operationId: listApiKeys
@@ -1608,6 +1794,42 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/session/confirm:
+    post:
+      operationId: confirmSession
+      summary: "\"Confirm it's you\""
+      description: >-
+        A fresh proof of identity for the most dangerous actions
+        (docs/ADMIN.md §7), without ending this or any other session:
+        password, plus the authenticator code if one is enrolled. Good for
+        10 minutes. Served by a hand-written handler (excluded from code
+        generation, like the other session endpoints).
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password:
+                  type: string
+                code:
+                  type: string
+                  description: The authenticator (or recovery) code, if one is enrolled.
+      responses:
+        "200":
+          description: Confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/setup-links/{token}:
     parameters:
       - name: token
@@ -1717,6 +1939,9 @@ paths:
       responses:
         "200":
           description: The person.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
           content:
             application/json:
               schema:
@@ -1728,10 +1953,15 @@ paths:
       summary: Change a person
       description: >-
         JSON Merge Patch: only the fields sent change. `disabled: true` ends
-        every session of theirs at once (docs/WEB.md §4).
+        every session of theirs at once (docs/WEB.md §4). Send `If-Match`
+        with the person's `etag` to refuse the change (412) if someone else
+        changed them first. Giving the admin or system_admin role needs a
+        fresh "confirm it's you" (docs/ADMIN.md §7).
       tags: [people]
       security:
         - bearer: [users:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
@@ -1741,6 +1971,9 @@ paths:
       responses:
         "200":
           description: The person as they now are.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
           content:
             application/json:
               schema:
@@ -1780,6 +2013,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SetupLinkIssued"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/users/{id}/reset-mfa:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: resetUserMfa
+      summary: Reset a person's authenticator
+      description: >-
+        Turns off their authenticator and passkeys and ends every session
+        of theirs, for when they've lost their second step (docs/ADMIN.md
+        §7); they enroll again from scratch. Needs a fresh "confirm it's
+        you".
+      tags: [people]
+      security:
+        - bearer: [users:write]
+      responses:
+        "200":
+          description: The person, with MFA now off.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
         default:
           $ref: "#/components/responses/Problem"
 
@@ -3509,13 +3766,22 @@ components:
       additionalProperties: false
       required: [number]
       properties:
+        direction:
+          type: string
+          enum: [outbound, inbound]
+          default: outbound
+          description: >-
+            outbound tests a call from one of your extensions; inbound
+            tests a call to one of your phone numbers (docs/ADMIN.md §9).
         number:
           type: string
           maxLength: 40
-          description: Dialled the way you'd dial it on a mobile ("050 123 4567", "+44 20 7946 0958").
+          description: >-
+            Outbound: dialled the way you'd dial it on a mobile ("050 123
+            4567", "+44 20 7946 0958"). Inbound: one of your phone numbers.
         from:
           type: string
-          description: The calling extension's number. Without it, only what kind of number it is.
+          description: Outbound only. The calling extension's number. Without it, only what kind of number it is.
 
     RouteTest:
       type: object
@@ -3537,7 +3803,7 @@ components:
           description: With `from`, whether the call would go out (or, for emergency numbers, is always let through).
         reason:
           type: string
-          enum: [emergency, invalid, unknown_caller, not_permitted, no_lines, allowed]
+          enum: [emergency, invalid, unknown_caller, not_permitted, no_lines, allowed, routed, not_assigned, unknown_number]
         lines:
           type: array
           description: With `from`, the lines it would go out on, in the order they're tried.
@@ -3553,6 +3819,15 @@ components:
               caller_id:
                 type: string
                 description: What the called person sees; absent means the provider's default.
+        extension:
+          description: Inbound only, when the number routes to an extension.
+          type: object
+          required: [number, display_name]
+          properties:
+            number:
+              type: string
+            display_name:
+              type: string
         words:
           type: string
           description: The whole decision in plain words, as `linx route test` prints it.
@@ -3860,9 +4135,196 @@ components:
           type: string
           description: A 6-digit authenticator code, or a recovery code.
 
+    NumberingRange:
+      type: object
+      additionalProperties: false
+      required: [kind, from, to]
+      properties:
+        kind:
+          type: string
+          enum: [people, groups, reserved]
+        from:
+          type: integer
+          minimum: 0
+        to:
+          type: integer
+          minimum: 0
+
+    Settings:
+      type: object
+      required: [country, extension_digits, extension_ranges, site_kind, simple_mode, admin_network_restricted, admin_networks, setup_step]
+      properties:
+        country:
+          type: string
+          description: ISO 3166 code (docs/TRUNKS.md §5).
+        extension_digits:
+          type: integer
+          minimum: 2
+          maximum: 6
+        extension_ranges:
+          type: array
+          items:
+            $ref: "#/components/schemas/NumberingRange"
+        site_kind:
+          type: string
+          enum: ["", home, business]
+        simple_mode:
+          type: boolean
+        admin_network_restricted:
+          type: boolean
+          description: >-
+            "Only from my home/office network" (docs/ADMIN.md §3); false
+            (the default) is "anywhere, with a second step".
+        admin_networks:
+          type: array
+          items:
+            type: string
+          description: Addresses or networks admins may sign in from when admin_network_restricted is true.
+        default_call_permission_level_id:
+          type: string
+          format: uuid
+          description: >-
+            The "Everyone" level new extensions get by default, once the
+            setup wizard (or an admin) has set one.
+        setup_step:
+          type: integer
+        setup_completed_at:
+          type: string
+          format: date-time
+
+    SettingsPatch:
+      description: JSON Merge Patch; fields not sent stay as they are.
+      type: object
+      additionalProperties: false
+      properties:
+        country:
+          type: string
+        extension_digits:
+          type: integer
+          minimum: 2
+          maximum: 6
+        extension_ranges:
+          type: array
+          items:
+            $ref: "#/components/schemas/NumberingRange"
+        site_kind:
+          type: string
+          enum: ["", home, business]
+        simple_mode:
+          type: boolean
+        admin_network_restricted:
+          type: boolean
+        admin_networks:
+          type: array
+          items:
+            type: string
+
+    SetupProgress:
+      type: object
+      required: [step, completed]
+      properties:
+        step:
+          type: integer
+        completed:
+          type: boolean
+        completed_at:
+          type: string
+          format: date-time
+
+    AuditLogEntry:
+      type: object
+      required: [id, at, actor, action, result]
+      properties:
+        id:
+          type: string
+          format: uuid
+        at:
+          type: string
+          format: date-time
+        actor:
+          type: string
+        ip:
+          type: string
+        action:
+          type: string
+        target:
+          type: string
+        result:
+          type: string
+          enum: [ok, denied, failed]
+        detail:
+          type: object
+          additionalProperties: true
+
+    AuditLogEntryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogEntry"
+        next_cursor:
+          type: string
+
+    SystemStatus:
+      type: object
+      required: [services, open_alerts, trunks, wireguard_profiles]
+      properties:
+        services:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ok, degraded, down]
+        open_alerts:
+          type: array
+          items:
+            type: object
+            required: [severity, title, message, since]
+            properties:
+              severity:
+                type: string
+                enum: [warning, critical]
+              title:
+                type: string
+              message:
+                type: string
+              since:
+                type: string
+                format: date-time
+        trunks:
+          type: array
+          items:
+            type: object
+            required: [id, name, status]
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              status:
+                type: string
+              status_since:
+                type: string
+                format: date-time
+        wireguard_profiles:
+          type: array
+          items:
+            type: object
+            required: [id, name, status]
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              status:
+                type: string
+
     User:
       type: object
-      required: [id, email, name, role, mfa_enabled, disabled, created_at, updated_at]
+      required: [id, email, name, role, mfa_enabled, disabled, created_at, updated_at, etag]
       properties:
         id:
           type: string
@@ -3886,6 +4348,9 @@ components:
         updated_at:
           type: string
           format: date-time
+        etag:
+          type: string
+          description: For If-Match.
 
     UserCreate:
       type: object

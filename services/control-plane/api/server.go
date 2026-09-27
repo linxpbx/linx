@@ -20,6 +20,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/settings"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/webhook"
@@ -38,7 +39,14 @@ type Server struct {
 	accounts  *auth.Accounts
 	turn      *turn.Issuer
 	team      *pbx.Team
+	settings  *settings.Service
+	audit     AuditLogSource
 	now       func() time.Time
+}
+
+// AuditLogSource is the database access /audit-log needs.
+type AuditLogSource interface {
+	ListAuditLog(ctx context.Context, tenant uuid.UUID, f auth.AuditLogFilter, before *uuid.UUID, limit int) ([]auth.AuditLogEntry, error)
 }
 
 // NumberingSource is the country Linx is set up in and the outgoing-call
@@ -62,9 +70,9 @@ type CallSource interface {
 // callers must pass the same document the server was validated against.
 // turnIssuer makes relay credentials for browsers (nil: no relay, so
 // /me/web-phone and /me/turn-credentials answer 503).
-func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, trunks *trunk.Service, numbering NumberingSource, calls CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team) *Server {
+func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, trunks *trunk.Service, numbering NumberingSource, calls CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team, settingsSvc *settings.Service, audit AuditLogSource) *Server {
 	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, trunks: trunks, numbering: numbering,
-		calls: calls, accounts: accounts, turn: turnIssuer, team: team, now: time.Now}
+		calls: calls, accounts: accounts, turn: turnIssuer, team: team, settings: settingsSvc, audit: audit, now: time.Now}
 }
 
 func (s *Server) GetOpenapiSpec(_ context.Context, _ GetOpenapiSpecRequestObject) (GetOpenapiSpecResponseObject, error) {

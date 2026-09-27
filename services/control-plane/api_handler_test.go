@@ -26,6 +26,7 @@ import (
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/safehttp"
+	"linxpbx.com/linx/internal/settings"
 	"linxpbx.com/linx/internal/siprelay"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/turn"
@@ -115,7 +116,8 @@ func newTestEnv(t *testing.T) *testEnv {
 	hub := newTeamHub(team, log)
 	team.OnChange = hub.Changed
 	trunks := &trunk.Service{}
-	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team)
+	settingsSvc := &settings.Service{Store: st, Now: time.Now}
+	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team, settingsSvc, st)
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}

@@ -32,6 +32,43 @@ type Authenticator struct {
 	// an Authorization header), which existing tests that build an
 	// Authenticator directly rely on.
 	Sessions SessionStore
+	// Networks is "where admins may sign in from" (docs/ADMIN.md §3). Nil
+	// (the default in tests) never restricts.
+	Networks AdminNetworkChecker
+}
+
+// AdminNetworkChecker is the setting "where admins may sign in from"
+// (docs/ADMIN.md §3, *settings.Service through a small adapter so this
+// package doesn't import internal/settings).
+type AdminNetworkChecker interface {
+	AdminAccess(ctx context.Context) (restricted bool, networks []netip.Prefix, err error)
+}
+
+// restrictAdminNetwork limits an admin/system_admin session's scopes to
+// RoleUser's when "only from my home/office network" is on and the request
+// isn't from one of the allowed networks (docs/ADMIN.md §3): the ordinary
+// person's view, not a refusal, so the person still signs in and the admin
+// area can explain why it's missing. API keys and OAuth clients have their
+// own AllowedIPs and never go through here.
+func (a *Authenticator) restrictAdminNetwork(ctx context.Context, p *Principal, ip netip.Addr) {
+	if a.Networks == nil || p.Pending || (p.Role != RoleAdmin && p.Role != RoleSystemAdmin) {
+		return
+	}
+	restricted, networks, err := a.Networks.AdminAccess(ctx)
+	if err != nil {
+		a.Log.Warn("checking the admin-network restriction failed", "err", err)
+		return
+	}
+	if !restricted {
+		return
+	}
+	for _, n := range networks {
+		if n.Contains(ip) {
+			return
+		}
+	}
+	p.Scopes = Effective(p.Scopes, RoleUser)
+	p.AdminNetworkRestricted = true
 }
 
 // NewAuthenticator builds an Authenticator with the limits from docs/API.md §3.
@@ -132,7 +169,9 @@ func (a *Authenticator) serveWithSession(w http.ResponseWriter, r *http.Request,
 	}
 	a.touchSession(ctx, sess, ip, now)
 	ctx = WithSession(ctx, sess)
-	a.finishAuthenticated(w, r, ctx, sess.Principal(), ip, now, next)
+	p := sess.Principal()
+	a.restrictAdminNetwork(ctx, &p, ip)
+	a.finishAuthenticated(w, r, ctx, p, ip, now, next)
 }
 
 var errSessionInvalid = &apihttp.Error{Status: http.StatusUnauthorized, Code: "session_invalid",

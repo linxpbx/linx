@@ -79,6 +79,27 @@ func registerSessionHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 		clearSessionCookies(w)
 		w.WriteHeader(http.StatusNoContent)
 	}))))
+
+	// "Confirm it's you" (docs/ADMIN.md §7): doesn't touch the session or
+	// CSRF cookies, so it could be a generated handler, but it's kept next
+	// to the rest of the sign-in state machine for the same reason
+	// verifySessionMfa is (excluded from code generation).
+	mux.Handle("POST /api/v1/session/confirm", apihttp.NoStore(apihttp.LimitBody(authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body confirmSessionBody
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		if err := accounts.Confirm(r.Context(), body.Password, body.Code); err != nil {
+			writeAccountError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, sessionStatusBody{Status: "signed_in"})
+	})))))
+}
+
+type confirmSessionBody struct {
+	Password string `json:"password"`
+	Code     string `json:"code"`
 }
 
 type signInBody struct {

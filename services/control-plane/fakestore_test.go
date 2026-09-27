@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/settings"
 )
 
 // fakeStore is an in-memory stand-in for internal/store (which is tested
@@ -25,6 +27,8 @@ type fakeStore struct {
 	links      map[string]auth.SetupLink
 	sessions   map[uuid.UUID]auth.UserSession
 	extensions map[string]pbx.Extension
+	auditLog   []auth.AuditLogEntry
+	settings   *settings.Settings
 }
 
 func newFakeStore() *fakeStore {
@@ -133,7 +137,45 @@ func (f *fakeStore) Audit(_ context.Context, e auth.AuditEntry) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.audits = append(f.audits, e)
+	id, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	f.auditLog = append(f.auditLog, auth.AuditLogEntry{
+		ID: id, At: time.Now(), Actor: e.Actor, IP: e.IP, Action: e.Action, Target: e.Target, Result: e.Result, Detail: e.Detail,
+	})
 	return nil
+}
+
+// ListAuditLog is a simple in-memory stand-in: no cursor pagination (tests
+// don't need more than one page), newest first.
+func (f *fakeStore) ListAuditLog(_ context.Context, _ uuid.UUID, filter auth.AuditLogFilter, _ *uuid.UUID, limit int) ([]auth.AuditLogEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []auth.AuditLogEntry{}
+	for i := len(f.auditLog) - 1; i >= 0; i-- {
+		e := f.auditLog[i]
+		if filter.Actor != "" && e.Actor != filter.Actor {
+			continue
+		}
+		if filter.Action != "" && !strings.HasPrefix(e.Action, filter.Action) {
+			continue
+		}
+		if filter.Target != "" && e.Target != filter.Target {
+			continue
+		}
+		if filter.Since != nil && e.At.Before(*filter.Since) {
+			continue
+		}
+		if filter.Until != nil && e.At.After(*filter.Until) {
+			continue
+		}
+		out = append(out, e)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeStore) auditActions() []string {

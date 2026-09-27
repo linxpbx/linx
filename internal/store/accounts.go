@@ -11,7 +11,17 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/webhook"
 )
+
+// userEvent builds the webhook body for a people-account change
+// (docs/ADMIN.md §9: user.created/updated/disabled, were audit-only).
+// Never the password hash, MFA secret or recovery codes.
+func userEvent(u auth.User, eventType string, at time.Time) (webhook.Event, error) {
+	return webhook.NewEvent(u.TenantID, eventType, map[string]any{
+		"id": u.ID, "email": u.Email, "name": u.Name, "role": u.Role, "disabled": u.DisabledAt != nil,
+	}, at)
+}
 
 var (
 	_ auth.UserStore    = (*Store)(nil)
@@ -45,6 +55,13 @@ func (s *Store) CreateUser(ctx context.Context, u auth.User, audit auth.AuditEnt
 				return auth.ErrDuplicate
 			}
 			return fmt.Errorf("creating person: %w", err)
+		}
+		ev, err := userEvent(u, "user.created", u.CreatedAt)
+		if err != nil {
+			return err
+		}
+		if err := insertEvent(ctx, tx, ev, nil); err != nil {
+			return err
 		}
 		return insertAudit(ctx, tx, audit)
 	})
@@ -108,6 +125,13 @@ func (s *Store) UpdateUser(ctx context.Context, u auth.User, audit auth.AuditEnt
 			}
 			return err
 		}
+		ev, err := userEvent(out, "user.updated", u.UpdatedAt)
+		if err != nil {
+			return err
+		}
+		if err := insertEvent(ctx, tx, ev, nil); err != nil {
+			return err
+		}
 		return insertAudit(ctx, tx, audit)
 	})
 	return out, err
@@ -128,6 +152,18 @@ func (s *Store) DisableUser(ctx context.Context, tenant, id uuid.UUID, at time.T
 			RETURNING `+userColumns, id, tenant, at))
 		if err != nil {
 			return err
+		}
+		if out.DisabledAt != nil && out.DisabledAt.Equal(at) {
+			// Only when this call is what disabled them: disabling an
+			// already-disabled person is a no-op (docs/API.md §9's
+			// "were audit-only" note).
+			ev, err := userEvent(out, "user.disabled", at)
+			if err != nil {
+				return err
+			}
+			if err := insertEvent(ctx, tx, ev, nil); err != nil {
+				return err
+			}
 		}
 		if err := revokeUserSessionsTx(ctx, tx, id, at); err != nil {
 			return err
@@ -187,6 +223,24 @@ func (s *Store) ConfirmMFA(ctx context.Context, tenant, user uuid.UUID, recovery
 		}
 		return insertAudit(ctx, tx, audit)
 	})
+}
+
+// ResetMFA clears an account's authenticator, confirmed and pending,
+// recovery codes and step memory (docs/ADMIN.md §7).
+func (s *Store) ResetMFA(ctx context.Context, tenant, user uuid.UUID, at time.Time, audit auth.AuditEntry) (auth.User, error) {
+	var out auth.User
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		out, err = scanUser(tx.QueryRow(ctx, `UPDATE app_user SET
+				mfa_secret_enc = NULL, mfa_pending_secret_enc = NULL, mfa_enabled = false,
+				recovery_code_hashes = '{}', mfa_last_step = NULL, version = version + 1, updated_at = $3
+			WHERE id = $1 AND tenant_id = $2 RETURNING `+userColumns, user, tenant, at))
+		if err != nil {
+			return err
+		}
+		return insertAudit(ctx, tx, audit)
+	})
+	return out, err
 }
 
 func (s *Store) UseTOTPStep(ctx context.Context, tenant, user uuid.UUID, step int64) (bool, error) {
@@ -295,12 +349,12 @@ func (s *Store) ConsumeSetupLink(ctx context.Context, id uuid.UUID, at time.Time
 }
 
 const sessionColumns = `id, tenant_id, user_id, role, token_hash, csrf_hash, mfa_verified,
-	created_at, expires_at, idle_expires_at, last_seen_at, last_seen_ip, user_agent, revoked_at`
+	created_at, expires_at, idle_expires_at, last_seen_at, last_seen_ip, user_agent, revoked_at, confirmed_at`
 
 func scanSession(row pgx.Row) (auth.UserSession, error) {
 	var s auth.UserSession
 	err := row.Scan(&s.ID, &s.TenantID, &s.UserID, &s.Role, &s.TokenHash, &s.CSRFHash, &s.MFAVerified,
-		&s.CreatedAt, &s.ExpiresAt, &s.IdleExpiresAt, &s.LastSeenAt, &s.LastSeenIP, &s.UserAgent, &s.RevokedAt)
+		&s.CreatedAt, &s.ExpiresAt, &s.IdleExpiresAt, &s.LastSeenAt, &s.LastSeenIP, &s.UserAgent, &s.RevokedAt, &s.ConfirmedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, auth.ErrNotFound
 	}
@@ -309,10 +363,18 @@ func scanSession(row pgx.Row) (auth.UserSession, error) {
 
 func (s *Store) CreateSession(ctx context.Context, sess auth.UserSession) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO user_session
-		(id, tenant_id, user_id, role, token_hash, csrf_hash, mfa_verified, created_at, expires_at, idle_expires_at, last_seen_at, last_seen_ip, user_agent)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		(id, tenant_id, user_id, role, token_hash, csrf_hash, mfa_verified, created_at, expires_at, idle_expires_at, last_seen_at, last_seen_ip, user_agent, confirmed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 		sess.ID, sess.TenantID, sess.UserID, sess.Role, sess.TokenHash, sess.CSRFHash, sess.MFAVerified,
-		sess.CreatedAt, sess.ExpiresAt, sess.IdleExpiresAt, sess.LastSeenAt, sess.LastSeenIP, sess.UserAgent)
+		sess.CreatedAt, sess.ExpiresAt, sess.IdleExpiresAt, sess.LastSeenAt, sess.LastSeenIP, sess.UserAgent, sess.ConfirmedAt)
+	return err
+}
+
+// ConfirmSession records a fresh proof of identity: signing in (set
+// directly on the session at creation), completing the authenticator-code
+// step (PromoteSession), or POST /session/confirm (docs/ADMIN.md §7).
+func (s *Store) ConfirmSession(ctx context.Context, id uuid.UUID, at time.Time) error {
+	_, err := s.pool.Exec(ctx, `UPDATE user_session SET confirmed_at = $2 WHERE id = $1 AND revoked_at IS NULL`, id, at)
 	return err
 }
 

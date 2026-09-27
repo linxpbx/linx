@@ -64,6 +64,114 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the admin portal's settings
+         * @description Numbering plan, site kind, Simple mode and where admins may sign in from (docs/ADMIN.md §4, §3).
+         */
+        get: operations["getSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change the settings
+         * @description JSON Merge Patch: only the fields sent change. Changing `admin_network_restricted` or `admin_networks` needs a fresh "confirm it's you" (docs/ADMIN.md §7).
+         */
+        patch: operations["updateSettings"];
+        trace?: never;
+    };
+    "/api/v1/numbering/next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The next free extension number
+         * @description The lowest unused number in the people range (docs/ADMIN.md §4).
+         */
+        get: operations["nextExtensionNumber"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The setup wizard's progress
+         * @description Resumable (docs/ADMIN.md §4): the wizard's own data is saved to the real resource each step fills in (settings, people, phone lines, the "Everyone" calling level); this is only where to pick back up.
+         */
+        get: operations["getSetup"];
+        /**
+         * Move the setup wizard on
+         * @description Advances (or resumes) the wizard's step. Setting `complete: true` creates the "Everyone" calling level if none exists yet and gives it to every extension without one, new ones too (docs/ADMIN.md §4).
+         */
+        put: operations["updateSetup"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The activity log
+         * @description Every write, key use for writes, replay and failed auth (docs/API.md §2), newest first.
+         */
+        get: operations["listAuditLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * System status
+         * @description What `linx doctor` can see from inside the control plane: services, open alerts, phone lines and WireGuard tunnels (docs/ADMIN.md §9). Host-only checks (firewall, systemd, DNS) stay in `linx doctor`.
+         */
+        get: operations["getSystemStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/api-keys": {
         parameters: {
             query?: never;
@@ -956,6 +1064,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/session/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * "Confirm it's you"
+         * @description A fresh proof of identity for the most dangerous actions (docs/ADMIN.md §7), without ending this or any other session: password, plus the authenticator code if one is enrolled. Good for 10 minutes. Served by a hand-written handler (excluded from code generation, like the other session endpoints).
+         */
+        post: operations["confirmSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/setup-links/{token}": {
         parameters: {
             query?: never;
@@ -1025,7 +1153,7 @@ export interface paths {
         head?: never;
         /**
          * Change a person
-         * @description JSON Merge Patch: only the fields sent change. `disabled: true` ends every session of theirs at once (docs/WEB.md §4).
+         * @description JSON Merge Patch: only the fields sent change. `disabled: true` ends every session of theirs at once (docs/WEB.md §4). Send `If-Match` with the person's `etag` to refuse the change (412) if someone else changed them first. Giving the admin or system_admin role needs a fresh "confirm it's you" (docs/ADMIN.md §7).
          */
         patch: operations["updateUser"];
         trace?: never;
@@ -1046,6 +1174,28 @@ export interface paths {
          * @description A fresh one-time link (24 hours), for a new person or one who lost theirs.
          */
         post: operations["createUserSetupLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}/reset-mfa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a person's authenticator
+         * @description Turns off their authenticator and passkeys and ends every session of theirs, for when they've lost their second step (docs/ADMIN.md §7); they enroll again from scratch. Needs a fresh "confirm it's you".
+         */
+        post: operations["resetUserMfa"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2111,9 +2261,15 @@ export interface components {
             untrusted?: boolean;
         };
         RouteTestRequest: {
-            /** @description Dialled the way you'd dial it on a mobile ("050 123 4567", "+44 20 7946 0958"). */
+            /**
+             * @description outbound tests a call from one of your extensions; inbound tests a call to one of your phone numbers (docs/ADMIN.md §9).
+             * @default outbound
+             * @enum {string}
+             */
+            direction: "outbound" | "inbound";
+            /** @description Outbound: dialled the way you'd dial it on a mobile ("050 123 4567", "+44 20 7946 0958"). Inbound: one of your phone numbers. */
             number: string;
-            /** @description The calling extension's number. Without it, only what kind of number it is. */
+            /** @description Outbound only. The calling extension's number. Without it, only what kind of number it is. */
             from?: string;
         };
         RouteTest: {
@@ -2127,7 +2283,7 @@ export interface components {
             /** @description With `from`, whether the call would go out (or, for emergency numbers, is always let through). */
             allowed?: boolean;
             /** @enum {string} */
-            reason?: "emergency" | "invalid" | "unknown_caller" | "not_permitted" | "no_lines" | "allowed";
+            reason?: "emergency" | "invalid" | "unknown_caller" | "not_permitted" | "no_lines" | "allowed" | "routed" | "not_assigned" | "unknown_number";
             /** @description With `from`, the lines it would go out on, in the order they're tried. */
             lines?: {
                 trunk: string;
@@ -2136,6 +2292,11 @@ export interface components {
                 /** @description What the called person sees; absent means the provider's default. */
                 caller_id?: string;
             }[];
+            /** @description Inbound only, when the number routes to an extension. */
+            extension?: {
+                number: string;
+                display_name: string;
+            };
             /** @description The whole decision in plain words, as `linx route test` prints it. */
             words: string;
         };
@@ -2290,6 +2451,96 @@ export interface components {
             /** @description A 6-digit authenticator code, or a recovery code. */
             code: string;
         };
+        NumberingRange: {
+            /** @enum {string} */
+            kind: "people" | "groups" | "reserved";
+            from: number;
+            to: number;
+        };
+        Settings: {
+            /** @description ISO 3166 code (docs/TRUNKS.md §5). */
+            country: string;
+            extension_digits: number;
+            extension_ranges: components["schemas"]["NumberingRange"][];
+            /** @enum {string} */
+            site_kind: "" | "home" | "business";
+            simple_mode: boolean;
+            /** @description "Only from my home/office network" (docs/ADMIN.md §3); false (the default) is "anywhere, with a second step". */
+            admin_network_restricted: boolean;
+            /** @description Addresses or networks admins may sign in from when admin_network_restricted is true. */
+            admin_networks: string[];
+            /**
+             * Format: uuid
+             * @description The "Everyone" level new extensions get by default, once the setup wizard (or an admin) has set one.
+             */
+            default_call_permission_level_id?: string;
+            setup_step: number;
+            /** Format: date-time */
+            setup_completed_at?: string;
+        };
+        /** @description JSON Merge Patch; fields not sent stay as they are. */
+        SettingsPatch: {
+            country?: string;
+            extension_digits?: number;
+            extension_ranges?: components["schemas"]["NumberingRange"][];
+            /** @enum {string} */
+            site_kind?: "" | "home" | "business";
+            simple_mode?: boolean;
+            admin_network_restricted?: boolean;
+            admin_networks?: string[];
+        };
+        SetupProgress: {
+            step: number;
+            completed: boolean;
+            /** Format: date-time */
+            completed_at?: string;
+        };
+        AuditLogEntry: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            at: string;
+            actor: string;
+            ip?: string;
+            action: string;
+            target?: string;
+            /** @enum {string} */
+            result: "ok" | "denied" | "failed";
+            detail?: {
+                [key: string]: unknown;
+            };
+        };
+        AuditLogEntryList: {
+            items: components["schemas"]["AuditLogEntry"][];
+            next_cursor?: string;
+        };
+        SystemStatus: {
+            services: {
+                [key: string]: "ok" | "degraded" | "down";
+            };
+            open_alerts: {
+                /** @enum {string} */
+                severity: "warning" | "critical";
+                title: string;
+                message: string;
+                /** Format: date-time */
+                since: string;
+            }[];
+            trunks: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                status: string;
+                /** Format: date-time */
+                status_since?: string;
+            }[];
+            wireguard_profiles: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                status: string;
+            }[];
+        };
         User: {
             /** Format: uuid */
             id: string;
@@ -2304,6 +2555,8 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description For If-Match. */
+            etag: string;
         };
         UserCreate: {
             email: string;
@@ -2494,6 +2747,178 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventTypeList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["SettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description The settings as they now are. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    nextExtensionNumber: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The next free number. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        number: string;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The wizard's progress. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupProgress"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    step: number;
+                    complete?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The wizard's progress as it now is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupProgress"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listAuditLog: {
+        parameters: {
+            query?: {
+                /** @description Maximum items per page (docs/API.md §2). */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque pagination cursor from a previous page's `next_cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Only entries by this actor, e.g. "user:<id>" or "api_key:<id>". */
+                actor?: string;
+                /** @description Only entries whose action starts with this, e.g. "user.". */
+                action?: string;
+                target?: string;
+                since?: string;
+                until?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of activity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogEntryList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getSystemStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemStatus"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -4211,6 +4636,35 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    confirmSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password: string;
+                    /** @description The authenticator (or recovery) code, if one is enrolled. */
+                    code?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Confirmed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     checkSetupLink: {
         parameters: {
             query?: never;
@@ -4327,6 +4781,7 @@ export interface operations {
             /** @description The person. */
             200: {
                 headers: {
+                    ETag: components["headers"]["ETag"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4360,7 +4815,10 @@ export interface operations {
     updateUser: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 id: components["parameters"]["Id"];
             };
@@ -4375,6 +4833,7 @@ export interface operations {
             /** @description The person as they now are. */
             200: {
                 headers: {
+                    ETag: components["headers"]["ETag"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -4402,6 +4861,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetupLinkIssued"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    resetUserMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person, with MFA now off. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
                 };
             };
             default: components["responses"]["Problem"];

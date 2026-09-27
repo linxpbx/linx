@@ -2,10 +2,13 @@ package auth
 
 import (
 	"context"
+	"net/http"
 	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
+
+	"linxpbx.com/linx/internal/apihttp"
 )
 
 // Cookie and header names for signed-in people (docs/API.md §3, docs/WEB.md
@@ -54,6 +57,40 @@ type UserSession struct {
 	LastSeenIP                *netip.Addr
 	UserAgent                 string
 	RevokedAt                 *time.Time
+	// ConfirmedAt is this session's most recent proof of identity: signing
+	// in, or POST /session/confirm (docs/ADMIN.md §7 "confirm it's you").
+	// nil for a session that has never confirmed (e.g. one from before this
+	// column existed).
+	ConfirmedAt *time.Time
+}
+
+// ConfirmWithin is how long a session's last proof of identity (sign-in, or
+// POST /session/confirm) covers "confirm it's you" actions before they ask
+// again (docs/ADMIN.md §7).
+const ConfirmWithin = 10 * time.Minute
+
+// Confirmed reports whether s proved identity within ConfirmWithin of now.
+func (s UserSession) Confirmed(now time.Time) bool {
+	return s.ConfirmedAt != nil && now.Sub(*s.ConfirmedAt) <= ConfirmWithin
+}
+
+var errConfirmRequired = &apihttp.Error{Status: http.StatusForbidden, Code: "confirm_required",
+	Detail: "This needs a fresh confirmation. Enter your password (and code, if you have one) again."}
+
+// RequireConfirmed enforces "confirm it's you" (docs/ADMIN.md §7) for the
+// most dangerous actions, even in an already-signed-in session: a stolen
+// but still-valid session cookie shouldn't be enough on its own. Only
+// session-authenticated callers are checked; an API key or OAuth client
+// carries no session and is never subject to this (they're not sessions).
+func RequireConfirmed(ctx context.Context, now time.Time) error {
+	sess, ok := SessionFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	if sess.Confirmed(now) {
+		return nil
+	}
+	return errConfirmRequired
 }
 
 // Principal is the caller this session authenticates as (docs/WEB.md §4). A
@@ -73,6 +110,8 @@ type SessionStore interface {
 	SessionByTokenHash(ctx context.Context, hash []byte) (UserSession, error)
 	// TouchSession extends a session's idle window and records its last use.
 	TouchSession(ctx context.Context, id uuid.UUID, lastSeen, idleExpires time.Time, ip netip.Addr) error
+	// ConfirmSession records a fresh proof of identity (docs/ADMIN.md §7).
+	ConfirmSession(ctx context.Context, id uuid.UUID, at time.Time) error
 }
 
 type sessionKey struct{}

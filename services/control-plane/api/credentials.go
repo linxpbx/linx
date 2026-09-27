@@ -51,6 +51,17 @@ func (s *Server) createCredential(ctx context.Context, kind string, body *Creden
 	if body.AllowedIps != nil {
 		req.AllowedIPs = *body.AllowedIps
 	}
+	for _, sc := range req.Scopes {
+		if sc == "all" || auth.Sensitive(sc) {
+			// Creating a key or client with a sensitive scope is one of
+			// "confirm it's you"'s actions, even in an already-signed-in
+			// session (docs/ADMIN.md §7); "all" can expand to one.
+			if err := auth.RequireConfirmed(ctx, s.now()); err != nil {
+				return auth.Credential{}, "", err
+			}
+			break
+		}
+	}
 	cred, secret, err := auth.NewCredential(p, req, s.now())
 	if err != nil {
 		return auth.Credential{}, "", err

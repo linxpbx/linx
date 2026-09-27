@@ -11,7 +11,7 @@ import (
 func toUser(u auth.User) User {
 	out := User{
 		Id: u.ID, Email: u.Email, Name: u.Name, Role: Role(u.Role), MfaEnabled: u.MFAEnabled,
-		Disabled: u.DisabledAt != nil, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		Disabled: u.DisabledAt != nil, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, Etag: auth.ETag(u.Version),
 	}
 	if u.ExtensionID != nil {
 		out.ExtensionId = u.ExtensionID
@@ -61,7 +61,8 @@ func (s *Server) GetUser(ctx context.Context, req GetUserRequestObject) (GetUser
 		}
 		return GetUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
-	return GetUser200JSONResponse(toUser(u)), nil
+	out := toUser(u)
+	return GetUser200JSONResponse{Body: out, Headers: GetUser200ResponseHeaders{ETag: &out.Etag}}, nil
 }
 
 func (s *Server) UpdateUser(ctx context.Context, req UpdateUserRequestObject) (UpdateUserResponseObject, error) {
@@ -70,7 +71,7 @@ func (s *Server) UpdateUser(ctx context.Context, req UpdateUserRequestObject) (U
 		role := string(*req.Body.Role)
 		patch.Role = &role
 	}
-	u, err := s.accounts.UpdateUser(ctx, req.Id, patch)
+	u, err := s.accounts.UpdateUser(ctx, req.Id, patch, deref(req.Params.IfMatch))
 	if err != nil {
 		e, err := apiError(err)
 		if e == nil {
@@ -78,7 +79,20 @@ func (s *Server) UpdateUser(ctx context.Context, req UpdateUserRequestObject) (U
 		}
 		return UpdateUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
-	return UpdateUser200JSONResponse(toUser(u)), nil
+	out := toUser(u)
+	return UpdateUser200JSONResponse{Body: out, Headers: UpdateUser200ResponseHeaders{ETag: &out.Etag}}, nil
+}
+
+func (s *Server) ResetUserMfa(ctx context.Context, req ResetUserMfaRequestObject) (ResetUserMfaResponseObject, error) {
+	u, err := s.accounts.ResetMFA(ctx, req.Id)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return ResetUserMfadefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return ResetUserMfa200JSONResponse(toUser(u)), nil
 }
 
 func (s *Server) DisableUser(ctx context.Context, req DisableUserRequestObject) (DisableUserResponseObject, error) {

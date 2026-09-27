@@ -21,6 +21,9 @@ var Scopes = []string{
 	"outbound_allowlist:read", "outbound_allowlist:write",
 	"recordings:read",
 	"routing:read", "routing:write",
+	"settings:read", "settings:write",
+	"sso:read", "sso:write",
+	"system:read",
 	"team:read",
 	"transcripts:read",
 	"trunks:read", "trunks:write",
@@ -60,8 +63,9 @@ var Roles = []string{RoleSystemAdmin, RoleAdmin, RoleUser, RoleReporter}
 var roleCeilings = map[string][]string{
 	RoleSystemAdmin: Scopes,
 	RoleAdmin:       Scopes,
-	RoleReporter:    {"alerts:read", "extensions:read", "team:read", "webhooks:read"},
-	RoleUser:        {"extensions:read", "team:read"},
+	RoleReporter: {"alerts:read", "audit:read", "extensions:read", "routing:read", "system:read",
+		"team:read", "trunks:read", "webhooks:read"},
+	RoleUser: {"extensions:read", "team:read"},
 }
 
 // grantableRoles is which roles each role may give a new key or client:

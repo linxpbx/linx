@@ -272,6 +272,28 @@ func (f *fakeAccountStore) PromoteSession(_ context.Context, id uuid.UUID) error
 	return nil
 }
 
+func (f *fakeAccountStore) ConfirmSession(_ context.Context, id uuid.UUID, at time.Time) error {
+	s, ok := f.sessions[id]
+	if !ok {
+		return ErrNotFound
+	}
+	s.ConfirmedAt = &at
+	f.sessions[id] = s
+	return nil
+}
+
+func (f *fakeAccountStore) ResetMFA(_ context.Context, tenant, user uuid.UUID, at time.Time, _ AuditEntry) (User, error) {
+	u, ok := f.users[user]
+	if !ok || u.TenantID != tenant {
+		return User{}, ErrNotFound
+	}
+	u.MFASecretEnc, u.MFAPendingSecretEnc, u.MFAEnabled, u.RecoveryCodeHashes, u.MFALastStep = nil, nil, false, nil, nil
+	u.Version++
+	u.UpdatedAt = at
+	f.users[user] = u
+	return u, nil
+}
+
 func (f *fakeAccountStore) SessionByTokenHash(_ context.Context, hash []byte) (UserSession, error) {
 	for _, s := range f.sessions {
 		if string(s.TokenHash) == string(hash) {
@@ -830,7 +852,7 @@ func TestAdminCantManageSystemAdmin(t *testing.T) {
 	_, err = a.CreateSetupLink(admin, target.ID)
 	wantCode(t, err, "role_exceeds_caller")
 	user := RoleUser
-	_, err = a.UpdateUser(admin, target.ID, UserPatch{Role: &user})
+	_, err = a.UpdateUser(admin, target.ID, UserPatch{Role: &user}, "")
 	wantCode(t, err, "role_exceeds_caller")
 	_, err = a.DisableUser(admin, target.ID)
 	wantCode(t, err, "role_exceeds_caller")

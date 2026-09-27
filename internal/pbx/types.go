@@ -88,6 +88,11 @@ type Device struct {
 // Store is the database access extensions and devices need
 // (internal/store implements it).
 type Store interface {
+	// DefaultCallPermissionLevelID is the level a new extension gets when
+	// none is named (docs/ADMIN.md §4: the setup wizard's "Everyone"
+	// level), or nil until one is set (1D's fail-closed default applies).
+	DefaultCallPermissionLevelID(ctx context.Context) (*uuid.UUID, error)
+
 	CreateExtension(ctx context.Context, e Extension, audit auth.AuditEntry) error
 	Extension(ctx context.Context, tenant, id uuid.UUID) (Extension, error)
 	ListExtensions(ctx context.Context, tenant uuid.UUID, before *uuid.UUID, limit int) ([]Extension, error)

@@ -98,6 +98,11 @@ type UserStore interface {
 	// ConsumeRecoveryCode removes one used recovery code; false if it was
 	// already gone (two requests racing with the same code: one wins).
 	ConsumeRecoveryCode(ctx context.Context, tenant, user uuid.UUID, hash []byte) (bool, error)
+	// ResetMFA clears an account's authenticator (confirmed and pending),
+	// recovery codes and step memory (docs/ADMIN.md §7 "Reset authenticator"):
+	// they enroll again from scratch. Does not end sessions; the caller
+	// does that (a plain password change doesn't need to).
+	ResetMFA(ctx context.Context, tenant, user uuid.UUID, at time.Time, audit AuditEntry) (User, error)
 
 	// RecordLoginSuccess clears lockout and the guessing-password window.
 	RecordLoginSuccess(ctx context.Context, tenant, user uuid.UUID, at time.Time) error

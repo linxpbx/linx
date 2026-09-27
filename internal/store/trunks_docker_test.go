@@ -263,6 +263,31 @@ func TestTrunksDocker(t *testing.T) {
 		}
 	})
 
+	t.Run("DIDByNumber finds a phone number, unrouted or routed", func(t *testing.T) {
+		tr := newTrunk("Line H")
+		did := trunk.DID{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, TrunkID: tr.ID, Number: "971503333333",
+			Version: 1, CreatedAt: now, UpdatedAt: now}
+		if err := s.CreateDID(ctx, did, audit("trunk_did.create")); err != nil {
+			t.Fatalf("CreateDID: %v", err)
+		}
+		if _, err := s.DIDByNumber(ctx, tenant, "971509999999"); !errors.Is(err, trunk.ErrNotFound) {
+			t.Errorf("unknown number: err = %v, want ErrNotFound", err)
+		}
+		got, err := s.DIDByNumber(ctx, tenant, did.Number)
+		if err != nil || got.ID != did.ID || got.ExtensionID != nil {
+			t.Fatalf("DIDByNumber (unrouted) = %+v, %v", got, err)
+		}
+		ext := newExtension("202")
+		did.ExtensionID = &ext.ID
+		if _, err := s.UpdateDID(ctx, did, audit("trunk_did.update")); err != nil {
+			t.Fatalf("UpdateDID: %v", err)
+		}
+		got, err = s.DIDByNumber(ctx, tenant, did.Number)
+		if err != nil || got.ExtensionID == nil || *got.ExtensionID != ext.ID {
+			t.Fatalf("DIDByNumber (routed) = %+v, %v", got, err)
+		}
+	})
+
 	t.Run("SetOutboundOrder orders and clears priorities", func(t *testing.T) {
 		a, b := newTrunk("Primary"), newTrunk("Backup")
 		out, err := s.SetOutboundOrder(ctx, tenant, []uuid.UUID{a.ID, b.ID}, now, audit("outbound_routing.update"))

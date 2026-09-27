@@ -692,6 +692,17 @@ func (s *Service) GetDID(ctx context.Context, id uuid.UUID) (DID, error) {
 	return d, err
 }
 
+// DIDByNumber finds one of the caller's phone numbers, for POST
+// /route-test's inbound direction (docs/ADMIN.md §9); ErrNotFound if it
+// isn't one.
+func (s *Service) DIDByNumber(ctx context.Context, number string) (DID, error) {
+	p, err := principal(ctx)
+	if err != nil {
+		return DID{}, err
+	}
+	return s.Store.DIDByNumber(ctx, p.TenantID, number)
+}
+
 // ListDIDs returns a page of trunkID's DIDs, newest first.
 func (s *Service) ListDIDs(ctx context.Context, trunkID uuid.UUID, before *uuid.UUID, limit int) ([]DID, error) {
 	t, err := s.GetTrunk(ctx, trunkID)

@@ -63,8 +63,8 @@ func testEnv(stdin string, files map[string]string) setupEnv {
 func TestSetupInteractiveDryRun(t *testing.T) {
 	// Answers: accept profile, install Docker, Pangolin in front (a bad then
 	// a good address; a bad then a good UDP port), choose Portainer, a bad then a good domain, (token),
-	// keep test certificates, skip the email.
-	env := testEnv("\ny\n1\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n", nil)
+	// keep test certificates, skip the email, skip the owner email and name.
+	env := testEnv("\ny\n1\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n", nil)
 	var out, errOut bytes.Buffer
 	code := runSetup(context.Background(), []string{"--dry-run"}, &out, &errOut, env)
 	if code != 0 {
@@ -108,7 +108,7 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 // (docs/TRUNKS.md §13 step 6) when it's built alongside linx, the same way
 // it installs linx itself.
 func TestSetupInstallsFirewallSync(t *testing.T) {
-	env := testEnv("\ny\n1\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n", nil)
+	env := testEnv("\ny\n1\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n", nil)
 	env.stat = func(p string) (os.FileInfo, error) {
 		if p == "/home/owner/linx-firewall-sync" {
 			return nil, nil
@@ -129,6 +129,39 @@ func TestSetupInstallsFirewallSync(t *testing.T) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}
 	}
+}
+
+func TestPrintFirstAdmin(t *testing.T) {
+	t.Run("creates the account", func(t *testing.T) {
+		runner := hostRunner{
+			"docker exec " + controlPlaneContainer + " " + controlPlaneBinary + " user create --email owner@example.com --name Owner --role system_admin": "Owner (owner@example.com, system_admin) can now set their password — it works once, for 24 hours:\n",
+		}
+		var out, errOut bytes.Buffer
+		printFirstAdmin(context.Background(), &out, &errOut, setupEnv{runner: runner}, "owner@example.com", "Owner")
+		if !strings.Contains(out.String(), "can now set their password") {
+			t.Errorf("didn't relay the setup link:\n%s", out.String())
+		}
+		if errOut.Len() != 0 {
+			t.Errorf("unexpected stderr: %s", errOut.String())
+		}
+	})
+	t.Run("no email given", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		printFirstAdmin(context.Background(), &out, &errOut, setupEnv{}, "", "")
+		if !strings.Contains(out.String(), "No first admin account created") {
+			t.Errorf("didn't explain why no account was made:\n%s", out.String())
+		}
+		if !strings.Contains(out.String(), "linx user create") {
+			t.Errorf("didn't say how to create one later:\n%s", out.String())
+		}
+	})
+	t.Run("docker exec fails", func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		printFirstAdmin(context.Background(), &out, &errOut, setupEnv{runner: hostRunner{}}, "owner@example.com", "Owner")
+		if !strings.Contains(errOut.String(), "Couldn't create the first admin account") {
+			t.Errorf("didn't report the failure:\n%s", errOut.String())
+		}
+	})
 }
 
 func TestSetupConfigFile(t *testing.T) {
@@ -164,7 +197,7 @@ func TestSetupConfigFile(t *testing.T) {
 
 func TestSetupKeepsSavedToken(t *testing.T) {
 	// Saved answers and token; the owner accepts every default.
-	env := testEnv(strings.Repeat("\n", 8), map[string]string{installer.DNSTokenPath: "saved-token-xxxxxxxxxxxxxxxxxxx\n"})
+	env := testEnv(strings.Repeat("\n", 10), map[string]string{installer.DNSTokenPath: "saved-token-xxxxxxxxxxxxxxxxxxx\n"})
 	env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
 	env.readSecret = func() (string, error) { t.Error("asked for a token although one is saved"); return "", io.EOF }
 	var out, errOut bytes.Buffer

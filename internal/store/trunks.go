@@ -285,6 +285,10 @@ func (s *Store) DID(ctx context.Context, tenant, id uuid.UUID) (trunk.DID, error
 	return scanDID(s.pool.QueryRow(ctx, `SELECT `+didColumns+` FROM trunk_did WHERE id = $1 AND tenant_id = $2`, id, tenant))
 }
 
+func (s *Store) DIDByNumber(ctx context.Context, tenant uuid.UUID, number string) (trunk.DID, error) {
+	return scanDID(s.pool.QueryRow(ctx, `SELECT `+didColumns+` FROM trunk_did WHERE tenant_id = $1 AND number = $2`, tenant, number))
+}
+
 func (s *Store) ListDIDsByTrunk(ctx context.Context, tenant, trunkID uuid.UUID, before *uuid.UUID, limit int) ([]trunk.DID, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+didColumns+` FROM trunk_did
 		WHERE tenant_id = $1 AND trunk_id = $2 AND ($3::uuid IS NULL OR id < $3) ORDER BY id DESC LIMIT $4`,

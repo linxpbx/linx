@@ -336,6 +336,32 @@ func (f *fakeStore) PromoteSession(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (f *fakeStore) ConfirmSession(_ context.Context, id uuid.UUID, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.sessions[id]
+	if !ok {
+		return auth.ErrNotFound
+	}
+	s.ConfirmedAt = &at
+	f.sessions[id] = s
+	return nil
+}
+
+func (f *fakeStore) ResetMFA(_ context.Context, tenant, user uuid.UUID, at time.Time, _ auth.AuditEntry) (auth.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.users[user]
+	if !ok || u.TenantID != tenant {
+		return auth.User{}, auth.ErrNotFound
+	}
+	u.MFASecretEnc, u.MFAPendingSecretEnc, u.MFAEnabled, u.RecoveryCodeHashes, u.MFALastStep = nil, nil, false, nil, nil
+	u.Version++
+	u.UpdatedAt = at
+	f.users[user] = u
+	return u, nil
+}
+
 func (f *fakeStore) SessionByTokenHash(_ context.Context, hash []byte) (auth.UserSession, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -71,15 +71,17 @@ func executablePath() string {
 	return p
 }
 
-const setupUsage = `Usage: sudo linx setup [--config FILE] [--dry-run]
+const setupUsage = `Usage: sudo linx setup [--config FILE] [--dry-run] [--owner-email EMAIL --owner-name NAME]
 
 Checks this server, installs Docker if needed, sets up your domain and its
 certificate, starts Linx, and saves your answers to ` + installer.ConfigPath + `.
 The DNS provider token is kept in ` + installer.DNSTokenPath + `; with
 --config, put it there first if setup hasn't saved one yet.
 
-  --config FILE  use answers from FILE instead of asking questions
-  --dry-run      show what setup would do without changing anything
+  --config FILE       use answers from FILE instead of asking questions
+  --dry-run           show what setup would do without changing anything
+  --owner-email EMAIL the first admin's sign-in email (--config mode only; asked interactively otherwise)
+  --owner-name NAME   the first admin's name (--config mode only; asked interactively otherwise)
 `
 
 func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env setupEnv) int {
@@ -87,6 +89,8 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	fl.SetOutput(io.Discard)
 	configFile := fl.String("config", "", "")
 	dryRun := fl.Bool("dry-run", false, "")
+	ownerEmail := fl.String("owner-email", "", "")
+	ownerName := fl.String("owner-name", "", "")
 	if err := fl.Parse(args); err != nil || fl.NArg() > 0 {
 		fmt.Fprint(stderr, setupUsage)
 		return 2
@@ -245,6 +249,23 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		Path: installer.ConfigPath, Data: cfg.Marshal(), Mode: 0o600, DirMode: 0o755,
 	}})
 
+	// 8b. The first admin account (docs/ADMIN.md §4): created once the
+	// stack is up, in the Summary step below. Its email and name aren't
+	// infrastructure config, so they're never saved to setup.yaml, unlike
+	// everything above; --config mode takes them as flags instead of a
+	// prompt, and skips creating one if they're not given (a person can
+	// always be added later: sudo linx user create).
+	email, name := *ownerEmail, *ownerName
+	if ask {
+		var err error
+		if email, err = p.text("Your email? (to sign in as the first admin)", email); err != nil {
+			return inputError(stderr, err)
+		}
+		if name, err = p.text("Your name?", name); err != nil {
+			return inputError(stderr, err)
+		}
+	}
+
 	// 9. Confirm and apply.
 	fmt.Fprintln(stdout, "\nSetup will:")
 	for i, s := range plan {
@@ -290,7 +311,32 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	if pki.Passphrase != "" {
 		printCABackup(stdout, pki.Passphrase)
 	}
+	printFirstAdmin(ctx, stdout, stderr, env, email, name)
 	return 0
+}
+
+// printFirstAdmin creates the first system_admin account, once the stack is
+// up, the same way `sudo linx user create` does (docker exec into the
+// control plane), and relays its one-time set-password link (docs/ADMIN.md
+// §4). email == "": nobody was given, so nothing is created.
+func printFirstAdmin(ctx context.Context, stdout, stderr io.Writer, env setupEnv, email, name string) {
+	if email == "" {
+		fmt.Fprintln(stdout, "\nNo first admin account created (no email given).\n"+
+			`Create one: sudo linx user create --email "you@example.com" --name "Your Name" --role system_admin`)
+		return
+	}
+	if name == "" {
+		name = email
+	}
+	out, err := env.runner.Run(ctx, nil, "docker", "exec", controlPlaneContainer, controlPlaneBinary,
+		"user", "create", "--email", email, "--name", name, "--role", "system_admin")
+	if err != nil {
+		fmt.Fprintf(stderr, "\nCouldn't create the first admin account: %v\n%s\n", err, out)
+		fmt.Fprintln(stderr, `Create one yourself: sudo linx user create --email "you@example.com" --name "Your Name" --role system_admin`)
+		return
+	}
+	fmt.Fprintln(stdout)
+	stdout.Write(out)
 }
 
 // askDomain asks for the domain, DNS provider, token and certificate settings

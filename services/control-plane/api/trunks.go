@@ -315,6 +315,9 @@ func (s *Server) TestTrunk(ctx context.Context, req TestTrunkRequestObject) (Tes
 }
 
 func (s *Server) TestRoute(ctx context.Context, req TestRouteRequestObject) (TestRouteResponseObject, error) {
+	if req.Body.Direction != nil && *req.Body.Direction == RouteTestRequestDirectionInbound {
+		return s.testInboundRoute(ctx, req.Body.Number)
+	}
 	fail := func(e *apihttp.Error) (TestRouteResponseObject, error) {
 		return TestRoutedefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
@@ -349,6 +352,47 @@ func (s *Server) TestRoute(ctx context.Context, req TestRouteRequestObject) (Tes
 		return nil, err
 	}
 	return TestRoute200JSONResponse(routeTest(r, true, strings.TrimSpace(r.Explain(req.Body.Number, *req.Body.From, country)))), nil
+}
+
+// testInboundRoute is POST /route-test's inbound direction (docs/ADMIN.md
+// §9): where a call to one of your phone numbers ends up.
+func (s *Server) testInboundRoute(ctx context.Context, number string) (TestRouteResponseObject, error) {
+	country, err := s.numbering.Country(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := s.numbering.Classify(ctx, country, number)
+	if err != nil {
+		return nil, err
+	}
+	out := RouteTest{Category: RouteTestCategory(r.Category), Kind: r.Kind(), E164: optString(r.E164), Region: optString(r.Region)}
+	did, err := s.trunks.DIDByNumber(ctx, number)
+	allowed := false
+	switch {
+	case errors.Is(err, trunk.ErrNotFound):
+		reason := RouteTestReasonUnknownNumber
+		out.Reason, out.Words = &reason, fmt.Sprintf("%q isn't one of your phone numbers.", number)
+	case err != nil:
+		return nil, err
+	case did.ExtensionID == nil:
+		reason := RouteTestReasonNotAssigned
+		out.Reason, out.Words = &reason, fmt.Sprintf(`%s doesn't ring anyone yet (callers hear "not in use").`, did.Number)
+	default:
+		ext, err := s.pbx.GetExtension(ctx, *did.ExtensionID)
+		if err != nil {
+			return nil, err
+		}
+		allowed = true
+		reason := RouteTestReasonRouted
+		out.Reason = &reason
+		out.Extension = &struct {
+			DisplayName string `json:"display_name"`
+			Number      string `json:"number"`
+		}{ext.DisplayName, ext.Number}
+		out.Words = fmt.Sprintf("%s rings extension %s (%s).", did.Number, ext.Number, ext.DisplayName)
+	}
+	out.Allowed = &allowed
+	return TestRoute200JSONResponse(out), nil
 }
 
 func routeTest(r numbering.Route, decided bool, words string) RouteTest {

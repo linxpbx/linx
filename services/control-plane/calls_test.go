@@ -60,7 +60,7 @@ func TestActiveCalls(t *testing.T) {
 		}
 		c := out.Items[0]
 		if c.Id != id || c.From.Extension == nil || *c.From.Extension != "101" || c.To != "102" || c.State != controlplaneapi.ActiveCallStateAnswered ||
-			c.Direction != controlplaneapi.Internal || c.AnsweredBy == nil || *c.AnsweredBy.DeviceId != bobID ||
+			c.Direction != controlplaneapi.ActiveCallDirectionInternal || c.AnsweredBy == nil || *c.AnsweredBy.DeviceId != bobID ||
 			!c.AnsweredAt.Equal(answered) || c.From.Number != nil || c.TrunkId != nil {
 			t.Fatalf("unexpected call %+v", c)
 		}
@@ -74,7 +74,7 @@ func TestActiveCalls(t *testing.T) {
 		var out controlplaneapi.ActiveCallList
 		r.json(t, &out)
 		c := out.Items[0]
-		if c.Direction != controlplaneapi.Inbound || c.TrunkId == nil || *c.TrunkId != trunkID ||
+		if c.Direction != controlplaneapi.ActiveCallDirectionInbound || c.TrunkId == nil || *c.TrunkId != trunkID ||
 			c.From.Number == nil || *c.From.Number != "+971501234567" || c.From.Extension != nil || c.Ringing == nil || *c.Ringing != "101" {
 			t.Fatalf("unexpected call %s", r.body)
 		}

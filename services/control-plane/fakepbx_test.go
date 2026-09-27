@@ -24,13 +24,20 @@ type fakePbxStore struct {
 	audits     []auth.AuditEntry
 	// sessionLive stands in for migration 0013's device_live view: which
 	// sessions' web devices are still live (nil: all).
-	sessionLive func(session uuid.UUID) bool
+	sessionLive    func(session uuid.UUID) bool
+	defaultLevelID *uuid.UUID
 }
 
 var _ pbx.Store = (*fakePbxStore)(nil)
 
 func newFakePbxStore() *fakePbxStore {
 	return &fakePbxStore{extensions: map[uuid.UUID]pbx.Extension{}, devices: map[uuid.UUID]pbx.Device{}}
+}
+
+// DefaultCallPermissionLevelID stands in for pbx_setting.default_call_permission_level_id;
+// nil unless a test sets it.
+func (f *fakePbxStore) DefaultCallPermissionLevelID(ctx context.Context) (*uuid.UUID, error) {
+	return f.defaultLevelID, nil
 }
 
 // reservedNumber stands in for migration 0016's extension-number check,

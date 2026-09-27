@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,6 +114,23 @@ var emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 func validEmail(email string) bool { return len(email) <= 200 && emailRE.MatchString(email) }
 
+// ETag is a person's version as an HTTP entity tag (docs/ADMIN.md §9: "the
+// 1C gap").
+func ETag(version int) string { return `"` + strconv.Itoa(version) + `"` }
+
+func matchETag(ifMatch string, version int) bool {
+	for _, tag := range strings.Split(ifMatch, ",") {
+		tag = strings.TrimSpace(tag)
+		if tag == "*" || tag == ETag(version) {
+			return true
+		}
+	}
+	return false
+}
+
+var errUserChanged = &apihttp.Error{Status: http.StatusPreconditionFailed, Code: "etag_mismatch",
+	Detail: "This person was changed since you read them. Fetch them again and retry."}
+
 func userAudit(ctx context.Context, action, target string) (Principal, AuditEntry, error) {
 	p, ok := PrincipalFromContext(ctx)
 	if !ok {
@@ -156,6 +174,13 @@ func (a *Accounts) CreateUser(ctx context.Context, in UserInput) (User, string, 
 	if !CanGrantRole(caller.Role, role) {
 		return User{}, "", &apihttp.Error{Status: http.StatusForbidden, Code: "role_exceeds_caller",
 			Detail: fmt.Sprintf("You can't create a person with the %s role.", role)}
+	}
+	if role == RoleAdmin || role == RoleSystemAdmin {
+		// Creating an admin is one of "confirm it's you"'s actions, even in
+		// an already-signed-in session (docs/ADMIN.md §7).
+		if err := RequireConfirmed(ctx, a.Now()); err != nil {
+			return User{}, "", err
+		}
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -255,7 +280,9 @@ type UserPatch struct {
 
 // UpdateUser applies patch to a person. Raising their role can't exceed the
 // caller's own (like creating them); disabling them ends their sessions.
-func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch) (User, error) {
+// ifMatch, when not empty, must match the person's current ETag (412
+// otherwise; docs/ADMIN.md §9, the 1C gap).
+func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch, ifMatch string) (User, error) {
 	caller, ok := PrincipalFromContext(ctx)
 	if !ok {
 		return User{}, errNoPrincipalAuth
@@ -267,8 +294,18 @@ func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch
 		}
 		return User{}, err
 	}
+	if ifMatch != "" && !matchETag(ifMatch, u.Version) {
+		return User{}, errUserChanged
+	}
 	if e := beyondCaller(caller, u); e != nil {
 		return User{}, e
+	}
+	if patch.Role != nil && (*patch.Role == RoleAdmin || *patch.Role == RoleSystemAdmin) && *patch.Role != u.Role {
+		// Giving someone an admin role is one of "confirm it's you"'s
+		// actions, even in an already-signed-in session (docs/ADMIN.md §7).
+		if err := RequireConfirmed(ctx, a.Now()); err != nil {
+			return User{}, err
+		}
 	}
 	now := a.Now().UTC()
 	if patch.Name != nil {
@@ -377,6 +414,12 @@ func (a *Accounts) newSession(ctx context.Context, u User, mfaVerified bool, ip 
 		TokenHash: HashSecret(token), CSRFHash: HashSecret(csrf), MFAVerified: mfaVerified,
 		CreatedAt: now, ExpiresAt: expires, IdleExpiresAt: idle, LastSeenAt: now,
 		LastSeenIP: lastIP, UserAgent: trimUserAgent(userAgent),
+	}
+	if mfaVerified {
+		// Signing in already proved identity; a session still pending its
+		// authenticator code confirms once VerifyMFA promotes it instead
+		// (docs/ADMIN.md §7).
+		s.ConfirmedAt = &now
 	}
 	if err := a.Store.CreateSession(ctx, s); err != nil {
 		return UserSession{}, "", "", err
@@ -722,6 +765,9 @@ func (a *Accounts) VerifyMFA(ctx context.Context, code string) error {
 	if err := a.Store.PromoteSession(ctx, sess.ID); err != nil {
 		return err
 	}
+	if err := a.Store.ConfirmSession(ctx, sess.ID, now); err != nil {
+		return err
+	}
 	attempt.method = string(method)
 	a.auditSignIn(ctx, attempt)
 	return nil
@@ -872,6 +918,101 @@ func (a *Accounts) checkTOTPOnly(u User, code string) (int64, bool, error) {
 	}
 	step, ok := MatchTOTPCode(secret, code, a.Now())
 	return step, ok, nil
+}
+
+// Confirm is POST /session/confirm: a fresh proof of identity for "confirm
+// it's you" actions (docs/ADMIN.md §7), without ending this or any other
+// session. Requires the current password and, for an account with an
+// authenticator enrolled, its code too (a password-only admin isn't asked
+// for one: that's their own choice, §5).
+func (a *Accounts) Confirm(ctx context.Context, password, code string) error {
+	caller, ok := PrincipalFromContext(ctx)
+	if !ok {
+		return errNoPrincipalAuth
+	}
+	if caller.Type != TypeUser {
+		return notASession()
+	}
+	if caller.Pending {
+		return mfaVerifyFirst()
+	}
+	sess, ok := SessionFromContext(ctx)
+	if !ok {
+		return notASession()
+	}
+	uid, err := uuid.Parse(caller.ID)
+	if err != nil {
+		return err
+	}
+	u, err := a.Store.User(ctx, caller.TenantID, uid)
+	if err != nil {
+		return err
+	}
+	now := a.Now().UTC()
+	ipKey := IPKey(ClientIPFromContext(ctx))
+	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
+		return tooManyFailuresErr()
+	}
+	if !VerifyPassword(u.PasswordHash, password) {
+		if a.Failures != nil {
+			a.Failures.Allow(ipKey, now)
+		}
+		return &apihttp.Error{Status: http.StatusUnauthorized, Code: "password_invalid", Detail: "Your password is incorrect."}
+	}
+	if u.MFAEnabled {
+		method, err := a.checkMFACode(ctx, u, code, now)
+		if err != nil {
+			return err
+		}
+		if method == codeInvalid || method == codeUsed {
+			if a.Failures != nil {
+				a.Failures.Allow(ipKey, now)
+			}
+			if method == codeUsed {
+				return &apihttp.Error{Status: http.StatusUnauthorized, Code: "mfa_code_used",
+					Detail: "That code was already used. Wait for the next one in your app."}
+			}
+			return &apihttp.Error{Status: http.StatusUnauthorized, Code: "mfa_code_invalid", Detail: "That code isn't right."}
+		}
+	}
+	return a.Store.ConfirmSession(ctx, sess.ID, now)
+}
+
+// ResetMFA turns a person's authenticator and passkeys off and ends every
+// session of theirs, for when they've lost their second step (docs/ADMIN.md
+// §7): "Reset authenticator" in People. Needs a fresh "confirm it's you"
+// and users:write.
+func (a *Accounts) ResetMFA(ctx context.Context, id uuid.UUID) (User, error) {
+	if err := RequireConfirmed(ctx, a.Now()); err != nil {
+		return User{}, err
+	}
+	caller, audit, err := userAudit(ctx, "user.mfa_reset", "user:"+id.String())
+	if err != nil {
+		return User{}, err
+	}
+	target, err := a.Store.User(ctx, caller.TenantID, id)
+	if errors.Is(err, ErrNotFound) {
+		return User{}, notFound("person")
+	}
+	if err != nil {
+		return User{}, err
+	}
+	if e := beyondCaller(caller, target); e != nil {
+		return User{}, e
+	}
+	now := a.Now().UTC()
+	out, err := a.Store.ResetMFA(ctx, caller.TenantID, id, now, audit)
+	if errors.Is(err, ErrNotFound) {
+		return User{}, notFound("person")
+	}
+	if err != nil {
+		return User{}, err
+	}
+	if err := a.Store.RevokeUserSessions(ctx, id, now); err != nil {
+		return out, err
+	}
+	a.sessionsEnded(ctx, id, nil)
+	return out, nil
 }
 
 // ChangePassword changes the caller's own password after checking their

@@ -70,6 +70,24 @@ const (
 	ResultFailed = "failed"
 )
 
+// AuditLogEntry is one stored audit_log row, read back for GET /audit-log
+// (docs/ADMIN.md §9, the activity log).
+type AuditLogEntry struct {
+	ID                    uuid.UUID
+	At                    time.Time
+	Actor, Action, Target string
+	IP                    netip.Addr
+	Result                string
+	Detail                map[string]any
+}
+
+// AuditLogFilter narrows GET /audit-log; empty fields don't filter. Action
+// matches by prefix (e.g. "user." matches every people-account action).
+type AuditLogFilter struct {
+	Actor, Action, Target string
+	Since, Until          *time.Time
+}
+
 // Store is the database access authentication needs.
 type Store interface {
 	CredentialByPublicID(ctx context.Context, kind, publicID string) (Credential, error)

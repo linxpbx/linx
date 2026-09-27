@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/alert"
+	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/db"
@@ -37,6 +38,7 @@ import (
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
+	"linxpbx.com/linx/internal/settings"
 	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/trunkconf"
@@ -156,6 +158,18 @@ func main() {
 	}
 	authn := auth.NewAuthenticator(st, tokens, ips, log)
 	authn.Sessions = st
+
+	// Admin portal settings: the numbering plan, site kind, Simple mode and
+	// where admins may sign in from (docs/ADMIN.md §4, §3). "Only from my
+	// home/office network" always includes the phone networks from setup,
+	// on top of whatever the admin adds.
+	phoneNetworks, err := asteriskconf.ParseSIPNetworks(os.Getenv("LINX_SIP_NETWORKS"))
+	if err != nil {
+		log.Error("LINX_SIP_NETWORKS", "err", err)
+		os.Exit(1)
+	}
+	settingsSvc := &settings.Service{Store: st, Now: time.Now, PhoneNetworks: phoneNetworks}
+	authn.Networks = settingsSvc
 
 	// Outbound connections to admin-given URLs (docs/API.md §4, §5): never
 	// to this container's own networks, private ranges only if allowlisted.
@@ -315,7 +329,7 @@ func main() {
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)

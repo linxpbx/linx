@@ -31,6 +31,13 @@ type Principal struct {
 	// A pending principal holds no scopes, so it can only reach operations
 	// that need no scope; those handlers decide what it may actually do.
 	Pending bool
+	// AdminNetworkRestricted is true when this session's role was limited to
+	// RoleUser's scopes because "only from my home/office network" is on and
+	// the request didn't come from one of the allowed networks
+	// (docs/ADMIN.md §3); /me uses it to explain why the admin area is
+	// missing. Never set for API keys or OAuth clients (they have their own
+	// AllowedIPs).
+	AdminNetworkRestricted bool
 }
 
 // Actor is how the principal appears in audit_log.actor.

@@ -198,6 +198,9 @@ type Store interface {
 
 	CreateDID(ctx context.Context, d DID, audit auth.AuditEntry) error
 	DID(ctx context.Context, tenant, id uuid.UUID) (DID, error)
+	// DIDByNumber finds one of the tenant's phone numbers, for POST
+	// /route-test's inbound direction (docs/ADMIN.md §9).
+	DIDByNumber(ctx context.Context, tenant uuid.UUID, number string) (DID, error)
 	ListDIDsByTrunk(ctx context.Context, tenant, trunkID uuid.UUID, before *uuid.UUID, limit int) ([]DID, error)
 	ListDIDs(ctx context.Context, tenant uuid.UUID, before *uuid.UUID, limit int) ([]DID, error)
 	UpdateDID(ctx context.Context, d DID, audit auth.AuditEntry) (DID, error)

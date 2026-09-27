@@ -33,6 +33,10 @@ var EventTypes = []EventType{
 	{TestEventType, "Sent when an admin tests a webhook endpoint."},
 	{"alert.fired", "An admin alert opened."},
 	{"alert.resolved", "An admin alert cleared."},
+	{"user.created", "A person was added."},
+	{"user.updated", "A person's account was changed."},
+	{"user.disabled", "A person's account was disabled."},
+	{"settings.updated", "The admin portal's settings changed (docs/ADMIN.md §4)."},
 }
 
 // KnownEventType reports whether name is in the catalog.

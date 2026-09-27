@@ -139,6 +139,17 @@ func (s *Service) CreateExtension(ctx context.Context, in ExtensionInput) (Exten
 		if err := checkLevelScope(ctx); err != nil {
 			return Extension{}, err
 		}
+	} else {
+		// The setup wizard's "Everyone" level, once one exists, is what a
+		// new extension gets by default (docs/ADMIN.md §4); this is a
+		// system default, not the caller naming a level, so it needs no
+		// routing:write. Before one exists, nil still means emergency-only
+		// (1D's fail-closed default, unchanged).
+		def, err := s.Store.DefaultCallPermissionLevelID(ctx)
+		if err != nil {
+			return Extension{}, err
+		}
+		in.CallPermissionLevelID = def
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -326,6 +337,11 @@ type Credentials struct {
 // CreateDevice adds a device under extension and returns it with its SIP
 // login, shown this once.
 func (s *Service) CreateDevice(ctx context.Context, extension uuid.UUID, in DeviceInput) (Credentials, error) {
+	// Showing a device's SIP login is one of "confirm it's you"'s actions,
+	// even in an already-signed-in session (docs/ADMIN.md §7).
+	if err := auth.RequireConfirmed(ctx, s.Now()); err != nil {
+		return Credentials{}, err
+	}
 	ext, err := s.GetExtension(ctx, extension)
 	if err != nil {
 		return Credentials{}, err
@@ -454,6 +470,9 @@ func (s *Service) RevokeDevice(ctx context.Context, id uuid.UUID) error {
 // ResetDevicePassword issues a new SIP password for a device, shown this
 // once; its SIP username doesn't change.
 func (s *Service) ResetDevicePassword(ctx context.Context, id uuid.UUID) (Credentials, error) {
+	if err := auth.RequireConfirmed(ctx, s.Now()); err != nil {
+		return Credentials{}, err
+	}
 	d, err := s.GetDevice(ctx, id)
 	if err != nil {
 		return Credentials{}, err
