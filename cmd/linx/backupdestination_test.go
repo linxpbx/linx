@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"io"
 	"errors"
+	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
