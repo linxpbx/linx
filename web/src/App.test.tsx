@@ -1,7 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { App } from "./App";
 
-afterEach(() => vi.unstubAllGlobals());
+// fetch stays stubbed after each test (each test stubs its own): a request
+// the app starts as it unmounts must not reach the real network.
+afterEach(() => cleanup());
 
 test("shows sign-in when nobody is signed in", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>

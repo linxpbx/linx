@@ -75,7 +75,7 @@ test-browser: ## Browser call suite: the real stack + two headless Chromiums (ne
 		if echo "$$out" | grep -q -- "--- SKIP"; then echo "$$out" | grep -A2 -- "--- SKIP"; echo "browser suite: SKIPPED"; exit 1; fi; \
 		echo "browser suite: ok"; \
 	else echo "$$out" | grep -v '^=== ' | tail -120; \
-		echo "--- the test's own lines (service logs left out):"; echo "$$out" | grep -v '^=== ' | grep -Ev '^ {8}' | tail -40; \
+		echo "--- the test's own lines (service logs left out):"; echo "$$out" | grep -v '^=== ' | grep -Ev '^ {8}([^|]|$$)' | tail -100; \
 		echo "browser suite: FAILED"; exit 1; fi
 
 .PHONY: screens

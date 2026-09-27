@@ -656,7 +656,9 @@ func (h *harness) provision(t *testing.T) {
 	err := cmd.Wait()
 	pw.Close()
 	<-scanned
-	t.Logf("browsers:\n%s", tail(outB.String(), 60))
+	// Each line marked "| " so make test-browser's filter, which drops the
+	// services' (indented) logs, keeps them.
+	t.Logf("browsers:\n| %s", strings.ReplaceAll(tail(outB.String(), 60), "\n", "\n| "))
 	if err != nil {
 		t.Fatalf("browser call suite failed: %v", err)
 	}
