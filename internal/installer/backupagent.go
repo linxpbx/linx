@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 )
@@ -13,6 +14,20 @@ const (
 	backupAgentUnitPath  = "/etc/systemd/system/" + BackupAgentService
 	backupAgentTimerPath = "/etc/systemd/system/" + BackupAgentTimer
 )
+
+// ResticPlan installs restic (BSD-2-Clause), which linx backup and linx
+// restore run for all encryption and storage (ADR-055), from Ubuntu's own
+// signed package archive — the same trust as nftables — unless it's
+// already there.
+func ResticPlan(ctx context.Context, r Runner) Plan {
+	if _, err := r.Run(ctx, nil, "restic", "version"); err == nil {
+		return nil
+	}
+	return Plan{
+		aptStep("Refresh the package list", "update"),
+		aptStep("Install the backup tool (restic)", "install", "-y", "restic"),
+	}
+}
 
 // BackupAgentPlan installs linx-backup-agent, built alongside linx in the
 // same directory (make build's bin/), and a systemd timer that runs it

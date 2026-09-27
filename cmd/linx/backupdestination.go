@@ -89,10 +89,18 @@ func runBackupDestinationAdd(ctx context.Context, args []string, stdout, stderr 
 			fmt.Fprintln(stderr, "A local destination needs --path.")
 			return 1
 		}
+		if err := backup.CheckFolder(*path); err != nil {
+			fmt.Fprintf(stderr, "%s.\n", capitalizeFirst(err.Error()))
+			return 1
+		}
 		d.Path = *path
 	case backup.KindSFTP:
 		if *host == "" || *user == "" || *remotePath == "" {
 			fmt.Fprintln(stderr, "An sftp destination needs --host, --user and --remote-path.")
+			return 1
+		}
+		if err := backup.CheckSFTP(*host, *user, *remotePath); err != nil {
+			fmt.Fprintf(stderr, "%s.\n", capitalizeFirst(err.Error()))
 			return 1
 		}
 		d.Host, d.Port, d.User, d.RemotePath = *host, *port, *user, *remotePath

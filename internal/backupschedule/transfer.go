@@ -21,10 +21,8 @@ import (
 // the bytes between the browser and the agent.
 const DefaultTransferDir = "/var/lib/linx/backup-transfer"
 
-// MaxUploadSize caps an uploaded backup file: the most a backup file may
-// unpack to (backup.MaxArchiveSize, about 2 GB) plus room for the tar
-// format's own headers.
-const MaxUploadSize = backup.MaxArchiveSize + 128<<20
+// MaxUploadSize caps an uploaded backup file (backup.MaxFileSize, about 2 GB).
+const MaxUploadSize = backup.MaxFileSize
 
 // UploadKeptFor is how long an uploaded file waits for its restore request
 // before it's removed.

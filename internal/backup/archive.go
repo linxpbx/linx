@@ -28,6 +28,11 @@ const ArchiveDir = "linx-backup"
 // cap, docs/BACKUP.md §8 step 5: about 2 GB).
 const MaxArchiveSize = 2 << 30
 
+// MaxFileSize is the most a backup file itself may be: MaxArchiveSize plus
+// room for the tar format's own headers. It caps uploads, on both sides of
+// the host/container boundary.
+const MaxFileSize = MaxArchiveSize + 128<<20
+
 // maxArchiveEntries bounds how many files a backup file may hold. restic
 // keeps its data in packs of a few MB, so even a very large Linx database
 // is a few thousand files.

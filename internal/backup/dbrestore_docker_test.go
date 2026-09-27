@@ -46,26 +46,32 @@ func TestPostgresRestoreDocker(t *testing.T) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	exec1(`CREATE TABLE restore_marker (v text)`)
-	exec1(`INSERT INTO restore_marker VALUES ('backup')`)
+	// Data only: a backup is refused unless its structure is exactly what
+	// Linx's migrations make, so the marker is a value, not a table.
+	exec1(`INSERT INTO tenant (id, name) VALUES (gen_random_uuid(), 'backup')`)
 	exec1(`UPDATE pbx_setting SET backup_requested_at = now(), backup_requested_by = 'user:x'`)
 
-	var dump bytes.Buffer
-	if err := execRun(ctx, &dump, nil, "docker", "exec", container, "pg_dump", "--username", "linx", "--dbname", "linx", "--format", "custom"); err != nil {
-		t.Fatal(err)
-	}
-	exec1(`UPDATE restore_marker SET v = 'live'`)
-
-	p := backup.Postgres{Container: container, User: "linx", Database: "linx", Run: execRun, RunInput: execRunInput,
-		Sleep: func(time.Duration) {}}
-	restore := func() {
+	pgDump := func() []byte {
 		t.Helper()
-		if err := p.Load(ctx, bytes.NewReader(dump.Bytes())); err != nil {
+		var dump bytes.Buffer
+		if err := execRun(ctx, &dump, nil, "docker", "exec", container, "pg_dump", "--username", "linx", "--dbname", "linx", "--format", "custom"); err != nil {
 			t.Fatal(err)
 		}
-		live, loaded, err := p.SchemaVersions(ctx)
-		if err != nil || live != loaded || live < 25 {
-			t.Fatalf("SchemaVersions() = %d, %d, %v", live, loaded, err)
+		return dump.Bytes()
+	}
+	dump := pgDump()
+	exec1(`UPDATE tenant SET name = 'live'`)
+
+	p := backup.Postgres{Container: container, User: "linx", Database: "linx", Run: execRun, RunInput: execRunInput,
+		Sleep: func(time.Duration) {}, Reference: db.ReferenceScript}
+	restore := func() {
+		t.Helper()
+		if err := p.Load(ctx, bytes.NewReader(dump)); err != nil {
+			t.Fatal(err)
+		}
+		live, loaded, err := p.Check(ctx)
+		if err != nil || live != loaded || live < 26 {
+			t.Fatalf("Check() = %d, %d, %v", live, loaded, err)
 		}
 		if err := p.Prepare(ctx); err != nil {
 			t.Fatal(err)
@@ -90,10 +96,10 @@ func TestPostgresRestoreDocker(t *testing.T) {
 		}
 		return strings.TrimSpace(out.String())
 	}
-	if got := query("linx", `SELECT v FROM restore_marker`); got != "backup" {
+	if got := query("linx", `SELECT name FROM tenant`); got != "backup" {
 		t.Errorf("live database's marker = %q, want the backup's", got)
 	}
-	if got := query("linx_before_restore", `SELECT v FROM restore_marker`); got != "live" {
+	if got := query("linx_before_restore", `SELECT name FROM tenant`); got != "live" {
 		t.Errorf("kept database's marker = %q, want the one from before the restore", got)
 	}
 	if got := query("linx", `SELECT backup_requested_at IS NULL FROM pbx_setting`); got != "t" {
@@ -110,26 +116,68 @@ func TestPostgresRestoreDocker(t *testing.T) {
 	// database.
 	pool.Reset()
 	var v string
-	if err := pool.QueryRow(ctx, `SELECT v FROM restore_marker`).Scan(&v); err != nil || v != "backup" {
+	if err := pool.QueryRow(ctx, `SELECT name FROM tenant`).Scan(&v); err != nil || v != "backup" {
 		t.Errorf("pool after restore: %q, %v", v, err)
 	}
 
 	// Again: the database kept from the first restore makes way.
 	restore()
-	if got := query("linx_before_restore", `SELECT v FROM restore_marker`); got != "backup" {
+	if got := query("linx_before_restore", `SELECT name FROM tenant`); got != "backup" {
 		t.Errorf("after a second restore, kept marker = %q", got)
 	}
 
-	// A backup from a newer Linx shows up as a newer schema version.
-	if err := p.Load(ctx, bytes.NewReader(dump.Bytes())); err != nil {
+	// Everything restored belongs to the superuser, nothing to the loader.
+	if got := query("linx", `SELECT count(*) FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner WHERE r.rolname = '`+backup.LoaderRole+`'`); got != "0" {
+		t.Errorf("%s objects still owned by the loader", got)
+	}
+	if got := query("postgres", `SELECT rolcanlogin::text || rolsuper::text FROM pg_roles WHERE rolname = '`+backup.LoaderRole+`'`); got != "falsefalse" {
+		t.Errorf("loader role can log in or is a superuser: %s", got)
+	}
+
+	// A backup from a newer Linx is refused.
+	if err := p.Load(ctx, bytes.NewReader(dump)); err != nil {
 		t.Fatal(err)
 	}
 	query(p.LoadedName(), `INSERT INTO schema_migrations (version, name) VALUES (999, 'future')`)
-	if live, loaded, err := p.SchemaVersions(ctx); err != nil || loaded != 999 || live >= loaded {
-		t.Errorf("SchemaVersions() = %d, %d, %v; want the loaded one newer", live, loaded, err)
+	if live, loaded, err := p.Check(ctx); err == nil || loaded != 999 || live >= loaded {
+		t.Errorf("Check() = %d, %d, %v; want the newer backup refused", live, loaded, err)
 	}
-	if err := p.DropLoaded(ctx); err != nil {
+	if got := query("postgres", `SELECT count(*) FROM pg_database WHERE datname IN ('linx_restore', 'linx_reference')`); got != "0" {
+		t.Errorf("a refused backup left %s databases behind", got)
+	}
+
+	// A backup carrying anything Linx's migrations don't make — here a
+	// function and a trigger that would later run as the superuser — is
+	// refused, and never touched by the superuser.
+	exec1(`CREATE FUNCTION public.sneaky() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`)
+	exec1(`CREATE TRIGGER sneaky BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION public.sneaky()`)
+	sneaky := pgDump()
+	exec1(`DROP TRIGGER sneaky ON audit_log`)
+	exec1(`DROP FUNCTION public.sneaky()`)
+	if err := p.Load(ctx, bytes.NewReader(sneaky)); err != nil {
 		t.Fatal(err)
+	}
+	if _, _, err := p.Check(ctx); !errors.Is(err, backup.ErrNotLinxSchema) {
+		t.Errorf("Check() of a backup with an extra trigger = %v, want ErrNotLinxSchema", err)
+	}
+
+	// SQL in a dump runs as the loader, which can't run programs: a check
+	// whose function tries to while the data loads makes the load fail.
+	exec1(`CREATE FUNCTION public.evil(t text) RETURNS text LANGUAGE plpgsql AS $$
+		BEGIN
+			IF current_database() = 'linx_restore' THEN
+				EXECUTE 'COPY (SELECT 1) TO PROGRAM ''touch /tmp/pwned''';
+			END IF;
+			RETURN t;
+		END $$`)
+	exec1(`CREATE TABLE evil (v text CHECK (public.evil(v) IS NOT NULL))`)
+	exec1(`INSERT INTO evil VALUES ('x')`)
+	evil := pgDump()
+	if err := p.Load(ctx, bytes.NewReader(evil)); err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("Load() of a dump that runs a program = %v, want permission denied", err)
+	}
+	if err := execRun(ctx, nil, nil, "docker", "exec", container, "test", "-e", "/tmp/pwned"); err == nil {
+		t.Error("the dump ran a program in the database container")
 	}
 
 	// A broken dump leaves nothing behind and the live database alone.

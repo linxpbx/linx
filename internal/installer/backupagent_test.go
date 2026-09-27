@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"testing"
@@ -45,5 +46,15 @@ func TestBackupAgentPlan(t *testing.T) {
 	}
 	if plan := BackupAgentPlan("", resolve, statOK); len(plan) != 0 {
 		t.Errorf("unknown executable: %+v", plan)
+	}
+}
+
+func TestResticPlan(t *testing.T) {
+	if p := ResticPlan(context.Background(), &fakeRunner{answers: map[string]string{"restic version": "restic 0.16.4"}}); len(p) != 0 {
+		t.Fatalf("installs restic when it's there: %+v", p)
+	}
+	p := ResticPlan(context.Background(), &fakeRunner{})
+	if len(p) != 2 || p[1].Cmd.Name != "apt-get" || p[1].Cmd.Args[len(p[1].Cmd.Args)-1] != "restic" {
+		t.Fatalf("plan %+v", p)
 	}
 }

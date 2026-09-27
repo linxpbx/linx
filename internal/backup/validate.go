@@ -79,3 +79,27 @@ func CheckUploadID(id string) error {
 	}
 	return nil
 }
+
+var (
+	sftpHostRE = regexp.MustCompile(`^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252}[A-Za-z0-9])?)$`)
+	sftpUserRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$`)
+)
+
+// CheckSFTP refuses an SFTP host, user or remote path that could be read as
+// something else in the ssh command restic runs (Destination.sftpCommand):
+// restic splits it on spaces, and ssh takes a word starting with "-" as an
+// option (-oProxyCommand runs a program). A host is a name or address, a
+// user plain letters, digits and ".-_", a path has no spaces or control
+// characters.
+func CheckSFTP(host, user, remotePath string) error {
+	if !sftpHostRE.MatchString(host) {
+		return errors.New("the host must be a plain name or address (like nas.home.arpa or 192.168.1.10)")
+	}
+	if !sftpUserRE.MatchString(user) {
+		return errors.New("the user must be letters, digits, \".\", \"-\" and \"_\", not starting with \"-\" or \".\"")
+	}
+	if remotePath == "" || len(remotePath) > 4096 || strings.ContainsFunc(remotePath, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return errors.New("the remote path must have no spaces or control characters")
+	}
+	return nil
+}

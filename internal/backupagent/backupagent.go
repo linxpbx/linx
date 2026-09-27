@@ -339,7 +339,10 @@ func (e Env) restore(ctx context.Context) error {
 		if err != nil {
 			return fail(err.Error())
 		}
-		err = e.Stream(ctx, nil, f, "docker", "exec", ControlPlaneContainer, ControlPlaneBinary, "backup", "upload-read", req.Location)
+		// No bigger than the control plane may accept, so a control plane
+		// gone wrong can't fill this host's disk.
+		err = e.Stream(ctx, nil, &capWriter{w: f, left: backup.MaxFileSize}, "docker", "exec", ControlPlaneContainer, ControlPlaneBinary,
+			"backup", "upload-read", req.Location)
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}
@@ -369,4 +372,18 @@ func (e Env) restore(ctx context.Context) error {
 	}
 	log.Info("restored from a backup", "snapshot", res.SnapshotID)
 	return nil
+}
+
+// capWriter fails once more than left bytes are written.
+type capWriter struct {
+	w    io.Writer
+	left int64
+}
+
+func (c *capWriter) Write(p []byte) (int, error) {
+	if int64(len(p)) > c.left {
+		return 0, errors.New("the uploaded backup file is larger than a backup file can be")
+	}
+	c.left -= int64(len(p))
+	return c.w.Write(p)
 }

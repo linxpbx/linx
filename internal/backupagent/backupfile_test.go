@@ -165,3 +165,17 @@ func TestRestoreRefusesABadUploadID(t *testing.T) {
 		t.Fatalf("calls %+v", h.calls)
 	}
 }
+
+func TestCapWriter(t *testing.T) {
+	var b bytes.Buffer
+	c := &capWriter{w: &b, left: 5}
+	if _, err := c.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Write([]byte("def")); err == nil {
+		t.Fatal("wrote past the cap")
+	}
+	if b.String() != "abc" {
+		t.Fatalf("%q", b.String())
+	}
+}

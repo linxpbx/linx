@@ -170,3 +170,19 @@ func writeFile(t *testing.T, path, content string) error {
 	}
 	return os.WriteFile(path, []byte(content), 0o600)
 }
+
+func TestCheckSFTP(t *testing.T) {
+	for _, ok := range [][3]string{{"nas.home.arpa", "backup", "/srv/linx"}, {"192.168.1.10", "u_1.x", "backups/linx"}, {"[fd00::1]", "root", "/b"}} {
+		if err := CheckSFTP(ok[0], ok[1], ok[2]); err != nil {
+			t.Errorf("%v: %v", ok, err)
+		}
+	}
+	for _, bad := range [][3]string{
+		{"-oProxyCommand=touch /tmp/x", "u", "/b"}, {"nas", "-oProxyCommand=x", "/b"}, {"nas home", "u", "/b"},
+		{"nas", "u", "/b -oProxyCommand=x"}, {"nas", "u", ""}, {"nas", ".u", "/b"}, {"", "u", "/b"}, {"nas", "u", "/b\n"},
+	} {
+		if err := CheckSFTP(bad[0], bad[1], bad[2]); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"linxpbx.com/linx/internal/backup"
+	"linxpbx.com/linx/internal/db"
 )
 
 const restoreUsage = `linx restore — put everything back from a backup
@@ -313,19 +314,16 @@ func restoreEverything(ctx context.Context, env restoreEnv, t backup.Target, sna
 	defer dump.Close()
 
 	pg := backup.Postgres{Container: backupPostgresContainer, User: backupDBUser, Database: backupDBName,
-		Run: runner, RunInput: env.runInput, Sleep: env.sleep}
+		Run: runner, RunInput: env.runInput, Sleep: env.sleep, Reference: db.ReferenceScript}
 	fmt.Fprintln(progress, "Loading the backup's database next to the live one...")
 	if err := pg.Load(ctx, dump); err != nil {
 		return res, err
 	}
-	live, loaded, err := pg.SchemaVersions(ctx)
-	if err == nil && loaded > live {
-		err = fmt.Errorf("this backup is from a newer version of Linx than this server runs (database version %d, this server %d): update Linx here first", loaded, live)
+	fmt.Fprintln(progress, "Checking it's a Linx database...")
+	if _, _, err := pg.Check(ctx); err != nil {
+		return res, err
 	}
-	if err == nil {
-		err = pg.Prepare(ctx)
-	}
-	if err != nil {
+	if err := pg.Prepare(ctx); err != nil {
 		_ = pg.DropLoaded(ctx)
 		return res, err
 	}

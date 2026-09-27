@@ -81,11 +81,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	}
 	defer conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", migrationLockID)
 
-	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
-		version    integer PRIMARY KEY,
-		name       text NOT NULL,
-		applied_at timestamptz NOT NULL DEFAULT now()
-	)`); err != nil {
+	if _, err := conn.Exec(ctx, schemaMigrationsTable); err != nil {
 		return 0, fmt.Errorf("migrate: %w", err)
 	}
 
@@ -140,4 +136,47 @@ func applyMigration(ctx context.Context, conn *pgxpool.Conn, m migration) error 
 		return fmt.Errorf("migrate %04d_%s: %w", m.version, m.name, err)
 	}
 	return nil
+}
+
+// schemaMigrationsTable is Migrate's own bookkeeping table.
+const schemaMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version    integer PRIMARY KEY,
+		name       text NOT NULL,
+		applied_at timestamptz NOT NULL DEFAULT now()
+	)`
+
+// createAsteriskRole is 0005's role creation: roles belong to the whole
+// Postgres server, not one database, so a second database migrated on the
+// same server (ReferenceScript's) finds it already there.
+const createAsteriskRole = "CREATE ROLE linx_asterisk NOLOGIN;"
+
+// ReferenceScript is every migration up to and including version, as one
+// SQL script that builds exactly the schema Migrate would have made at that
+// version, in an empty database on a server where Linx already runs. A
+// restore compares a backup's schema against it (docs/BACKUP.md §8 step 6:
+// only data comes from a backup, never code).
+func ReferenceScript(version int) (string, error) {
+	migrations, err := loadMigrations()
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString(schemaMigrationsTable + ";\n")
+	found := false
+	for _, m := range migrations {
+		if m.version > version {
+			break
+		}
+		sql := m.sql
+		if strings.Contains(sql, createAsteriskRole) {
+			sql = strings.Replace(sql, createAsteriskRole,
+				"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'linx_asterisk') THEN CREATE ROLE linx_asterisk NOLOGIN; END IF; END $$;", 1)
+		}
+		fmt.Fprintf(&b, "-- %04d_%s\n%s\n;\nINSERT INTO schema_migrations (version, name) VALUES (%d, '%s');\n", m.version, m.name, sql, m.version, m.name)
+		found = found || m.version == version
+	}
+	if !found {
+		return "", fmt.Errorf("this Linx has no database version %d", version)
+	}
+	return b.String(), nil
 }
