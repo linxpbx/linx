@@ -21,7 +21,8 @@ import { cn } from "@/lib/utils";
 import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
-export type Screen = "dialer" | "team" | "settings" | "account" | "admin-home" | "admin-people" | "admin-extensions";
+export type Screen = "dialer" | "team" | "settings" | "account" | "admin-home" | "admin-people" | "admin-extensions"
+  | "admin-system-backups";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
@@ -36,8 +37,9 @@ const LATER: { label: string; icon: typeof Users }[] = [
 ];
 
 // The admin group (docs/ui/ADMIN_SCREENS_PHASE1E.md §1), in checklist order.
-// Home, People and Extensions have screens (steps 5-6); the rest arrive in
-// steps 7-8 and appear greyed "Coming soon" until then, like 1C's LATER.
+// Home, People and Extensions have screens (steps 5-6), and System its
+// Backups tab (backup step 5); the rest arrive in steps 7-8 and appear
+// greyed "Coming soon" until then, like 1C's LATER.
 const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
   { label: "Home", icon: HomeIcon, path: "/admin" },
   { label: "People", icon: IdCard, path: "/admin/people" },
@@ -46,10 +48,11 @@ const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
   { label: "Incoming", icon: PhoneIncoming },
   { label: "Outgoing", icon: PhoneOutgoing },
   { label: "Simulator", icon: FlaskConical },
-  { label: "System", icon: Activity },
+  { label: "System", icon: Activity, path: "/admin/system/backups" },
 ];
 const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
   "/admin": "admin-home", "/admin/people": "admin-people", "/admin/extensions": "admin-extensions",
+  "/admin/system/backups": "admin-system-backups",
 };
 
 const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users }[] = [

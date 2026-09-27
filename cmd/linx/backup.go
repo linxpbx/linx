@@ -50,6 +50,7 @@ Usage:
   sudo linx backup destination add --kind s3 --endpoint URL --bucket BUCKET --access-key-id ID --secret-access-key SECRET [--region REGION] NAME
   sudo linx backup destination list
   sudo linx backup destination remove NAME
+  sudo linx backup export --out FILE [--json]   The backups kept here, as one file
 
 --json prints one JSON summary line instead of plain text (linx-backup-agent
 uses this to report the run back to the control plane) and never shows a
@@ -140,6 +141,9 @@ type jsonResult struct {
 func runBackup(ctx context.Context, args []string, stdout, stderr io.Writer, env backupEnv) int {
 	if len(args) > 0 && args[0] == "destination" {
 		return runBackupDestination(ctx, args[1:], stdout, stderr, env)
+	}
+	if len(args) > 0 && args[0] == "export" {
+		return runBackupExport(ctx, args[1:], stdout, stderr, env)
 	}
 	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
 	fs.SetOutput(stderr)

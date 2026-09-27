@@ -1,6 +1,6 @@
 // The setup wizard's first screen for a system admin on a fresh install —
 // set up fresh or restore from a backup — and the restore itself
-// (docs/BACKUP.md §4, docs/ui/ADMIN_SCREENS_PHASE1E.md §3.2). The browser
+// (docs/BACKUP.md §4 and §8 step 5, docs/ui/ADMIN_SCREENS_PHASE1E.md §3.2). The browser
 // only asks: the server's backup helper (linx-backup-agent) picks the
 // request up within a minute and does the restoring. A finished restore
 // replaces the whole database, this session included, so the page learns it
@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
+import { formatSize, MAX_BACKUP_FILE, uploadBackupFile } from "@/lib/backupFile";
 
 export type RestoreStatus = components["schemas"]["RestoreStatus"];
 
@@ -79,7 +80,7 @@ export function StartChoice({ onFresh, onRestore, onFinishLater }: { onFresh: ()
   );
 }
 
-type Where = "folder" | "destination";
+type Where = "folder" | "destination" | "upload";
 type Which = "latest" | "chosen";
 
 function Choice({ id, value, title, hint, children }: { id: string; value: string; title: ReactNode; hint?: string; children?: ReactNode }) {
@@ -112,6 +113,9 @@ export function RestoreFromBackup({ me, initial, onBack, onFinishLater }: {
   const [where, setWhere] = useState<Where>(initial?.source ?? "folder");
   const [folder, setFolder] = useState(initial?.source === "folder" && initial.location ? initial.location : DEFAULT_FOLDER);
   const [destination, setDestination] = useState(initial?.source === "destination" ? initial.location ?? "" : "");
+  const [file, setFile] = useState<File | null>(null);
+  // Upload progress, 0-1, while the file is being sent.
+  const [sent, setSent] = useState<number | null>(null);
   const [which, setWhich] = useState<Which>(initial?.snapshot && initial.snapshot !== "latest" ? "chosen" : "latest");
   const [snapshot, setSnapshot] = useState(initial?.snapshot && initial.snapshot !== "latest" ? initial.snapshot : "");
   const [password, setPassword] = useState("");
@@ -150,15 +154,32 @@ export function RestoreFromBackup({ me, initial, onBack, onFinishLater }: {
     return () => window.clearTimeout(timer.current);
   }, [phase, poll]);
 
-  const location = where === "folder" ? folder.trim().replace(/(.)\/+$/, "$1") : destination.trim();
-  const ready = !!location && !!password && understood && (which === "latest" || snapshot.trim() !== "");
+  const location = where === "folder" ? folder.trim().replace(/(.)\/+$/, "$1") : where === "destination" ? destination.trim() : "";
+  const fileTooBig = !!file && file.size > MAX_BACKUP_FILE;
+  const hasSource = where === "upload" ? !!file && !fileTooBig : !!location;
+  const ready = hasSource && !!password && understood && (which === "latest" || snapshot.trim() !== "");
 
   const send = async () => {
     setBusy(true);
     setError("");
     setFailure("");
+    let at = location;
+    if (where === "upload" && file) {
+      // Sent first, then restored from like any other backup: the server
+      // keeps it, unopened, until the restore is done.
+      setSent(0);
+      const up = await uploadBackupFile(file, setSent);
+      setSent(null);
+      if ("problem" in up) {
+        setBusy(false);
+        if (needsConfirm(up.problem)) return { confirm: true as const };
+        setError(problemMessage(up.problem));
+        return { confirm: false as const };
+      }
+      at = up.upload_id;
+    }
     const { data, error: err } = await api.POST("/api/v1/backup-restore", {
-      body: { source: where, location, snapshot: which === "latest" ? "latest" : snapshot.trim().toLowerCase(), password },
+      body: { source: where, location: at, snapshot: which === "latest" ? "latest" : snapshot.trim().toLowerCase(), password },
     });
     setBusy(false);
     if (needsConfirm(err)) return { confirm: true as const };
@@ -247,6 +268,22 @@ export function RestoreFromBackup({ me, initial, onBack, onFinishLater }: {
                 </div>
               )}
             </Choice>
+            <Choice id="where-upload" value="upload" title="A backup file on my computer"
+              hint="The file System → Backups → Download gave you (linx-backup-….tar).">
+              {where === "upload" && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="restore-file">Backup file</Label>
+                  <Input id="restore-file" type="file" accept=".tar,application/x-tar"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+                  {file && !fileTooBig && <p className="text-sm text-muted-foreground">Size: {formatSize(file.size)}</p>}
+                  {fileTooBig && (
+                    <p role="alert" className="text-sm font-medium text-destructive">
+                      That file is larger than a Linx backup file can be (about 2 GB).
+                    </p>
+                  )}
+                </div>
+              )}
+            </Choice>
           </RadioGroup>
         </fieldset>
 
@@ -271,7 +308,7 @@ export function RestoreFromBackup({ me, initial, onBack, onFinishLater }: {
           <Label htmlFor="restore-password">The backup's password</Label>
           <Input id="restore-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
           <p className="text-sm text-muted-foreground">
-            Shown once when the backup place was set up. Linx keeps it only until the restore starts.
+            Shown once when backups were set up (or with the downloaded file). Linx keeps it only until the restore starts.
           </p>
         </div>
 
@@ -291,6 +328,14 @@ export function RestoreFromBackup({ me, initial, onBack, onFinishLater }: {
         </div>
 
         {error && <p role="alert" className="mt-4 text-sm font-medium text-destructive">{error}</p>}
+        {sent !== null && (
+          <div className="mt-4 grid gap-1.5" role="status">
+            <p className="text-sm">Sending the backup file… {Math.round(sent * 100)}%</p>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full bg-primary transition-[width]" style={{ width: `${Math.round(sent * 100)}%` }} />
+            </div>
+          </div>
+        )}
 
         <div className="mt-8 flex items-center justify-between gap-3">
           <Button type="button" variant="outline" onClick={onBack} disabled={busy}>Back</Button>

@@ -133,6 +133,11 @@ services:
       # client, the API and /sip. Picked up again on renewal by itself. This
       # image's user (65532) is certd's, so it can read privkey.pem.
       - certs:/var/lib/linx/certs:ro
+      # Backup files on their way to or from the browser (docs/BACKUP.md
+      # §8 step 5): made and unpacked by linx-backup-agent on the host,
+      # passed through here unopened. On disk (up to about 2 GB each), owned
+      # by this image's user, nobody else's.
+      - backup-transfer:/var/lib/linx/backup-transfer
     # For a front door on the home network (Pangolin): on the LAN address,
     # and the firewall lets only the front door in. 127.0.0.1 otherwise.
     ports:
@@ -409,6 +414,8 @@ secrets:
 
 volumes:
   certd-state:
+  # Backup files passing through the control plane (see its mount).
+  backup-transfer:
   certs:
   # Asterisk's browser-websocket certificate and key: in memory only, written
   # by the control plane (uid 65532), read by Asterisk (group 101, which the

@@ -246,3 +246,46 @@ func TestBackupRestoreCommands(t *testing.T) {
 		t.Fatalf("restore-done: code %d, audits %+v, stderr %q", code, rs.audits, errb.String())
 	}
 }
+
+func TestBackupFileCommands(t *testing.T) {
+	id := uuid.Must(uuid.NewV7())
+	dl := &fakeDownloadStore{d: &backupschedule.Download{ID: id, Status: backupschedule.DownloadPending, RequestedBy: "user:u1"}}
+	st := &fakeBackupStore{}
+	tr := &backupschedule.Transfer{Dir: t.TempDir()}
+	svc := &backupschedule.Service{Store: st, Downloads: dl, Sealer: plainSealer{}, Transfer: tr, Now: time.Now}
+	var out, errb bytes.Buffer
+
+	if code := backupPending(context.Background(), svc, &out, &errb); code != 0 || out.String() != "run export\n" {
+		t.Fatalf("pending: %d %q %q", code, out.String(), errb.String())
+	}
+	out.Reset()
+	if code := exportTake(context.Background(), svc, &out, &errb); code != 0 || !strings.Contains(out.String(), id.String()) {
+		t.Fatalf("export-take: %d %q %q", code, out.String(), errb.String())
+	}
+	if code := exportPut(context.Background(), svc, id, strings.NewReader("TAR"), &out, &errb); code != 0 {
+		t.Fatalf("export-put: %d %q", code, errb.String())
+	}
+	if code := exportPut(context.Background(), svc, uuid.New(), strings.NewReader("TAR"), &out, &errb); code != 1 {
+		t.Fatalf("export-put for another request: %d", code)
+	}
+	done := `{"id":"` + id.String() + `","ok":true,"snapshot_id":"abc","snapshot_time":"2026-09-27T03:00:00Z","password":"pw"}`
+	if code := exportDone(context.Background(), svc, strings.NewReader(done), &out, &errb); code != 0 ||
+		dl.d.Status != backupschedule.DownloadReady || string(dl.sealed) != "pw" || dl.d.Size != 3 {
+		t.Fatalf("export-done: %d %+v %q", code, dl.d, errb.String())
+	}
+
+	up, _, err := tr.SaveUpload(strings.NewReader("UPLOADED"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := uploadRead(svc, up, &out, &errb); code != 0 || out.String() != "UPLOADED" {
+		t.Fatalf("upload-read: %d %q", code, out.String())
+	}
+	if code := uploadDelete(svc, up, &out, &errb); code != 0 || tr.UploadExists(up) {
+		t.Fatalf("upload-delete: %d", code)
+	}
+	if code := uploadRead(svc, up, &out, &errb); code != 1 {
+		t.Fatalf("upload-read after delete: %d", code)
+	}
+}

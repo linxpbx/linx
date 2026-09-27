@@ -21,7 +21,11 @@ type Service struct {
 	// nil where only the schedule is needed.
 	Restores RestoreStore
 	Sealer   Sealer
-	Now      func() time.Time
+	// Downloads and Transfer are for backup files (download.go): made for
+	// download, or uploaded for a restore.
+	Downloads DownloadStore
+	Transfer  *Transfer
+	Now       func() time.Time
 }
 
 func (s *Service) now() time.Time {
@@ -127,8 +131,9 @@ func (s *Service) History(ctx context.Context, before *uuid.UUID, limit int) ([]
 // Pending decides whether a backup is due right now: a pending "back up
 // now" request always wins (trigger "manual"); otherwise the schedule's own
 // cadence, if the most recent run started before the current period's
-// scheduled instant (docs/BACKUP.md §5). A pending restore comes before
-// both (trigger "restore", docs/BACKUP.md §4). No principal: called from the
+// scheduled instant (docs/BACKUP.md §5). A backup file asked for in System
+// → Backups comes before both (trigger "export": a backup, then the file),
+// and a pending restore before everything (trigger "restore", docs/BACKUP.md §4). No principal: called from the
 // hidden CLI subcommand linx-backup-agent polls, which has no session.
 func (s *Service) Pending(ctx context.Context) (due bool, trigger string, err error) {
 	if s.Restores != nil {
@@ -148,6 +153,19 @@ func (s *Service) Pending(ctx context.Context) (due bool, trigger string, err er
 			return true, TriggerRestore, nil
 		case found && s.displayed(r).Status == RestoreRunning:
 			return false, "", nil
+		}
+	}
+	if s.Downloads != nil {
+		tenant, err := s.Store.DefaultTenant(ctx)
+		if err != nil {
+			return false, "", err
+		}
+		d, found, err := s.Downloads.Download(ctx, tenant)
+		if err != nil {
+			return false, "", err
+		}
+		if found && d.Status == DownloadPending {
+			return true, TriggerExport, nil
 		}
 	}
 	sched, err := s.Store.Schedule(ctx)

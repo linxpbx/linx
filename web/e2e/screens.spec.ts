@@ -150,6 +150,18 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-admin-home`);
     });
 
+    test("system backups", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, backups: true, download: "ready" });
+      await page.goto("/admin/system/backups");
+      await expect(page.getByRole("heading", { name: "Backups", exact: true })).toBeVisible();
+      await expect(page.getByText("Your backup file is ready")).toBeVisible();
+      await shot(page, `${scheme}-system-backups`);
+      await page.getByRole("button", { name: "Show its password" }).click();
+      await expect(page.getByText("The file's password")).toBeVisible();
+      await page.getByText("The file's password").scrollIntoViewIfNeeded();
+      await shot(page, `${scheme}-system-backups-password`);
+    });
+
     test("people list and detail", async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true });
       await page.goto("/admin/people");
@@ -280,6 +292,20 @@ test.describe("setup wizard", () => {
     await shot(page, "setup-wizard-restore-running");
   });
 
+  test("restore from a backup file", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 0 });
+    await page.goto("/setup");
+    await page.getByRole("button", { name: /Restore from a backup/ }).click();
+    await page.getByRole("radio", { name: /A backup file on my computer/ }).click();
+    await page.getByLabel("Backup file", { exact: true }).setInputFiles({ name: "linx-backup-2026-09-27-0300.tar", mimeType: "application/x-tar", buffer: Buffer.alloc(4096) });
+    await expect(page.getByText("Size: 4 KB")).toBeVisible();
+    await page.getByLabel("The backup's password").fill("q7Xk2pLm9RtV4wZs8NcB1yHd6FgJ3aEu0oTiPrKe5Ws");
+    await page.getByRole("checkbox", { name: "I understand, replace everything" }).click();
+    await shot(page, "setup-wizard-restore-file");
+    await page.getByRole("button", { name: "Restore", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Starting the restore" })).toBeVisible();
+  });
+
   test("numbers", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, setupStep: 2 });
     await page.goto("/setup");
@@ -340,5 +366,39 @@ test.describe("phone width", () => {
     await sip.answer();
     await expect(page.getByTestId("call-panel")).toHaveAttribute("data-phase", "active");
     await shot(page, "phone-active-call");
+  });
+});
+
+test.describe("system backups", () => {
+  test("first visit: nothing yet", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true });
+    await page.goto("/admin/system/backups");
+    await expect(page.getByText("No backups yet")).toBeVisible();
+    await expect(page.getByText("Off: nothing is backed up")).toBeVisible();
+    await shot(page, "system-backups-empty");
+    await page.getByRole("radio", { name: /Every week/ }).click();
+    await expect(page.getByLabel("On", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Save schedule" }).click();
+    await expect(page.getByText("Saved.")).toBeVisible();
+    await page.getByRole("button", { name: "Back up now" }).click();
+    await expect(page.getByText("Starts within a minute")).toBeVisible();
+    await page.getByRole("button", { name: "Make a backup file" }).click();
+    await expect(page.getByText(/Waiting for the server to start/)).toBeVisible();
+    await shot(page, "system-backups-waiting");
+  });
+
+  test("backup file: being made, failed, someone else's", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, backups: true, download: "preparing" });
+    await page.goto("/admin/system/backups");
+    await expect(page.getByText(/Backing up now and making the file/)).toBeVisible();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await fakeServer(page, { signedIn: true, admin: true, backups: true, download: "failed" });
+    await page.goto("/admin/system/backups");
+    await expect(page.getByText(/couldn't be made/)).toBeVisible();
+    await shot(page, "system-backups-download-failed");
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await fakeServer(page, { signedIn: true, admin: true, backups: true, download: "others" });
+    await page.goto("/admin/system/backups");
+    await expect(page.getByText("Another admin has a backup file ready")).toBeVisible();
   });
 });

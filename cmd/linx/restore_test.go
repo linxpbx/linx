@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -25,10 +26,15 @@ type fakeRestoreHost struct {
 	failRename                 bool
 	unhealthy                  bool
 	calls                      []string // "docker stop linx-control-plane", "psql: ALTER DATABASE ...", ...
+	repos                      []string // each restic call's -r, with whether it existed then
 }
 
 func (f *fakeRestoreHost) run(_ context.Context, w io.Writer, _ []string, name string, args ...string) error {
 	if name == "restic" {
+		if len(args) > 1 && args[0] == "-r" {
+			_, err := os.Stat(filepath.Join(args[1], "config"))
+			f.repos = append(f.repos, fmt.Sprintf("%s %v", args[1], err == nil))
+		}
 		for i, a := range args {
 			switch a {
 			case "snapshots":
@@ -256,5 +262,56 @@ func TestRestoreFromADestination(t *testing.T) {
 	}
 	if pw, _ := os.ReadFile(m.PasswordPath("nas")); string(pw) != "the-password" {
 		t.Errorf("nas's password = %q, want the backup's (so later backups reach the same repository)", pw)
+	}
+}
+
+func TestRestoreFromABackupFile(t *testing.T) {
+	f := &fakeRestoreHost{liveVersion: "25", loadedVersion: "25"}
+	env := newRestoreEnv(t, f)
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "config"), []byte("cfg"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "b.tar")
+	out, err := os.Create(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backup.PackRepository(repo, out); err != nil {
+		t.Fatal(err)
+	}
+	out.Close()
+
+	res, code, stderr := runRestoreJSON(t, env, "--yes", "--password-stdin", "--file", file)
+	if code != 0 || !res.OK {
+		t.Fatalf("code %d, %+v, %s", code, res, stderr)
+	}
+	if len(f.repos) == 0 {
+		t.Fatal("restic never ran")
+	}
+	for _, r := range f.repos {
+		if !strings.HasPrefix(r, env.workDir) || !strings.HasSuffix(r, " true") {
+			t.Fatalf("restic read %s, want an unpacked repository in the work folder", r)
+		}
+	}
+	if entries, _ := os.ReadDir(env.workDir); len(entries) != 0 {
+		t.Errorf("left %d things in the work folder", len(entries))
+	}
+	if got := readSecret(t, env, "linx_jwt_signing_key"); got != "backup-jwt-key" {
+		t.Errorf("key %q", got)
+	}
+}
+
+func TestRestoreRefusesTwoSourcesAndABadFile(t *testing.T) {
+	env := newRestoreEnv(t, &fakeRestoreHost{liveVersion: "25", loadedVersion: "25"})
+	if res, code, _ := runRestoreJSON(t, env, "--yes", "--password-stdin", "--file", "/x.tar", "--path", "/var/backups/linx"); code != 1 || res.Changed {
+		t.Fatalf("two sources: code %d %+v", code, res)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.tar")
+	_ = os.WriteFile(bad, []byte("not a backup"), 0o600)
+	env.stdin = strings.NewReader("pw")
+	res, code, _ := runRestoreJSON(t, env, "--yes", "--password-stdin", "--file", bad)
+	if code != 1 || res.Changed || !strings.Contains(res.Error, "Linx backup file") {
+		t.Fatalf("bad file: code %d %+v", code, res)
 	}
 }

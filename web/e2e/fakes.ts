@@ -40,6 +40,10 @@ export interface FakeOptions {
   // a restore from a backup already under way (docs/BACKUP.md §4).
   systemAdmin?: boolean;
   restore?: "pending" | "running" | "failed";
+  // System → Backups (docs/BACKUP.md §8 step 5): a few runs of history, and
+  // the backup file's state (none by default).
+  backups?: boolean;
+  download?: "preparing" | "ready" | "failed" | "others";
 }
 
 const GOOGLE = { id: "0199c1", kind: "google", name: "Google" };
@@ -100,6 +104,21 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     error: opts.restore === "failed" ? "couldn't read that backup: wrong password, or not a backup folder" : undefined,
   };
   let restoreFinished = false;
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  let backupSettings: Json = { frequency: opts.backups ? "daily" : "off", time_of_day: 180, day_of_week: 0, day_of_month: 1 };
+  const backupRuns = opts.backups ? [
+    { id: "r3", trigger: "manual", started_at: ago(30), finished_at: ago(29), status: "partial",
+      destinations: [{ name: "local", ok: true, snapshot_id: "8c1d42e7a0b9" }, { name: "office-nas", ok: false, error: "connection refused" }] },
+    { id: "r2", trigger: "scheduled", started_at: ago(60 * 20), finished_at: ago(60 * 20 - 1), status: "success",
+      destinations: [{ name: "local", ok: true, snapshot_id: "4f2a9c1e5d6b" }, { name: "office-nas", ok: true, snapshot_id: "77e0aa12cc03" }] },
+    { id: "r1", trigger: "scheduled", started_at: ago(60 * 44), finished_at: ago(60 * 44 - 1), status: "failure",
+      destinations: [], error: "Couldn't prepare the backup: dumping the database: the database container isn't running" },
+  ] : [];
+  let backupDownload: Json = opts.download === "ready" || opts.download === "others"
+    ? { status: "ready", mine: opts.download === "ready", size: 356_000_000, snapshot_time: ago(2), requested_at: ago(3), expires_at: new Date(Date.now() + 57 * 60_000).toISOString() }
+    : opts.download === "preparing" ? { status: "preparing", mine: true, requested_at: ago(1) }
+    : opts.download === "failed" ? { status: "failed", mine: true, requested_at: ago(1), error: "backups don't go to a folder on this server, so there's nothing here to download." }
+    : { status: "none", mine: false };
   const json = (body: unknown, status = 200) => ({
     status, contentType: status >= 400 ? "application/problem+json" : "application/json", body: JSON.stringify(body),
   });
@@ -193,7 +212,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "unauthenticated", detail: "Sign in." }, 401));
       }
       const adminScopes = ["settings:read", "settings:write", "system:read", "calls:read", "routing:read", "users:read", "users:write",
-        "extensions:read", "extensions:write", "devices:read", "devices:write", "routing:write"];
+        "extensions:read", "extensions:write", "devices:read", "devices:write", "routing:write", "backups:read", "backups:write"];
       return route.fulfill(json({
         id: "0199", type: "user", role: opts.systemAdmin ? "system_admin" : "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
@@ -225,8 +244,29 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       if (restore.status === "pending") restoreFinished = true; // one "waiting" answer, then done
       return route.fulfill(json(restore));
     }
+    if (p === "/api/v1/backup-restore/file" && method === "PUT") {
+      return route.fulfill(json({ upload_id: "0199b0aa-0000-7000-8000-000000000001", size: route.request().postDataBuffer()?.length ?? 0 }, 201));
+    }
+    if (p === "/api/v1/backup-settings" && method === "GET") return route.fulfill(json(backupSettings));
+    if (p === "/api/v1/backup-settings" && method === "PATCH") {
+      backupSettings = { ...backupSettings, ...(route.request().postDataJSON() as Json) };
+      return route.fulfill(json(backupSettings));
+    }
+    if (p === "/api/v1/backups" && method === "GET") return route.fulfill(json({ items: backupRuns }));
+    if (p === "/api/v1/backups" && method === "POST") {
+      backupSettings = { ...backupSettings, requested_at: now() };
+      return route.fulfill({ status: 202 });
+    }
+    if (p === "/api/v1/backup-download" && method === "GET") return route.fulfill(json(backupDownload));
+    if (p === "/api/v1/backup-download" && method === "POST") {
+      backupDownload = { status: "pending", mine: true, requested_at: now() };
+      return route.fulfill(json(backupDownload, 202));
+    }
+    if (p === "/api/v1/backup-download/password" && method === "POST") {
+      return route.fulfill(json({ password: "q7Xk2pLm9RtV4wZs8NcB1yHd6FgJ3aEu0oTiPrKe5Ws" }));
+    }
     if (p === "/api/v1/backup-restore" && method === "POST") {
-      const body = route.request().postDataJSON() as { source: "folder" | "destination"; location: string; snapshot: string };
+      const body = route.request().postDataJSON() as { source: "folder" | "destination" | "upload"; location: string; snapshot: string };
       restore = { status: "pending", source: body.source, location: body.location, snapshot: body.snapshot, requested_at: new Date().toISOString() };
       return route.fulfill(json(restore, 202));
     }

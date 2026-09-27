@@ -135,3 +135,54 @@ func (s *Server) RequestRestore(ctx context.Context, req RequestRestoreRequestOb
 	}
 	return RequestRestore202JSONResponse(toRestoreStatus(r)), nil
 }
+
+func toBackupDownload(d backupschedule.Download, mine bool) BackupDownload {
+	out := BackupDownload{Status: BackupDownloadStatus(d.Status), Mine: mine}
+	if d.Status == backupschedule.DownloadNone {
+		return out
+	}
+	out.RequestedAt = &d.RequestedAt
+	if d.Error != "" {
+		out.Error = &d.Error
+	}
+	if d.Status == backupschedule.DownloadReady {
+		out.Size, out.SnapshotTime, out.ExpiresAt = &d.Size, d.SnapshotTime, d.ExpiresAt
+	}
+	return out
+}
+
+func (s *Server) GetBackupDownload(ctx context.Context, _ GetBackupDownloadRequestObject) (GetBackupDownloadResponseObject, error) {
+	d, mine, err := s.backups.DownloadStatus(ctx)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return GetBackupDownloaddefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return GetBackupDownload200JSONResponse(toBackupDownload(d, mine)), nil
+}
+
+func (s *Server) RequestBackupDownload(ctx context.Context, _ RequestBackupDownloadRequestObject) (RequestBackupDownloadResponseObject, error) {
+	d, err := s.backups.RequestDownload(ctx)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return RequestBackupDownloaddefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return RequestBackupDownload202JSONResponse(toBackupDownload(d, true)), nil
+}
+
+func (s *Server) ShowBackupDownloadPassword(ctx context.Context, _ ShowBackupDownloadPasswordRequestObject) (ShowBackupDownloadPasswordResponseObject, error) {
+	pw, err := s.backups.DownloadPassword(ctx)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return ShowBackupDownloadPassworddefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return ShowBackupDownloadPassword200JSONResponse(BackupPassword{Password: pw}), nil
+}

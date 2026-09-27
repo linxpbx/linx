@@ -197,7 +197,10 @@ func main() {
 	// Backup schedule and history (docs/BACKUP.md §5, §8 step 3): this
 	// process never runs restic itself, only decides when a run is due and
 	// records what linx-backup-agent reports (services/control-plane/backup_cmd.go).
-	backups := &backupschedule.Service{Store: st, Alerts: engine, Restores: st, Sealer: sealer, Now: time.Now}
+	// Backup files (§8 step 5) pass through the transfer folder, never
+	// opened here.
+	backups := &backupschedule.Service{Store: st, Alerts: engine, Restores: st, Sealer: sealer, Downloads: st,
+		Transfer: &backupschedule.Transfer{Dir: envOr(os.Getenv, "LINX_BACKUP_TRANSFER_DIR", backupschedule.DefaultTransferDir)}, Now: time.Now}
 
 	// People accounts and sessions (docs/WEB.md §4): the "someone is
 	// guessing a password" alert reuses this same engine, and sign-in
@@ -345,6 +348,7 @@ func main() {
 	runBackground(trunkFiles.Run)
 	runBackground(trunkMonitor.Run)
 	runBackground(callAlerts.Run)
+	runBackground(func(ctx context.Context) { sweepBackupFiles(ctx, backups, log) })
 	stopARI, err := startARI(bgCtx, ariCfg, tracker, log, runBackground)
 	if err != nil {
 		log.Error("ARI setup failed", "err", err)
@@ -370,6 +374,7 @@ func main() {
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	registerSessionHandlers(mux, authn, accounts, tenant)
 	registerCompanyHandlers(mux, authn, accounts, ssoSvc, tenant, log)
+	registerBackupFileHandlers(mux, authn, backups)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
 	// Everything else is the web client (ADR-037).

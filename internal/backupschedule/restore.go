@@ -127,21 +127,47 @@ func (s *Service) RestoreStatus(ctx context.Context) (Restore, error) {
 	return s.displayed(r), nil
 }
 
-// RequestRestore asks linx-backup-agent to restore everything from a backup
+// restoreAllowed checks the rules for restoring from the browser
 // (docs/BACKUP.md §4): only a system admin's own session, freshly
-// confirmed, and only before setup is finished — it replaces every person,
-// setting and key on this server.
-func (s *Service) RequestRestore(ctx context.Context, in RestoreInput) (Restore, error) {
+// confirmed, only before setup is finished, and not while another restore
+// is under way.
+func (s *Service) restoreAllowed(ctx context.Context) (auth.Principal, error) {
 	p, ok := auth.PrincipalFromContext(ctx)
 	if !ok {
-		return Restore{}, errNoPrincipal
+		return auth.Principal{}, errNoPrincipal
 	}
 	if s.Restores == nil || s.Sealer == nil {
-		return Restore{}, errNoRestoreStore
+		return auth.Principal{}, errNoRestoreStore
 	}
 	if _, isSession := auth.SessionFromContext(ctx); !isSession || p.Role != auth.RoleSystemAdmin {
-		return Restore{}, errRestoreSystemAdmin
+		return auth.Principal{}, errRestoreSystemAdmin
 	}
+	if err := auth.RequireConfirmed(ctx, s.now()); err != nil {
+		return auth.Principal{}, err
+	}
+	done, err := s.Restores.SetupCompleted(ctx)
+	if err != nil {
+		return auth.Principal{}, err
+	}
+	if done {
+		return auth.Principal{}, errRestoreAfterSetup
+	}
+	cur, found, err := s.Restores.Restore(ctx, p.TenantID)
+	if err != nil {
+		return auth.Principal{}, err
+	}
+	if found {
+		if st := s.displayed(cur).Status; st == RestorePending || st == RestoreRunning {
+			return auth.Principal{}, errRestoreInProgress
+		}
+	}
+	return p, nil
+}
+
+// RequestRestore asks linx-backup-agent to restore everything from a backup
+// (docs/BACKUP.md §4) — it replaces every person, setting and key on this
+// server, so restoreAllowed's rules apply.
+func (s *Service) RequestRestore(ctx context.Context, in RestoreInput) (Restore, error) {
 	if in.Snapshot == "" {
 		in.Snapshot = "latest"
 	}
@@ -154,23 +180,14 @@ func (s *Service) RequestRestore(ctx context.Context, in RestoreInput) (Restore,
 	if in.Password == "" || len(in.Password) > 1024 {
 		return Restore{}, invalid("restore_password_missing", "Enter the backup's password.")
 	}
-	if err := auth.RequireConfirmed(ctx, s.now()); err != nil {
-		return Restore{}, err
-	}
-	done, err := s.Restores.SetupCompleted(ctx)
+	p, err := s.restoreAllowed(ctx)
 	if err != nil {
 		return Restore{}, err
 	}
-	if done {
-		return Restore{}, errRestoreAfterSetup
-	}
-	cur, found, err := s.Restores.Restore(ctx, p.TenantID)
-	if err != nil {
-		return Restore{}, err
-	}
-	if found {
-		if st := s.displayed(cur).Status; st == RestorePending || st == RestoreRunning {
-			return Restore{}, errRestoreInProgress
+	if in.Source == backup.SourceUpload {
+		id, err := uuid.Parse(in.Location)
+		if err != nil || s.Transfer == nil || !s.Transfer.UploadExists(id) {
+			return Restore{}, invalid("upload_missing", "The uploaded backup file isn't on the server any more. Choose it again.")
 		}
 	}
 

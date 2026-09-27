@@ -561,6 +561,8 @@ Nginx Proxy Manager (or any nginx "location" setup)
         proxy_ssl_server_name on;
         proxy_ssl_name meet.%[1]s;
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        client_max_body_size 3g;
+    (The last line lets a backup file of up to about 2 GB be uploaded.)
 
 Anything else
   An HTTPS proxy to https://%[3]s:%[4]d for both names, with websockets

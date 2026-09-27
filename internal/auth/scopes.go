@@ -40,9 +40,9 @@ var Scopes = []string{
 // trunks:write and routing:write can make calls that cost money
 // (docs/TRUNKS.md §10, ADR-048).
 // sso:write decides which company accounts can sign in as people (ADR-052).
-// backups:write can trigger a backup and change its schedule; a later step
-// adds downloading one, which will need its own gate (docs/BACKUP.md §8) —
-// marked sensitive now rather than loosened later.
+// backups:write can trigger a backup, change its schedule, and fetch a
+// backup file and its password (a session confirms it's them first,
+// docs/BACKUP.md §6).
 var sensitiveScopes = []string{
 	"api_keys:write", "backups:write", "calls:control", "devices:write", "oauth_clients:write", "outbound_allowlist:write",
 	"recordings:read", "routing:write", "sso:write", "transcripts:read", "trunks:write", "users:write",

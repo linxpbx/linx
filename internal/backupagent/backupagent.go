@@ -15,7 +15,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,6 +44,10 @@ const (
 // prints a valid JSON summary) is not itself treated as this kind of error
 // — Once inspects the JSON instead.
 type Exec func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error)
+
+// Stream runs a command with stdin (nil: none) and stdout (nil: discarded)
+// streamed rather than held in memory: backup files are up to about 2 GB.
+type Stream func(ctx context.Context, stdin io.Reader, stdout io.Writer, name string, args ...string) error
 
 // destination mirrors cmd/linx's backup destResult and
 // services/control-plane's reportDestination: the one JSON shape both ends
@@ -69,11 +76,15 @@ type report struct {
 
 // Env is what Once needs from the host.
 type Env struct {
-	Exec Exec
+	Exec   Exec
+	Stream Stream
 	// LinxPath is the linx binary to run (installer.CLIPath in real use).
 	LinxPath string
-	Now      func() time.Time
-	Log      *slog.Logger
+	// WorkDir is where backup files are kept on the host while they're
+	// moved (a private folder inside it). Real use: /var/lib/linx, root's.
+	WorkDir string
+	Now     func() time.Time
+	Log     *slog.Logger
 }
 
 func (e Env) log() *slog.Logger {
@@ -95,8 +106,7 @@ func (e Env) now() time.Time {
 // resilience as linx-firewall-sync: an unrelated outage doesn't lose a
 // backup, it's just tried again next tick) or if nothing is due.
 func (e Env) Once(ctx context.Context) error {
-	log := e.log()
-	out, err := e.Exec(ctx, nil, "docker", "exec", ControlPlaneContainer, ControlPlaneBinary, "backup", "pending")
+	out, err := e.cp(ctx, nil, "pending")
 	if err != nil {
 		return fmt.Errorf("checking whether a backup is due: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -104,11 +114,19 @@ func (e Env) Once(ctx context.Context) error {
 	if !due {
 		return nil
 	}
-	if trigger == "restore" {
+	switch trigger {
+	case "restore":
 		return e.restore(ctx)
+	case "export":
+		return e.export(ctx)
 	}
-	log.Info("a backup is due; running it", "trigger", trigger)
+	return e.backup(ctx, trigger)
+}
 
+// backup runs linx backup and reports the run.
+func (e Env) backup(ctx context.Context, trigger string) error {
+	log := e.log()
+	log.Info("a backup is due; running it", "trigger", trigger)
 	started := e.now()
 	jsonOut, runErr := e.Exec(ctx, nil, e.LinxPath, "backup", "--json")
 	finished := e.now()
@@ -126,11 +144,110 @@ func (e Env) Once(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if out, err := e.Exec(ctx, payload, "docker", "exec", "-i", ControlPlaneContainer, ControlPlaneBinary, "backup", "report"); err != nil {
+	if out, err := e.cp(ctx, payload, "report"); err != nil {
 		return fmt.Errorf("reporting the backup's outcome: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	log.Info("backup reported")
 	return nil
+}
+
+// cp runs a hidden `backup` subcommand of the control plane, with stdin
+// when given.
+func (e Env) cp(ctx context.Context, stdin []byte, args ...string) ([]byte, error) {
+	base := []string{"exec", ControlPlaneContainer, ControlPlaneBinary, "backup"}
+	if stdin != nil {
+		base = []string{"exec", "-i", ControlPlaneContainer, ControlPlaneBinary, "backup"}
+	}
+	return e.Exec(ctx, stdin, "docker", append(base, args...)...)
+}
+
+// exportResult is linx backup export --json's output (cmd/linx's
+// exportResult).
+type exportResult struct {
+	OK           bool      `json:"ok"`
+	Error        string    `json:"error"`
+	SnapshotID   string    `json:"snapshot_id"`
+	SnapshotTime time.Time `json:"snapshot_time"`
+	Password     string    `json:"password"`
+}
+
+// export makes the backup file an admin asked for in System → Backups
+// (docs/BACKUP.md §8 step 5): a backup now (reported like "back up now"),
+// then the server's own backup folder packed into one file, handed to the
+// control plane with its password for that admin only.
+func (e Env) export(ctx context.Context) error {
+	log := e.log()
+	out, err := e.cp(ctx, nil, "export-take")
+	if err != nil {
+		return fmt.Errorf("taking the backup-file request: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if len(strings.TrimSpace(string(out))) == 0 {
+		return nil
+	}
+	var req struct {
+		ID uuid.UUID `json:"id"`
+	}
+	if err := json.Unmarshal(out, &req); err != nil || req.ID == uuid.Nil {
+		return fmt.Errorf("reading the backup-file request: %v", errors.Join(err, errors.New(strings.TrimSpace(string(out)))))
+	}
+	done := func(v map[string]any) error {
+		v["id"] = req.ID
+		payload, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if out, err := e.cp(ctx, payload, "export-done"); err != nil {
+			return fmt.Errorf("reporting the backup file: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	fail := func(msg string) error {
+		log.Warn("making a backup file failed", "err", msg)
+		return done(map[string]any{"ok": false, "error": msg})
+	}
+
+	// The file should hold a backup from now; if this one fails, the file
+	// still has the older ones (and says how old the newest is).
+	if err := e.backup(ctx, "manual"); err != nil {
+		log.Warn("backing up before making the backup file", "err", err)
+	}
+
+	dir, err := e.tempDir("export-*")
+	if err != nil {
+		return fail(fmt.Sprintf("Couldn't make room for the backup file on the server: %v", err))
+	}
+	defer os.RemoveAll(dir)
+	file := filepath.Join(dir, "backup.tar")
+	resOut, runErr := e.Exec(ctx, nil, e.LinxPath, "backup", "export", "--json", "--out", file)
+	var res exportResult
+	if err := json.Unmarshal(resOut, &res); err != nil {
+		return fail(fmt.Sprintf("linx backup export didn't finish: %v", errors.Join(runErr, err)))
+	}
+	if !res.OK {
+		return fail(res.Error)
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return fail(err.Error())
+	}
+	err = e.Stream(ctx, f, nil, "docker", "exec", "-i", ControlPlaneContainer, ControlPlaneBinary, "backup", "export-put", req.ID.String())
+	f.Close()
+	if err != nil {
+		return fail(fmt.Sprintf("Couldn't hand the backup file over: %v", err))
+	}
+	if err := done(map[string]any{"ok": true, "snapshot_id": res.SnapshotID, "snapshot_time": res.SnapshotTime, "password": res.Password}); err != nil {
+		return err
+	}
+	log.Info("backup file ready", "snapshot", res.SnapshotID)
+	return nil
+}
+
+// tempDir makes a private folder under WorkDir.
+func (e Env) tempDir(pattern string) (string, error) {
+	if err := os.MkdirAll(e.WorkDir, 0o700); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(e.WorkDir, pattern)
 }
 
 // parsePending reads `backup pending`'s single line of output: "skip", or
@@ -171,13 +288,7 @@ type restoreResult struct {
 // replaced). docs/BACKUP.md §4.
 func (e Env) restore(ctx context.Context) error {
 	log := e.log()
-	cp := func(stdin []byte, args ...string) ([]byte, error) {
-		base := []string{"exec", ControlPlaneContainer, ControlPlaneBinary, "backup"}
-		if stdin != nil {
-			base = []string{"exec", "-i", ControlPlaneContainer, ControlPlaneBinary, "backup"}
-		}
-		return e.Exec(ctx, stdin, "docker", append(base, args...)...)
-	}
+	cp := func(stdin []byte, args ...string) ([]byte, error) { return e.cp(ctx, stdin, args...) }
 	out, err := cp(nil, "restore-take")
 	if err != nil {
 		return fmt.Errorf("taking the restore request: %w: %s", err, strings.TrimSpace(string(out)))
@@ -205,13 +316,40 @@ func (e Env) restore(ctx context.Context) error {
 	if err := backup.CheckSnapshot(req.Snapshot); err != nil {
 		return fail(err.Error())
 	}
-	flag := "--path"
-	if req.Source == backup.SourceDestination {
+	flag, location := "--path", req.Location
+	switch req.Source {
+	case backup.SourceDestination:
 		flag = "--destination"
+	case backup.SourceUpload:
+		// Fetched from the control plane's transfer folder, unpacked by
+		// linx restore --file, and removed from both places afterwards
+		// however the restore goes.
+		defer func() {
+			if out, err := cp(nil, "upload-delete", req.Location); err != nil {
+				log.Warn("removing the uploaded backup file", "err", err, "output", strings.TrimSpace(string(out)))
+			}
+		}()
+		dir, err := e.tempDir("upload-*")
+		if err != nil {
+			return fail(fmt.Sprintf("Couldn't make room for the backup file on the server: %v", err))
+		}
+		defer os.RemoveAll(dir)
+		flag, location = "--file", filepath.Join(dir, "backup.tar")
+		f, err := os.OpenFile(location, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fail(err.Error())
+		}
+		err = e.Stream(ctx, nil, f, "docker", "exec", ControlPlaneContainer, ControlPlaneBinary, "backup", "upload-read", req.Location)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return fail(fmt.Sprintf("Couldn't fetch the uploaded backup file: %v", err))
+		}
 	}
 	log.Info("restoring from a backup", "source", req.Source, "location", req.Location, "snapshot", req.Snapshot)
 	resOut, runErr := e.Exec(ctx, []byte(req.Password), e.LinxPath, "restore", "--yes", "--json", "--password-stdin",
-		flag, req.Location, req.Snapshot)
+		flag, location, req.Snapshot)
 	var res restoreResult
 	if err := json.Unmarshal(resOut, &res); err != nil {
 		return fail(fmt.Sprintf("linx restore didn't finish: %v", errors.Join(runErr, err)))

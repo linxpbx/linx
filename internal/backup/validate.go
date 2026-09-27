@@ -8,16 +8,19 @@ import (
 )
 
 // Restore sources (docs/BACKUP.md §4): a restic repository in a folder on
-// this server, or a destination set up here with `linx backup destination
-// add`.
+// this server, a destination set up here with `linx backup destination
+// add`, or a backup file uploaded from the browser (§8 step 5; location is
+// the upload's id).
 const (
 	SourceFolder      = "folder"
 	SourceDestination = "destination"
+	SourceUpload      = "upload"
 )
 
 var (
 	destinationNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 	snapshotIDRE      = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
+	uploadIDRE        = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
 
 // CheckDestinationName refuses a destination name that isn't letters,
@@ -61,7 +64,18 @@ func CheckRestoreSource(source, location string) error {
 		return CheckFolder(location)
 	case SourceDestination:
 		return CheckDestinationName(location)
+	case SourceUpload:
+		return CheckUploadID(location)
 	default:
-		return errors.New(`the source is "folder" or "destination"`)
+		return errors.New(`the source is "folder", "destination" or "upload"`)
 	}
+}
+
+// CheckUploadID accepts an uploaded backup file's id: a lowercase UUID,
+// which becomes a file name in the transfer folder.
+func CheckUploadID(id string) error {
+	if !uploadIDRE.MatchString(id) {
+		return errors.New("that uploaded backup file isn't known")
+	}
+	return nil
 }

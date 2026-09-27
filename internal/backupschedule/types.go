@@ -35,6 +35,10 @@ const (
 	// TriggerRestore is Pending's answer when a restore is waiting; never
 	// a Run's trigger.
 	TriggerRestore = "restore"
+	// TriggerExport is Pending's answer when a backup file was asked for
+	// (docs/BACKUP.md §8 step 5): the agent backs up (reported as a manual
+	// run) and then makes the file. Never a Run's trigger either.
+	TriggerExport = "export"
 )
 
 // Status values: how a run went.

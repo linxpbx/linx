@@ -515,7 +515,9 @@ Three sections on one page.
 
 ## 10. System
 
-One page with tabs: **Status · Alerts · Activity · Settings**; expert pages Webhooks and API keys are their own sidebar rows (Simple mode off).
+One page with tabs: **Status · Alerts · Activity · Settings · Backups**; expert pages Webhooks and API keys are their own sidebar rows (Simple mode off).
+
+*As built (backup step 5, 2026-09-27):* only **Backups** is live so far; the other four tabs are greyed "Coming soon" and the sidebar's System opens Backups (`/admin/system/backups`). Four cards: **Backups** (what a backup holds; "Back up automatically" Off / Every day / Every week / Every month with day and time, Save schedule; **Back up now** top right, "Starts within a minute" while queued), **Download a copy** (Make a backup file → "Waiting for the server…" / "Backing up now and making the file…" → "Your backup file is ready: 340 MB, newest backup from …, until 16:08" with **Download file** and **Show its password** (confirm it's you; amber box, Copy, "keep it apart from the file"); failed shows the reason and Try again; another admin's file is noted, not offered), **Where backups go** (each destination's last result; adding one is `sudo linx backup destination add` on the server, shown with Copy), **History** (When · How · Result with failed destinations' reasons · Backup ID). Reporters: everything visible, buttons greyed "Only an admin can change backups". The setup wizard's restore screen gained a third place, **A backup file on my computer** (file picker, size, 2 GB check, upload progress bar). Screenshots: `{light,dark}-system-backups{,-password}`, `system-backups-empty`, `system-backups-waiting`, `system-backups-download-failed`, `setup-wizard-restore-file`.
 
 ### 10.1 Status
 

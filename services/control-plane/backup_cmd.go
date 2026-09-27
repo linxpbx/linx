@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"time"
 
@@ -25,8 +26,13 @@ const backupCmdUsage = `Usage:
   linx-control-plane backup restore-take
   linx-control-plane backup restore-failed
   linx-control-plane backup restore-done
+  linx-control-plane backup export-take
+  linx-control-plane backup export-put ID
+  linx-control-plane backup export-done
+  linx-control-plane backup upload-read ID
+  linx-control-plane backup upload-delete ID
 
-pending  Prints "run restore", "run manual", "run scheduled" or "skip":
+pending  Prints "run restore", "run export", "run manual", "run scheduled" or "skip":
          whether a restore is waiting or a backup is due right now (docs/BACKUP.md §5, §8 step 3). linx-backup-agent
          runs this through docker exec, the same trust as linx user;
          nothing else calls it.
@@ -41,6 +47,15 @@ restore-take    Prints the waiting restore request as JSON, password
 restore-failed  Reads {"id", "error"} from stdin: that request failed.
 restore-done    Reads a finished restore's details from stdin and writes
                 them to the (restored) database's audit log.
+export-take     Prints the waiting backup-file request as JSON ({"id"}) and
+                marks it preparing (docs/BACKUP.md §8 step 5); prints
+                nothing if none is waiting.
+export-put      Reads the backup file for request ID from stdin into the
+                transfer folder.
+export-done     Reads {"id", "ok", "error", "snapshot_id", "snapshot_time",
+                "password"} from stdin: the file is ready (or failed).
+upload-read     Writes uploaded backup file ID to stdout.
+upload-delete   Removes uploaded backup file ID.
 `
 
 // runBackupCommand runs `backup ...` against the database from the
@@ -50,7 +65,12 @@ func runBackupCommand(ctx context.Context, args []string, stdin io.Reader, stdou
 		fmt.Fprint(stdout, backupCmdUsage)
 		return 0
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// Moving a backup file (up to about 2 GB) takes longer than a query.
+	timeout := 30 * time.Second
+	if args[0] == "export-put" || args[0] == "upload-read" {
+		timeout = 30 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	pool, err := db.Connect(ctx, db.ConfigFromEnv(os.Getenv))
 	if err != nil {
@@ -75,7 +95,8 @@ func runBackupCommand(ctx context.Context, args []string, stdin io.Reader, stdou
 	sealer := dbsecret.NewSealer(encKey)
 	alertSender := &alert.Sender{Client: guardedClient, Sealer: sealer, Now: time.Now}
 	engine := &alert.Engine{Store: st, Sender: alertSender}
-	svc := &backupschedule.Service{Store: st, Alerts: engine, Restores: st, Sealer: sealer, Now: time.Now}
+	svc := &backupschedule.Service{Store: st, Alerts: engine, Restores: st, Sealer: sealer, Downloads: st,
+		Transfer: &backupschedule.Transfer{Dir: envOr(os.Getenv, "LINX_BACKUP_TRANSFER_DIR", backupschedule.DefaultTransferDir)}, Now: time.Now}
 
 	switch args[0] {
 	case "pending":
@@ -88,6 +109,28 @@ func runBackupCommand(ctx context.Context, args []string, stdin io.Reader, stdou
 		return restoreFailed(ctx, svc, stdin, stdout, stderr)
 	case "restore-done":
 		return restoreDone(ctx, st, svc, stdin, stdout, stderr)
+	case "export-take":
+		return exportTake(ctx, svc, stdout, stderr)
+	case "export-put", "upload-read", "upload-delete":
+		if len(args) != 2 {
+			fmt.Fprint(stderr, backupCmdUsage)
+			return 2
+		}
+		id, err := uuid.Parse(args[1])
+		if err != nil {
+			fmt.Fprintln(stderr, "Give the request's id.")
+			return 2
+		}
+		switch args[0] {
+		case "export-put":
+			return exportPut(ctx, svc, id, stdin, stdout, stderr)
+		case "upload-read":
+			return uploadRead(svc, id, stdout, stderr)
+		default:
+			return uploadDelete(svc, id, stdout, stderr)
+		}
+	case "export-done":
+		return exportDone(ctx, svc, stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown backup command %q.\n\n%s", args[0], backupCmdUsage)
 		return 2
@@ -264,4 +307,94 @@ func restoreDone(ctx context.Context, ts tenantSource, svc *backupschedule.Servi
 	}
 	fmt.Fprintln(stdout, "Recorded the restore.")
 	return 0
+}
+
+func exportTake(ctx context.Context, svc *backupschedule.Service, stdout, stderr io.Writer) int {
+	d, found, err := svc.TakeDownload(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "Couldn't take the backup-file request: %v\n", err)
+		return 1
+	}
+	if !found {
+		return 0
+	}
+	if err := json.NewEncoder(stdout).Encode(map[string]any{"id": d.ID}); err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func exportPut(ctx context.Context, svc *backupschedule.Service, id uuid.UUID, stdin io.Reader, stdout, stderr io.Writer) int {
+	n, err := svc.PutDownloadFile(ctx, id, stdin)
+	if err != nil {
+		fmt.Fprintf(stderr, "Couldn't store the backup file: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Stored the backup file (%d bytes).\n", n)
+	return 0
+}
+
+func exportDone(ctx context.Context, svc *backupschedule.Service, stdin io.Reader, stdout, stderr io.Writer) int {
+	var in struct {
+		ID           uuid.UUID `json:"id"`
+		OK           bool      `json:"ok"`
+		Error        string    `json:"error"`
+		SnapshotID   string    `json:"snapshot_id"`
+		SnapshotTime time.Time `json:"snapshot_time"`
+		Password     string    `json:"password"`
+	}
+	if err := json.NewDecoder(io.LimitReader(stdin, 64<<10)).Decode(&in); err != nil || in.ID == uuid.Nil {
+		fmt.Fprintln(stderr, "Give the backup file's outcome as JSON on stdin.")
+		return 2
+	}
+	if err := svc.FinishDownload(ctx, backupschedule.DownloadResult{ID: in.ID, OK: in.OK, Error: in.Error,
+		SnapshotID: in.SnapshotID, SnapshotTime: in.SnapshotTime, Password: in.Password}); err != nil {
+		fmt.Fprintf(stderr, "Couldn't record the backup file: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Recorded the backup file.")
+	return 0
+}
+
+func uploadRead(svc *backupschedule.Service, id uuid.UUID, stdout, stderr io.Writer) int {
+	f, err := svc.ReadUpload(id)
+	if err != nil {
+		fmt.Fprintf(stderr, "Couldn't open the uploaded backup file: %v\n", err)
+		return 1
+	}
+	defer f.Close()
+	if _, err := io.Copy(stdout, f); err != nil {
+		fmt.Fprintf(stderr, "Couldn't send the uploaded backup file: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func uploadDelete(svc *backupschedule.Service, id uuid.UUID, stdout, stderr io.Writer) int {
+	if err := svc.RemoveUpload(id); err != nil {
+		fmt.Fprintf(stderr, "Couldn't remove the uploaded backup file: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Removed the uploaded backup file.")
+	return 0
+}
+
+// backupSweepInterval is how often expired backup files, their passwords
+// and unused uploads are removed.
+const backupSweepInterval = 5 * time.Minute
+
+func sweepBackupFiles(ctx context.Context, svc *backupschedule.Service, log *slog.Logger) {
+	t := time.NewTicker(backupSweepInterval)
+	defer t.Stop()
+	for {
+		if err := svc.SweepDownloads(ctx); err != nil && ctx.Err() == nil {
+			log.Warn("removing expired backup files", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

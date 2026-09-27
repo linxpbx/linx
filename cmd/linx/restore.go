@@ -22,13 +22,15 @@ import (
 const restoreUsage = `linx restore — put everything back from a backup
 
 Usage:
-  sudo linx restore --yes (--path FOLDER | --destination NAME) [--password-file PATH | --password-stdin] [--json] [SNAPSHOT]
+  sudo linx restore --yes (--path FOLDER | --destination NAME | --file FILE) [--password-file PATH | --password-stdin] [--json] [SNAPSHOT]
 
   --path FOLDER        A backup folder on this server (a copy of an old
                        server's /var/backups/linx, a second drive, ...).
   --destination NAME   A destination set up on this server with
                        linx backup destination add (for a remote one, add it
                        here first with the same address and credentials).
+  --file FILE          A backup file downloaded from System → Backups
+                       (or made with sudo linx backup export).
   SNAPSHOT             Which backup: "latest" (the default) or its id.
   --yes                Required: this replaces every person, setting and
                        key on this server, and can't be undone from here.
@@ -120,6 +122,7 @@ func runRestore(ctx context.Context, args []string, stdout, stderr io.Writer, en
 	yes := fs.Bool("yes", false, "")
 	path := fs.String("path", "", "")
 	destName := fs.String("destination", "", "")
+	file := fs.String("file", "", "")
 	passwordFile := fs.String("password-file", "", "")
 	passwordStdin := fs.Bool("password-stdin", false, "")
 	asJSON := fs.Bool("json", false, "")
@@ -149,8 +152,14 @@ func runRestore(ctx context.Context, args []string, stdout, stderr io.Writer, en
 	if !env.isRoot {
 		return fail(false, "linx restore must run as root. Try: sudo linx restore ...")
 	}
-	if (*path == "") == (*destName == "") {
-		return fail(false, "Say where the backup is: --path FOLDER or --destination NAME (one of them).")
+	given := 0
+	for _, v := range []string{*path, *destName, *file} {
+		if v != "" {
+			given++
+		}
+	}
+	if given != 1 {
+		return fail(false, "Say where the backup is: --path FOLDER, --destination NAME or --file FILE (one of them).")
 	}
 	if err := backup.CheckSnapshot(snapshot); err != nil {
 		return fail(false, "%s.", capitalizeFirst(err.Error()))
@@ -167,12 +176,20 @@ func runRestore(ctx context.Context, args []string, stdout, stderr io.Writer, en
 
 	var target backup.Target
 	var dest *backup.Destination
-	if *path != "" {
+	switch {
+	case *file != "":
+		dir, cleanup, err := unpackBackupFile(env, *file)
+		if err != nil {
+			return fail(false, "%v", err)
+		}
+		defer cleanup()
+		target = backup.Target{Repo: dir, Password: password}
+	case *path != "":
 		if err := backup.CheckFolder(*path); err != nil {
 			return fail(false, "%s.", capitalizeFirst(err.Error()))
 		}
 		target = backup.Target{Repo: *path, Password: password}
-	} else {
+	default:
 		if err := backup.CheckDestinationName(*destName); err != nil {
 			return fail(false, "%s.", capitalizeFirst(err.Error()))
 		}
@@ -207,6 +224,29 @@ func runRestore(ctx context.Context, args []string, stdout, stderr io.Writer, en
 			res.SnapshotTime.Local().Format("2 Jan 2006 15:04"), res.SnapshotID[:min(8, len(res.SnapshotID))])
 	}
 	return 0
+}
+
+// unpackBackupFile unpacks a backup file (docs/BACKUP.md §8 step 5) into a
+// private folder under env.workDir; cleanup removes it.
+func unpackBackupFile(env restoreEnv, file string) (dir string, cleanup func(), err error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return "", nil, fmt.Errorf("couldn't open the backup file: %w", err)
+	}
+	defer f.Close()
+	if err := os.MkdirAll(env.workDir, 0o700); err != nil {
+		return "", nil, err
+	}
+	dir, err = os.MkdirTemp(env.workDir, "backup-file-*")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup = func() { _ = os.RemoveAll(dir) }
+	if _, err := backup.UnpackRepository(f, dir); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return dir, cleanup, nil
 }
 
 func restorePassword(env restoreEnv, file string, fromStdin bool) (string, error) {
