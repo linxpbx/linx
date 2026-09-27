@@ -1,6 +1,6 @@
 # Linx — Backup and restore
 
-*Status: design drafted 2026-09-27, pulled forward from Phase 5 (`docs/ROADMAP.md`) at the owner's request, ahead of going live. ADR-055 records the owner decisions below. Steps 1–6 built; demo (`docs/DEMO_BACKUP.md`) not yet run.*
+*Status: design drafted 2026-09-27, pulled forward from Phase 5 (`docs/ROADMAP.md`) at the owner's request, ahead of going live. ADR-055 records the owner decisions below. Steps 1–6 built; demo passed and **approved by the owner 2026-09-27** (`docs/DEMO_BACKUP.md`).*
 
 Two things: getting a working copy of Linx off the server regularly (**backup**), and getting a whole system back after loss — a dead disk, a destroyed VPS, a mistake — onto a fresh one (**restore**). `docs/ARCHITECTURE.md` already lists `backup`/`restore` as `linx` CLI subcommands; this is their design.
 
