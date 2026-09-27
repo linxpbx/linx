@@ -60,19 +60,29 @@ func TestNewPasswordAndPairID(t *testing.T) {
 	}
 }
 
-func TestInitRepoTreatsAlreadyInitializedAsSuccess(t *testing.T) {
-	f := &fakeRestic{err: []error{errors.New("Fatal: create repository at /repo failed: config file already initialized")}}
+func TestInitRepoLeavesAnExistingRepositoryAlone(t *testing.T) {
+	f := &fakeRestic{} // cat config succeeds: a repository is there
 	if err := InitRepo(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}); err != nil {
-		t.Fatalf("InitRepo() = %v, want nil for an already-initialized repository", err)
+		t.Fatal(err)
+	}
+	if len(f.calls) != 1 || f.calls[0][len(f.calls[0])-1] != "config" {
+		t.Fatalf("calls = %v, want only cat config", f.calls)
+	}
+}
+
+func TestInitRepoCreatesAMissingRepository(t *testing.T) {
+	f := &fakeRestic{err: []error{errors.New("Fatal: unable to open config file: stat /repo/config: no such file or directory")}}
+	if err := InitRepo(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}); err != nil {
+		t.Fatal(err)
 	}
 	args := f.lastArgs()
-	if args[0] != "-r" || args[1] != "/repo" || args[2] != "--password-file" || args[len(args)-1] != "init" {
-		t.Fatalf("unexpected args: %v", args)
+	if len(f.calls) != 2 || args[0] != "-r" || args[1] != "/repo" || args[2] != "--password-file" || args[len(args)-1] != "init" {
+		t.Fatalf("unexpected calls: %v", f.calls)
 	}
 }
 
 func TestInitRepoRealFailure(t *testing.T) {
-	f := &fakeRestic{err: []error{errors.New("permission denied")}}
+	f := &fakeRestic{err: []error{errors.New("no config"), errors.New("permission denied")}}
 	if err := InitRepo(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}); err == nil {
 		t.Fatal("InitRepo() succeeded, want an error")
 	}

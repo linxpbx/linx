@@ -77,15 +77,15 @@ func TestRunBackupGeneratesAndShowsThePasswordOnce(t *testing.T) {
 		t.Fatal("the generated password wasn't shown")
 	}
 	if len(r.calls) != 4 {
-		t.Fatalf("expected 4 commands (dump, init, backup, forget), got %d: %v", len(r.calls), r.calls)
+		t.Fatalf("expected 4 commands (dump, is-there-a-repository, backup, forget), got %d: %v", len(r.calls), r.calls)
 	}
 	joinedDump := strings.Join(r.calls[0], " ")
 	if r.calls[0][0] != "docker" || !strings.Contains(joinedDump, "pg_dump") || !strings.Contains(joinedDump, backupPostgresContainer) {
 		t.Fatalf("unexpected dump call: %v", r.calls[0])
 	}
 	joinedInit := strings.Join(r.calls[1], " ")
-	if !strings.Contains(joinedInit, defaultBackupRepo) || !strings.Contains(joinedInit, "init") {
-		t.Fatalf("unexpected init call: %v", r.calls[1])
+	if !strings.Contains(joinedInit, defaultBackupRepo) || !strings.Contains(joinedInit, "cat config") {
+		t.Fatalf("unexpected repository check: %v", r.calls[1])
 	}
 	joinedBackup := strings.Join(r.calls[2], " ")
 	if !strings.Contains(joinedBackup, "backup") || !strings.Contains(joinedBackup, backup.KeysPath) {
@@ -152,10 +152,11 @@ func TestRunBackupMultipleDestinationsContinuesOnFailure(t *testing.T) {
 	if err := m.Save(dests); err != nil {
 		t.Fatal(err)
 	}
-	// Call order: 0 dump (shared, once), 1 local-a init (made to fail),
-	// then local-b: 2 init, 3 backup, 4 forget.
+	// Call order: 0 dump (shared, once), local-a: 1 cat config and 2 init
+	// (both made to fail), then local-b: 3 cat config, 4 backup, 5 forget.
 	r.fail[1] = context.DeadlineExceeded
-	r.stdout[3] = `{"message_type":"summary","snapshot_id":"snap-b"}` + "\n"
+	r.fail[2] = context.DeadlineExceeded
+	r.stdout[4] = `{"message_type":"summary","snapshot_id":"snap-b"}` + "\n"
 
 	var out, errb bytes.Buffer
 	code := runBackup(t.Context(), nil, &out, &errb, env)

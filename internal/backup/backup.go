@@ -119,22 +119,22 @@ func resticArgs(t Target, pf string) []string {
 	return append(args, t.Extra...)
 }
 
-// alreadyInitializedMarker is in restic's own message when a repository
-// already exists; InitRepo treats that as success, not failure (backup
-// runs unattended on a schedule and mustn't fail forever after its first
-// run against an already-initialized repository).
-const alreadyInitializedMarker = "already initialized"
-
-// InitRepo creates the repository if it doesn't already have a restic config.
+// InitRepo creates the repository unless one is already there. Whether one
+// is there is asked of restic itself (`cat config`, which reads the
+// repository's config with the password) rather than read from init's
+// error text, which differs between restic versions ("config file already
+// exists" in 0.16, Ubuntu 24.04's): a backup runs unattended on a schedule
+// and mustn't fail forever after its first run.
 func InitRepo(ctx context.Context, runner Runner, t Target) error {
 	pf, cleanup, err := passwordFile(t.Password)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	args := append(resticArgs(t, pf), "init")
-	err = runner(ctx, nil, t.Env, "restic", args...)
-	if err != nil && !strings.Contains(err.Error(), alreadyInitializedMarker) {
+	if runner(ctx, nil, t.Env, "restic", append(resticArgs(t, pf), "cat", "config")...) == nil {
+		return nil
+	}
+	if err := runner(ctx, nil, t.Env, "restic", append(resticArgs(t, pf), "init")...); err != nil {
 		return fmt.Errorf("restic init: %w", err)
 	}
 	return nil
