@@ -39,6 +39,7 @@ import (
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
 	"linxpbx.com/linx/internal/settings"
+	"linxpbx.com/linx/internal/sso"
 	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/trunkconf"
@@ -202,6 +203,16 @@ func main() {
 		}
 		accounts.WebAuthn = wa
 	}
+	// Company sign-in (ADR-052): providers are reached through the same
+	// guarded client as webhooks, so one on the home network needs its
+	// address on the outbound allowlist. It needs the domain too: the
+	// provider sends people back to meet.<domain>.
+	ssoSvc := &sso.Service{Store: st, Sealer: sealer, Policy: policy, Now: time.Now}
+	accounts.Company = st
+	if d := os.Getenv("LINX_DOMAIN"); d != "" {
+		client := &sso.Client{Store: st, Sealer: sealer, HTTP: guardedClient, RedirectURI: sso.RedirectURI(d), Now: time.Now}
+		ssoSvc.Client, accounts.CompanyProviders = client, client
+	}
 
 	pbxSvc := &pbx.Service{Store: st, Now: time.Now, Domain: os.Getenv("LINX_DOMAIN")}
 	// Trunk tests connect only where a phone line can be: never to Linx's
@@ -338,7 +349,7 @@ func main() {
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)
@@ -349,6 +360,7 @@ func main() {
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	registerSessionHandlers(mux, authn, accounts, tenant)
+	registerCompanyHandlers(mux, authn, accounts, ssoSvc, tenant, log)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
 	// Everything else is the web client (ADR-037).

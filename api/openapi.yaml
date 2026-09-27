@@ -1801,8 +1801,9 @@ paths:
       description: >-
         A fresh proof of identity for the most dangerous actions
         (docs/ADMIN.md §7), without ending this or any other session:
-        password, plus the authenticator code if one is enrolled. Good for
-        10 minutes. Served by a hand-written handler (excluded from code
+        password, plus the authenticator code if one is enrolled. After
+        company sign-in (POST /session/confirm/company) answered
+        `code_required`, send just the code. Good for 10 minutes. Served by a hand-written handler (excluded from code
         generation, like the other session endpoints).
       tags: [sessions]
       security: []
@@ -1813,7 +1814,6 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [password]
               properties:
                 password:
                   type: string
@@ -2429,6 +2429,308 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/sign-in-options:
+    get:
+      operationId: getSignInOptions
+      summary: What the sign-in page offers
+      description: >-
+        The company sign-in buttons, whether passwords are off for most
+        people, and whether passkeys work here. Public (the sign-in page
+        has no session yet). Served by a hand-written handler.
+      tags: [sessions]
+      security: []
+      responses:
+        "200":
+          description: The options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInOptions"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/company:
+    post:
+      operationId: startCompanySignIn
+      summary: Sign in with a company account (start)
+      description: >-
+        Returns the provider's sign-in page and sets the short-lived
+        __Host-linx_sso cookie (SameSite=Lax, so it comes back with the
+        provider's redirect) that binds the flow to this browser
+        (docs/ADMIN.md §6). The provider sends the browser to GET
+        /sso/callback. Hand-written (sets a cookie).
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyStart"
+      responses:
+        "200":
+          description: Where to send the browser.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyRedirect"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/confirm/company:
+    post:
+      operationId: startCompanyConfirm
+      summary: "\"Confirm it's you\" with a company account (start)"
+      description: >-
+        Like POST /session/company, for a signed-in session with a linked
+        account on that provider. The callback confirms the session, or,
+        when the person has a passkey or authenticator, answers
+        `code_required`: POST /session/confirm with just the code finishes
+        it. Hand-written.
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyStart"
+      responses:
+        "200":
+          description: Where to send the browser.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyRedirect"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/sso/callback:
+    get:
+      operationId: companyCallback
+      summary: Where providers send the browser back
+      description: >-
+        Registered at every provider as the redirect URI. Checks state
+        against the __Host-linx_sso cookie, exchanges the code (PKCE) and
+        checks the ID token (signature, issuer, audience, nonce), then
+        redirects (303): signing in sets the session cookies and goes to
+        `/` (the second step follows there, if the person has one); linking
+        goes to `/account?company=linked`; confirming goes to
+        `/company-done?result=confirmed|code_required`. A refusal goes to
+        the same place with `company_error=<code>`: `no_account`,
+        `email_unverified`, `not_linked`, `linked_elsewhere`,
+        `email_mismatch`, `account_disabled`, `company_cancelled`,
+        `company_expired`, `company_failed`. Hand-written.
+      tags: [sessions]
+      security: []
+      parameters:
+        - {name: state, in: query, schema: {type: string}}
+        - {name: code, in: query, schema: {type: string}}
+        - {name: error, in: query, schema: {type: string}}
+      responses:
+        "303":
+          description: Back to the web app.
+
+  /api/v1/me/sso-links:
+    get:
+      operationId: listMyCompanyLinks
+      summary: My company accounts
+      tags: [people]
+      responses:
+        "200":
+          description: The caller's linked company accounts, and the providers one can be linked on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyCompanyAccounts"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: startMyCompanyLink
+      summary: Link a company account to mine (start)
+      description: >-
+        Like POST /session/company, for a signed-in session. The provider
+        must vouch for an email equal to the person's Linx email. The
+        callback goes to `/account?company=linked`. Hand-written.
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyStart"
+      responses:
+        "200":
+          description: Where to send the browser.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyRedirect"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/sso-links/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    delete:
+      operationId: unlinkMyCompanyAccount
+      summary: Unlink one of my company accounts
+      description: Refused (409 `last_sign_in_method`) when it's the only way left to sign in.
+      tags: [people]
+      responses:
+        "204":
+          description: Unlinked.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/users/{id}/sso-links:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listUserCompanyLinks
+      summary: A person's company accounts
+      tags: [people]
+      security:
+        - bearer: [users:read]
+      responses:
+        "200":
+          description: Their linked company accounts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyLinkList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/users/{id}/sso-links/{link_id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: link_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: unlinkUserCompanyAccount
+      summary: Unlink a person's company account
+      description: Refused (409 `last_sign_in_method`) when it's the only way left for them to sign in.
+      tags: [people]
+      security:
+        - bearer: [users:write]
+      responses:
+        "204":
+          description: Unlinked.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/sso-providers:
+    get:
+      operationId: listSsoProviders
+      summary: Company sign-in providers
+      tags: [sso]
+      security:
+        - bearer: [sso:read]
+      responses:
+        "200":
+          description: Every provider, in button order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SsoProviderList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSsoProvider
+      summary: Add a company sign-in provider
+      description: >-
+        Linx reads the issuer's discovery document first (422
+        `issuer_unreachable` if it can't; `issuer_blocked` for a private
+        address not on the outbound allowlist). Needs a fresh "confirm it's
+        you" (docs/ADMIN.md §7).
+      tags: [sso]
+      security:
+        - bearer: [sso:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SsoProviderNew"
+      responses:
+        "201":
+          description: Added.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SsoProvider"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/sso-providers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getSsoProvider
+      summary: Get a company sign-in provider
+      tags: [sso]
+      security:
+        - bearer: [sso:read]
+      responses:
+        "200":
+          description: The provider.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SsoProvider"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateSsoProvider
+      summary: Change a company sign-in provider
+      description: JSON Merge Patch with optional If-Match. Needs a fresh "confirm it's you".
+      tags: [sso]
+      security:
+        - bearer: [sso:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/SsoProviderPatch"
+      responses:
+        "200":
+          description: The provider as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SsoProvider"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSsoProvider
+      summary: Remove a company sign-in provider
+      description: Everyone's links to it go too. Needs a fresh "confirm it's you".
+      tags: [sso]
+      security:
+        - bearer: [sso:write]
+      responses:
+        "204":
+          description: Removed.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/me/password-only:
     post:
       operationId: acceptPasswordOnly
@@ -2783,6 +3085,11 @@ components:
           description: The number of that extension, e.g. "101".
         presence:
           $ref: "#/components/schemas/Presence"
+        company_sign_in:
+          type: array
+          items:
+            type: string
+          description: The company sign-in providers a signed-in person has linked an account on (their names).
 
     EventType:
       type: object
@@ -4584,6 +4891,205 @@ components:
           items:
             $ref: "#/components/schemas/Passkey"
 
+    CompanyButton:
+      description: A company sign-in provider a person can use.
+      type: object
+      required: [id, kind, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/SsoProviderKind"
+        name:
+          type: string
+          description: Shown as "Continue with <name>".
+
+    SignInOptions:
+      type: object
+      required: [company, company_sign_in_required, passkeys_available]
+      properties:
+        company:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompanyButton"
+          description: The company sign-in buttons, in order.
+        company_sign_in_required:
+          type: boolean
+          description: Passwords are off for everyone but system admins.
+        passkeys_available:
+          type: boolean
+
+    CompanyStart:
+      type: object
+      additionalProperties: false
+      required: [provider_id]
+      properties:
+        provider_id:
+          type: string
+          format: uuid
+
+    CompanyRedirect:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: The provider's sign-in page. Send the browser there (a full navigation).
+
+    CompanyLink:
+      description: A person's company account.
+      type: object
+      required: [id, provider_id, provider_name, email, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider_id:
+          type: string
+          format: uuid
+        provider_name:
+          type: string
+        email:
+          type: string
+          description: The email the provider vouched for when it was linked.
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+
+    CompanyLinkList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompanyLink"
+
+    MyCompanyAccounts:
+      type: object
+      required: [items, available]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompanyLink"
+        available:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompanyButton"
+          description: The enabled providers an account can be linked on.
+
+    SsoProviderKind:
+      type: string
+      enum: [google, microsoft, authentik, keycloak, oidc]
+      description: >-
+        The template it was made from. Decides how a verified email is read
+        (Microsoft: `xms_edov` with `email`, or `upn`; everyone else:
+        `email_verified`).
+
+    SsoProvider:
+      type: object
+      required: [id, kind, name, issuer, client_id, client_secret_set, enabled, shown, position, redirect_uri, created_at, updated_at, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/SsoProviderKind"
+        name:
+          type: string
+        issuer:
+          type: string
+        client_id:
+          type: string
+        client_secret_set:
+          type: boolean
+          description: The secret itself is never shown again.
+        enabled:
+          type: boolean
+          description: Usable at all (sign in, link, confirm).
+        shown:
+          type: boolean
+          description: Its button is on the sign-in page.
+        position:
+          type: integer
+          description: Buttons are shown lowest first.
+        redirect_uri:
+          type: string
+          description: The address to register at the provider.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        etag:
+          type: string
+
+    SsoProviderList:
+      type: object
+      required: [items, redirect_uri]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SsoProvider"
+        redirect_uri:
+          type: string
+          description: The address to register at every provider ("" when company sign-in is off).
+
+    SsoProviderNew:
+      type: object
+      additionalProperties: false
+      required: [kind, client_id]
+      properties:
+        kind:
+          $ref: "#/components/schemas/SsoProviderKind"
+        name:
+          type: string
+          maxLength: 60
+          description: Defaults to the kind's name; required for `oidc`.
+        issuer:
+          type: string
+          description: >-
+            e.g. https://login.microsoftonline.com/<tenant ID>/v2.0. Google's
+            is filled in. Linx reads its discovery document before saving.
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        enabled:
+          type: boolean
+        shown:
+          type: boolean
+        position:
+          type: integer
+
+    SsoProviderPatch:
+      description: JSON Merge Patch; fields not sent stay as they are. An empty client_secret removes it.
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 60
+        issuer:
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        enabled:
+          type: boolean
+        shown:
+          type: boolean
+        position:
+          type: integer
+
     PasskeyAdded:
       type: object
       required: [passkey]
@@ -4660,6 +5166,12 @@ components:
         setup_completed_at:
           type: string
           format: date-time
+        company_sign_in_required:
+          type: boolean
+          description: >-
+            "People must use company sign-in" (docs/ADMIN.md §6): passwords
+            stop working for everyone except system admins. Passkeys keep
+            working.
 
     SettingsPatch:
       description: JSON Merge Patch; fields not sent stay as they are.
@@ -4687,6 +5199,9 @@ components:
           type: array
           items:
             type: string
+        company_sign_in_required:
+          type: boolean
+          description: Also needs sso:write, and a fresh "confirm it's you".
 
     SetupProgress:
       type: object
@@ -4816,6 +5331,11 @@ components:
         password_only:
           type: boolean
           description: No passkey and no authenticator app ("Password only ⚠" for an admin).
+        company_sign_in:
+          type: array
+          items:
+            type: string
+          description: The company sign-in providers they've linked an account on (their names).
         disabled:
           type: boolean
         created_at:

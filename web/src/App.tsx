@@ -4,6 +4,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api, type Me } from "@/api/client";
 import { navigate, usePath } from "@/hooks/useRoute";
 import { SignInScreen, type SecondStepMethod, type SignInStep } from "@/screens/SignIn";
+import { reportCompanyDone } from "@/lib/company";
 
 // Everything after sign-in (the phone line, JsSIP, the screens) loads
 // separately, so the sign-in page stays small (docs/WEB.md §6).
@@ -18,6 +19,24 @@ const SETUP = /^\/setup\/([^/]+)$/;
 
 export function App() {
   const path = usePath();
+  if (path === "/company-done") return <CompanyDonePage />;
+  return <Main path={path} />;
+}
+
+/**
+ * Where a "confirm it's you" company sign-in lands, in the small window the
+ * dialog opened: it tells the dialog and closes itself.
+ */
+function CompanyDonePage() {
+  useEffect(() => { reportCompanyDone(); }, []);
+  return (
+    <main className="flex min-h-dvh items-center justify-center px-4 text-center text-sm text-muted-foreground">
+      Done. You can close this window.
+    </main>
+  );
+}
+
+function Main({ path }: { path: string }) {
   const setupToken = SETUP.exec(path)?.[1];
   const [auth, setAuth] = useState<Auth>({ state: "loading" });
 

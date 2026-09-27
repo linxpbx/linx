@@ -1,15 +1,20 @@
 // "Confirm it's you" (ADMIN_SCREENS_PHASE1E.md §12.2, docs/ADMIN.md §7):
 // opened when an action answers 403 confirm_required; on success the action
-// runs again by itself. A passkey if the person has one, or the password
-// (and the code, if they have an authenticator app).
-import { useCallback, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { CircleAlert, KeyRound } from "lucide-react";
+// runs again by itself. A passkey if the person has one, the password (and
+// the code, if they have an authenticator app), or a linked company account
+// (and the code).
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Building2, CircleAlert, KeyRound } from "lucide-react";
 import { api, problemCode, problemMessage, type Me } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { companyErrorMessage, confirmWithCompany } from "@/lib/company";
 import { answerWithPasskey, cancelled, PasskeyError, passkeysSupported } from "@/lib/passkey";
+import type { components } from "@/api/schema";
+
+type CompanyLink = components["schemas"]["CompanyLink"];
 
 /** What an action reports: whether it needs a fresh confirmation first. */
 export type Outcome = { confirm: true } | { confirm: false };
@@ -56,8 +61,42 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Linked company accounts, and whether one just came back asking for the
+  // second step's code (company sign-in replaces the password, not that).
+  const [company, setCompany] = useState<CompanyLink[]>([]);
+  const [companyCode, setCompanyCode] = useState(false);
+  const waiting = useRef<AbortController | null>(null);
+  const hasCompany = (me?.company_sign_in?.length ?? 0) > 0;
+  useEffect(() => {
+    if (!open || !hasCompany) return;
+    void api.GET("/api/v1/me/sso-links").then(({ data }) => setCompany(data?.items ?? []));
+  }, [open, hasCompany]);
 
-  const reset = () => { setPassword(""); setCode(""); setError(""); };
+  const reset = () => {
+    waiting.current?.abort();
+    setPassword(""); setCode(""); setError(""); setCompanyCode(false);
+  };
+  const withCompany = async (providerId: string) => {
+    setBusy(true);
+    setError("");
+    const ctl = new AbortController();
+    waiting.current = ctl;
+    try {
+      const out = await confirmWithCompany(providerId, ctl.signal);
+      if ("error" in out) {
+        if (out.error !== "company_cancelled") setError(companyErrorMessage(out.error));
+      } else if (out.result === "code_required") {
+        setCompanyCode(true);
+      } else {
+        reset();
+        onConfirmed();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : companyErrorMessage(""));
+    } finally {
+      setBusy(false);
+    }
+  };
   const withPasskey = async () => {
     setBusy(true);
     setError("");
@@ -76,7 +115,7 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
     setBusy(true);
     setError("");
     const { response, error: err } = await api.POST("/api/v1/session/confirm", {
-      body: { password, ...(code.trim() ? { code: code.trim() } : {}) },
+      body: { ...(companyCode ? {} : { password }), ...(code.trim() ? { code: code.trim() } : {}) },
     });
     setBusy(false);
     if (response.ok) {
@@ -96,18 +135,28 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
           <DialogTitle>Confirm it's you</DialogTitle>
           <DialogDescription>This change needs you to sign in again. It lasts 10 minutes.</DialogDescription>
         </DialogHeader>
-        {hasPasskey && (
+        {companyCode && (
+          <form id="confirm-password" onSubmit={withPassword} className="flex flex-col gap-4" noValidate>
+            <p className="text-sm">Your company account checked out. Now enter your second step.</p>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="confirm-code">{me?.mfa_enabled ? "Code from your authenticator app" : "Recovery code"}</Label>
+              <Input id="confirm-code" value={code} onChange={(e) => setCode(e.target.value)} disabled={busy}
+                autoComplete="one-time-code" className="font-mono" autoFocus />
+            </div>
+          </form>
+        )}
+        {!companyCode && hasPasskey && (
           <Button className="h-11 w-full text-base" disabled={busy} onClick={() => void withPasskey()}>
             <KeyRound aria-hidden="true" className="size-4" />
             Use my passkey
           </Button>
         )}
-        {hasPasskey && hasPassword && (
+        {!companyCode && hasPasskey && hasPassword && (
           <div className="flex items-center gap-3 text-sm text-muted-foreground" aria-hidden="true">
             <span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" />
           </div>
         )}
-        {hasPassword && (
+        {!companyCode && hasPassword && (
           <form id="confirm-password" onSubmit={withPassword} className="flex flex-col gap-4" noValidate>
             <div className="flex flex-col gap-2">
               <Label htmlFor="confirm-pw">Password</Label>
@@ -123,6 +172,17 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
             )}
           </form>
         )}
+        {!companyCode && company.length > 0 && (hasPasskey || hasPassword) && (
+          <div className="flex items-center gap-3 text-sm text-muted-foreground" aria-hidden="true">
+            <span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" />
+          </div>
+        )}
+        {!companyCode && company.map((l) => (
+          <Button key={l.id} variant="outline" className="h-11 w-full text-base" disabled={busy} onClick={() => void withCompany(l.provider_id)}>
+            <Building2 aria-hidden="true" className="size-4" />
+            Continue with {l.provider_name}
+          </Button>
+        ))}
         {error && (
           <p role="alert" className="flex items-start gap-2 text-sm font-medium">
             <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
@@ -131,7 +191,10 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => { reset(); onCancel(); }} disabled={busy}>Cancel</Button>
-          {hasPassword && (
+          {companyCode && (
+            <Button type="submit" form="confirm-password" disabled={busy || !code.trim()}>Confirm</Button>
+          )}
+          {!companyCode && hasPassword && (
             <Button type="submit" form="confirm-password" disabled={busy || !password || (needsCode && !code.trim())}>
               Confirm
             </Button>

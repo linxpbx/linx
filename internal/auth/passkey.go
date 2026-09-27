@@ -759,9 +759,9 @@ func (a *Accounts) RemovePasskey(ctx context.Context, id uuid.UUID, acceptPasswo
 		return notFound("passkey")
 	}
 	last := len(keys) == 1
-	if last && !u.HasPassword() {
+	if last && !u.HasPassword() && len(u.CompanyLogins) == 0 {
 		return &apihttp.Error{Status: http.StatusConflict, Code: "last_sign_in_method",
-			Detail: "This is your only way to sign in. Add a password or another passkey first."}
+			Detail: "This is your only way to sign in. Add a password, another passkey or a company account first."}
 	}
 	passwordOnly := last && !u.MFAEnabled && requiresMFA(u.Role) && u.PasswordOnlyAcceptedAt == nil
 	if passwordOnly && !acceptPasswordOnly {

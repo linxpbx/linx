@@ -26,6 +26,27 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-signin-error`);
     });
 
+    test("company sign-in", async ({ page }) => {
+      await fakeServer(page, { company: true });
+      await page.goto("/");
+      await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+      await shot(page, `${scheme}-signin-company`);
+      await page.getByRole("button", { name: "Continue with Google" }).click();
+      await expect(page.getByRole("alert")).toHaveText("No Linx account uses this company account. Ask your admin to add you.");
+      await expect(page).toHaveURL(/\/$/);
+      await shot(page, `${scheme}-signin-company-error`);
+    });
+
+    test("company sign-in required", async ({ page }) => {
+      await fakeServer(page, { company: true, companyRequired: true });
+      await page.goto("/");
+      await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+      await expect(page.getByLabel("Email")).toHaveCount(0);
+      await shot(page, `${scheme}-signin-company-required`);
+      await page.getByRole("button", { name: "Sign in as a system admin" }).click();
+      await expect(page.getByLabel("Email")).toBeVisible();
+    });
+
     test("authenticator code", async ({ page }) => {
       await fakeServer(page, { pending: "code" });
       await page.goto("/");
@@ -103,13 +124,22 @@ for (const scheme of ["light", "dark"] as const) {
     });
 
     test("my account", async ({ page }) => {
-      await fakeServer(page, { signedIn: true });
-      await page.goto("/account");
+      await fakeServer(page, { signedIn: true, company: true });
+      await page.goto("/account?company=linked");
       await expect(page.getByRole("list", { name: "Your passkeys" })).toContainText("Mohammed's iPhone");
+      await expect(page.getByRole("list", { name: "Company accounts" })).toContainText("Google: mohammed@example.com");
+      await expect(page.getByRole("button", { name: "Link Microsoft" })).toBeVisible();
+      await expect(page.getByRole("status")).toHaveText("Linked.");
       await shot(page, `${scheme}-account`);
       await page.getByRole("button", { name: "Remove" }).first().click();
       await expect(page.getByRole("dialog")).toBeVisible();
       await shot(page, `${scheme}-account-remove-passkey`);
+      // Removing needs "confirm it's you": a passkey, password + code, or
+      // the linked company account.
+      await page.getByRole("dialog").getByRole("button", { name: "Remove" }).click();
+      await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+      await shot(page, `${scheme}-confirm-identity`);
     });
 
     test("team, dialer, settings, calls", async ({ page }) => {

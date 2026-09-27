@@ -5,12 +5,13 @@
 // passkey (recommended), password + authenticator app, or password only
 // (a warning for admins). One step shown at a time.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { CircleAlert, KeyRound, TriangleAlert } from "lucide-react";
+import { Building2, CircleAlert, KeyRound, TriangleAlert } from "lucide-react";
 import { api, problemCode, problemMessage } from "@/api/client";
 import {
   autofillSupported, cancelled, createPasskey, deviceName, PasskeyError, passkeysSupported, savePasskey, answerWithPasskey,
 } from "@/lib/passkey";
 import { navigate } from "@/hooks/useRoute";
+import { companyErrorMessage, goToCompany, takeCompanyResult, type CompanyButton } from "@/lib/company";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -168,14 +169,64 @@ function usePasskeySignIn(onDone: (b: StatusBody) => void, setError: (m: string)
   return { busy, signIn };
 }
 
+/** The sign-in page's company buttons and whether passwords are off (ADR-052). */
+function useSignInOptions() {
+  const [company, setCompany] = useState<CompanyButton[]>([]);
+  const [required, setRequired] = useState(false);
+  useEffect(() => {
+    void api.GET("/api/v1/sign-in-options").then(({ data }) => {
+      if (!data) return;
+      setCompany(data.company);
+      setRequired(data.company_sign_in_required);
+    });
+  }, []);
+  return { company, required };
+}
+
+function CompanyButtons({ buttons, disabled, onError }:
+  { buttons: CompanyButton[]; disabled: boolean; onError: (m: string) => void }) {
+  const [busy, setBusy] = useState("");
+  if (buttons.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-3">
+      {buttons.map((b) => (
+        <Button key={b.id} type="button" variant="outline" className="h-11 w-full text-base" disabled={disabled || !!busy}
+          aria-busy={busy === b.id} onClick={async () => {
+            setBusy(b.id);
+            onError("");
+            try {
+              await goToCompany("/api/v1/session/company", b.id);
+            } catch (err) {
+              onError(err instanceof Error ? err.message : companyErrorMessage(""));
+              setBusy("");
+            }
+          }}>
+          <Building2 aria-hidden="true" className="size-4" />
+          Continue with {b.name}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: StatusBody) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  // Coming back from a company sign-in that was refused: its reason.
+  const [error, setError] = useState(() => {
+    const { error } = takeCompanyResult();
+    return error ? companyErrorMessage(error) : "";
+  });
   const [waiting, setWaiting] = useState(false);
   const passkey = usePasskeySignIn(onDone, setError);
   const offerPasskey = passkeysSupported();
+  const options = useSignInOptions();
+  // "People must use company sign-in": the password form is only for
+  // system admins, so it folds away behind a small link.
+  const [showPassword, setShowPassword] = useState(false);
+  const passwordForm = !options.required || showPassword;
+  const primaryElsewhere = offerPasskey || options.company.length > 0;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -203,16 +254,24 @@ function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: StatusBo
   return (
     <Card title="Sign in" lead={notice ? <span role="status">{notice}</span> : undefined}>
       {offerPasskey && (
-        <>
-          <Button type="button" className="h-11 w-full text-base" disabled={passkey.busy || busy} aria-busy={passkey.busy}
-            onClick={() => void passkey.signIn()}>
-            <KeyRound aria-hidden="true" className="size-4" />
-            Sign in with a passkey
-          </Button>
-          <Divider />
-        </>
+        <Button type="button" className="h-11 w-full text-base" disabled={passkey.busy || busy} aria-busy={passkey.busy}
+          onClick={() => void passkey.signIn()}>
+          <KeyRound aria-hidden="true" className="size-4" />
+          Sign in with a passkey
+        </Button>
       )}
-      <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+      {offerPasskey && options.company.length > 0 && <div className="h-3" />}
+      <CompanyButtons buttons={options.company} disabled={passkey.busy || busy} onError={setError} />
+      {!passwordForm && (
+        <div className="mt-5 flex flex-col items-center gap-4">
+          <FormError message={error} />
+          <button type="button" className="text-sm text-link underline-offset-4 hover:underline" onClick={() => setShowPassword(true)}>
+            Sign in as a system admin
+          </button>
+        </div>
+      )}
+      {passwordForm && primaryElsewhere && <Divider />}
+      {passwordForm && <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <fieldset disabled={busy || waiting} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="email">Email</Label>
@@ -226,8 +285,8 @@ function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: StatusBo
           </div>
         </fieldset>
         <FormError message={error} />
-        <Submit busy={busy} disabled={waiting || !email || !password} variant={offerPasskey ? "outline" : "default"}>Sign in</Submit>
-      </form>
+        <Submit busy={busy} disabled={waiting || !email || !password} variant={primaryElsewhere ? "outline" : "default"}>Sign in</Submit>
+      </form>}
     </Card>
   );
 }

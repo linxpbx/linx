@@ -1075,7 +1075,7 @@ export interface paths {
         put?: never;
         /**
          * "Confirm it's you"
-         * @description A fresh proof of identity for the most dangerous actions (docs/ADMIN.md §7), without ending this or any other session: password, plus the authenticator code if one is enrolled. Good for 10 minutes. Served by a hand-written handler (excluded from code generation, like the other session endpoints).
+         * @description A fresh proof of identity for the most dangerous actions (docs/ADMIN.md §7), without ending this or any other session: password, plus the authenticator code if one is enrolled. After company sign-in (POST /session/confirm/company) answered `code_required`, send just the code. Good for 10 minutes. Served by a hand-written handler (excluded from code generation, like the other session endpoints).
          */
         post: operations["confirmSession"];
         delete?: never;
@@ -1490,6 +1490,219 @@ export interface paths {
         patch: operations["renameMyPasskey"];
         trace?: never;
     };
+    "/api/v1/sign-in-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the sign-in page offers
+         * @description The company sign-in buttons, whether passwords are off for most people, and whether passkeys work here. Public (the sign-in page has no session yet). Served by a hand-written handler.
+         */
+        get: operations["getSignInOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/company": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with a company account (start)
+         * @description Returns the provider's sign-in page and sets the short-lived __Host-linx_sso cookie (SameSite=Lax, so it comes back with the provider's redirect) that binds the flow to this browser (docs/ADMIN.md §6). The provider sends the browser to GET /sso/callback. Hand-written (sets a cookie).
+         */
+        post: operations["startCompanySignIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/confirm/company": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * "Confirm it's you" with a company account (start)
+         * @description Like POST /session/company, for a signed-in session with a linked account on that provider. The callback confirms the session, or, when the person has a passkey or authenticator, answers `code_required`: POST /session/confirm with just the code finishes it. Hand-written.
+         */
+        post: operations["startCompanyConfirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where providers send the browser back
+         * @description Registered at every provider as the redirect URI. Checks state against the __Host-linx_sso cookie, exchanges the code (PKCE) and checks the ID token (signature, issuer, audience, nonce), then redirects (303): signing in sets the session cookies and goes to `/` (the second step follows there, if the person has one); linking goes to `/account?company=linked`; confirming goes to `/company-done?result=confirmed|code_required`. A refusal goes to the same place with `company_error=<code>`: `no_account`, `email_unverified`, `not_linked`, `linked_elsewhere`, `email_mismatch`, `account_disabled`, `company_cancelled`, `company_expired`, `company_failed`. Hand-written.
+         */
+        get: operations["companyCallback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sso-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My company accounts */
+        get: operations["listMyCompanyLinks"];
+        put?: never;
+        /**
+         * Link a company account to mine (start)
+         * @description Like POST /session/company, for a signed-in session. The provider must vouch for an email equal to the person's Linx email. The callback goes to `/account?company=linked`. Hand-written.
+         */
+        post: operations["startMyCompanyLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sso-links/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unlink one of my company accounts
+         * @description Refused (409 `last_sign_in_method`) when it's the only way left to sign in.
+         */
+        delete: operations["unlinkMyCompanyAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}/sso-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** A person's company accounts */
+        get: operations["listUserCompanyLinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}/sso-links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unlink a person's company account
+         * @description Refused (409 `last_sign_in_method`) when it's the only way left for them to sign in.
+         */
+        delete: operations["unlinkUserCompanyAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Company sign-in providers */
+        get: operations["listSsoProviders"];
+        put?: never;
+        /**
+         * Add a company sign-in provider
+         * @description Linx reads the issuer's discovery document first (422 `issuer_unreachable` if it can't; `issuer_blocked` for a private address not on the outbound allowlist). Needs a fresh "confirm it's you" (docs/ADMIN.md §7).
+         */
+        post: operations["createSsoProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso-providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a company sign-in provider */
+        get: operations["getSsoProvider"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a company sign-in provider
+         * @description Everyone's links to it go too. Needs a fresh "confirm it's you".
+         */
+        delete: operations["deleteSsoProvider"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a company sign-in provider
+         * @description JSON Merge Patch with optional If-Match. Needs a fresh "confirm it's you".
+         */
+        patch: operations["updateSsoProvider"];
+        trace?: never;
+    };
     "/api/v1/me/password-only": {
         parameters: {
             query?: never;
@@ -1797,6 +2010,8 @@ export interface components {
             /** @description The number of that extension, e.g. "101". */
             extension?: string;
             presence?: components["schemas"]["Presence"];
+            /** @description The company sign-in providers a signed-in person has linked an account on (their names). */
+            company_sign_in?: string[];
         };
         EventType: {
             /** @description e.g. `call.missed`. */
@@ -2743,6 +2958,106 @@ export interface components {
         PasskeyList: {
             items: components["schemas"]["Passkey"][];
         };
+        /** @description A company sign-in provider a person can use. */
+        CompanyButton: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["SsoProviderKind"];
+            /** @description Shown as "Continue with <name>". */
+            name: string;
+        };
+        SignInOptions: {
+            /** @description The company sign-in buttons, in order. */
+            company: components["schemas"]["CompanyButton"][];
+            /** @description Passwords are off for everyone but system admins. */
+            company_sign_in_required: boolean;
+            passkeys_available: boolean;
+        };
+        CompanyStart: {
+            /** Format: uuid */
+            provider_id: string;
+        };
+        CompanyRedirect: {
+            /** @description The provider's sign-in page. Send the browser there (a full navigation). */
+            url: string;
+        };
+        /** @description A person's company account. */
+        CompanyLink: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            provider_id: string;
+            provider_name: string;
+            /** @description The email the provider vouched for when it was linked. */
+            email: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_used_at?: string;
+        };
+        CompanyLinkList: {
+            items: components["schemas"]["CompanyLink"][];
+        };
+        MyCompanyAccounts: {
+            items: components["schemas"]["CompanyLink"][];
+            /** @description The enabled providers an account can be linked on. */
+            available: components["schemas"]["CompanyButton"][];
+        };
+        /**
+         * @description The template it was made from. Decides how a verified email is read (Microsoft: `xms_edov` with `email`, or `upn`; everyone else: `email_verified`).
+         * @enum {string}
+         */
+        SsoProviderKind: "google" | "microsoft" | "authentik" | "keycloak" | "oidc";
+        SsoProvider: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["SsoProviderKind"];
+            name: string;
+            issuer: string;
+            client_id: string;
+            /** @description The secret itself is never shown again. */
+            client_secret_set: boolean;
+            /** @description Usable at all (sign in, link, confirm). */
+            enabled: boolean;
+            /** @description Its button is on the sign-in page. */
+            shown: boolean;
+            /** @description Buttons are shown lowest first. */
+            position: number;
+            /** @description The address to register at the provider. */
+            redirect_uri: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            etag: string;
+        };
+        SsoProviderList: {
+            items: components["schemas"]["SsoProvider"][];
+            /** @description The address to register at every provider ("" when company sign-in is off). */
+            redirect_uri: string;
+        };
+        SsoProviderNew: {
+            kind: components["schemas"]["SsoProviderKind"];
+            /** @description Defaults to the kind's name; required for `oidc`. */
+            name?: string;
+            /** @description e.g. https://login.microsoftonline.com/<tenant ID>/v2.0. Google's is filled in. Linx reads its discovery document before saving. */
+            issuer?: string;
+            client_id: string;
+            client_secret?: string;
+            enabled?: boolean;
+            shown?: boolean;
+            position?: number;
+        };
+        /** @description JSON Merge Patch; fields not sent stay as they are. An empty client_secret removes it. */
+        SsoProviderPatch: {
+            name?: string;
+            issuer?: string;
+            client_id?: string;
+            client_secret?: string;
+            enabled?: boolean;
+            shown?: boolean;
+            position?: number;
+        };
         PasskeyAdded: {
             passkey: components["schemas"]["Passkey"];
             recovery_codes?: string[];
@@ -2777,6 +3092,8 @@ export interface components {
             setup_step: number;
             /** Format: date-time */
             setup_completed_at?: string;
+            /** @description "People must use company sign-in" (docs/ADMIN.md §6): passwords stop working for everyone except system admins. Passkeys keep working. */
+            company_sign_in_required?: boolean;
         };
         /** @description JSON Merge Patch; fields not sent stay as they are. */
         SettingsPatch: {
@@ -2788,6 +3105,8 @@ export interface components {
             simple_mode?: boolean;
             admin_network_restricted?: boolean;
             admin_networks?: string[];
+            /** @description Also needs sso:write, and a fresh "confirm it's you". */
+            company_sign_in_required?: boolean;
         };
         SetupProgress: {
             step: number;
@@ -2854,6 +3173,8 @@ export interface components {
             has_password?: boolean;
             /** @description No passkey and no authenticator app ("Password only ⚠" for an admin). */
             password_only?: boolean;
+            /** @description The company sign-in providers they've linked an account on (their names). */
+            company_sign_in?: string[];
             disabled: boolean;
             /** Format: date-time */
             created_at: string;
@@ -4951,7 +5272,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    password: string;
+                    password?: string;
                     /** @description The authenticator (or recovery) code, if one is enrolled. */
                     code?: string;
                 };
@@ -5579,6 +5900,334 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Passkey"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getSignInOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The options. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOptions"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    startCompanySignIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyStart"];
+            };
+        };
+        responses: {
+            /** @description Where to send the browser. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyRedirect"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    startCompanyConfirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyStart"];
+            };
+        };
+        responses: {
+            /** @description Where to send the browser. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyRedirect"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    companyCallback: {
+        parameters: {
+            query?: {
+                state?: string;
+                code?: string;
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Back to the web app. */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listMyCompanyLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's linked company accounts, and the providers one can be linked on. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyCompanyAccounts"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    startMyCompanyLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyStart"];
+            };
+        };
+        responses: {
+            /** @description Where to send the browser. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyRedirect"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    unlinkMyCompanyAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listUserCompanyLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Their linked company accounts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyLinkList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    unlinkUserCompanyAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listSsoProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every provider, in button order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SsoProviderList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createSsoProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SsoProviderNew"];
+            };
+        };
+        responses: {
+            /** @description Added. */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SsoProvider"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getSsoProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SsoProvider"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteSsoProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateSsoProvider: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["SsoProviderPatch"];
+            };
+        };
+        responses: {
+            /** @description The provider as it now is. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SsoProvider"];
                 };
             };
             default: components["responses"]["Problem"];

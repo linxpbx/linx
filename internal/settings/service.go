@@ -83,6 +83,8 @@ type Patch struct {
 	// AdminNetworks are parsed here (not by the caller), like a credential's
 	// AllowedIPs (internal/auth.ParseAllowedIP).
 	AdminNetworks *[]string
+	// CompanySignInRequired needs sso:write as well as settings:write.
+	CompanySignInRequired *bool
 }
 
 // Update applies patch, validating the numbering plan against country
@@ -98,9 +100,14 @@ func (s *Service) Update(ctx context.Context, patch Patch) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	// "Where admins may sign in from" needs a fresh confirmation even in an
+	// "Where admins may sign in from" and "people must use company sign-in"
+	// need a fresh confirmation even in an
 	// already-signed-in session (docs/ADMIN.md §7).
-	if patch.AdminNetworkRestricted != nil || patch.AdminNetworks != nil {
+	if patch.CompanySignInRequired != nil && !p.Has("sso:write") {
+		return Settings{}, &apihttp.Error{Status: http.StatusForbidden, Code: "scope_missing",
+			Detail: "Changing \"people must use company sign-in\" also needs the sso:write scope."}
+	}
+	if patch.AdminNetworkRestricted != nil || patch.AdminNetworks != nil || patch.CompanySignInRequired != nil {
 		if err := auth.RequireConfirmed(ctx, s.Now()); err != nil {
 			return Settings{}, err
 		}
@@ -184,6 +191,10 @@ func (s *Service) Update(ctx context.Context, patch Patch) (Settings, error) {
 		}
 		cur.AdminNetworks = parsed
 		changes["admin_networks"] = "changed"
+	}
+	if patch.CompanySignInRequired != nil {
+		cur.CompanySignInRequired = *patch.CompanySignInRequired
+		changes["company_sign_in_required"] = cur.CompanySignInRequired
 	}
 	if cur.AdminNetworkRestricted && len(cur.AdminNetworks) == 0 {
 		return Settings{}, invalid("admin_networks_required",

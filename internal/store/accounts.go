@@ -31,14 +31,16 @@ var (
 const userColumns = `id, tenant_id, email, name, role, extension_id, password_hash, password_updated_at,
 	mfa_secret_enc, mfa_pending_secret_enc, mfa_enabled, recovery_code_hashes, failed_attempts, locked_until,
 	failure_window_start, failure_window_count, disabled_at, version, created_at, updated_at, presence, mfa_last_step,
-	password_only_accepted_at, (SELECT count(*) FROM user_passkey pk WHERE pk.user_id = app_user.id)::int`
+	password_only_accepted_at, (SELECT count(*) FROM user_passkey pk WHERE pk.user_id = app_user.id)::int,
+	ARRAY(SELECT p.name FROM user_sso_link l JOIN sso_provider p ON p.id = l.provider_id
+		WHERE l.user_id = app_user.id ORDER BY p.position, p.name)`
 
 func scanUser(row pgx.Row) (auth.User, error) {
 	var u auth.User
 	err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Role, &u.ExtensionID, &u.PasswordHash, &u.PasswordUpdatedAt,
 		&u.MFASecretEnc, &u.MFAPendingSecretEnc, &u.MFAEnabled, &u.RecoveryCodeHashes, &u.FailedAttempts, &u.LockedUntil,
 		&u.FailureWindowStart, &u.FailureWindowCount, &u.DisabledAt, &u.Version, &u.CreatedAt, &u.UpdatedAt, &u.Presence, &u.MFALastStep,
-		&u.PasswordOnlyAcceptedAt, &u.PasskeyCount)
+		&u.PasswordOnlyAcceptedAt, &u.PasskeyCount, &u.CompanyLogins)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return u, auth.ErrNotFound
 	}

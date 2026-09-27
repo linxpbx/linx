@@ -42,6 +42,10 @@ type Settings struct {
 	DefaultCallPermissionLevelID *uuid.UUID
 	SetupStep                    int
 	SetupCompletedAt             *time.Time
+	// CompanySignInRequired is "people must use company sign-in"
+	// (docs/ADMIN.md §6): passwords stop working for everyone but system
+	// admins.
+	CompanySignInRequired bool
 }
 
 // Store is the database access the settings service needs (internal/store

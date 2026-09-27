@@ -13,6 +13,7 @@ func toUser(u auth.User) User {
 		Id: u.ID, Email: u.Email, Name: u.Name, Role: Role(u.Role), MfaEnabled: u.MFAEnabled,
 		Passkeys: &u.PasskeyCount, HasPassword: ptr(u.HasPassword()), PasswordOnly: ptr(!u.HasSecondStep()),
 		Disabled: u.DisabledAt != nil, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, Etag: auth.ETag(u.Version),
+		CompanySignIn: &u.CompanyLogins,
 	}
 	if u.ExtensionID != nil {
 		out.ExtensionId = u.ExtensionID

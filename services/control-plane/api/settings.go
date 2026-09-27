@@ -49,6 +49,7 @@ func toSettings(s settings.Settings) Settings {
 		SiteKind: SettingsSiteKind(s.SiteKind), SimpleMode: s.SimpleMode,
 		AdminNetworkRestricted: s.AdminNetworkRestricted, AdminNetworks: prefixStrings(s.AdminNetworks),
 		DefaultCallPermissionLevelId: s.DefaultCallPermissionLevelID, SetupStep: s.SetupStep, SetupCompletedAt: s.SetupCompletedAt,
+		CompanySignInRequired: &s.CompanySignInRequired,
 	}
 }
 
@@ -67,7 +68,7 @@ func (s *Server) GetSettings(ctx context.Context, _ GetSettingsRequestObject) (G
 func (s *Server) UpdateSettings(ctx context.Context, req UpdateSettingsRequestObject) (UpdateSettingsResponseObject, error) {
 	patch := settings.Patch{
 		Country: req.Body.Country, ExtensionDigits: req.Body.ExtensionDigits, SimpleMode: req.Body.SimpleMode,
-		AdminNetworkRestricted: req.Body.AdminNetworkRestricted,
+		AdminNetworkRestricted: req.Body.AdminNetworkRestricted, CompanySignInRequired: req.Body.CompanySignInRequired,
 	}
 	if req.Body.ExtensionRanges != nil {
 		r := fromNumberingRanges(*req.Body.ExtensionRanges)

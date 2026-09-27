@@ -38,9 +38,10 @@ var Scopes = []string{
 // users:write can create or disable a person's account, including admins.
 // trunks:write and routing:write can make calls that cost money
 // (docs/TRUNKS.md §10, ADR-048).
+// sso:write decides which company accounts can sign in as people (ADR-052).
 var sensitiveScopes = []string{
 	"api_keys:write", "calls:control", "devices:write", "oauth_clients:write", "outbound_allowlist:write",
-	"recordings:read", "routing:write", "transcripts:read", "trunks:write", "users:write",
+	"recordings:read", "routing:write", "sso:write", "transcripts:read", "trunks:write", "users:write",
 }
 
 // ScopeAll asks for every non-sensitive scope the role allows.

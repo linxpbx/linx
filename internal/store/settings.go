@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"strconv"
 	"time"
 
@@ -17,12 +18,14 @@ import (
 var _ settings.Store = (*Store)(nil)
 
 const settingsColumns = `country, extension_digits, extension_ranges, site_kind, simple_mode,
-	admin_network_restricted, admin_networks, default_call_permission_level_id, setup_step, setup_completed_at`
+	admin_network_restricted, admin_networks, default_call_permission_level_id, setup_step, setup_completed_at,
+	company_sign_in_required`
 
 func scanSettings(row pgx.Row) (settings.Settings, error) {
 	var out settings.Settings
 	err := row.Scan(&out.Country, &out.ExtensionDigits, &out.ExtensionRanges, &out.SiteKind, &out.SimpleMode,
-		&out.AdminNetworkRestricted, &out.AdminNetworks, &out.DefaultCallPermissionLevelID, &out.SetupStep, &out.SetupCompletedAt)
+		&out.AdminNetworkRestricted, &out.AdminNetworks, &out.DefaultCallPermissionLevelID, &out.SetupStep, &out.SetupCompletedAt,
+		&out.CompanySignInRequired)
 	return out, err
 }
 
@@ -36,10 +39,10 @@ func (s *Store) UpdateSettings(ctx context.Context, in settings.Settings, audit 
 		var err error
 		out, err = scanSettings(tx.QueryRow(ctx, `UPDATE pbx_setting SET
 				country = $1, extension_digits = $2, extension_ranges = $3, site_kind = $4, simple_mode = $5,
-				admin_network_restricted = $6, admin_networks = $7
+				admin_network_restricted = $6, admin_networks = $7, company_sign_in_required = $8
 			RETURNING `+settingsColumns,
 			in.Country, in.ExtensionDigits, in.ExtensionRanges, in.SiteKind, in.SimpleMode,
-			in.AdminNetworkRestricted, emptyToNil(in.AdminNetworks)))
+			in.AdminNetworkRestricted, orEmpty(in.AdminNetworks), in.CompanySignInRequired))
 		if err != nil {
 			return err
 		}
@@ -47,6 +50,7 @@ func (s *Store) UpdateSettings(ctx context.Context, in settings.Settings, audit 
 			ev, err := webhook.NewEvent(*audit.TenantID, "settings.updated", map[string]any{
 				"country": out.Country, "extension_digits": out.ExtensionDigits, "site_kind": out.SiteKind,
 				"simple_mode": out.SimpleMode, "admin_network_restricted": out.AdminNetworkRestricted,
+				"company_sign_in_required": out.CompanySignInRequired,
 			}, time.Now())
 			if err != nil {
 				return err
@@ -171,4 +175,13 @@ func (s *Store) DefaultCallPermissionLevelID(ctx context.Context) (*uuid.UUID, e
 	var id *uuid.UUID
 	err := s.pool.QueryRow(ctx, `SELECT default_call_permission_level_id FROM pbx_setting`).Scan(&id)
 	return id, err
+}
+
+// orEmpty is admin_networks for the database: the column is NOT NULL, and
+// pgx sends a nil slice as NULL.
+func orEmpty(p []netip.Prefix) []netip.Prefix {
+	if p == nil {
+		return []netip.Prefix{}
+	}
+	return p
 }

@@ -1,8 +1,9 @@
-// My account (ADMIN_SCREENS_PHASE1E.md §11), the part built with passkeys
-// (Phase 1E step 3): passkeys (add, rename, remove) and adding a password
-// to a passkey-only account. The rest of the page comes with step 8.
+// My account (ADMIN_SCREENS_PHASE1E.md §11), the parts built with passkeys
+// and company sign-in (Phase 1E steps 3-4): passkeys (add, rename, remove),
+// adding a password to a passkey-only account, and linking company
+// accounts. The rest of the page comes with step 8.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { KeyRound, TriangleAlert } from "lucide-react";
+import { Building2, KeyRound, TriangleAlert } from "lucide-react";
 import { api, problemCode, problemMessage, type Me } from "@/api/client";
 import { needsConfirm, useConfirmIdentity, type Outcome } from "@/components/ConfirmIdentity";
 import { Button } from "@/components/ui/button";
@@ -10,11 +11,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { companyErrorMessage, goToCompany, takeCompanyResult } from "@/lib/company";
 import { passkeysSupported } from "@/lib/passkey";
 import { NewPasskey } from "./SignIn";
 import type { components } from "@/api/schema";
 
 type Passkey = components["schemas"]["Passkey"];
+type CompanyAccounts = components["schemas"]["MyCompanyAccounts"];
 
 const MAX_PASSKEYS = 10;
 
@@ -32,13 +35,17 @@ export function AccountScreen() {
   const [renaming, setRenaming] = useState<Passkey | null>(null);
   const [removing, setRemoving] = useState<Passkey | null>(null);
   const [addingPassword, setAddingPassword] = useState(false);
+  const [company, setCompany] = useState<CompanyAccounts | null>(null);
   const confirm = useConfirmIdentity(me);
 
   const load = useCallback(async () => {
-    const [m, list] = await Promise.all([api.GET("/api/v1/me"), api.GET("/api/v1/me/passkeys")]);
+    const [m, list, links] = await Promise.all([
+      api.GET("/api/v1/me"), api.GET("/api/v1/me/passkeys"), api.GET("/api/v1/me/sso-links"),
+    ]);
     if (m.data) setMe(m.data);
     if (list.data) setKeys(list.data.items);
     else setError(problemMessage(list.error));
+    if (links.data) setCompany(links.data);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -99,6 +106,10 @@ export function AccountScreen() {
           </div>
           <Button variant="outline" onClick={() => setAddingPassword(true)}>Add a password</Button>
         </section>
+      )}
+
+      {company && (company.items.length > 0 || company.available.length > 0) && (
+        <CompanySection accounts={company} onChanged={() => void load()} />
       )}
 
       <Dialog open={adding} onOpenChange={setAdding}>
@@ -185,7 +196,7 @@ function RemoveDialog({ passkey, me, last, run, onClose, onDone }: {
     }
     if (needsConfirm(err)) return { confirm: true };
     setError(problemCode(err) === "last_sign_in_method"
-      ? "This passkey is your only way to sign in. Add a password or another passkey first." : problemMessage(err));
+      ? "This passkey is your only way to sign in. Add a password, another passkey or a company account first." : problemMessage(err));
     return { confirm: false };
   });
   return (
@@ -260,5 +271,65 @@ function AddPasswordDialog({ run, onClose, onDone }:
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Company account (ADMIN_SCREENS_PHASE1E.md §11): linked ones, and link. */
+function CompanySection({ accounts, onChanged }: { accounts: CompanyAccounts; onChanged: () => void }) {
+  // Coming back from linking: "Linked", or the plain reason it wasn't.
+  const [status, setStatus] = useState(() => {
+    const { error, result } = takeCompanyResult();
+    return error ? companyErrorMessage(error) : result === "linked" ? "Linked." : "";
+  });
+  const [busy, setBusy] = useState("");
+  const linked = new Set(accounts.items.map((l) => l.provider_id));
+  const unlink = async (id: string) => {
+    setBusy(id);
+    setStatus("");
+    const { response, error } = await api.DELETE("/api/v1/me/sso-links/{id}", { params: { path: { id } } });
+    setBusy("");
+    if (response.ok) onChanged();
+    else setStatus(problemCode(error) === "last_sign_in_method"
+      ? "This is your only way to sign in. Add a passkey or a password first." : problemMessage(error));
+  };
+  const link = async (providerId: string) => {
+    setBusy(providerId);
+    setStatus("");
+    try {
+      await goToCompany("/api/v1/me/sso-links", providerId);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : companyErrorMessage(""));
+      setBusy("");
+    }
+  };
+  return (
+    <section aria-labelledby="company-title" className="mt-6 rounded-lg border bg-card p-5 md:p-6">
+      <h2 id="company-title" className="font-display text-lg font-semibold">Company account</h2>
+      <p className="mt-1 text-sm text-muted-foreground">Sign in with your work account instead of a password.</p>
+      {status && <p role="status" className="mt-3 text-sm font-medium">{status}</p>}
+      <ul className="mt-4 divide-y rounded-md border" aria-label="Company accounts">
+        {accounts.items.map((l) => (
+          <li key={l.id} className="flex flex-wrap items-center gap-3 px-3 py-3">
+            <Building2 aria-hidden="true" className="size-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-sm">
+              <span className="font-medium">{l.provider_name}</span>
+              {l.email && <span className="text-muted-foreground">: {l.email}</span>}
+            </span>
+            <Button variant="outline" size="sm" disabled={!!busy} aria-busy={busy === l.id} onClick={() => void unlink(l.id)}>
+              Unlink
+            </Button>
+          </li>
+        ))}
+        {accounts.available.filter((p) => !linked.has(p.id)).map((p) => (
+          <li key={p.id} className="flex flex-wrap items-center gap-3 px-3 py-3">
+            <Building2 aria-hidden="true" className="size-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 text-sm text-muted-foreground">{p.name}: not linked</span>
+            <Button variant="outline" size="sm" disabled={!!busy} aria-busy={busy === p.id} onClick={() => void link(p.id)}>
+              Link {p.name}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

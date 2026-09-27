@@ -40,6 +40,9 @@ type User struct {
 	// (docs/ADMIN.md §5, migration 0022).
 	PasskeyCount           int
 	PasswordOnlyAcceptedAt *time.Time
+	// CompanyLogins names the company sign-in providers the person has
+	// linked an account on (read-only here: from user_sso_link, ADR-052).
+	CompanyLogins []string
 
 	// FailedAttempts and LockedUntil are per-account lockout (docs/WEB.md
 	// §4); FailureWindowStart/-Count are the separate rolling hour the

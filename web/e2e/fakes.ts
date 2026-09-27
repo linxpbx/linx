@@ -25,7 +25,14 @@ export interface FakeOptions {
   // code: an authenticator app and a passkey; passkey: a passkey only;
   // enroll: an admin with no second step yet.
   pending?: "code" | "passkey" | "enroll";
+  // Company sign-in (Google) on the sign-in page, linked in My account;
+  // companyRequired: "people must use company sign-in".
+  company?: boolean;
+  companyRequired?: boolean;
 }
+
+const GOOGLE = { id: "0199c1", kind: "google", name: "Google" };
+const MICROSOFT = { id: "0199c2", kind: "microsoft", name: "Microsoft" };
 
 export const PASSKEYS = [
   { id: "0199a1", name: "Mohammed's iPhone", synced: true, created_at: "2026-09-01T09:00:00Z", last_used_at: new Date().toISOString() },
@@ -53,7 +60,24 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
         mfa_enabled: opts.pending === "code" || !opts.pending, passkeys: opts.pending === "enroll" ? 0 : opts.pending === "code" ? 1 : PASSKEYS.length,
         has_password: true, password_only: opts.pending === "enroll", recovery_codes_left: opts.pending === "enroll" ? 0 : 8,
+        company_sign_in: opts.company ? ["Google"] : [],
       }));
+    }
+    if (p === "/api/v1/sign-in-options") {
+      return route.fulfill(json({ company: opts.company ? [GOOGLE] : [], company_sign_in_required: !!opts.companyRequired, passkeys_available: true }));
+    }
+    if (p === "/api/v1/session/company" && method === "POST") {
+      // The provider refused: straight back to the sign-in page with why.
+      return route.fulfill(json({ url: "/?company_error=no_account" }));
+    }
+    if (p === "/api/v1/me/sso-links" && method === "GET") {
+      return route.fulfill(json({
+        items: opts.company ? [{ id: "0199d1", provider_id: GOOGLE.id, provider_name: "Google", email: ME.email, created_at: "2026-09-20T09:00:00Z" }] : [],
+        available: [GOOGLE, MICROSOFT],
+      }));
+    }
+    if (p.startsWith("/api/v1/me/passkeys/") && method === "DELETE") {
+      return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm." }, 403));
     }
     if (p.startsWith("/api/v1/setup-links/") && method === "GET") {
       if (p.endsWith("/used")) {

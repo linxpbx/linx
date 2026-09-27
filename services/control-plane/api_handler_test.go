@@ -28,6 +28,7 @@ import (
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/settings"
 	"linxpbx.com/linx/internal/siprelay"
+	"linxpbx.com/linx/internal/sso"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/webhook"
@@ -51,6 +52,8 @@ type testEnv struct {
 	relay    *siprelay.Relay
 	team     *fakeTeamStore
 	hub      *teamHub
+	// company is company sign-in's provider and link store (sso_test.go).
+	company *fakeCompany
 	// asterisk is where the /sip relay connects (a websocket URL); tests
 	// that use the relay set it.
 	asterisk string
@@ -120,12 +123,15 @@ func newTestEnv(t *testing.T) *testEnv {
 	team.OnChange = hub.Changed
 	trunks := &trunk.Service{}
 	settingsSvc := &settings.Service{Store: st, Now: time.Now}
-	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team, settingsSvc, st)
+	company := newFakeCompany(st)
+	accounts.CompanyProviders, accounts.Company = company, company
+	ssoSvc := &sso.Service{Store: company, Client: &sso.Client{Store: company}, Now: time.Now}
+	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team, settingsSvc, st, ssoSvc)
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}
 	env := &testEnv{t: t, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al,
-		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts, team: teamStore, hub: hub}
+		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts, team: teamStore, hub: hub, company: company}
 	sst := testSIPStore{fakeStore: st, fakePbxStore: pb}
 	pb.sessionLive = st.sessionLive
 	env.relay = &siprelay.Relay{
@@ -148,6 +154,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	mux.Handle("/api/v1/", handler)
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	registerSessionHandlers(mux, authn, accounts, st.tenant)
+	registerCompanyHandlers(mux, authn, accounts, ssoSvc, st.tenant, log)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, sst, env.relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
 	env.srv = httptest.NewServer(mux)
@@ -688,10 +695,12 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	// sign-in (docs/WEB.md §5). /me/presence is the signed-in person's own
 	// status, likewise refused to anything else. /me/passkeys* and
 	// /me/password-only are the signed-in person's own passkeys and sign-in
-	// choice (docs/ADMIN.md §5), refused to anything but a session.
+	// choice (docs/ADMIN.md §5), refused to anything but a session;
+	// /me/sso-links* their own company accounts (§6), likewise.
 	anyCredential := []string{"GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
 		"IssueMyWebPhone", "GetMyTurnCredentials", "SetMyPresence",
-		"ListMyPasskeys", "RenameMyPasskey", "RemoveMyPasskey", "AcceptPasswordOnly"}
+		"ListMyPasskeys", "RenameMyPasskey", "RemoveMyPasskey", "AcceptPasswordOnly",
+		"ListMyCompanyLinks", "UnlinkMyCompanyAccount"}
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
 			sec := spec.Security

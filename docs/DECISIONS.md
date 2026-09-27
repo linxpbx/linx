@@ -619,6 +619,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Client secrets sealed (ADR-030). A LAN provider needs an outbound-allowlist entry (ADR-028), which the screen offers. Tests run against Dex (Apache-2.0) in a container.
 
+**As built (2026-09-27).** go-oidc v3.21.0 and x/oauth2 v0.37.0 (go-jose was already in; licence check passes). Every provider connection goes through the same SSRF-guarded client as webhooks, so a provider on the home network needs its address on the outbound allowlist; the server refuses it with `issuer_blocked` and says so. Flows are kept in the control plane's memory (10 minutes, single use), bound to a `__Host-linx_sso` cookie that is SameSite=Lax (the only Lax cookie: the provider's redirect back is a cross-site navigation, which a Strict cookie isn't sent on). Starting a flow is `POST` (JSON, CSRF-checked for linking and confirming), not the `GET /sso/{id}/start` first planned, so errors come back as JSON and a session's flow can't be started by a link. Microsoft's email counts as verified only with `xms_edov` (else its `upn`); its shared `common`/`organizations` issuers are refused. The full browser suite doesn't run Dex: the guard correctly refuses every network the test stack could put it on, so Dex is tested at the protocol level instead (`internal/sso`, `make test-docker`). Details: `docs/ADMIN.md` §6 "As built".
+
 ## ADR-053 — Confirm it's you (owner decision, 2026-09-26)
 
 **Context.** A stolen or unattended admin session can do anything until it expires (12 h). Two 1C residual risks: new authenticator without the password, no admin reset of a lost authenticator. Design: `docs/ADMIN.md` §7.

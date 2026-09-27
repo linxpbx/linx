@@ -43,8 +43,20 @@ type Accounts struct {
 	// passkeys off (no domain set). Passkeys is their storage.
 	WebAuthn *webauthn.WebAuthn
 	Passkeys PasskeyStore
+	// CompanyProviders is company sign-in's OpenID Connect side (nil turns
+	// it off: no domain set); Company is its storage (ADR-052).
+	CompanyProviders CompanyProviders
+	Company          CompanyStore
 
-	ceremonies ceremonies
+	ceremonies   ceremonies
+	companyFlows companyFlows
+}
+
+func (a *Accounts) log() *slog.Logger {
+	if a.Log == nil {
+		return slog.Default()
+	}
+	return a.Log
 }
 
 func (a *Accounts) sessionsEnded(ctx context.Context, user uuid.UUID, session *uuid.UUID) {
@@ -532,6 +544,15 @@ func (a *Accounts) SignIn(ctx context.Context, tenant uuid.UUID, email, password
 			return SessionOutcome{}, lockedError(*lockedUntil)
 		}
 		return SessionOutcome{}, errSignInInvalid
+	}
+	// "People must use company sign-in": checked only once the password is
+	// right, so the answer never tells a guesser anything.
+	if required, err := a.companyRequiredFor(ctx, u); err != nil {
+		return SessionOutcome{}, err
+	} else if required {
+		attempt.reason = "company_sign_in_required"
+		a.auditSignIn(ctx, attempt)
+		return SessionOutcome{}, errCompanyRequired
 	}
 	if err := a.Store.RecordLoginSuccess(ctx, tenant, u.ID, now); err != nil {
 		return SessionOutcome{}, err
@@ -1022,15 +1043,25 @@ func (a *Accounts) Confirm(ctx context.Context, password, code string) error {
 	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
 		return tooManyFailuresErr()
 	}
-	if !u.HasPassword() {
-		return &apihttp.Error{Status: http.StatusBadRequest, Code: "password_not_set",
-			Detail: "You don't have a password. Use your passkey to confirm."}
-	}
-	if !VerifyPassword(u.PasswordHash, password) {
-		if a.Failures != nil {
-			a.Failures.Allow(ipKey, now)
+	// Company sign-in (ADR-052) stands in for the password: a session that
+	// just came back from its provider only owes the second step's code.
+	company := password == "" && a.companyFlows.proven(sess.ID, now, false)
+	if !company {
+		if !u.HasPassword() {
+			return &apihttp.Error{Status: http.StatusBadRequest, Code: "password_not_set",
+				Detail: "You don't have a password. Use your passkey or company account to confirm."}
 		}
-		return &apihttp.Error{Status: http.StatusUnauthorized, Code: "password_invalid", Detail: "Your password is incorrect."}
+		if required, err := a.companyRequiredFor(ctx, u); err != nil {
+			return err
+		} else if required {
+			return errCompanyRequired
+		}
+		if !VerifyPassword(u.PasswordHash, password) {
+			if a.Failures != nil {
+				a.Failures.Allow(ipKey, now)
+			}
+			return &apihttp.Error{Status: http.StatusUnauthorized, Code: "password_invalid", Detail: "Your password is incorrect."}
+		}
 	}
 	if !u.MFAEnabled && u.PasskeyCount > 0 && strings.TrimSpace(code) == "" {
 		// Signing in takes the password and the passkey; confirming mustn't
@@ -1053,6 +1084,9 @@ func (a *Accounts) Confirm(ctx context.Context, password, code string) error {
 			}
 			return &apihttp.Error{Status: http.StatusUnauthorized, Code: "mfa_code_invalid", Detail: "That code isn't right."}
 		}
+	}
+	if company {
+		a.companyFlows.proven(sess.ID, now, true)
 	}
 	return a.Store.ConfirmSession(ctx, sess.ID, now)
 }
