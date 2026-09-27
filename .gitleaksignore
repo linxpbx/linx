@@ -6,3 +6,5 @@
 c6ff8bac173ca2b108a4e8918019624791983c97:docs/DEMO_PHASE1A.md:curl-auth-header:68
 # False positive: a bundled list of common passwords to refuse at sign-up (ADR-036), not a secret.
 eb56ec1272c6ffe3d7d9bf28f5d6814fb34f6681:internal/auth/password.go:generic-api-key:106
+# False positive: a made-up backup password in the screenshot tests' stand-in server (replaced since).
+919111abfdaf7783fb805270a14dc1589d1d5439:web/e2e/fakes.ts:generic-api-key:266

@@ -263,7 +263,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       return route.fulfill(json(backupDownload, 202));
     }
     if (p === "/api/v1/backup-download/password" && method === "POST") {
-      return route.fulfill(json({ password: "q7Xk2pLm9RtV4wZs8NcB1yHd6FgJ3aEu0oTiPrKe5Ws" }));
+      return route.fulfill(json({ password: "example-backup-password-for-screenshots" }));
     }
     if (p === "/api/v1/backup-restore" && method === "POST") {
       const body = route.request().postDataJSON() as { source: "folder" | "destination" | "upload"; location: string; snapshot: string };

@@ -299,7 +299,7 @@ test.describe("setup wizard", () => {
     await page.getByRole("radio", { name: /A backup file on my computer/ }).click();
     await page.getByLabel("Backup file", { exact: true }).setInputFiles({ name: "linx-backup-2026-09-27-0300.tar", mimeType: "application/x-tar", buffer: Buffer.alloc(4096) });
     await expect(page.getByText("Size: 4 KB")).toBeVisible();
-    await page.getByLabel("The backup's password").fill("q7Xk2pLm9RtV4wZs8NcB1yHd6FgJ3aEu0oTiPrKe5Ws");
+    await page.getByLabel("The backup's password").fill("example-backup-password-for-screenshots");
     await page.getByRole("checkbox", { name: "I understand, replace everything" }).click();
     await shot(page, "setup-wizard-restore-file");
     await page.getByRole("button", { name: "Restore", exact: true }).click();
