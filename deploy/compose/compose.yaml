@@ -95,6 +95,9 @@ services:
       # The relay's addresses as browsers reach them; empty is
       # turn.<domain> on 443 (an HTTP-only proxy's TLS relay is on 5349).
       LINX_TURN_URLS: ${LINX_TURN_URLS:-}
+      # The server's time zone (setup reads it), so the backup schedule's
+      # "03:00" means 03:00 on the server's clock.
+      TZ: ${LINX_TZ:-UTC}
     secrets:
       - linx_db_password
       - linx_db_encryption_key

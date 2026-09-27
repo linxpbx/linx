@@ -3,6 +3,7 @@ package installer
 import (
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -145,5 +146,38 @@ func TestValidateDNSToken(t *testing.T) {
 		if err := ValidateDNSToken(tok); (err == nil) != ok {
 			t.Errorf("ValidateDNSToken(%q) = %v", tok, err)
 		}
+	}
+}
+
+func TestHostTimezone(t *testing.T) {
+	old := localtimePath
+	t.Cleanup(func() { localtimePath = old })
+	dir := t.TempDir()
+	link := func(target string) {
+		t.Helper()
+		localtimePath = filepath.Join(dir, "localtime-"+strings.ReplaceAll(target, "/", "_"))
+		if err := os.Symlink(target, localtimePath); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Where timedatectl points /etc/localtime: the name after zoneinfo/.
+	link("/usr/share/zoneinfo/Asia/Dubai")
+	if got := HostTimezone(); got != "Asia/Dubai" {
+		t.Errorf("Asia/Dubai: got %q", got)
+	}
+	link("../usr/share/zoneinfo/Etc/UTC")
+	if got := HostTimezone(); got != "Etc/UTC" {
+		t.Errorf("Etc/UTC: got %q", got)
+	}
+	// Anything odd falls back to UTC.
+	for _, bad := range []string{"/usr/share/zoneinfo/Not/AZone", "/somewhere/else", "/usr/share/zoneinfo/../../etc/passwd"} {
+		link(bad)
+		if got := HostTimezone(); got != "UTC" {
+			t.Errorf("%s: got %q, want UTC", bad, got)
+		}
+	}
+	localtimePath = filepath.Join(dir, "missing")
+	if got := HostTimezone(); got != "UTC" {
+		t.Errorf("no /etc/localtime: got %q", got)
 	}
 }

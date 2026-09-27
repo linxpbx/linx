@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"linxpbx.com/linx/deploy/compose"
 	"linxpbx.com/linx/internal/asteriskconf"
@@ -152,10 +153,38 @@ COMPOSE_PROFILES=%s
 # (or at LINX_DNS_ADDRESS, when set), following it when it changes.
 LINX_DNS_RECORDS=%s
 LINX_DNS_ADDRESS=%s
+# This server's time zone, so "03:00" in the backup schedule means 03:00 on
+# its clock (the services otherwise run on UTC). Setup reads it again each
+# time it runs: after changing it, run setup.
+LINX_TZ=%s
 `, ConfigPath, imageTag, c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Email, c.Certificates.Staging, c.Certificates.Wildcard,
 		lan.BindAddress(), asteriskconf.FormatSIPNetworks(lan.Networks()),
 		c.FrontDoor.Kind, fd.TrustedProxies, fd.ProxyProtocol, fd.WebAddress, fd.TURNUDPAddress, fd.TURNUDPPort, fd.TURNURLs,
-		fd.SNIAddress, fd.ComposeProfiles, dnsRecords(c), fd.DNSAddress)
+		fd.SNIAddress, fd.ComposeProfiles, dnsRecords(c), fd.DNSAddress, HostTimezone())
+}
+
+// localtimePath is where the host's time zone is set (timedatectl
+// set-timezone points it at the zone's file); a variable for tests.
+var localtimePath = "/etc/localtime"
+
+var tzNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+){0,2}$`)
+
+// HostTimezone is the host's time zone name ("Asia/Dubai"), read from where
+// /etc/localtime points — not /etc/timezone, which timedatectl can leave
+// stale — or "UTC" if it can't be told.
+func HostTimezone() string {
+	target, err := os.Readlink(localtimePath)
+	if err != nil {
+		return "UTC"
+	}
+	_, name, ok := strings.Cut(target, "zoneinfo/")
+	if !ok || !tzNameRE.MatchString(name) {
+		return "UTC"
+	}
+	if _, err := time.LoadLocation(name); err != nil {
+		return "UTC"
+	}
+	return name
 }
 
 // certNames describes internal/certs.Config.Names for the plan and summary.
