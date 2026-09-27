@@ -139,15 +139,15 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
   const items: ChecklistItem[] = [];
   if (canSettings && setup) {
     items.push({
-      id: "numbering", label: "Choose how extension numbers look", done: setup.step >= 3,
+      id: "numbering", label: "Choose how extension numbers look", done: setup.step > 3,
       action: "Choose", onAction: () => navigate("/setup"),
     });
     items.push({
-      id: "people", label: "Add the people who'll use Linx", done: setup.step >= 4,
+      id: "people", label: "Add the people who'll use Linx", done: setup.step > 4,
       action: "Add", onAction: () => navigate("/setup"),
     });
     items.push({
-      id: "test-call", label: "Test a call from your browser", done: setup.completed || setup.step >= 7,
+      id: "test-call", label: "Test a call from your browser", done: setup.completed,
       action: "Test", onAction: () => navigate("/setup"),
     });
   }

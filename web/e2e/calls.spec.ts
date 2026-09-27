@@ -245,6 +245,9 @@ test("an admin sets up with a passkey and signs in with it", async () => {
   // Setup isn't finished on this install, so an admin's setup link lands
   // in the setup wizard (docs/ui/ADMIN_SCREENS_PHASE1E.md §3.1).
   await expect(page).toHaveURL(/\/setup$/, { timeout: 30_000 });
+  // At its first screen, against a real server's fresh database (it once
+  // skipped ahead, and hid "Restore from a backup", on every real install).
+  await expect(page.getByRole("heading", { name: /How do you want to start\?|Where will you use Linx\?/ })).toBeVisible();
   await page.goto("/");
   await expect(page.getByTestId("account-menu")).toBeVisible({ timeout: 30_000 });
 

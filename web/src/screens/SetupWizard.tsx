@@ -448,7 +448,9 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
         if (r && r.status !== "none") {
           setRestore(r);
           setStart("restore");
-        } else if (!setup?.step) {
+        } else if ((setup?.step ?? 1) <= 1) {
+          // Nothing done yet: the server keeps the step to resume at,
+          // starting at 1 (migration 0021).
           setStart("choose");
         }
       }
@@ -462,7 +464,8 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
           reserved: find("reserved") ?? null,
         });
       }
-      setStep(Math.min(TOTAL_STEPS, Math.max(1, (setup?.step ?? 0) + 1)));
+      // GET /setup's step is where to pick back up (1 on a fresh install).
+      setStep(Math.min(TOTAL_STEPS, Math.max(1, setup?.step ?? 1)));
       setLoaded(true);
     })();
   }, [me.role]);
@@ -483,7 +486,9 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   const advance = useCallback(async (toStep: number, complete = false) => {
     setBusy(true);
     setError("");
-    const { data, error: err } = await api.PUT("/api/v1/setup", { body: { step: Math.max(1, toStep - 1), complete } });
+    // Saves where to resume: the step being moved to (the last one again
+    // once finished; `completed` then says it's done).
+    const { data, error: err } = await api.PUT("/api/v1/setup", { body: { step: Math.min(TOTAL_STEPS, Math.max(1, toStep)), complete } });
     if (!data) { setBusy(false); setError(problemMessage(err)); return false; }
     if (complete) {
       // The wizard's "Calls" step picks the categories; PUT /setup only

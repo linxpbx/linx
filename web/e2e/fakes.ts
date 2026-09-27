@@ -32,7 +32,7 @@ export interface FakeOptions {
   // The admin home page and setup wizard (docs/ui/ADMIN_SCREENS_PHASE1E.md):
   // broadens the fake session's scopes and answers the settings/system
   // endpoints they need. setupStep is the wizard's saved resume point
-  // (GET /setup); undefined means "not started".
+  // (GET /setup): 1, like the real server, when nothing's done yet.
   admin?: boolean;
   setupStep?: number;
   setupCompleted?: boolean;
@@ -278,7 +278,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       return route.fulfill(json(restore, 202));
     }
     if (p === "/api/v1/setup" && method === "GET") {
-      return route.fulfill(json({ step: opts.setupStep ?? 0, completed: !!opts.setupCompleted }));
+      return route.fulfill(json({ step: opts.setupStep ?? 1, completed: !!opts.setupCompleted }));
     }
     if (p === "/api/v1/setup" && method === "PUT") {
       const body = route.request().postDataJSON() as { step: number; complete?: boolean };
@@ -289,7 +289,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         country: "AE", extension_digits: 3,
         extension_ranges: [{ kind: "people", from: 100, to: 599 }, { kind: "groups", from: 600, to: 699 }, { kind: "reserved", from: 700, to: 899 }],
         site_kind: "business", simple_mode: true, admin_network_restricted: false, admin_networks: [],
-        default_call_permission_level_id: opts.setupCompleted ? "0199f1" : undefined, setup_step: opts.setupStep ?? 0,
+        default_call_permission_level_id: opts.setupCompleted ? "0199f1" : undefined, setup_step: opts.setupStep ?? 1,
       }));
     }
     if (p === "/api/v1/settings" && method === "PATCH") return route.fulfill({ status: 204 });

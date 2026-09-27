@@ -165,7 +165,7 @@ for (const scheme of ["light", "dark"] as const) {
     });
 
     test("admin home", async ({ page }) => {
-      await fakeServer(page, { signedIn: true, admin: true, setupStep: 4 });
+      await fakeServer(page, { signedIn: true, admin: true, setupStep: 5 });
       await page.goto("/admin");
       await expect(page.getByRole("heading", { name: "Getting started" })).toBeVisible();
       await expect(page.getByText("Line \"Telnyx\" is down")).toBeVisible();
@@ -267,7 +267,7 @@ for (const scheme of ["light", "dark"] as const) {
 
 test.describe("setup wizard", () => {
   test("place", async ({ page }) => {
-    await fakeServer(page, { signedIn: true, admin: true, setupStep: 0 });
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 1 });
     await page.goto("/setup");
     await expect(page.getByRole("heading", { name: "Where will you use Linx?" })).toBeVisible();
     await shot(page, "setup-wizard-place");
@@ -276,7 +276,7 @@ test.describe("setup wizard", () => {
   });
 
   test("start: fresh or restore", async ({ page }) => {
-    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 0 });
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 1 });
     await page.goto("/setup");
     await expect(page.getByRole("heading", { name: "How do you want to start?" })).toBeVisible();
     await shot(page, "setup-wizard-start");
@@ -302,20 +302,20 @@ test.describe("setup wizard", () => {
   });
 
   test("restore: failed, and under way after a reload", async ({ page }) => {
-    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 0, restore: "failed" });
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 1, restore: "failed" });
     await page.goto("/setup");
     await expect(page.getByRole("alert")).toContainText("wrong password");
     await expect(page.getByRole("textbox", { name: "Folder" })).toHaveValue("/var/backups/linx");
     await shot(page, "setup-wizard-restore-failed");
     await page.unrouteAll({ behavior: "ignoreErrors" });
-    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 0, restore: "running" });
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 1, restore: "running" });
     await page.goto("/setup");
     await expect(page.getByRole("heading", { name: "Restoring your backup" })).toBeVisible();
     await shot(page, "setup-wizard-restore-running");
   });
 
   test("restore from a backup file", async ({ page }) => {
-    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 0 });
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 1 });
     await page.goto("/setup");
     await page.getByRole("button", { name: /Restore from a backup/ }).click();
     await page.getByRole("radio", { name: /A backup file on my computer/ }).click();
@@ -329,7 +329,7 @@ test.describe("setup wizard", () => {
   });
 
   test("numbers", async ({ page }) => {
-    await fakeServer(page, { signedIn: true, admin: true, setupStep: 2 });
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 3 });
     await page.goto("/setup");
     await expect(page.getByRole("heading", { name: "How should extension numbers look?" })).toBeVisible();
     await expect(page.getByText("100–599")).toBeVisible();
@@ -339,7 +339,7 @@ test.describe("setup wizard", () => {
   });
 
   test("people", async ({ page }) => {
-    await fakeServer(page, { signedIn: true, admin: true, setupStep: 3 });
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 4 });
     await page.goto("/setup");
     await expect(page.getByRole("heading", { name: "Who will use Linx?" })).toBeVisible();
     await page.getByRole("button", { name: "+ Add another row" }).click();
@@ -347,7 +347,7 @@ test.describe("setup wizard", () => {
   });
 
   test("line and calls", async ({ page }) => {
-    await fakeServer(page, { signedIn: true, admin: true, setupStep: 4 });
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 5 });
     await page.goto("/setup");
     await expect(page.getByRole("heading", { name: "Connect a phone line now?" })).toBeVisible();
     await shot(page, "setup-wizard-line");
@@ -374,7 +374,7 @@ test.describe("phone width", () => {
     ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/backups", "system-backups", "Backups"],
   ] as const) {
     test(`no sideways scrolling: ${name}`, async ({ page }) => {
-      await fakeServer(page, { signedIn: true, admin: true, setupStep: 4, backups: true, download: "ready" });
+      await fakeServer(page, { signedIn: true, admin: true, setupStep: 5, backups: true, download: "ready" });
       await page.goto(path);
       await expect(page.getByRole("heading", { name: ready, exact: true }).first()).toBeVisible();
       await shot(page, `phone-${name}`);
