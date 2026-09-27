@@ -172,6 +172,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/backup-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the backup schedule
+         * @description Off by default; daily, weekly or monthly otherwise, at a time the admin sets (docs/BACKUP.md §5).
+         */
+        get: operations["getBackupSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change the backup schedule
+         * @description JSON Merge Patch: only the fields sent change.
+         */
+        patch: operations["updateBackupSettings"];
+        trace?: never;
+    };
+    "/api/v1/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Backup history
+         * @description Every attempt, scheduled or "back up now", newest first (docs/BACKUP.md §5).
+         */
+        get: operations["listBackups"];
+        put?: never;
+        /**
+         * Back up now
+         * @description Queues a run against every configured destination; linx-backup-agent picks it up within a few minutes and reports back, appearing in the history (docs/BACKUP.md §1).
+         */
+        post: operations["requestBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/api-keys": {
         parameters: {
             query?: never;
@@ -3177,6 +3225,53 @@ export interface components {
             items: components["schemas"]["AuditLogEntry"][];
             next_cursor?: string;
         };
+        BackupSettings: {
+            /** @enum {string} */
+            frequency: "off" | "daily" | "weekly" | "monthly";
+            /** @description Minutes since midnight, server-local time. */
+            time_of_day: number;
+            /** @description 0 (Sunday) to 6 (Saturday); used only when frequency is weekly. */
+            day_of_week: number;
+            /** @description Used only when frequency is monthly. */
+            day_of_month: number;
+            /**
+             * Format: date-time
+             * @description Set while a "back up now" request is waiting for linx-backup-agent's next tick.
+             */
+            requested_at?: string;
+        };
+        /** @description JSON Merge Patch; fields not sent stay as they are. */
+        BackupSettingsPatch: {
+            /** @enum {string} */
+            frequency?: "off" | "daily" | "weekly" | "monthly";
+            time_of_day?: number;
+            day_of_week?: number;
+            day_of_month?: number;
+        };
+        BackupRunDestination: {
+            name: string;
+            ok: boolean;
+            snapshot_id?: string;
+            error?: string;
+        };
+        BackupRun: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            trigger: "manual" | "scheduled";
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            finished_at: string;
+            /** @enum {string} */
+            status: "success" | "partial" | "failure";
+            destinations: components["schemas"]["BackupRunDestination"][];
+            error?: string;
+        };
+        BackupRunList: {
+            items: components["schemas"]["BackupRun"][];
+            next_cursor?: string;
+        };
         SystemStatus: {
             services: {
                 [key: string]: "ok" | "degraded" | "down";
@@ -3592,6 +3687,97 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SystemStatus"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getBackupSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The schedule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupSettings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateBackupSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["BackupSettingsPatch"];
+            };
+        };
+        responses: {
+            /** @description The schedule as it now is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupSettings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listBackups: {
+        parameters: {
+            query?: {
+                /** @description Maximum items per page (docs/API.md §2). */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque pagination cursor from a previous page's `next_cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of backup history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupRunList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    requestBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

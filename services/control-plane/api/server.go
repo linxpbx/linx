@@ -18,6 +18,7 @@ import (
 	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/backupschedule"
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/settings"
@@ -43,6 +44,7 @@ type Server struct {
 	settings  *settings.Service
 	audit     AuditLogSource
 	sso       *sso.Service
+	backups   *backupschedule.Service
 	now       func() time.Time
 }
 
@@ -72,9 +74,9 @@ type CallSource interface {
 // callers must pass the same document the server was validated against.
 // turnIssuer makes relay credentials for browsers (nil: no relay, so
 // /me/web-phone and /me/turn-credentials answer 503).
-func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, trunks *trunk.Service, numbering NumberingSource, calls CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team, settingsSvc *settings.Service, audit AuditLogSource, ssoSvc *sso.Service) *Server {
+func NewServer(spec *openapi3.T, store CredentialStore, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, trunks *trunk.Service, numbering NumberingSource, calls CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team, settingsSvc *settings.Service, audit AuditLogSource, ssoSvc *sso.Service, backups *backupschedule.Service) *Server {
 	return &Server{spec: spec, store: store, webhooks: webhooks, alerts: alerts, pbx: pbxSvc, trunks: trunks, numbering: numbering,
-		calls: calls, accounts: accounts, turn: turnIssuer, team: team, settings: settingsSvc, audit: audit, sso: ssoSvc, now: time.Now}
+		calls: calls, accounts: accounts, turn: turnIssuer, team: team, settings: settingsSvc, audit: audit, sso: ssoSvc, backups: backups, now: time.Now}
 }
 
 func (s *Server) GetOpenapiSpec(_ context.Context, _ GetOpenapiSpecRequestObject) (GetOpenapiSpecResponseObject, error) {

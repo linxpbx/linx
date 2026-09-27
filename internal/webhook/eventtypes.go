@@ -37,6 +37,8 @@ var EventTypes = []EventType{
 	{"user.updated", "A person's account was changed."},
 	{"user.disabled", "A person's account was disabled."},
 	{"settings.updated", "The admin portal's settings changed (docs/ADMIN.md §4)."},
+	{"backup.completed", "A scheduled or manual backup finished, every destination worked."},
+	{"backup.failed", "A scheduled or manual backup finished with at least one destination failing."},
 }
 
 // KnownEventType reports whether name is in the catalog.

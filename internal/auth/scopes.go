@@ -13,6 +13,7 @@ var Scopes = []string{
 	"alerts:read", "alerts:write",
 	"api_keys:read", "api_keys:write",
 	"audit:read",
+	"backups:read", "backups:write",
 	"calls:control",
 	"calls:read",
 	"devices:read", "devices:write",
@@ -39,8 +40,11 @@ var Scopes = []string{
 // trunks:write and routing:write can make calls that cost money
 // (docs/TRUNKS.md §10, ADR-048).
 // sso:write decides which company accounts can sign in as people (ADR-052).
+// backups:write can trigger a backup and change its schedule; a later step
+// adds downloading one, which will need its own gate (docs/BACKUP.md §8) —
+// marked sensitive now rather than loosened later.
 var sensitiveScopes = []string{
-	"api_keys:write", "calls:control", "devices:write", "oauth_clients:write", "outbound_allowlist:write",
+	"api_keys:write", "backups:write", "calls:control", "devices:write", "oauth_clients:write", "outbound_allowlist:write",
 	"recordings:read", "routing:write", "sso:write", "transcripts:read", "trunks:write", "users:write",
 }
 
@@ -64,7 +68,7 @@ var Roles = []string{RoleSystemAdmin, RoleAdmin, RoleUser, RoleReporter}
 var roleCeilings = map[string][]string{
 	RoleSystemAdmin: Scopes,
 	RoleAdmin:       Scopes,
-	RoleReporter: {"alerts:read", "audit:read", "devices:read", "extensions:read", "routing:read", "system:read",
+	RoleReporter: {"alerts:read", "audit:read", "backups:read", "devices:read", "extensions:read", "routing:read", "system:read",
 		"team:read", "trunks:read", "webhooks:read"},
 	RoleUser: {"extensions:read", "team:read"},
 }

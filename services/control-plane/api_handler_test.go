@@ -126,7 +126,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	company := newFakeCompany(st)
 	accounts.CompanyProviders, accounts.Company = company, company
 	ssoSvc := &sso.Service{Store: company, Client: &sso.Client{Store: company}, Now: time.Now}
-	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team, settingsSvc, st, ssoSvc)
+	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, nil)
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}

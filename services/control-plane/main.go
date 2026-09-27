@@ -30,6 +30,7 @@ import (
 	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/backupschedule"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
@@ -77,6 +78,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "firewall" {
 		os.Exit(runFirewallCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		os.Exit(runBackupCommand(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(runHealthcheck(os.Getenv, nil))
@@ -189,6 +193,11 @@ func main() {
 	alertSender := &alert.Sender{Client: guardedClient, Sealer: sealer, Now: time.Now}
 	alerts := &alert.Service{Store: st, Sealer: sealer, Sender: alertSender, Policy: policy, Now: time.Now}
 	engine := &alert.Engine{Store: st, Sender: alertSender, Log: log}
+
+	// Backup schedule and history (docs/BACKUP.md §5, §8 step 3): this
+	// process never runs restic itself, only decides when a run is due and
+	// records what linx-backup-agent reports (services/control-plane/backup_cmd.go).
+	backups := &backupschedule.Service{Store: st, Alerts: engine, Now: time.Now}
 
 	// People accounts and sessions (docs/WEB.md §4): the "someone is
 	// guessing a password" alert reuses this same engine, and sign-in
@@ -349,7 +358,7 @@ func main() {
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, backups)
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)

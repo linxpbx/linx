@@ -259,6 +259,82 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/backup-settings:
+    get:
+      operationId: getBackupSettings
+      summary: Get the backup schedule
+      description: Off by default; daily, weekly or monthly otherwise, at a time the admin sets (docs/BACKUP.md §5).
+      tags: [backups]
+      security:
+        - bearer: [backups:read]
+      responses:
+        "200":
+          description: The schedule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupSettings"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateBackupSettings
+      summary: Change the backup schedule
+      description: "JSON Merge Patch: only the fields sent change."
+      tags: [backups]
+      security:
+        - bearer: [backups:write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/BackupSettingsPatch"
+      responses:
+        "200":
+          description: The schedule as it now is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupSettings"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/backups:
+    get:
+      operationId: listBackups
+      summary: Backup history
+      description: Every attempt, scheduled or "back up now", newest first (docs/BACKUP.md §5).
+      tags: [backups]
+      security:
+        - bearer: [backups:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of backup history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupRunList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: requestBackup
+      summary: Back up now
+      description: >-
+        Queues a run against every configured destination; linx-backup-agent
+        picks it up within a few minutes and reports back, appearing in the
+        history (docs/BACKUP.md §1).
+      tags: [backups]
+      security:
+        - bearer: [backups:write]
+      responses:
+        "202":
+          description: Queued.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/api-keys:
     get:
       operationId: listApiKeys
@@ -5303,6 +5379,104 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AuditLogEntry"
+        next_cursor:
+          type: string
+
+    BackupSettings:
+      type: object
+      required: [frequency, time_of_day, day_of_week, day_of_month]
+      properties:
+        frequency:
+          type: string
+          enum: [off, daily, weekly, monthly]
+        time_of_day:
+          type: integer
+          minimum: 0
+          maximum: 1439
+          description: Minutes since midnight, server-local time.
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: 0 (Sunday) to 6 (Saturday); used only when frequency is weekly.
+        day_of_month:
+          type: integer
+          minimum: 1
+          maximum: 28
+          description: Used only when frequency is monthly.
+        requested_at:
+          type: string
+          format: date-time
+          description: Set while a "back up now" request is waiting for linx-backup-agent's next tick.
+
+    BackupSettingsPatch:
+      description: JSON Merge Patch; fields not sent stay as they are.
+      type: object
+      additionalProperties: false
+      properties:
+        frequency:
+          type: string
+          enum: [off, daily, weekly, monthly]
+        time_of_day:
+          type: integer
+          minimum: 0
+          maximum: 1439
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+        day_of_month:
+          type: integer
+          minimum: 1
+          maximum: 28
+
+    BackupRunDestination:
+      type: object
+      required: [name, ok]
+      properties:
+        name:
+          type: string
+        ok:
+          type: boolean
+        snapshot_id:
+          type: string
+        error:
+          type: string
+
+    BackupRun:
+      type: object
+      required: [id, trigger, started_at, finished_at, status, destinations]
+      properties:
+        id:
+          type: string
+          format: uuid
+        trigger:
+          type: string
+          enum: [manual, scheduled]
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [success, partial, failure]
+        destinations:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackupRunDestination"
+        error:
+          type: string
+
+    BackupRunList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackupRun"
         next_cursor:
           type: string
 

@@ -10,6 +10,7 @@ import (
 	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/backupschedule"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/settings"
 	"linxpbx.com/linx/internal/sso"
@@ -23,7 +24,7 @@ import (
 // against api/openapi.yaml (security requirements before anything else),
 // then the strict server. It fails if the embedded spec doesn't parse or
 // validate, since a broken spec means the whole API is broken.
-func newAPIHandler(log *slog.Logger, store controlplaneapi.CredentialStore, authn *auth.Authenticator, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, trunks *trunk.Service, numbering controlplaneapi.NumberingSource, calls controlplaneapi.CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team, settingsSvc *settings.Service, audit controlplaneapi.AuditLogSource, ssoSvc *sso.Service) (http.Handler, error) {
+func newAPIHandler(log *slog.Logger, store controlplaneapi.CredentialStore, authn *auth.Authenticator, webhooks *webhook.Service, alerts *alert.Service, pbxSvc *pbx.Service, trunks *trunk.Service, numbering controlplaneapi.NumberingSource, calls controlplaneapi.CallSource, accounts *auth.Accounts, turnIssuer *turn.Issuer, team *pbx.Team, settingsSvc *settings.Service, audit controlplaneapi.AuditLogSource, ssoSvc *sso.Service, backups *backupschedule.Service) (http.Handler, error) {
 	spec, err := controlplaneapi.GetSpec()
 	if err != nil {
 		return nil, err
@@ -36,7 +37,7 @@ func newAPIHandler(log *slog.Logger, store controlplaneapi.CredentialStore, auth
 	spec.Servers = nil
 
 	strict := controlplaneapi.NewStrictHandlerWithOptions(
-		controlplaneapi.NewServer(spec, store, webhooks, alerts, pbxSvc, trunks, numbering, calls, accounts, turnIssuer, team, settingsSvc, audit, ssoSvc),
+		controlplaneapi.NewServer(spec, store, webhooks, alerts, pbxSvc, trunks, numbering, calls, accounts, turnIssuer, team, settingsSvc, audit, ssoSvc, backups),
 		nil,
 		controlplaneapi.StrictHTTPServerOptions{
 			ResponseErrorHandlerFunc: apihttp.ResponseErrorHandler(log),

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -43,12 +44,17 @@ const backupKeepLast = 14
 const backupUsage = `linx backup — back up the database and the keys a restore needs
 
 Usage:
-  sudo linx backup                     Back up to every configured destination
+  sudo linx backup [--json]            Back up to every configured destination
   sudo linx backup destination add --kind local --path PATH NAME
   sudo linx backup destination add --kind sftp --host HOST --user USER --remote-path PATH [--port 22] NAME
   sudo linx backup destination add --kind s3 --endpoint URL --bucket BUCKET --access-key-id ID --secret-access-key SECRET [--region REGION] NAME
   sudo linx backup destination list
   sudo linx backup destination remove NAME
+
+--json prints one JSON summary line instead of plain text (linx-backup-agent
+uses this to report the run back to the control plane) and never shows a
+newly generated password — run without it by hand at least once per
+destination to see it.
 
 (Flags before NAME, same as linx restore-secrets: Go's flag parser stops at
 the first non-flag argument.)
@@ -113,6 +119,24 @@ func (env backupEnv) destinationsManifest() backup.Manifest {
 	return backup.Manifest{Dir: filepath.Join(env.secretsDir, "linx-backup")}
 }
 
+// destResult and jsonResult are --json's stdout shape: exactly the fields
+// services/control-plane/backup_cmd.go's `report` reads back
+// (backupschedule.Destination/Run), so linx-backup-agent can pass this
+// straight through as that command's stdin without reshaping it.
+type destResult struct {
+	Name       string `json:"name"`
+	OK         bool   `json:"ok"`
+	SnapshotID string `json:"snapshot_id,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type jsonResult struct {
+	Destinations []destResult `json:"destinations"`
+	// Error is set only when no destination was even attempted (staging or
+	// the database dump failed first).
+	Error string `json:"error,omitempty"`
+}
+
 func runBackup(ctx context.Context, args []string, stdout, stderr io.Writer, env backupEnv) int {
 	if len(args) > 0 && args[0] == "destination" {
 		return runBackupDestination(ctx, args[1:], stdout, stderr, env)
@@ -120,6 +144,7 @@ func runBackup(ctx context.Context, args []string, stdout, stderr io.Writer, env
 	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, backupUsage) }
+	asJSON := fs.Bool("json", false, "")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -134,38 +159,68 @@ func runBackup(ctx context.Context, args []string, stdout, stderr io.Writer, env
 
 	dests, err := env.destinationsManifest().Load()
 	if err != nil {
-		fmt.Fprintf(stderr, "Couldn't read configured destinations: %v\n", err)
-		return 1
+		return backupFailedBeforeStart(*asJSON, stdout, stderr, "Couldn't read configured destinations", err)
 	}
 	if len(dests) == 0 {
 		dests = []backup.Destination{{Name: defaultDestinationName, Kind: backup.KindLocal, Path: defaultBackupRepo}}
 	}
 
 	if err := prepareStaging(ctx, env); err != nil {
-		fmt.Fprintf(stderr, "Couldn't prepare the backup: %v\n", err)
-		return 1
+		return backupFailedBeforeStart(*asJSON, stdout, stderr, "Couldn't prepare the backup", err)
 	}
 	defer os.RemoveAll(env.stagingDir) //nolint:errcheck // best effort; nothing sensitive stays if this fails silently on a read-only fs
 
 	pairID, err := backup.NewPairID()
 	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
+		return backupFailedBeforeStart(*asJSON, stdout, stderr, "", err)
 	}
 	dumpFile := filepath.Join(env.stagingDir, "database.pgcustom")
 
+	results := make([]destResult, 0, len(dests))
 	failed := 0
 	for _, d := range dests {
-		if err := backupOneDestination(ctx, env, d, pairID, dumpFile, stdout); err != nil {
-			fmt.Fprintf(stderr, "%s: %v\n", d.Name, err)
+		snapshotID, password, err := backupOneDestination(ctx, env, d, pairID, dumpFile, stderr)
+		r := destResult{Name: d.Name, OK: err == nil, SnapshotID: snapshotID}
+		if err != nil {
+			r.Error = err.Error()
 			failed++
-			continue
 		}
+		results = append(results, r)
+		switch {
+		case *asJSON && password != "":
+			fmt.Fprintf(stderr, "%s: a repository password was generated; read it once with: sudo cat %s\n",
+				d.Name, env.destinationsManifest().PasswordPath(d.Name))
+		case !*asJSON && err != nil:
+			fmt.Fprintf(stderr, "%s: %v\n", d.Name, err)
+		case !*asJSON:
+			fmt.Fprintf(stdout, "%s: backed up (snapshot %s).\n", d.Name, snapshotID)
+			if password != "" {
+				fmt.Fprintf(stdout, "%s's repository password (shown once — save it somewhere safe, separate from the backup itself):\n\n  %s\n\n", d.Name, password)
+			}
+		}
+	}
+	if *asJSON {
+		_ = json.NewEncoder(stdout).Encode(jsonResult{Destinations: results})
 	}
 	if failed == len(dests) {
 		return 1
 	}
 	return 0
+}
+
+// backupFailedBeforeStart reports a failure that happened before any
+// destination was even tried.
+func backupFailedBeforeStart(asJSON bool, stdout, stderr io.Writer, prefix string, err error) int {
+	msg := err.Error()
+	if prefix != "" {
+		msg = fmt.Sprintf("%s: %s", prefix, msg)
+	}
+	if asJSON {
+		_ = json.NewEncoder(stdout).Encode(jsonResult{Destinations: []destResult{}, Error: msg})
+	} else {
+		fmt.Fprintln(stderr, msg)
+	}
+	return 1
 }
 
 // prepareStaging clears and recreates the staging directory, dumps the
@@ -191,42 +246,42 @@ func prepareStaging(ctx context.Context, env backupEnv) error {
 	return nil
 }
 
-func backupOneDestination(ctx context.Context, env backupEnv, d backup.Destination, pairID, dumpFile string, stdout io.Writer) error {
+// backupOneDestination backs up to d, generating and saving its repository
+// password the first time it's used (returned as password only then — the
+// caller decides whether it's safe to show, e.g. never in --json mode).
+// warn receives a non-fatal "backed up, but couldn't apply retention"
+// notice; it never affects the returned error.
+func backupOneDestination(ctx context.Context, env backupEnv, d backup.Destination, pairID, dumpFile string, warn io.Writer) (snapshotID, password string, err error) {
 	m := env.destinationsManifest()
-	isNew := false
-	if _, err := os.Stat(m.PasswordPath(d.Name)); os.IsNotExist(err) {
-		isNew = true
-		password, err := backup.NewPassword()
-		if err != nil {
-			return err
+	if _, statErr := os.Stat(m.PasswordPath(d.Name)); os.IsNotExist(statErr) {
+		var genErr error
+		password, genErr = backup.NewPassword()
+		if genErr != nil {
+			return "", "", genErr
 		}
-		if err := os.MkdirAll(m.Dir, 0o700); err != nil {
-			return err
+		if genErr := os.MkdirAll(m.Dir, 0o700); genErr != nil {
+			return "", "", genErr
 		}
-		if err := os.WriteFile(m.PasswordPath(d.Name), []byte(password), 0o600); err != nil {
-			return err
+		if genErr := os.WriteFile(m.PasswordPath(d.Name), []byte(password), 0o600); genErr != nil {
+			return "", "", genErr
 		}
 	}
 	target, err := m.Target(d)
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	runner := backup.Runner(env.run)
 	if err := backup.InitRepo(ctx, runner, target); err != nil {
-		return fmt.Errorf("preparing the repository: %w", err)
+		return "", "", fmt.Errorf("preparing the repository: %w", err)
 	}
-	snapshotID, err := backup.Backup(ctx, runner, target, pairID, dumpFile)
+	snapshotID, err = backup.Backup(ctx, runner, target, pairID, dumpFile)
 	if err != nil {
-		return fmt.Errorf("backup failed: %w", err)
+		return "", "", fmt.Errorf("backup failed: %w", err)
 	}
 	if err := backup.Forget(ctx, runner, target, backupKeepLast); err != nil {
-		fmt.Fprintf(stdout, "%s: backed up, but couldn't apply retention: %v\n", d.Name, err)
+		fmt.Fprintf(warn, "%s: backed up, but couldn't apply retention: %v\n", d.Name, err)
 	}
-	fmt.Fprintf(stdout, "%s: backed up (snapshot %s).\n", d.Name, snapshotID)
-	if isNew {
-		fmt.Fprintf(stdout, "%s's repository password (shown once — save it somewhere safe, separate from the backup itself):\n\n  %s\n\n", d.Name, target.Password)
-	}
-	return nil
+	return snapshotID, password, nil
 }
 
 // dumpDatabase runs pg_dump inside the Postgres container (it trusts local

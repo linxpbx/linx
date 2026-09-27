@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/netip"
 	"os"
@@ -166,5 +167,49 @@ func TestRunBackupMultipleDestinationsContinuesOnFailure(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "local-b") || !strings.Contains(out.String(), "snap-b") {
 		t.Fatalf("successful destination not reported: %q", out.String())
+	}
+}
+
+func TestRunBackupJSONReportsDestinationsAndNeverShowsANewPassword(t *testing.T) {
+	env, _, _ := setupBackupEnv(t)
+	var out, errb bytes.Buffer
+	code := runBackup(t.Context(), []string{"--json"}, &out, &errb, env)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, errb.String())
+	}
+	var result jsonResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("stdout wasn't valid JSON: %v: %q", err, out.String())
+	}
+	if len(result.Destinations) != 1 || !result.Destinations[0].OK || result.Destinations[0].SnapshotID != "snap1" {
+		t.Fatalf("Destinations = %+v", result.Destinations)
+	}
+	pwFile := env.destinationsManifest().PasswordPath(defaultDestinationName)
+	saved, err := os.ReadFile(pwFile)
+	if err != nil {
+		t.Fatalf("password file not written: %v", err)
+	}
+	if strings.Contains(out.String(), string(saved)) {
+		t.Fatal("--json must never print a newly generated password to stdout")
+	}
+	if !strings.Contains(errb.String(), "sudo cat") {
+		t.Fatalf("stderr should point at where to read the generated password: %q", errb.String())
+	}
+}
+
+func TestRunBackupJSONReportsAFailureBeforeAnyDestination(t *testing.T) {
+	env, r, _ := setupBackupEnv(t)
+	r.fail[0] = context.DeadlineExceeded // the dump
+	var out, errb bytes.Buffer
+	code := runBackup(t.Context(), []string{"--json"}, &out, &errb, env)
+	if code != 1 {
+		t.Fatalf("code = %d, want 1", code)
+	}
+	var result jsonResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("stdout wasn't valid JSON: %v: %q", err, out.String())
+	}
+	if len(result.Destinations) != 0 || result.Error == "" {
+		t.Fatalf("jsonResult = %+v, want no destinations and a top-level error", result)
 	}
 }
