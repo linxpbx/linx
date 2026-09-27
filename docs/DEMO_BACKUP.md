@@ -103,7 +103,7 @@ Same screen: the real file, the real password (from your password manager), **Th
   sudo docker exec linx-postgres psql -U linx -tAc "SELECT datname FROM pg_database WHERE datname LIKE 'linx%'"
   sudo ls /etc/linx/secrets | grep before-restore
   ```
-- [ ] The uploaded file is gone from both places: `sudo docker exec linx-control-plane ls /var/lib/linx/backup-transfer` is empty.
+- [ ] The uploaded file is gone from both places: `sudo ls -a /var/lib/docker/volumes/linx_backup-transfer/_data` lists nothing but `.` and `..` (the control plane's image has no `ls` of its own).
 
 ## 11. The review's main fix, by hand (optional)
 The review found that a crafted backup could run programs in the database container; restores now load a backup as a powerless role and accept only Linx's own structure. `make test-docker` proves it (`TestPostgresRestoreDocker`). By hand, on the copy:
