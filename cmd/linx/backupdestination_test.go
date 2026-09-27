@@ -39,12 +39,38 @@ func TestBackupDestinationAddLocal(t *testing.T) {
 	if !strings.Contains(out.String(), "office") {
 		t.Fatalf("output missing the destination name: %q", out.String())
 	}
+	// The first destination keeps the built-in folder, listed as "local".
 	dests, err := env.destinationsManifest().Load()
-	if err != nil || len(dests) != 1 || dests[0].Name != "office" || dests[0].Path != "/mnt/usb/linx-backups" {
+	if err != nil || len(dests) != 2 || dests[0].Name != defaultDestinationName || dests[0].Path != defaultBackupRepo ||
+		dests[1].Name != "office" || dests[1].Path != "/mnt/usb/linx-backups" {
 		t.Fatalf("Load() = %v, %v", dests, err)
+	}
+	if !strings.Contains(out.String(), "still go to "+defaultBackupRepo) {
+		t.Fatalf("output doesn't say the built-in folder stays: %q", out.String())
+	}
+
+	// A second one doesn't add it again, and the name "local" is taken.
+	out.Reset()
+	if code := runBackup(t.Context(), []string{"destination", "add", "--kind", "local", "--path", "/mnt/disk2", "disk2"}, &out, &errb, env); code != 0 {
+		t.Fatalf("second add: code %d, %q", code, errb.String())
+	}
+	if dests, _ := env.destinationsManifest().Load(); len(dests) != 3 || strings.Contains(out.String(), "still go to") {
+		t.Fatalf("after a second add: %v, %q", dests, out.String())
 	}
 	if _, err := os.Stat(env.destinationsManifest().PasswordPath("office")); err != nil {
 		t.Fatalf("password file not written: %v", err)
+	}
+}
+
+func TestBackupDestinationNameLocalIsTheBuiltInFolders(t *testing.T) {
+	env := setupDestinationEnv(t)
+	var out, errb bytes.Buffer
+	code := runBackup(t.Context(), []string{"destination", "add", "--kind", "local", "--path", "/mnt/usb", defaultDestinationName}, &out, &errb, env)
+	if code != 1 || !strings.Contains(errb.String(), "built-in folder") {
+		t.Fatalf("code %d, stderr %q", code, errb.String())
+	}
+	if _, err := os.Stat(env.destinationsManifest().PasswordPath(defaultDestinationName)); err == nil {
+		t.Fatal("the built-in folder's password was replaced")
 	}
 }
 
@@ -128,8 +154,8 @@ func TestBackupDestinationListAndRemove(t *testing.T) {
 		t.Fatalf("code %d, stderr %q", code, errb.String())
 	}
 	dests, err := env.destinationsManifest().Load()
-	if err != nil || len(dests) != 0 {
-		t.Fatalf("Load() after remove = %v, %v", dests, err)
+	if err != nil || len(dests) != 1 || dests[0].Name != defaultDestinationName {
+		t.Fatalf("Load() after remove = %v, %v; want only the built-in folder left", dests, err)
 	}
 	if _, err := os.Stat(env.destinationsManifest().PasswordPath("office")); !os.IsNotExist(err) {
 		t.Fatalf("password file should be removed too: %v", err)
@@ -158,7 +184,12 @@ func TestBackupRunsAgainstAConfiguredDestination(t *testing.T) {
 
 	// Re-fetch the fake runner isn't exported from setupBackupEnv's return,
 	// so build a fresh one wired to record calls for this run.
-	r := &fakeBackupRunner{stdout: map[int]string{2: `{"message_type":"summary","snapshot_id":"snap1"}` + "\n"}, fail: map[int]error{}}
+	// Calls: 0 dump; the built-in folder: 1 cat config, 2 backup, 3 forget;
+	// office: 4 cat config, 5 backup, 6 forget.
+	r := &fakeBackupRunner{stdout: map[int]string{
+		2: `{"message_type":"summary","snapshot_id":"snap0"}` + "\n",
+		5: `{"message_type":"summary","snapshot_id":"snap1"}` + "\n",
+	}, fail: map[int]error{}}
 	env.run = r.run
 
 	out.Reset()

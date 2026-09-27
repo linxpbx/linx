@@ -90,13 +90,14 @@ func TestBackupReportSuccess(t *testing.T) {
 	al := &fakeBackupAlerter{}
 	svc := &backupschedule.Service{Store: st, Alerts: al}
 	stdin := strings.NewReader(`{"trigger":"scheduled","started_at":"2026-09-27T03:00:00Z","finished_at":"2026-09-27T03:01:00Z",
-		"destinations":[{"name":"local","ok":true,"snapshot_id":"abc123"}]}`)
+		"destinations":[{"name":"local","ok":true,"snapshot_id":"abc123","size":401234}]}`)
 	var out, errb bytes.Buffer
 	code := backupReport(context.Background(), st, svc, stdin, &out, &errb)
 	if code != 0 {
 		t.Fatalf("code %d, stderr %q", code, errb.String())
 	}
-	if len(st.runs) != 1 || st.runs[0].Status != backupschedule.StatusSuccess || st.runs[0].TenantID != tenant {
+	if len(st.runs) != 1 || st.runs[0].Status != backupschedule.StatusSuccess || st.runs[0].TenantID != tenant ||
+		st.runs[0].Destinations[0].Size != 401234 {
 		t.Fatalf("runs = %+v", st.runs)
 	}
 	if len(al.resolved) != 1 {

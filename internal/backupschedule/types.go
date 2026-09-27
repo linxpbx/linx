@@ -72,7 +72,10 @@ type Destination struct {
 	Name       string `json:"name"`
 	OK         bool   `json:"ok"`
 	SnapshotID string `json:"snapshot_id,omitempty"`
-	Error      string `json:"error,omitempty"`
+	// Size is the bytes backed up (the dump plus the keys), before
+	// restic's compression and deduplication.
+	Size  int64  `json:"size,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // Run is one backup attempt's history entry.

@@ -61,6 +61,8 @@ destination to see it.
 the first non-flag argument.)
 
 With no destination configured, backs up to ` + defaultBackupRepo + ` only.
+Adding the first destination keeps that folder, listed as "local" (remove
+it like any other destination to stop backing up there).
 A destination's repository password is generated and shown once when it's
 added — save it somewhere safe, separate from the backup itself. Losing it
 means that destination's backups can never be read back.
@@ -128,6 +130,7 @@ type destResult struct {
 	Name       string `json:"name"`
 	OK         bool   `json:"ok"`
 	SnapshotID string `json:"snapshot_id,omitempty"`
+	Size       int64  `json:"size,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 
@@ -183,8 +186,8 @@ func runBackup(ctx context.Context, args []string, stdout, stderr io.Writer, env
 	results := make([]destResult, 0, len(dests))
 	failed := 0
 	for _, d := range dests {
-		snapshotID, password, err := backupOneDestination(ctx, env, d, pairID, dumpFile, stderr)
-		r := destResult{Name: d.Name, OK: err == nil, SnapshotID: snapshotID}
+		snapshotID, size, password, err := backupOneDestination(ctx, env, d, pairID, dumpFile, stderr)
+		r := destResult{Name: d.Name, OK: err == nil, SnapshotID: snapshotID, Size: size}
 		if err != nil {
 			r.Error = err.Error()
 			failed++
@@ -255,37 +258,37 @@ func prepareStaging(ctx context.Context, env backupEnv) error {
 // caller decides whether it's safe to show, e.g. never in --json mode).
 // warn receives a non-fatal "backed up, but couldn't apply retention"
 // notice; it never affects the returned error.
-func backupOneDestination(ctx context.Context, env backupEnv, d backup.Destination, pairID, dumpFile string, warn io.Writer) (snapshotID, password string, err error) {
+func backupOneDestination(ctx context.Context, env backupEnv, d backup.Destination, pairID, dumpFile string, warn io.Writer) (snapshotID string, size int64, password string, err error) {
 	m := env.destinationsManifest()
 	if _, statErr := os.Stat(m.PasswordPath(d.Name)); os.IsNotExist(statErr) {
 		var genErr error
 		password, genErr = backup.NewPassword()
 		if genErr != nil {
-			return "", "", genErr
+			return "", 0, "", genErr
 		}
 		if genErr := os.MkdirAll(m.Dir, 0o700); genErr != nil {
-			return "", "", genErr
+			return "", 0, "", genErr
 		}
 		if genErr := os.WriteFile(m.PasswordPath(d.Name), []byte(password), 0o600); genErr != nil {
-			return "", "", genErr
+			return "", 0, "", genErr
 		}
 	}
 	target, err := m.Target(d)
 	if err != nil {
-		return "", "", err
+		return "", 0, "", err
 	}
 	runner := backup.Runner(env.run)
 	if err := backup.InitRepo(ctx, runner, target); err != nil {
-		return "", "", fmt.Errorf("preparing the repository: %w", err)
+		return "", 0, "", fmt.Errorf("preparing the repository: %w", err)
 	}
-	snapshotID, err = backup.Backup(ctx, runner, target, pairID, dumpFile)
+	snapshotID, size, err = backup.Backup(ctx, runner, target, pairID, dumpFile)
 	if err != nil {
-		return "", "", fmt.Errorf("backup failed: %w", err)
+		return "", 0, "", fmt.Errorf("backup failed: %w", err)
 	}
 	if err := backup.Forget(ctx, runner, target, backupKeepLast); err != nil {
 		fmt.Fprintf(warn, "%s: backed up, but couldn't apply retention: %v\n", d.Name, err)
 	}
-	return snapshotID, password, nil
+	return snapshotID, size, password, nil
 }
 
 // dumpDatabase runs pg_dump inside the Postgres container (it trusts local

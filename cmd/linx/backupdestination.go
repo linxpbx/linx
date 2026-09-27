@@ -80,6 +80,19 @@ func runBackupDestinationAdd(ctx context.Context, args []string, stdout, stderr 
 		fmt.Fprintf(stderr, "There's already a backup destination named %q.\n", name)
 		return 1
 	}
+	existing, err := m.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	// With nothing set up, backups go to the built-in folder
+	// (defaultBackupRepo) under the name "local"; the first destination
+	// added keeps it, listed like any other (below), so its name is taken.
+	if len(existing) == 0 && name == defaultDestinationName {
+		fmt.Fprintf(stderr, "%q is the name of the built-in folder, %s, which backups already go to. Choose another name.\n",
+			defaultDestinationName, defaultBackupRepo)
+		return 1
+	}
 
 	d := backup.Destination{Name: name, Kind: backup.Kind(*kind)}
 	var hostToCheck string
@@ -168,10 +181,14 @@ func runBackupDestinationAdd(ctx context.Context, args []string, stdout, stderr 
 		}
 	}
 
-	dests, err := m.Load()
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
+	// Adding a first destination mustn't quietly stop backups to the
+	// built-in folder (and with it downloading a backup file, which needs a
+	// folder on this server): it stays, as an ordinary "local" destination
+	// that can be removed like any other.
+	keptBuiltIn := len(existing) == 0
+	dests := existing
+	if keptBuiltIn {
+		dests = append(dests, backup.Destination{Name: defaultDestinationName, Kind: backup.KindLocal, Path: defaultBackupRepo})
 	}
 	dests = append(dests, d)
 	if err := m.Save(dests); err != nil {
@@ -180,6 +197,10 @@ func runBackupDestinationAdd(ctx context.Context, args []string, stdout, stderr 
 	}
 
 	fmt.Fprintf(stdout, "Added backup destination %q (%s).\n\n", name, d.Kind)
+	if keptBuiltIn {
+		fmt.Fprintf(stdout, "Backups still go to %s too, now listed as %q (sudo linx backup destination remove %s to stop that).\n\n",
+			defaultBackupRepo, defaultDestinationName, defaultDestinationName)
+	}
 	fmt.Fprintf(stdout, "Its repository password (shown once — save it somewhere safe, separate from the backup itself; without it, this destination's backups can never be read back):\n\n  %s\n\n", password)
 	if sftpPublicKey != "" {
 		fmt.Fprintf(stdout, "Add this public key to %s's authorized_keys for %s (shown once):\n\n  %s\n", *host, *user, sftpPublicKey)

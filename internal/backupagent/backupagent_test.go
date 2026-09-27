@@ -50,7 +50,7 @@ func TestOnceSkipsWhenNotDue(t *testing.T) {
 func TestOnceRunsAndReportsOnDue(t *testing.T) {
 	f := &fakeExec{outputs: [][]byte{
 		[]byte("run scheduled\n"),
-		[]byte(`{"destinations":[{"name":"local","ok":true,"snapshot_id":"abc"}]}`),
+		[]byte(`{"destinations":[{"name":"local","ok":true,"snapshot_id":"abc","size":401234}]}`),
 		[]byte("Recorded backup ... (success).\n"),
 	}}
 	env := Env{Exec: f.run, LinxPath: "/usr/local/bin/linx", Now: func() time.Time { return time.Date(2026, 9, 27, 3, 0, 0, 0, time.UTC) }}
@@ -71,7 +71,7 @@ func TestOnceRunsAndReportsOnDue(t *testing.T) {
 	if err := json.Unmarshal(reportCall.stdin, &sent); err != nil {
 		t.Fatalf("report stdin wasn't valid JSON: %v: %s", err, reportCall.stdin)
 	}
-	if sent.Trigger != "scheduled" || len(sent.Destinations) != 1 || sent.Destinations[0].SnapshotID != "abc" {
+	if sent.Trigger != "scheduled" || len(sent.Destinations) != 1 || sent.Destinations[0].SnapshotID != "abc" || sent.Destinations[0].Size != 401234 {
 		t.Fatalf("sent report = %+v", sent)
 	}
 }

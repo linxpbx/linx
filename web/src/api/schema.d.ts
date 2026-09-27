@@ -3360,6 +3360,11 @@ export interface components {
             name: string;
             ok: boolean;
             snapshot_id?: string;
+            /**
+             * Format: int64
+             * @description Bytes backed up (the database and the keys), before compression.
+             */
+            size?: number;
             error?: string;
         };
         BackupRun: {

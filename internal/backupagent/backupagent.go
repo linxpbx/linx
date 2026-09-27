@@ -56,6 +56,7 @@ type destination struct {
 	Name       string `json:"name"`
 	OK         bool   `json:"ok"`
 	SnapshotID string `json:"snapshot_id,omitempty"`
+	Size       int64  `json:"size,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 

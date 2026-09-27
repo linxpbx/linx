@@ -57,6 +57,9 @@ func toBackupRun(r backupschedule.Run) BackupRun {
 		if d.SnapshotID != "" {
 			bd.SnapshotId = &d.SnapshotID
 		}
+		if d.Size > 0 {
+			bd.Size = &d.Size
+		}
 		if d.Error != "" {
 			bd.Error = &d.Error
 		}

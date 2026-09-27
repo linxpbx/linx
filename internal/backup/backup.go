@@ -142,23 +142,26 @@ func InitRepo(ctx context.Context, runner Runner, t Target) error {
 
 // summary is the line restic --json backup prints with type "summary".
 type summary struct {
-	MessageType string `json:"message_type"`
-	SnapshotID  string `json:"snapshot_id"`
+	MessageType         string `json:"message_type"`
+	SnapshotID          string `json:"snapshot_id"`
+	TotalBytesProcessed int64  `json:"total_bytes_processed"`
 }
 
 // Backup runs one restic backup of dumpFile (the database dump) and
 // KeysPath (the secret files staged there, docs/BACKUP.md §2), tagged
-// with pairID, and returns the new snapshot's id.
-func Backup(ctx context.Context, runner Runner, t Target, pairID, dumpFile string) (snapshotID string, err error) {
+// with pairID, and returns the new snapshot's id and size: the bytes backed
+// up (the dump plus the keys), before restic's compression and
+// deduplication.
+func Backup(ctx context.Context, runner Runner, t Target, pairID, dumpFile string) (snapshotID string, size int64, err error) {
 	pf, cleanup, err := passwordFile(t.Password)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer cleanup()
 	args := append(resticArgs(t, pf), "backup", dumpFile, KeysPath, "--tag", PairTag+":"+pairID, "--json")
 	var stdout bytes.Buffer
 	if err := runner(ctx, &stdout, t.Env, "restic", args...); err != nil {
-		return "", fmt.Errorf("restic backup: %w", err)
+		return "", 0, fmt.Errorf("restic backup: %w", err)
 	}
 	for _, line := range strings.Split(stdout.String(), "\n") {
 		if line == "" {
@@ -166,13 +169,13 @@ func Backup(ctx context.Context, runner Runner, t Target, pairID, dumpFile strin
 		}
 		var s summary
 		if json.Unmarshal([]byte(line), &s) == nil && s.MessageType == "summary" {
-			snapshotID = s.SnapshotID
+			snapshotID, size = s.SnapshotID, s.TotalBytesProcessed
 		}
 	}
 	if snapshotID == "" {
-		return "", errors.New("restic backup didn't report a snapshot id")
+		return "", 0, errors.New("restic backup didn't report a snapshot id")
 	}
-	return snapshotID, nil
+	return snapshotID, size, nil
 }
 
 // Forget prunes old snapshots per the retention policy, keeping the most

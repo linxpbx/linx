@@ -165,6 +165,7 @@ type reportDestination struct {
 	Name       string `json:"name"`
 	OK         bool   `json:"ok"`
 	SnapshotID string `json:"snapshot_id,omitempty"`
+	Size       int64  `json:"size,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 
@@ -199,7 +200,7 @@ func backupReport(ctx context.Context, ts tenantSource, svc *backupschedule.Serv
 		Status: reportStatus(in), Error: in.Error, Destinations: make([]backupschedule.Destination, 0, len(in.Destinations)),
 	}
 	for _, d := range in.Destinations {
-		run.Destinations = append(run.Destinations, backupschedule.Destination{Name: d.Name, OK: d.OK, SnapshotID: d.SnapshotID, Error: d.Error})
+		run.Destinations = append(run.Destinations, backupschedule.Destination{Name: d.Name, OK: d.OK, SnapshotID: d.SnapshotID, Size: d.Size, Error: d.Error})
 	}
 	if err := svc.RecordRun(ctx, run); err != nil {
 		fmt.Fprintf(stderr, "Couldn't record the backup: %v\n", err)

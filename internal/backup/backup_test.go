@@ -117,14 +117,14 @@ func TestInitRepoUsesAPasswordFileNotAnArgument(t *testing.T) {
 func TestBackupParsesTheSnapshotID(t *testing.T) {
 	f := &fakeRestic{stdout: []string{
 		`{"message_type":"status","percent_done":0.5}` + "\n" +
-			`{"message_type":"summary","snapshot_id":"abc123"}` + "\n",
+			`{"message_type":"summary","snapshot_id":"abc123","total_bytes_processed":401234}` + "\n",
 	}}
-	id, err := Backup(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "pair-1", "/tmp/dump.sql")
+	id, size, err := Backup(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "pair-1", "/tmp/dump.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id != "abc123" {
-		t.Fatalf("snapshot id = %q, want abc123", id)
+	if id != "abc123" || size != 401234 {
+		t.Fatalf("snapshot id, size = %q, %d; want abc123, 401234", id, size)
 	}
 	args := f.lastArgs()
 	found := false
@@ -140,14 +140,14 @@ func TestBackupParsesTheSnapshotID(t *testing.T) {
 
 func TestBackupNoSummaryLineIsAnError(t *testing.T) {
 	f := &fakeRestic{stdout: []string{`{"message_type":"status"}` + "\n"}}
-	if _, err := Backup(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "pair-1", "/tmp/dump.sql"); err == nil {
+	if _, _, err := Backup(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "pair-1", "/tmp/dump.sql"); err == nil {
 		t.Fatal("Backup() succeeded with no summary line, want an error")
 	}
 }
 
 func TestBackupCommandFailure(t *testing.T) {
 	f := &fakeRestic{err: []error{errors.New("no space left on device")}}
-	if _, err := Backup(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "pair-1", "/tmp/dump.sql"); err == nil {
+	if _, _, err := Backup(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "pair-1", "/tmp/dump.sql"); err == nil {
 		t.Fatal("Backup() succeeded, want an error")
 	}
 }

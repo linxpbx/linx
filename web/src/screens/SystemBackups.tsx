@@ -444,6 +444,16 @@ function History({ runs }: { runs: BackupRun[] }) {
       },
     },
     {
+      // What was backed up (the database and the keys), from the first
+      // place it reached; the same for every place in one run.
+      id: "size", header: "Size",
+      accessorFn: (r) => r.destinations.find((d) => d.ok && d.size)?.size ?? 0,
+      cell: ({ getValue }) => {
+        const size = Number(getValue() ?? 0);
+        return size > 0 ? formatSize(size) : <span className="text-muted-foreground">—</span>;
+      },
+    },
+    {
       id: "id", header: "Backup ID",
       accessorFn: (r) => r.destinations.find((d) => d.ok && d.snapshot_id)?.snapshot_id?.slice(0, 8) ?? "",
       cell: ({ getValue }) => <span className="font-mono">{String(getValue() ?? "")}</span>,

@@ -5618,6 +5618,10 @@ components:
           type: boolean
         snapshot_id:
           type: string
+        size:
+          type: integer
+          format: int64
+          description: Bytes backed up (the database and the keys), before compression.
         error:
           type: string
 
