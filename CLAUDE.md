@@ -139,3 +139,4 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - After building or changing any screen, use Playwright (web) or XcodeBuild simulator screenshots (iOS) to capture it, compare with docs/ui, and fix differences before reporting done.
 - Use the frontend-design skill for all UI work.
 - If the web UI uses shadcn/ui, set up the shadcn MCP server before building components.
+- No page ever scrolls sideways, at any width, admin or not (owner, 2026-09-27): long text wraps in its column (the shared table cell wraps), and lists drop secondary columns on phones (`DataTable` column `meta: { wide: true }`). `make screens` fails any screenshot whose page or any part of it scrolls sideways, and sweeps every signed-in page at phone width.

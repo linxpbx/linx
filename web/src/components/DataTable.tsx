@@ -11,6 +11,17 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 20;
 
+// A column's `meta.wide` hides it on narrow screens: no page scrolls
+// sideways (owner rule), so a list keeps its essential columns on a phone
+// and shows the rest where there's room.
+declare module "@tanstack/react-table" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData, TValue> {
+    wide?: boolean;
+  }
+}
+const wideOnly = "max-md:hidden";
+
 export function DataTable<T>({ columns, data, onRowClick, emptyState }: {
   columns: ColumnDef<T>[]; data: T[]; onRowClick?: (row: T) => void; emptyState?: ReactNode;
 }) {
@@ -31,7 +42,7 @@ export function DataTable<T>({ columns, data, onRowClick, emptyState }: {
           {table.getHeaderGroups().map((hg) => (
             <TableRow key={hg.id}>
               {hg.headers.map((h) => (
-                <TableHead key={h.id}>
+                <TableHead key={h.id} className={cn(h.column.columnDef.meta?.wide && wideOnly)}>
                   {h.isPlaceholder ? null : h.column.getCanSort() ? (
                     <button type="button" className="flex items-center gap-1 select-none" onClick={h.column.getToggleSortingHandler()}>
                       {flexRender(h.column.columnDef.header, h.getContext())}
@@ -50,7 +61,7 @@ export function DataTable<T>({ columns, data, onRowClick, emptyState }: {
             <TableRow key={row.id} onClick={onRowClick ? () => onRowClick(row.original) : undefined}
               className={cn(onRowClick && "cursor-pointer")}>
               {row.getVisibleCells().map((cell) => (
-                <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                <TableCell key={cell.id} className={cn(cell.column.columnDef.meta?.wide && wideOnly)}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
               ))}
             </TableRow>
           ))}

@@ -108,7 +108,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   let backupSettings: Json = { frequency: opts.backups ? "daily" : "off", time_of_day: 180, day_of_week: 0, day_of_month: 1 };
   const backupRuns = opts.backups ? [
     { id: "r3", trigger: "manual", started_at: ago(30), finished_at: ago(29), status: "partial",
-      destinations: [{ name: "local", ok: true, snapshot_id: "8c1d42e7a0b9", size: 401_234 }, { name: "office-nas", ok: false, error: "connection refused" }] },
+      destinations: [{ name: "local", ok: true, snapshot_id: "8c1d42e7a0b9", size: 401_234 }, { name: "office-nas", ok: false, error: "preparing the repository: restic init: subprocess ssh: ssh: connect to host 192.168.1.250 port 22: Connection refused Fatal: create repository at sftp:backup@192.168.1.250:/srv/linx failed: unable to start the sftp session, error: error receiving version packet from server: server unexpectedly closed connection: unexpected EOF" }] },
     { id: "r2", trigger: "scheduled", started_at: ago(60 * 20), finished_at: ago(60 * 20 - 1), status: "success",
       destinations: [{ name: "local", ok: true, snapshot_id: "4f2a9c1e5d6b", size: 398_870 }, { name: "office-nas", ok: true, snapshot_id: "77e0aa12cc03", size: 398_870 }] },
     { id: "r1", trigger: "scheduled", started_at: ago(60 * 44), finished_at: ago(60 * 44 - 1), status: "failure",

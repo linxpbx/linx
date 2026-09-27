@@ -7,8 +7,30 @@ import { fakeServer } from "./fakes";
 // The account row says "Available" once the phone line has signed in.
 const lineReady = (page: Page) => expect(page.getByTestId("account-menu")).toContainText("Available");
 
-const shot = (page: Page, name: string) =>
-  page.screenshot({ path: `e2e/screenshots/${name}.png`, animations: "disabled", caret: "hide", timeout: 15_000 });
+// No page ever scrolls sideways, at any width (owner rule, 2026-09-27): long
+// text wraps inside its column instead. Every screenshot checks the page and
+// everything on it that could scroll sideways.
+async function noSidewaysScroll(page: Page, name: string) {
+  const offenders = await page.evaluate(() => {
+    const out: string[] = [];
+    const root = document.scrollingElement;
+    if (root && root.scrollWidth > root.clientWidth + 1) out.push(`the page (${root.scrollWidth}px in ${root.clientWidth}px)`);
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("body *"))) {
+      const x = getComputedStyle(el).overflowX;
+      if ((x === "auto" || x === "scroll") && el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1) {
+        const label = el.getAttribute("aria-label") ?? el.dataset.slot ?? el.tagName.toLowerCase();
+        out.push(`${label} (${el.scrollWidth}px in ${el.clientWidth}px): ${(el.textContent ?? "").trim().slice(0, 60)}`);
+      }
+    }
+    return out;
+  });
+  expect(offenders, `${name} scrolls sideways`).toEqual([]);
+}
+
+const shot = async (page: Page, name: string) => {
+  await noSidewaysScroll(page, name);
+  await page.screenshot({ path: `e2e/screenshots/${name}.png`, animations: "disabled", caret: "hide", timeout: 15_000 });
+};
 
 for (const scheme of ["light", "dark"] as const) {
   test.describe(scheme, () => {
@@ -344,6 +366,21 @@ test.describe("setup wizard", () => {
 
 test.describe("phone width", () => {
   test.use({ viewport: { width: 390, height: 844 } });
+  // Every signed-in page at phone width, as an admin, so no page scrolls
+  // sideways (shot checks it).
+  for (const [path, name, ready] of [
+    ["/", "dialer", "Dialer"], ["/team", "team", "Team"], ["/settings", "settings", "Settings"],
+    ["/admin", "admin-home", "Getting started"], ["/admin/people", "people", "People"],
+    ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/backups", "system-backups", "Backups"],
+  ] as const) {
+    test(`no sideways scrolling: ${name}`, async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupStep: 4, backups: true, download: "ready" });
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: ready, exact: true }).first()).toBeVisible();
+      await shot(page, `phone-${name}`);
+    });
+  }
+
   test("sign-in and my account", async ({ page }) => {
     await fakeServer(page);
     await page.goto("/");

@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { navigate } from "@/hooks/useRoute";
+import { plainReason } from "@/lib/backupErrors";
 import { formatSize } from "@/lib/backupFile";
 import { hasScope } from "@/lib/roles";
 import { cn } from "@/lib/utils";
@@ -46,7 +47,7 @@ const SYSTEM_TABS: { label: string; path?: string }[] = [
 
 function SystemTabs({ current }: { current: string }) {
   return (
-    <nav aria-label="System" className="mt-4 flex gap-1 overflow-x-auto border-b">
+    <nav aria-label="System" className="mt-4 flex flex-wrap gap-x-1 border-b">
       {SYSTEM_TABS.map((t) => {
         const active = t.path === current;
         const tab = (
@@ -214,7 +215,7 @@ function Schedule({ canWrite, settings, onSaved }: { canWrite: boolean; settings
       </p>
       <fieldset disabled={!canWrite} className="flex flex-col gap-3">
         <legend className="text-sm font-medium">Back up automatically</legend>
-        <div role="radiogroup" aria-label="How often" className="mt-2 inline-flex w-fit flex-wrap overflow-hidden rounded-md border">
+        <div role="radiogroup" aria-label="How often" className="mt-2 grid w-full grid-cols-2 overflow-hidden rounded-md border sm:inline-flex sm:w-fit">
           {FREQUENCIES.map(([v, label]) => (
             <button key={v} type="button" role="radio" aria-checked={freq === v} onClick={() => setFreq(v)}
               className={cn("px-3 py-1.5 text-sm", freq === v ? "bg-primary text-primary-foreground" : "hover:bg-muted")}>
@@ -399,11 +400,12 @@ function Destinations({ runs }: { runs: BackupRun[] }) {
           {latest.destinations.map((d) => (
             <li key={d.name} className="flex items-start gap-2">
               <Dot tone={d.ok ? "good" : "bad"} className="mt-1.5" />
-              <span>
+              <span className="min-w-0">
                 <span className="font-medium">{d.name}</span>{" "}
                 <span className="text-muted-foreground">
-                  {d.ok ? `worked ${when(latest.finished_at)}` : `failed ${when(latest.finished_at)}: ${d.error ?? ""}`}
+                  {d.ok ? `worked ${when(latest.finished_at)}` : `failed ${when(latest.finished_at)}`}
                 </span>
+                {!d.ok && d.error && <Reason error={d.error} />}
               </span>
             </li>
           ))}
@@ -420,6 +422,29 @@ function Destinations({ runs }: { runs: BackupRun[] }) {
   );
 }
 
+// --- A failure's reason: plain words first, restic's own text under Details ---
+
+function Reason({ name, error }: { name?: string; error: string }) {
+  const [open, setOpen] = useState(false);
+  const plain = plainReason(error);
+  return (
+    <span className="block whitespace-normal text-muted-foreground [overflow-wrap:anywhere]">
+      {name && <span className="font-medium">{name}: </span>}
+      {plain ?? error}
+      {plain && (
+        <>
+          {" "}
+          <button type="button" className="text-link underline-offset-4 hover:underline" aria-expanded={open}
+            onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
+            {open ? "Hide details" : "Details"}
+          </button>
+          {open && <span className="mt-1 block rounded bg-background p-2 font-mono text-xs">{error}</span>}
+        </>
+      )}
+    </span>
+  );
+}
+
 // --- History ---
 
 const resultWords: Record<BackupRun["status"], [string, "good" | "warn" | "bad"]> = {
@@ -429,16 +454,21 @@ const resultWords: Record<BackupRun["status"], [string, "good" | "warn" | "bad"]
 function History({ runs }: { runs: BackupRun[] }) {
   const columns: ColumnDef<BackupRun>[] = [
     { id: "when", header: "When", accessorFn: (r) => r.started_at, cell: ({ row }) => when(row.original.started_at) },
-    { id: "how", header: "How", accessorFn: (r) => (r.trigger === "scheduled" ? "On schedule" : "Back up now") },
+    { id: "how", header: "How", meta: { wide: true }, accessorFn: (r) => (r.trigger === "scheduled" ? "On schedule" : "Back up now") },
     {
       id: "result", header: "Result", accessorFn: (r) => resultWords[r.status][0],
       cell: ({ row }) => {
         const [words, tone] = resultWords[row.original.status];
-        const why = row.original.error ?? row.original.destinations.filter((d) => !d.ok).map((d) => `${d.name}: ${d.error ?? "failed"}`).join("; ");
+        const run = row.original;
+        const failed = run.destinations.filter((d) => !d.ok);
         return (
           <span className="flex items-start gap-2">
             <Dot tone={tone} className="mt-1.5" />
-            <span>{words}{why && <span className="block text-muted-foreground">{why}</span>}</span>
+            <span className="min-w-0 max-w-md whitespace-normal">
+              {words}
+              {run.error && <Reason error={run.error} />}
+              {!run.error && failed.map((d) => <Reason key={d.name} name={d.name} error={d.error ?? "failed"} />)}
+            </span>
           </span>
         );
       },
@@ -446,7 +476,7 @@ function History({ runs }: { runs: BackupRun[] }) {
     {
       // What was backed up (the database and the keys), from the first
       // place it reached; the same for every place in one run.
-      id: "size", header: "Size",
+      id: "size", header: "Size", meta: { wide: true },
       accessorFn: (r) => r.destinations.find((d) => d.ok && d.size)?.size ?? 0,
       cell: ({ getValue }) => {
         const size = Number(getValue() ?? 0);
@@ -454,7 +484,7 @@ function History({ runs }: { runs: BackupRun[] }) {
       },
     },
     {
-      id: "id", header: "Backup ID",
+      id: "id", header: "Backup ID", meta: { wide: true },
       accessorFn: (r) => r.destinations.find((d) => d.ok && d.snapshot_id)?.snapshot_id?.slice(0, 8) ?? "",
       cell: ({ getValue }) => <span className="font-mono">{String(getValue() ?? "")}</span>,
     },
