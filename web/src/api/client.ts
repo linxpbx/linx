@@ -33,12 +33,29 @@ const csrf: Middleware = {
   },
 };
 
+// Every PATCH in the API is a JSON Merge Patch (RFC 7396) and the server
+// accepts it only as application/merge-patch+json (api/openapi.yaml);
+// openapi-fetch sends every body as application/json, so label it here once
+// rather than at each call. Renaming a passkey is the one PATCH that takes
+// plain JSON.
+const PLAIN_JSON_PATCH = /\/api\/v1\/me\/passkeys\//;
+
+export const mergePatch: Middleware = {
+  onRequest({ request }) {
+    if (request.method === "PATCH" && !PLAIN_JSON_PATCH.test(new URL(request.url).pathname)
+      && request.headers.get("Content-Type")?.startsWith("application/json")) {
+      request.headers.set("Content-Type", "application/merge-patch+json");
+    }
+    return request;
+  },
+};
+
 export const api = createClient<paths>({
   baseUrl: window.location.origin,
   credentials: "same-origin",
   fetch: (req) => globalThis.fetch(req),
 });
-api.use(csrf);
+api.use(csrf, mergePatch);
 
 /** The plain-language message from a problem+json error, or a fallback. */
 export function problemMessage(error: unknown, fallback = "Something went wrong. Please try again."): string {

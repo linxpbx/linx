@@ -131,6 +131,13 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     const url = new URL(route.request().url());
     const method = route.request().method();
     const p = url.pathname;
+    // Like the real server's validator (api/openapi.yaml): every PATCH but
+    // a passkey's rename is application/merge-patch+json.
+    const contentType = (await route.request().headerValue("content-type")) ?? "";
+    if (method === "PATCH" && !p.startsWith("/api/v1/me/passkeys/") && !contentType.startsWith("application/merge-patch+json")) {
+      return route.fulfill(json({ type: "about:blank", title: "Bad Request", status: 400, code: "request_invalid",
+        detail: `request body has an error: header Content-Type has unexpected value "${contentType}"` }, 400));
+    }
     if (p === "/api/v1/users" && method === "GET") return route.fulfill(json({ items: people.users }));
     if (p === "/api/v1/users" && method === "POST") {
       const body = route.request().postDataJSON() as { email: string; name: string; role: string; extension_id?: string };
