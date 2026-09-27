@@ -14,3 +14,10 @@ id = "linx-oauth-client-secret"
 description = "Linx OAuth client secret"
 regex = '''linxcs_[A-Za-z0-9_-]{43}'''
 keywords = ["linxcs_"]
+
+# The generated API server embeds api/openapi.yaml as a compressed blob,
+# whose random-looking chunks trip the generic key rule whenever the API
+# changes. The YAML it's generated from is scanned as usual.
+[allowlist]
+description = "Generated code"
+paths = ['''services/control-plane/api/gen\.go''']
