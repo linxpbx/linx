@@ -36,6 +36,10 @@ export interface FakeOptions {
   admin?: boolean;
   setupStep?: number;
   setupCompleted?: boolean;
+  // A system admin (the setup wizard's first screen offers a restore), and
+  // a restore from a backup already under way (docs/BACKUP.md §4).
+  systemAdmin?: boolean;
+  restore?: "pending" | "running" | "failed";
 }
 
 const GOOGLE = { id: "0199c1", kind: "google", name: "Google" };
@@ -91,6 +95,11 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     page.on("console", (m) => console.log(`[page] ${m.type()}: ${m.text()}`));
     page.on("pageerror", (e) => console.log(`[page] uncaught: ${e.stack ?? e.message}`));
   }
+  let restore: Json | undefined = opts.restore && {
+    status: opts.restore, source: "folder", location: "/var/backups/linx", snapshot: "latest", requested_at: new Date().toISOString(),
+    error: opts.restore === "failed" ? "couldn't read that backup: wrong password, or not a backup folder" : undefined,
+  };
+  let restoreFinished = false;
   const json = (body: unknown, status = 200) => ({
     status, contentType: status >= 400 ? "application/problem+json" : "application/json", body: JSON.stringify(body),
   });
@@ -186,7 +195,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       const adminScopes = ["settings:read", "settings:write", "system:read", "calls:read", "routing:read", "users:read", "users:write",
         "extensions:read", "extensions:write", "devices:read", "devices:write", "routing:write"];
       return route.fulfill(json({
-        id: "0199", type: "user", role: "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
+        id: "0199", type: "user", role: opts.systemAdmin ? "system_admin" : "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
         mfa_enabled: opts.pending === "code" || !opts.pending, passkeys: opts.pending === "enroll" ? 0 : opts.pending === "code" ? 1 : PASSKEYS.length,
         has_password: true, password_only: opts.pending === "enroll", recovery_codes_left: opts.pending === "enroll" ? 0 : 8,
@@ -206,6 +215,20 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         ],
         wireguard_profiles: [],
       }));
+    }
+    if (p === "/api/v1/backup-restore" && method === "GET") {
+      // After a restore finishes, this session no longer exists.
+      if (restoreFinished) {
+        return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "unauthenticated", detail: "Sign in." }, 401));
+      }
+      if (!restore) return route.fulfill(json({ status: "none" }));
+      if (restore.status === "pending") restoreFinished = true; // one "waiting" answer, then done
+      return route.fulfill(json(restore));
+    }
+    if (p === "/api/v1/backup-restore" && method === "POST") {
+      const body = route.request().postDataJSON() as { source: "folder" | "destination"; location: string; snapshot: string };
+      restore = { status: "pending", source: body.source, location: body.location, snapshot: body.snapshot, requested_at: new Date().toISOString() };
+      return route.fulfill(json(restore, 202));
     }
     if (p === "/api/v1/setup" && method === "GET") {
       return route.fulfill(json({ step: opts.setupStep ?? 0, completed: !!opts.setupCompleted }));

@@ -17,7 +17,11 @@ import (
 type Service struct {
 	Store  Store
 	Alerts Alerter
-	Now    func() time.Time
+	// Restores and Sealer are for restoring from a backup (restore.go);
+	// nil where only the schedule is needed.
+	Restores RestoreStore
+	Sealer   Sealer
+	Now      func() time.Time
 }
 
 func (s *Service) now() time.Time {
@@ -123,9 +127,29 @@ func (s *Service) History(ctx context.Context, before *uuid.UUID, limit int) ([]
 // Pending decides whether a backup is due right now: a pending "back up
 // now" request always wins (trigger "manual"); otherwise the schedule's own
 // cadence, if the most recent run started before the current period's
-// scheduled instant (docs/BACKUP.md §5). No principal: called from the
+// scheduled instant (docs/BACKUP.md §5). A pending restore comes before
+// both (trigger "restore", docs/BACKUP.md §4). No principal: called from the
 // hidden CLI subcommand linx-backup-agent polls, which has no session.
 func (s *Service) Pending(ctx context.Context) (due bool, trigger string, err error) {
+	if s.Restores != nil {
+		// A restore waiting in the setup wizard goes first, and no backup
+		// runs while one is under way (it would back up a database that's
+		// about to be replaced).
+		tenant, err := s.Store.DefaultTenant(ctx)
+		if err != nil {
+			return false, "", err
+		}
+		r, found, err := s.Restores.Restore(ctx, tenant)
+		if err != nil {
+			return false, "", err
+		}
+		switch {
+		case found && r.Status == RestorePending:
+			return true, TriggerRestore, nil
+		case found && s.displayed(r).Status == RestoreRunning:
+			return false, "", nil
+		}
+	}
 	sched, err := s.Store.Schedule(ctx)
 	if err != nil {
 		return false, "", err

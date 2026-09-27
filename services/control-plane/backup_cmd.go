@@ -22,9 +22,12 @@ import (
 const backupCmdUsage = `Usage:
   linx-control-plane backup pending
   linx-control-plane backup report
+  linx-control-plane backup restore-take
+  linx-control-plane backup restore-failed
+  linx-control-plane backup restore-done
 
-pending  Prints "run manual", "run scheduled" or "skip": whether a backup is
-         due right now (docs/BACKUP.md §5, §8 step 3). linx-backup-agent
+pending  Prints "run restore", "run manual", "run scheduled" or "skip":
+         whether a restore is waiting or a backup is due right now (docs/BACKUP.md §5, §8 step 3). linx-backup-agent
          runs this through docker exec, the same trust as linx user;
          nothing else calls it.
 report   Reads a completed run's outcome as JSON from stdin (trigger,
@@ -32,6 +35,12 @@ report   Reads a completed run's outcome as JSON from stdin (trigger,
          linx backup --json prints, with those three fields added) and
          records it: history, the "backup failure" alert, clearing any
          pending "back up now" request.
+restore-take    Prints the waiting restore request as JSON, password
+                included, and marks it running (docs/BACKUP.md §4); prints
+                nothing if none is waiting.
+restore-failed  Reads {"id", "error"} from stdin: that request failed.
+restore-done    Reads a finished restore's details from stdin and writes
+                them to the (restored) database's audit log.
 `
 
 // runBackupCommand runs `backup ...` against the database from the
@@ -66,13 +75,19 @@ func runBackupCommand(ctx context.Context, args []string, stdin io.Reader, stdou
 	sealer := dbsecret.NewSealer(encKey)
 	alertSender := &alert.Sender{Client: guardedClient, Sealer: sealer, Now: time.Now}
 	engine := &alert.Engine{Store: st, Sender: alertSender}
-	svc := &backupschedule.Service{Store: st, Alerts: engine, Now: time.Now}
+	svc := &backupschedule.Service{Store: st, Alerts: engine, Restores: st, Sealer: sealer, Now: time.Now}
 
 	switch args[0] {
 	case "pending":
 		return backupPending(ctx, svc, stdout, stderr)
 	case "report":
 		return backupReport(ctx, st, svc, stdin, stdout, stderr)
+	case "restore-take":
+		return restoreTake(ctx, svc, stdout, stderr)
+	case "restore-failed":
+		return restoreFailed(ctx, svc, stdin, stdout, stderr)
+	case "restore-done":
+		return restoreDone(ctx, st, svc, stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown backup command %q.\n\n%s", args[0], backupCmdUsage)
 		return 2
@@ -175,4 +190,78 @@ func reportStatus(in reportInput) string {
 	default:
 		return backupschedule.StatusPartial
 	}
+}
+
+// restoreRequestJSON is restore-take's output: exactly what
+// linx-backup-agent needs to run linx restore (internal/backupagent's
+// restoreRequest reads the same shape).
+type restoreRequestJSON struct {
+	ID          uuid.UUID `json:"id"`
+	Source      string    `json:"source"`
+	Location    string    `json:"location"`
+	Snapshot    string    `json:"snapshot"`
+	Password    string    `json:"password"`
+	RequestedBy string    `json:"requested_by"`
+}
+
+func restoreTake(ctx context.Context, svc *backupschedule.Service, stdout, stderr io.Writer) int {
+	r, found, err := svc.TakeRestore(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "Couldn't take the restore request: %v\n", err)
+		return 1
+	}
+	if !found {
+		return 0
+	}
+	if err := json.NewEncoder(stdout).Encode(restoreRequestJSON{
+		ID: r.ID, Source: r.Source, Location: r.Location, Snapshot: r.Snapshot, Password: r.Password, RequestedBy: r.RequestedBy,
+	}); err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func restoreFailed(ctx context.Context, svc *backupschedule.Service, stdin io.Reader, stdout, stderr io.Writer) int {
+	var in struct {
+		ID    uuid.UUID `json:"id"`
+		Error string    `json:"error"`
+	}
+	if err := json.NewDecoder(stdin).Decode(&in); err != nil || in.ID == uuid.Nil || in.Error == "" {
+		fmt.Fprintln(stderr, `Give {"id": "...", "error": "..."} on stdin.`)
+		return 2
+	}
+	if err := svc.FailRestore(ctx, in.ID, in.Error); err != nil {
+		fmt.Fprintf(stderr, "Couldn't record the failed restore: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Recorded the failed restore.")
+	return 0
+}
+
+func restoreDone(ctx context.Context, ts tenantSource, svc *backupschedule.Service, stdin io.Reader, stdout, stderr io.Writer) int {
+	var in struct {
+		Source      string    `json:"source"`
+		Location    string    `json:"location"`
+		SnapshotID  string    `json:"snapshot_id"`
+		SnapshotAt  time.Time `json:"snapshot_time"`
+		RequestedBy string    `json:"requested_by"`
+	}
+	if err := json.NewDecoder(stdin).Decode(&in); err != nil || in.SnapshotID == "" {
+		fmt.Fprintln(stderr, "Give the finished restore's details as JSON on stdin.")
+		return 2
+	}
+	tenant, err := ts.DefaultTenant(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "Can't read the Linx database: %v\n", err)
+		return 1
+	}
+	if err := svc.RecordRestored(ctx, tenant, backupschedule.RestoredInfo{
+		Source: in.Source, Location: in.Location, SnapshotID: in.SnapshotID, SnapshotAt: in.SnapshotAt, RequestedBy: in.RequestedBy,
+	}); err != nil {
+		fmt.Fprintf(stderr, "Couldn't record the restore: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Recorded the restore.")
+	return 0
 }

@@ -23,7 +23,7 @@ Commands:
   trunk     Add, list, test or remove phone lines to the outside world (run with sudo; see linx trunk help)
   route     Show what would happen to an outgoing call, without making it (run with sudo; see linx route help)
   backup    Back up the database and the keys a restore needs (run with sudo; see linx backup help)
-  restore-secrets  Restore a backup's encryption keys onto a fresh server (run with sudo; see linx restore-secrets help)
+  restore   Put everything back from a backup (run with sudo; see linx restore help)
   version   Show the Linx version
   help      Show this help
 `
@@ -58,8 +58,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runRoute(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
 	case "backup":
 		return runBackup(context.Background(), args[1:], stdout, stderr, realBackupEnv())
-	case "restore-secrets":
-		return runRestoreSecrets(context.Background(), args[1:], stdout, stderr, realRestoreSecretsEnv())
+	case "restore":
+		return runRestore(context.Background(), args[1:], stdout, stderr, realRestoreEnv())
 	default:
 		fmt.Fprintf(stderr, "linx: unknown command %q\n\n%s", args[0], usage)
 		return 2

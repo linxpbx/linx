@@ -94,3 +94,44 @@ func (s *Server) RequestBackup(ctx context.Context, _ RequestBackupRequestObject
 	}
 	return RequestBackup202Response{}, nil
 }
+
+func toRestoreStatus(r backupschedule.Restore) RestoreStatus {
+	out := RestoreStatus{Status: RestoreStatusStatus(r.Status)}
+	if r.Status == backupschedule.RestoreNone {
+		return out
+	}
+	src := RestoreStatusSource(r.Source)
+	out.Source, out.Location, out.Snapshot, out.RequestedAt = &src, &r.Location, &r.Snapshot, &r.RequestedAt
+	if r.Error != "" {
+		out.Error = &r.Error
+	}
+	return out
+}
+
+func (s *Server) GetRestore(ctx context.Context, _ GetRestoreRequestObject) (GetRestoreResponseObject, error) {
+	r, err := s.backups.RestoreStatus(ctx)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return GetRestoredefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return GetRestore200JSONResponse(toRestoreStatus(r)), nil
+}
+
+func (s *Server) RequestRestore(ctx context.Context, req RequestRestoreRequestObject) (RequestRestoreResponseObject, error) {
+	in := backupschedule.RestoreInput{Source: string(req.Body.Source), Location: req.Body.Location, Password: req.Body.Password}
+	if req.Body.Snapshot != nil {
+		in.Snapshot = *req.Body.Snapshot
+	}
+	r, err := s.backups.RequestRestore(ctx, in)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return RequestRestoredefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return RequestRestore202JSONResponse(toRestoreStatus(r)), nil
+}

@@ -241,6 +241,45 @@ test.describe("setup wizard", () => {
     await expect(page.getByRole("button", { name: "Next" })).toBeEnabled();
   });
 
+  test("start: fresh or restore", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 0 });
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "How do you want to start?" })).toBeVisible();
+    await shot(page, "setup-wizard-start");
+    await page.getByRole("button", { name: /Restore from a backup/ }).click();
+    await expect(page.getByRole("heading", { name: "Restore from a backup" })).toBeVisible();
+    const restore = page.getByRole("button", { name: "Restore", exact: true });
+    await expect(restore).toBeDisabled();
+    await page.getByLabel("The backup's password").fill("correct horse battery staple");
+    await page.getByRole("checkbox", { name: "I understand, replace everything" }).click();
+    await expect(restore).toBeEnabled();
+    await shot(page, "setup-wizard-restore");
+    await page.getByRole("radio", { name: /A backup place set up on this server/ }).click();
+    await page.getByRole("radio", { name: "An older one" }).click();
+    await expect(restore).toBeDisabled();
+    await page.getByLabel("Its name").fill("office-nas");
+    await page.getByLabel("Backup ID").fill("4f2a9c1e");
+    await shot(page, "setup-wizard-restore-destination");
+    await restore.click();
+    await expect(page.getByRole("heading", { name: "Starting the restore" })).toBeVisible();
+    await shot(page, "setup-wizard-restore-waiting");
+    await expect(page.getByRole("heading", { name: "Restored" })).toBeVisible({ timeout: 10_000 });
+    await shot(page, "setup-wizard-restore-done");
+  });
+
+  test("restore: failed, and under way after a reload", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 0, restore: "failed" });
+    await page.goto("/setup");
+    await expect(page.getByRole("alert")).toContainText("wrong password");
+    await expect(page.getByRole("textbox", { name: "Folder" })).toHaveValue("/var/backups/linx");
+    await shot(page, "setup-wizard-restore-failed");
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 0, restore: "running" });
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "Restoring your backup" })).toBeVisible();
+    await shot(page, "setup-wizard-restore-running");
+  });
+
   test("numbers", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, setupStep: 2 });
     await page.goto("/setup");

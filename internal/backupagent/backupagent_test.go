@@ -143,3 +143,84 @@ func TestParsePending(t *testing.T) {
 		}
 	}
 }
+
+const takenRestore = `{"id":"0192f000-0000-7000-8000-000000000001","source":"folder","location":"/var/backups/linx","snapshot":"latest","password":"pw-123","requested_by":"user:u1"}`
+
+func TestOnceRestoresAndRecordsIt(t *testing.T) {
+	f := &fakeExec{outputs: [][]byte{
+		[]byte("run restore\n"),
+		[]byte(takenRestore + "\n"),
+		[]byte(`{"ok":true,"changed":true,"snapshot_id":"abcdef0123","snapshot_time":"2026-09-20T03:00:00Z"}` + "\n"),
+		[]byte("Recorded the restore.\n"),
+	}}
+	env := Env{Exec: f.run, LinxPath: "/usr/local/bin/linx"}
+	if err := env.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.calls) != 4 {
+		t.Fatalf("calls = %+v", f.calls)
+	}
+	run := f.calls[2]
+	if run.name != "/usr/local/bin/linx" || string(run.stdin) != "pw-123" {
+		t.Errorf("linx restore call = %+v, want the password on stdin", run)
+	}
+	want := []string{"restore", "--yes", "--json", "--password-stdin", "--path", "/var/backups/linx", "latest"}
+	if len(run.args) != len(want) {
+		t.Fatalf("args = %v, want %v", run.args, want)
+	}
+	for i := range want {
+		if run.args[i] != want[i] {
+			t.Fatalf("args = %v, want %v", run.args, want)
+		}
+	}
+	for _, a := range run.args {
+		if a == "pw-123" {
+			t.Error("the password is a command-line argument")
+		}
+	}
+	done := f.calls[3]
+	if done.args[len(done.args)-1] != "restore-done" {
+		t.Fatalf("last call = %v", done.args)
+	}
+	var rec map[string]any
+	if err := json.Unmarshal(done.stdin, &rec); err != nil || rec["snapshot_id"] != "abcdef0123" || rec["requested_by"] != "user:u1" {
+		t.Errorf("restore-done got %s", done.stdin)
+	}
+	if _, leaked := rec["password"]; leaked {
+		t.Error("the password was reported back")
+	}
+}
+
+func TestOnceReportsAFailedRestore(t *testing.T) {
+	f := &fakeExec{
+		outputs: [][]byte{
+			[]byte("run restore\n"),
+			[]byte(takenRestore + "\n"),
+			[]byte(`{"ok":false,"changed":false,"error":"couldn't read that backup: wrong password"}` + "\n"),
+			[]byte("Recorded the failed restore.\n"),
+		},
+		errs: []error{nil, nil, errors.New("exit status 1")},
+	}
+	env := Env{Exec: f.run, LinxPath: "linx"}
+	if err := env.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	failed := f.calls[3]
+	var rec map[string]string
+	if failed.args[len(failed.args)-1] != "restore-failed" || json.Unmarshal(failed.stdin, &rec) != nil ||
+		rec["error"] != "couldn't read that backup: wrong password" || rec["id"] == "" {
+		t.Fatalf("restore-failed call = %v %s", failed.args, failed.stdin)
+	}
+}
+
+func TestOnceRefusesAnUnsafeRestoreLocation(t *testing.T) {
+	bad := `{"id":"0192f000-0000-7000-8000-000000000001","source":"folder","location":"rclone:x:y","snapshot":"latest","password":"pw"}`
+	f := &fakeExec{outputs: [][]byte{[]byte("run restore\n"), []byte(bad), []byte("ok")}}
+	env := Env{Exec: f.run, LinxPath: "linx"}
+	if err := env.Once(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.calls) != 3 || f.calls[2].args[len(f.calls[2].args)-1] != "restore-failed" {
+		t.Fatalf("calls = %+v, want take then restore-failed, never linx restore", f.calls)
+	}
+}

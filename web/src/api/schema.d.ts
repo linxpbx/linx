@@ -211,9 +211,33 @@ export interface paths {
         put?: never;
         /**
          * Back up now
-         * @description Queues a run against every configured destination; linx-backup-agent picks it up within a few minutes and reports back, appearing in the history (docs/BACKUP.md §1).
+         * @description Queues a run against every configured destination; linx-backup-agent picks it up within a minute and reports back, appearing in the history (docs/BACKUP.md §1).
          */
         post: operations["requestBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/backup-restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How a restore from a backup is going
+         * @description The setup wizard's "Restore from a backup" (docs/BACKUP.md §4). status none: nothing asked for; pending: waiting for the server's backup helper (linx-backup-agent), which checks once a minute; running: restoring; failed: see error. A finished restore replaces the whole database, sessions included, so the wizard learns it worked when this starts answering 401.
+         */
+        get: operations["getRestore"];
+        put?: never;
+        /**
+         * Restore everything from a backup
+         * @description Replaces every person, setting and key on this server with a backup's. Only a system admin's own session, after "confirm it's you", and only before setup is finished (`restore_after_setup` otherwise; `sudo linx restore` on the server works any time). The password is kept sealed until the server's backup helper picks the request up (within a minute), then deleted.
+         */
+        post: operations["requestRestore"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3272,6 +3296,30 @@ export interface components {
             items: components["schemas"]["BackupRun"][];
             next_cursor?: string;
         };
+        RestoreRequest: {
+            /**
+             * @description folder, a backup folder on the server; destination, one set up there with `linx backup destination add`.
+             * @enum {string}
+             */
+            source: "folder" | "destination";
+            /** @description The folder's full path (starting with /), or the destination's name. */
+            location: string;
+            /** @description "latest" (the default) or a backup id. */
+            snapshot?: string;
+            /** @description The backup's password (shown once when its destination was set up). */
+            password: string;
+        };
+        RestoreStatus: {
+            /** @enum {string} */
+            status: "none" | "pending" | "running" | "failed";
+            /** @enum {string} */
+            source?: "folder" | "destination";
+            location?: string;
+            snapshot?: string;
+            error?: string;
+            /** Format: date-time */
+            requested_at?: string;
+        };
         SystemStatus: {
             services: {
                 [key: string]: "ok" | "degraded" | "down";
@@ -3778,6 +3826,52 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The restore request, if any. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    requestRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreRequest"];
+            };
+        };
+        responses: {
+            /** @description Asked for. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreStatus"];
+                };
             };
             default: components["responses"]["Problem"];
         };

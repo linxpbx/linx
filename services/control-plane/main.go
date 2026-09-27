@@ -197,7 +197,7 @@ func main() {
 	// Backup schedule and history (docs/BACKUP.md §5, §8 step 3): this
 	// process never runs restic itself, only decides when a run is due and
 	// records what linx-backup-agent reports (services/control-plane/backup_cmd.go).
-	backups := &backupschedule.Service{Store: st, Alerts: engine, Now: time.Now}
+	backups := &backupschedule.Service{Store: st, Alerts: engine, Restores: st, Sealer: sealer, Now: time.Now}
 
 	// People accounts and sessions (docs/WEB.md §4): the "someone is
 	// guessing a password" alert reuses this same engine, and sign-in

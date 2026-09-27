@@ -32,6 +32,9 @@ const (
 const (
 	TriggerManual    = "manual"
 	TriggerScheduled = "scheduled"
+	// TriggerRestore is Pending's answer when a restore is waiting; never
+	// a Run's trigger.
+	TriggerRestore = "restore"
 )
 
 // Status values: how a run went.

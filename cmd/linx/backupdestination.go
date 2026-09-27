@@ -67,6 +67,10 @@ func runBackupDestinationAdd(ctx context.Context, args []string, stdout, stderr 
 		return 2
 	}
 	name := fs.Arg(0)
+	if err := backup.CheckDestinationName(name); err != nil {
+		fmt.Fprintf(stderr, "%s.\n", capitalizeFirst(err.Error()))
+		return 1
+	}
 
 	m := env.destinationsManifest()
 	if _, found, err := m.Find(name); err != nil {
@@ -260,4 +264,11 @@ func writeSFTPKeypair(m backup.Manifest, name string) (publicKeyLine string, err
 		return "", errors.New("empty public key")
 	}
 	return string(line), nil
+}
+
+func capitalizeFirst(s string) string {
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
+		return s
+	}
+	return string(s[0]-'a'+'A') + s[1:]
 }

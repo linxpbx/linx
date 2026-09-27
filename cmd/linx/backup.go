@@ -56,7 +56,7 @@ uses this to report the run back to the control plane) and never shows a
 newly generated password — run without it by hand at least once per
 destination to see it.
 
-(Flags before NAME, same as linx restore-secrets: Go's flag parser stops at
+(Flags before NAME, same as linx restore: Go's flag parser stops at
 the first non-flag argument.)
 
 With no destination configured, backs up to ` + defaultBackupRepo + ` only.

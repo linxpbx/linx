@@ -160,6 +160,8 @@ The existing 1C setup-link page, with passkeys added:
 
 A full-page wizard (no sidebar), resumable: leaving and coming back returns to the last unfinished step.
 
+**Before step 1, for a system admin on an untouched install** (docs/BACKUP.md §4, added with backup step 4): "How do you want to start?" — two cards, **Set up fresh** (Recommended) and **Restore from a backup**. The restore screen (same header, no progress bar): where is the backup (a folder on this server, default `/var/backups/linx`, Recommended; or a backup place set up on this server, by name), which backup (the newest, Recommended; or an older one by ID), the backup's password, and a "This replaces everything on this server" warning box whose "I understand, replace everything" checkbox enables **Restore** (confirm it's you first). Then a progress page (waiting for the server → restoring → Linx restarting) and "Restored — Sign in". A failed attempt comes back to the form with the reason at the top and "Nothing on this server was changed". Screenshots: `setup-wizard-start`, `setup-wizard-restore*`.
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ [logo]   Set up Linx                          Finish later → │

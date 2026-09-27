@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -49,7 +50,7 @@ type Target struct {
 const KeysDirName = "linx-keys"
 
 // StagingDir is where `linx backup` stages the database dump and secret
-// files before handing them to restic, and where `linx restore-secrets`
+// files before handing them to restic, and where `linx restore`
 // asks restic to extract them back to. A fixed path, not a random temp
 // directory: restic stores the exact path it was given, and a restore
 // often runs on a different, freshly installed server that only shares
@@ -193,43 +194,53 @@ func Forget(ctx context.Context, runner Runner, t Target, keepLast int) error {
 // snapshotMeta is restic snapshots --json's per-snapshot shape (the fields
 // this package reads).
 type snapshotMeta struct {
-	ShortID string   `json:"short_id"`
-	Tags    []string `json:"tags"`
+	ID      string    `json:"id"`
+	ShortID string    `json:"short_id"`
+	Time    time.Time `json:"time"`
+	Tags    []string  `json:"tags"`
 }
 
-// PairIDForSnapshot returns the pair id a snapshot was tagged with, so
-// restore can compare it against what's already on disk (docs/BACKUP.md
-// §4) before overwriting anything.
-func PairIDForSnapshot(ctx context.Context, runner Runner, t Target, snapshotID string) (string, error) {
+// Snapshot is one backup in a repository.
+type Snapshot struct {
+	// ID is restic's full snapshot id: "latest" resolved, so a restore
+	// works on exactly the backup it looked at.
+	ID     string
+	Time   time.Time
+	PairID string
+}
+
+// FindSnapshot looks up snapshotID ("latest" or an id) and returns it with
+// its pair id. It fails for a snapshot with no pair tag (not a Linx backup).
+func FindSnapshot(ctx context.Context, runner Runner, t Target, snapshotID string) (Snapshot, error) {
 	pf, cleanup, err := passwordFile(t.Password)
 	if err != nil {
-		return "", err
+		return Snapshot{}, err
 	}
 	defer cleanup()
 	args := append(resticArgs(t, pf), "snapshots", snapshotID, "--json")
 	var stdout bytes.Buffer
 	if err := runner(ctx, &stdout, t.Env, "restic", args...); err != nil {
-		return "", fmt.Errorf("restic snapshots: %w", err)
+		return Snapshot{}, fmt.Errorf("restic snapshots: %w", err)
 	}
 	var snaps []snapshotMeta
 	if err := json.Unmarshal(stdout.Bytes(), &snaps); err != nil || len(snaps) == 0 {
-		return "", fmt.Errorf("snapshot %s not found", snapshotID)
+		return Snapshot{}, fmt.Errorf("backup %s not found", snapshotID)
 	}
-	for _, tag := range snaps[0].Tags {
+	m := snaps[len(snaps)-1]
+	for _, tag := range m.Tags {
 		if id, ok := strings.CutPrefix(tag, PairTag+":"); ok {
-			return id, nil
+			return Snapshot{ID: m.ID, Time: m.Time, PairID: id}, nil
 		}
 	}
-	return "", fmt.Errorf("snapshot %s has no pair id (not a Linx backup?)", snapshotID)
+	return Snapshot{}, fmt.Errorf("backup %s isn't a Linx backup (it has no pair id)", snapshotID)
 }
 
-// RestoreKeys extracts the keys directory (only) from a snapshot into
-// target (the two secret files end up at target+KeysPath, restic's own
-// restore-preserves-the-original-path behaviour) — this function never
-// touches the real secrets path itself, so a bug here can't silently
-// corrupt a running system's credentials mid-copy; the caller copies the
-// individual files out from there once it's satisfied.
-func RestoreKeys(ctx context.Context, runner Runner, t Target, snapshotID, target string) error {
+// RestoreFiles extracts a snapshot's staging directory — the database dump
+// and the keys, always together (docs/BACKUP.md §2) — into target: they
+// land at target+StagingDir, restic keeping each file's original path. It
+// never touches the real secrets path or the database itself; the caller
+// puts them in place once it's satisfied.
+func RestoreFiles(ctx context.Context, runner Runner, t Target, snapshotID, target string) error {
 	pf, cleanup, err := passwordFile(t.Password)
 	if err != nil {
 		return err
@@ -238,7 +249,7 @@ func RestoreKeys(ctx context.Context, runner Runner, t Target, snapshotID, targe
 	if err := os.MkdirAll(target, 0o700); err != nil {
 		return err
 	}
-	args := append(resticArgs(t, pf), "restore", snapshotID, "--target", target, "--include", filepath.ToSlash(KeysPath))
+	args := append(resticArgs(t, pf), "restore", snapshotID, "--target", target, "--include", filepath.ToSlash(StagingDir))
 	if err := runner(ctx, nil, t.Env, "restic", args...); err != nil {
 		return fmt.Errorf("restic restore: %w", err)
 	}

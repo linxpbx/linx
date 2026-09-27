@@ -18,6 +18,7 @@ import { avoidedRange, defaultRanges, pad } from "@/lib/numbering";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
 import { ECHO_TEST } from "@/phone/line";
 import { CallPanel } from "./CallPanel";
+import { RestoreFromBackup, StartChoice, type RestoreStatus } from "./SetupRestore";
 
 type Role = components["schemas"]["Role"];
 type NumberCategory = components["schemas"]["NumberCategory"];
@@ -417,6 +418,10 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   const [step, setStep] = useState(1);
   const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState(false);
+  // A system admin on a fresh install first chooses: set up fresh, or
+  // restore from a backup (docs/BACKUP.md §4).
+  const [start, setStart] = useState<"choose" | "fresh" | "restore">("fresh");
+  const [restore, setRestore] = useState<RestoreStatus | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -438,6 +443,15 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
         api.GET("/api/v1/setup"), api.GET("/api/v1/settings"),
       ]);
       if (setup?.completed) { setDone(true); setLoaded(true); return; }
+      if (me.role === "system_admin") {
+        const { data: r } = await api.GET("/api/v1/backup-restore");
+        if (r && r.status !== "none") {
+          setRestore(r);
+          setStart("restore");
+        } else if (!setup?.step) {
+          setStart("choose");
+        }
+      }
       if (settings) {
         setSiteKind(settings.site_kind);
         setDigits(settings.extension_digits);
@@ -451,7 +465,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
       setStep(Math.min(TOTAL_STEPS, Math.max(1, (setup?.step ?? 0) + 1)));
       setLoaded(true);
     })();
-  }, []);
+  }, [me.role]);
 
   useEffect(() => {
     if (step !== 4 || loaded === false) return;
@@ -547,6 +561,13 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
 
   if (!loaded) return <div className="min-h-dvh" aria-busy="true" />;
   if (done) return <DoneStep onGoHome={onExit} />;
+  if (start === "choose") {
+    return <StartChoice onFresh={() => setStart("fresh")} onRestore={() => setStart("restore")} onFinishLater={onExit} />;
+  }
+  if (start === "restore") {
+    return <RestoreFromBackup me={me} initial={restore} onFinishLater={onExit}
+      onBack={() => { setRestore(undefined); setStart("choose"); }} />;
+  }
 
   return (
     <>

@@ -169,7 +169,14 @@ func (m Manifest) Target(d Destination) (Target, error) {
 	if err != nil {
 		return Target{}, fmt.Errorf("reading %s's repository password: %w", d.Name, err)
 	}
-	t := Target{Repo: d.Repo(), Password: strings.TrimSpace(string(pw))}
+	return m.TargetWithPassword(d, strings.TrimSpace(string(pw)))
+}
+
+// TargetWithPassword is Target with a password given rather than read from
+// d's own file: restoring from a repository another server made, whose
+// password is the one that server showed (docs/BACKUP.md §4).
+func (m Manifest) TargetWithPassword(d Destination, password string) (Target, error) {
+	t := Target{Repo: d.Repo(), Password: password}
 	switch d.Kind {
 	case KindSFTP:
 		cmd := d.sftpCommand(m.SFTPKeyPath(d.Name), m.SFTPKnownHostsPath(d.Name))

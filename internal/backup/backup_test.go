@@ -159,46 +159,79 @@ func TestForgetKeepsLast(t *testing.T) {
 	}
 }
 
-func TestPairIDForSnapshot(t *testing.T) {
-	f := &fakeRestic{stdout: []string{`[{"short_id":"abc123","tags":["other:x","pair:pair-42"]}]`}}
-	id, err := PairIDForSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "abc123")
+func TestFindSnapshot(t *testing.T) {
+	f := &fakeRestic{stdout: []string{`[{"id":"abc123full","short_id":"abc123","time":"2026-09-20T03:00:00Z","tags":["other:x","pair:pair-42"]}]`}}
+	snap, err := FindSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "latest")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id != "pair-42" {
-		t.Fatalf("pair id = %q, want pair-42", id)
+	if snap.PairID != "pair-42" || snap.ID != "abc123full" || snap.Time.IsZero() {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	if args := f.lastArgs(); !slices.Contains(args, "latest") {
+		t.Fatalf("args = %v, want the snapshot asked for", args)
 	}
 }
 
-func TestPairIDForSnapshotMissingTag(t *testing.T) {
-	f := &fakeRestic{stdout: []string{`[{"short_id":"abc123","tags":["other:x"]}]`}}
-	if _, err := PairIDForSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "abc123"); err == nil {
-		t.Fatal("PairIDForSnapshot() succeeded for a snapshot with no pair tag, want an error")
+func TestFindSnapshotMissingTag(t *testing.T) {
+	f := &fakeRestic{stdout: []string{`[{"id":"abc123","tags":["other:x"]}]`}}
+	if _, err := FindSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "abc123"); err == nil {
+		t.Fatal("FindSnapshot() succeeded for a snapshot with no pair tag, want an error")
 	}
 }
 
-func TestPairIDForSnapshotNotFound(t *testing.T) {
+func TestFindSnapshotNotFound(t *testing.T) {
 	f := &fakeRestic{stdout: []string{`[]`}}
-	if _, err := PairIDForSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "nope"); err == nil {
-		t.Fatal("PairIDForSnapshot() succeeded for an unknown snapshot, want an error")
+	if _, err := FindSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "nope"); err == nil {
+		t.Fatal("FindSnapshot() succeeded for an unknown snapshot, want an error")
 	}
 }
 
-func TestRestoreKeysOnlyIncludesTheKeysDir(t *testing.T) {
+func TestRestoreFilesIncludesOnlyTheStagingDir(t *testing.T) {
 	f := &fakeRestic{}
 	dir := t.TempDir()
-	if err := RestoreKeys(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "abc123", dir); err != nil {
+	if err := RestoreFiles(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "abc123", dir); err != nil {
 		t.Fatal(err)
 	}
 	args := f.lastArgs()
-	found := false
-	for i, a := range args {
-		if a == "--include" && args[i+1] == KeysPath {
-			found = true
+	i := slices.Index(args, "--include")
+	if i < 0 || args[i+1] != StagingDir || !slices.Contains(args, dir) {
+		t.Fatalf("args = %v, want --include %s and --target %s", args, StagingDir, dir)
+	}
+}
+
+func TestCheckRestoreSource(t *testing.T) {
+	for _, tc := range []struct {
+		source, location string
+		ok               bool
+	}{
+		{SourceFolder, "/var/backups/linx", true},
+		{SourceFolder, "/", true},
+		{SourceFolder, "var/backups", false},
+		{SourceFolder, "sftp:user@host:/x", false},
+		{SourceFolder, "rclone:remote:x", false},
+		{SourceFolder, "/var/../etc", false},
+		{SourceFolder, "/var/backups/", false},
+		{SourceFolder, "/var/back\nups", false},
+		{SourceFolder, "/var/back\x00ups", false},
+		{SourceDestination, "nas", true},
+		{SourceDestination, "office-nas_2", true},
+		{SourceDestination, "../x", false},
+		{SourceDestination, "", false},
+		{SourceDestination, "-x", false},
+		{"s3", "x", false},
+	} {
+		if err := CheckRestoreSource(tc.source, tc.location); (err == nil) != tc.ok {
+			t.Errorf("CheckRestoreSource(%q, %q) = %v, want ok=%v", tc.source, tc.location, err, tc.ok)
 		}
 	}
-	if !found {
-		t.Fatalf("--include %s missing from args: %v", KeysPath, args)
+}
+
+func TestCheckSnapshot(t *testing.T) {
+	for s, ok := range map[string]bool{"latest": true, "abc12345": true, "ABC12345": false, "abc": false, "latest;rm": false, "": false} {
+		if err := CheckSnapshot(s); (err == nil) != ok {
+			t.Errorf("CheckSnapshot(%q) = %v, want ok=%v", s, err, ok)
+		}
 	}
 }
 

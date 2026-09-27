@@ -18,6 +18,10 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+
+	"linxpbx.com/linx/internal/backup"
 )
 
 // ControlPlaneContainer and ControlPlaneBinary are the same container and
@@ -100,6 +104,9 @@ func (e Env) Once(ctx context.Context) error {
 	if !due {
 		return nil
 	}
+	if trigger == "restore" {
+		return e.restore(ctx)
+	}
 	log.Info("a backup is due; running it", "trigger", trigger)
 
 	started := e.now()
@@ -135,4 +142,93 @@ func parsePending(out []byte) (trigger string, due bool) {
 		return "", false
 	}
 	return strings.TrimSpace(rest), true
+}
+
+// restoreRequest is `backup restore-take`'s output
+// (services/control-plane/backup_cmd.go's restoreRequestJSON).
+type restoreRequest struct {
+	ID          uuid.UUID `json:"id"`
+	Source      string    `json:"source"`
+	Location    string    `json:"location"`
+	Snapshot    string    `json:"snapshot"`
+	Password    string    `json:"password"`
+	RequestedBy string    `json:"requested_by"`
+}
+
+// restoreResult is linx restore --json's output (cmd/linx's restoreResult).
+type restoreResult struct {
+	OK           bool      `json:"ok"`
+	Error        string    `json:"error"`
+	Changed      bool      `json:"changed"`
+	SnapshotID   string    `json:"snapshot_id"`
+	SnapshotTime time.Time `json:"snapshot_time"`
+}
+
+// restore takes the setup wizard's restore request, runs linx restore with
+// it (the password on stdin, never an argument) and reports back: a
+// failure to the request itself, so the wizard can show it; a success to
+// the restored database's audit log (the request was in the database it
+// replaced). docs/BACKUP.md §4.
+func (e Env) restore(ctx context.Context) error {
+	log := e.log()
+	cp := func(stdin []byte, args ...string) ([]byte, error) {
+		base := []string{"exec", ControlPlaneContainer, ControlPlaneBinary, "backup"}
+		if stdin != nil {
+			base = []string{"exec", "-i", ControlPlaneContainer, ControlPlaneBinary, "backup"}
+		}
+		return e.Exec(ctx, stdin, "docker", append(base, args...)...)
+	}
+	out, err := cp(nil, "restore-take")
+	if err != nil {
+		return fmt.Errorf("taking the restore request: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if len(strings.TrimSpace(string(out))) == 0 {
+		return nil // taken by someone else, or withdrawn
+	}
+	var req restoreRequest
+	if err := json.Unmarshal(out, &req); err != nil {
+		return fmt.Errorf("reading the restore request: %w", err)
+	}
+	fail := func(msg string) error {
+		payload, _ := json.Marshal(map[string]any{"id": req.ID, "error": msg})
+		if out, err := cp(payload, "restore-failed"); err != nil {
+			return fmt.Errorf("reporting a failed restore (%s): %w: %s", msg, err, strings.TrimSpace(string(out)))
+		}
+		log.Warn("restore failed", "err", msg)
+		return nil
+	}
+	// The control plane checked these already; checked again here, on the
+	// host that acts on them.
+	if err := backup.CheckRestoreSource(req.Source, req.Location); err != nil {
+		return fail(err.Error())
+	}
+	if err := backup.CheckSnapshot(req.Snapshot); err != nil {
+		return fail(err.Error())
+	}
+	flag := "--path"
+	if req.Source == backup.SourceDestination {
+		flag = "--destination"
+	}
+	log.Info("restoring from a backup", "source", req.Source, "location", req.Location, "snapshot", req.Snapshot)
+	resOut, runErr := e.Exec(ctx, []byte(req.Password), e.LinxPath, "restore", "--yes", "--json", "--password-stdin",
+		flag, req.Location, req.Snapshot)
+	var res restoreResult
+	if err := json.Unmarshal(resOut, &res); err != nil {
+		return fail(fmt.Sprintf("linx restore didn't finish: %v", errors.Join(runErr, err)))
+	}
+	if !res.OK {
+		return fail(res.Error)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"source": req.Source, "location": req.Location, "snapshot_id": res.SnapshotID,
+		"snapshot_time": res.SnapshotTime, "requested_by": req.RequestedBy,
+	})
+	if err != nil {
+		return err
+	}
+	if out, err := cp(payload, "restore-done"); err != nil {
+		return fmt.Errorf("restored, but recording it failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	log.Info("restored from a backup", "snapshot", res.SnapshotID)
+	return nil
 }

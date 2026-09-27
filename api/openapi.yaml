@@ -324,7 +324,7 @@ paths:
       summary: Back up now
       description: >-
         Queues a run against every configured destination; linx-backup-agent
-        picks it up within a few minutes and reports back, appearing in the
+        picks it up within a minute and reports back, appearing in the
         history (docs/BACKUP.md §1).
       tags: [backups]
       security:
@@ -332,6 +332,58 @@ paths:
       responses:
         "202":
           description: Queued.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/backup-restore:
+    get:
+      operationId: getRestore
+      summary: How a restore from a backup is going
+      description: >-
+        The setup wizard's "Restore from a backup" (docs/BACKUP.md §4).
+        status none: nothing asked for; pending: waiting for the server's
+        backup helper (linx-backup-agent), which checks once a minute;
+        running: restoring; failed: see error. A finished restore replaces
+        the whole database, sessions included, so the wizard learns it
+        worked when this starts answering 401.
+      tags: [backups]
+      security:
+        - bearer: [backups:read]
+      responses:
+        "200":
+          description: The restore request, if any.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestoreStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: requestRestore
+      summary: Restore everything from a backup
+      description: >-
+        Replaces every person, setting and key on this server with a
+        backup's. Only a system admin's own session, after "confirm it's
+        you", and only before setup is finished (`restore_after_setup`
+        otherwise; `sudo linx restore` on the server works any time).
+        The password is kept sealed until the server's backup helper
+        picks the request up (within a minute), then deleted.
+      tags: [backups]
+      security:
+        - bearer: [backups:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+      responses:
+        "202":
+          description: Asked for.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestoreStatus"
         default:
           $ref: "#/components/responses/Problem"
 
@@ -5479,6 +5531,48 @@ components:
             $ref: "#/components/schemas/BackupRun"
         next_cursor:
           type: string
+
+    RestoreRequest:
+      type: object
+      additionalProperties: false
+      required: [source, location, password]
+      properties:
+        source:
+          type: string
+          enum: [folder, destination]
+          description: folder, a backup folder on the server; destination, one set up there with `linx backup destination add`.
+        location:
+          type: string
+          maxLength: 4096
+          description: The folder's full path (starting with /), or the destination's name.
+        snapshot:
+          type: string
+          maxLength: 64
+          description: '"latest" (the default) or a backup id.'
+        password:
+          type: string
+          maxLength: 1024
+          description: The backup's password (shown once when its destination was set up).
+
+    RestoreStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [none, pending, running, failed]
+        source:
+          type: string
+          enum: [folder, destination]
+        location:
+          type: string
+        snapshot:
+          type: string
+        error:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
 
     SystemStatus:
       type: object
