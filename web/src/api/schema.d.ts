@@ -633,6 +633,26 @@ export interface paths {
         patch: operations["updateExtension"];
         trace?: never;
     };
+    "/api/v1/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every device
+         * @description Every phone or app in the tenant, newest first — the Extensions list's "Phones" column (docs/ui/ADMIN_SCREENS_PHASE1E.md §5.1). To add one, POST to an extension's own `/devices` (it must belong to one).
+         */
+        get: operations["listDevices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/extensions/{id}/devices": {
         parameters: {
             query?: never;
@@ -1196,6 +1216,28 @@ export interface paths {
          * @description Turns off their authenticator and passkeys and ends every session of theirs, for when they've lost their second step (docs/ADMIN.md §7); they enroll again from scratch. Needs a fresh "confirm it's you".
          */
         post: operations["resetUserMfa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let a locked person sign in again
+         * @description Clears their lockout wait and failed-attempt count; doesn't change their password — if someone else was guessing it, that's a separate decision (`linx user unlock`, docs/ui/ADMIN_SCREENS_PHASE1E.md §4).
+         */
+        post: operations["unlockUser"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3178,6 +3220,8 @@ export interface components {
             /** @description The company sign-in providers they've linked an account on (their names). */
             company_sign_in?: string[];
             disabled: boolean;
+            /** @description Too many wrong passwords; waiting out the lockout (`linx user unlock`, or POST .../unlock). */
+            locked?: boolean;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -4388,6 +4432,32 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    listDevices: {
+        parameters: {
+            query?: {
+                /** @description Maximum items per page (docs/API.md §2). */
+                limit?: components["parameters"]["Limit"];
+                /** @description Opaque pagination cursor from a previous page's `next_cursor`. */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of devices. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     listExtensionDevices: {
         parameters: {
             query?: {
@@ -5510,6 +5580,29 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The person, with MFA now off. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    unlockUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person, unlocked. */
             200: {
                 headers: {
                     [name: string]: unknown;

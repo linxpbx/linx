@@ -1003,6 +1003,31 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/devices:
+    get:
+      operationId: listDevices
+      summary: List every device
+      description: >-
+        Every phone or app in the tenant, newest first — the Extensions
+        list's "Phones" column (docs/ui/ADMIN_SCREENS_PHASE1E.md §5.1). To
+        add one, POST to an extension's own `/devices` (it must belong to
+        one).
+      tags: [devices]
+      security:
+        - bearer: [devices:read]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of devices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceList"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/extensions/{id}/devices:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -2046,6 +2071,29 @@ paths:
       responses:
         "200":
           description: The person, with MFA now off.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/users/{id}/unlock:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: unlockUser
+      summary: Let a locked person sign in again
+      description: >-
+        Clears their lockout wait and failed-attempt count; doesn't change
+        their password — if someone else was guessing it, that's a separate
+        decision (`linx user unlock`, docs/ui/ADMIN_SCREENS_PHASE1E.md §4).
+      tags: [people]
+      security:
+        - bearer: [users:write]
+      responses:
+        "200":
+          description: The person, unlocked.
           content:
             application/json:
               schema:
@@ -5345,6 +5393,9 @@ components:
           description: The company sign-in providers they've linked an account on (their names).
         disabled:
           type: boolean
+        locked:
+          type: boolean
+          description: Too many wrong passwords; waiting out the lockout (`linx user unlock`, or POST .../unlock).
         created_at:
           type: string
           format: date-time

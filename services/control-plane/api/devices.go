@@ -37,6 +37,25 @@ func (s *Server) toCredentials(c pbx.Credentials) DeviceCredentials {
 	}
 }
 
+func (s *Server) ListDevices(ctx context.Context, req ListDevicesRequestObject) (ListDevicesResponseObject, error) {
+	items, next, err := page(req.Params.Limit, req.Params.Cursor, func(d pbx.Device) uuid.UUID { return d.ID },
+		func(before *uuid.UUID, limit int) ([]pbx.Device, error) {
+			return s.pbx.ListAllDevices(ctx, before, limit)
+		})
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return ListDevicesdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	list := DeviceList{Items: make([]Device, 0, len(items)), NextCursor: next}
+	for _, d := range items {
+		list.Items = append(list.Items, toDevice(d))
+	}
+	return ListDevices200JSONResponse(list), nil
+}
+
 func (s *Server) ListExtensionDevices(ctx context.Context, req ListExtensionDevicesRequestObject) (ListExtensionDevicesResponseObject, error) {
 	items, next, err := page(req.Params.Limit, req.Params.Cursor, func(d pbx.Device) uuid.UUID { return d.ID },
 		func(before *uuid.UUID, limit int) ([]pbx.Device, error) {

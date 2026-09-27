@@ -12,6 +12,8 @@ import { PhoneLine } from "@/phone/line";
 import { AccountScreen } from "./Account";
 import { AdminHomeScreen } from "./AdminHome";
 import { DialerScreen } from "./Dialer";
+import { ExtensionsScreen } from "./Extensions";
+import { PeopleScreen } from "./People";
 import { SettingsScreen } from "./Settings";
 import { SetupWizardScreen } from "./SetupWizard";
 import { Shell, type Screen } from "./Shell";
@@ -73,7 +75,8 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
   }
 
   const screen: Screen = path === "/team" ? "team" : path === "/settings" ? "settings" : path === "/account" ? "account"
-    : path === "/admin" ? "admin-home" : "dialer";
+    : path === "/admin" ? "admin-home" : path === "/admin/people" ? "admin-people" : path === "/admin/extensions" ? "admin-extensions"
+      : "dialer";
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -86,6 +89,8 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
             : screen === "settings" ? <SettingsScreen />
               : screen === "account" ? <AccountScreen />
               : screen === "admin-home" ? <AdminHomeScreen me={me} systemStatus={systemStatus} members={team.members} />
+              : screen === "admin-people" ? <PeopleScreen me={me} />
+              : screen === "admin-extensions" ? <ExtensionsScreen me={me} />
               : <DialerScreen members={team.members} />}
       </Shell>
     </PhoneContext.Provider>

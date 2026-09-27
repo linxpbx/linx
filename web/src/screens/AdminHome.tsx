@@ -6,7 +6,7 @@ import { CircleCheck, Phone, TriangleAlert } from "lucide-react";
 import { api, type Me, type TeamMember } from "@/api/client";
 import type { components } from "@/api/schema";
 import { Button } from "@/components/ui/button";
-import { StatusDot, statusLabel } from "@/components/presence";
+import { Dot, StatusDot, statusLabel } from "@/components/presence";
 import { navigate } from "@/hooks/useRoute";
 import { hasScope } from "@/lib/roles";
 import type { SystemStatus } from "@/hooks/useSystemStatus";
@@ -83,15 +83,8 @@ function Card({ title, action, children }: { title: string; action?: ReactNode; 
   );
 }
 
-// A status dot for things that aren't a TeamMember (phone lines, services):
-// StatusDot's colours are the same, but its labels are person-specific.
-function Dot({ tone }: { tone: "available" | "away" | "busy" | "offline" }) {
-  const cls = { available: "bg-status-available", away: "bg-status-away", busy: "bg-status-busy", offline: "bg-status-offline" }[tone];
-  return <span aria-hidden="true" className={`inline-block size-2.5 shrink-0 rounded-full ${cls}`} />;
-}
-
-const trunkDot: Record<string, "available" | "away" | "busy" | "offline"> = {
-  registered: "available", reachable: "available", unknown: "away", unreachable: "busy", rejected: "busy", disabled: "offline",
+const trunkDot: Record<string, "good" | "warn" | "bad" | "neutral"> = {
+  registered: "good", reachable: "good", unknown: "warn", unreachable: "bad", rejected: "bad", disabled: "neutral",
 };
 const trunkWords: Record<string, string> = {
   registered: "Working", reachable: "Working", unknown: "Checking…", unreachable: "Down", rejected: "Refused", disabled: "Turned off",
@@ -205,7 +198,7 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
             {trunks.length === 0 && <p className="text-muted-foreground">No phone line yet — Linx can call between extensions only.</p>}
             {trunks.map((t) => (
               <div key={t.id} className="flex items-center gap-2.5">
-                <Dot tone={trunkDot[t.status] ?? "offline"} />
+                <Dot tone={trunkDot[t.status] ?? "neutral"} />
                 <span className="flex-1">{t.name}</span>
                 <span className="text-muted-foreground">{trunkWords[t.status] ?? t.status}</span>
               </div>
@@ -238,7 +231,7 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
             {systemStatus
               ? Object.entries(systemStatus.services).map(([name, s]) => (
                 <div key={name} className="flex items-center gap-2.5">
-                  <Dot tone={s === "ok" ? "available" : s === "degraded" ? "away" : "busy"} />
+                  <Dot tone={s === "ok" ? "good" : s === "degraded" ? "warn" : "bad"} />
                   <span className="capitalize">{name.replace(/_/g, " ")}</span>
                   <span className="ms-auto text-muted-foreground">{s === "ok" ? "Running" : s === "degraded" ? "Degraded" : "Down"}</span>
                 </div>

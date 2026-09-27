@@ -36,6 +36,19 @@ export function StatusDot({ status, className }: { status: Status; className?: s
   );
 }
 
+const toneClass = {
+  good: "bg-status-available", bad: "bg-status-busy", warn: "bg-status-away", neutral: "bg-status-offline",
+} as const;
+
+/**
+ * A status dot for things that aren't a TeamMember (phone lines, services,
+ * account status): same colours as StatusDot, a plain good/bad/warn/neutral
+ * tone instead of a person's specific status.
+ */
+export function Dot({ tone, label, className }: { tone: keyof typeof toneClass; label?: string; className?: string }) {
+  return <span role={label ? "img" : undefined} aria-label={label} className={cn("inline-block size-2.5 shrink-0 rounded-full", toneClass[tone], className)} />;
+}
+
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? "";

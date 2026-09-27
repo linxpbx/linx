@@ -8,11 +8,12 @@ import (
 	"linxpbx.com/linx/internal/auth"
 )
 
-func toUser(u auth.User) User {
+func (s *Server) toUser(u auth.User) User {
+	locked := u.LockedUntil != nil && u.LockedUntil.After(s.now())
 	out := User{
 		Id: u.ID, Email: u.Email, Name: u.Name, Role: Role(u.Role), MfaEnabled: u.MFAEnabled,
 		Passkeys: &u.PasskeyCount, HasPassword: ptr(u.HasPassword()), PasswordOnly: ptr(!u.HasSecondStep()),
-		Disabled: u.DisabledAt != nil, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, Etag: auth.ETag(u.Version),
+		Disabled: u.DisabledAt != nil, Locked: &locked, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, Etag: auth.ETag(u.Version),
 		CompanySignIn: &u.CompanyLogins,
 	}
 	if u.ExtensionID != nil {
@@ -35,7 +36,7 @@ func (s *Server) ListUsers(ctx context.Context, req ListUsersRequestObject) (Lis
 	}
 	list := UserList{Items: make([]User, 0, len(items)), NextCursor: next}
 	for _, u := range items {
-		list.Items = append(list.Items, toUser(u))
+		list.Items = append(list.Items, s.toUser(u))
 	}
 	return ListUsers200JSONResponse(list), nil
 }
@@ -51,7 +52,7 @@ func (s *Server) CreateUser(ctx context.Context, req CreateUserRequestObject) (C
 		}
 		return CreateUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
-	return CreateUser201JSONResponse{User: toUser(u), SetupLinkToken: token}, nil
+	return CreateUser201JSONResponse{User: s.toUser(u), SetupLinkToken: token}, nil
 }
 
 func (s *Server) GetUser(ctx context.Context, req GetUserRequestObject) (GetUserResponseObject, error) {
@@ -63,7 +64,7 @@ func (s *Server) GetUser(ctx context.Context, req GetUserRequestObject) (GetUser
 		}
 		return GetUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
-	out := toUser(u)
+	out := s.toUser(u)
 	return GetUser200JSONResponse{Body: out, Headers: GetUser200ResponseHeaders{ETag: &out.Etag}}, nil
 }
 
@@ -81,7 +82,7 @@ func (s *Server) UpdateUser(ctx context.Context, req UpdateUserRequestObject) (U
 		}
 		return UpdateUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
-	out := toUser(u)
+	out := s.toUser(u)
 	return UpdateUser200JSONResponse{Body: out, Headers: UpdateUser200ResponseHeaders{ETag: &out.Etag}}, nil
 }
 
@@ -94,7 +95,7 @@ func (s *Server) ResetUserMfa(ctx context.Context, req ResetUserMfaRequestObject
 		}
 		return ResetUserMfadefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
-	return ResetUserMfa200JSONResponse(toUser(u)), nil
+	return ResetUserMfa200JSONResponse(s.toUser(u)), nil
 }
 
 func (s *Server) DisableUser(ctx context.Context, req DisableUserRequestObject) (DisableUserResponseObject, error) {
@@ -106,6 +107,18 @@ func (s *Server) DisableUser(ctx context.Context, req DisableUserRequestObject) 
 		return DisableUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
 	return DisableUser204Response{}, nil
+}
+
+func (s *Server) UnlockUser(ctx context.Context, req UnlockUserRequestObject) (UnlockUserResponseObject, error) {
+	u, err := s.accounts.UnlockUser(ctx, req.Id)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return UnlockUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return UnlockUser200JSONResponse(s.toUser(u)), nil
 }
 
 func (s *Server) CreateUserSetupLink(ctx context.Context, req CreateUserSetupLinkRequestObject) (CreateUserSetupLinkResponseObject, error) {

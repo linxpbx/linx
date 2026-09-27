@@ -73,6 +73,17 @@ func TestDeviceEndpoints(t *testing.T) {
 		}
 	})
 
+	t.Run("list every device, across extensions", func(t *testing.T) {
+		other := e.createExtension(admin, map[string]any{"number": "202", "display_name": "Sara"})
+		e.createDevice(admin, other.Id, map[string]any{"name": "Sara's desk"})
+		r := e.do(http.MethodGet, "/api/v1/devices", admin, nil)
+		var list controlplaneapi.DeviceList
+		r.json(t, &list)
+		if r.status != http.StatusOK || len(list.Items) != 2 {
+			t.Fatalf("list: %d %s", r.status, r.body)
+		}
+	})
+
 	t.Run("patch with If-Match", func(t *testing.T) {
 		path := "/api/v1/devices/" + created.Device.Id.String()
 		if r := e.patch(path, admin, `"99"`, map[string]any{"name": "x"}); r.status != http.StatusPreconditionFailed {

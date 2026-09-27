@@ -264,6 +264,25 @@ func (s *Store) ListDevicesByExtension(ctx context.Context, tenant, extension uu
 	return out, rows.Err()
 }
 
+func (s *Store) ListDevices(ctx context.Context, tenant uuid.UUID, before *uuid.UUID, limit int) ([]pbx.Device, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+deviceColumns+` FROM device
+		WHERE tenant_id = $1 AND ($2::uuid IS NULL OR id < $2) ORDER BY id DESC LIMIT $3`,
+		tenant, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []pbx.Device{}
+	for rows.Next() {
+		d, err := scanDevice(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) UpdateDevice(ctx context.Context, d pbx.Device, audit auth.AuditEntry) (pbx.Device, error) {
 	var out pbx.Device
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {

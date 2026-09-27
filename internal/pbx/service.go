@@ -403,6 +403,16 @@ func (s *Service) ListDevices(ctx context.Context, extension uuid.UUID, before *
 	return s.Store.ListDevicesByExtension(ctx, p.TenantID, extension, before, limit)
 }
 
+// ListAllDevices returns a page of every device in the tenant, newest first
+// (the Extensions list's "Phones" column, docs/ui/ADMIN_SCREENS_PHASE1E.md §5.1).
+func (s *Service) ListAllDevices(ctx context.Context, before *uuid.UUID, limit int) ([]Device, error) {
+	p, ok := auth.PrincipalFromContext(ctx)
+	if !ok {
+		return nil, errNoPrincipal
+	}
+	return s.Store.ListDevices(ctx, p.TenantID, before, limit)
+}
+
 // DevicePatch is a JSON Merge Patch of a device; nil fields stay as they are.
 type DevicePatch struct {
 	Name    *string

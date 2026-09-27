@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
@@ -146,5 +147,21 @@ func TestListEventTypesInvalidCursor(t *testing.T) {
 	}
 	if problem.StatusCode != http.StatusBadRequest || problem.Body.Code != "cursor_invalid" {
 		t.Fatalf("unexpected problem: %+v", problem)
+	}
+}
+
+func TestToUserLocked(t *testing.T) {
+	s := testServer(t)
+	future := s.now().Add(time.Minute)
+	past := s.now().Add(-time.Minute)
+
+	if got := s.toUser(auth.User{LockedUntil: &future}); got.Locked == nil || !*got.Locked {
+		t.Fatalf("Locked = %v, want true for a lockout still in the future", got.Locked)
+	}
+	if got := s.toUser(auth.User{LockedUntil: &past}); got.Locked == nil || *got.Locked {
+		t.Fatalf("Locked = %v, want false once the lockout has passed", got.Locked)
+	}
+	if got := s.toUser(auth.User{}); got.Locked == nil || *got.Locked {
+		t.Fatalf("Locked = %v, want false with no lockout at all", got.Locked)
 	}
 }

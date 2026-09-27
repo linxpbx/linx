@@ -168,6 +168,19 @@ func (f *fakePbxStore) ListDevicesByExtension(_ context.Context, tenant, extensi
 	return out[:min(limit, len(out))], nil
 }
 
+func (f *fakePbxStore) ListDevices(_ context.Context, tenant uuid.UUID, before *uuid.UUID, limit int) ([]pbx.Device, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []pbx.Device{}
+	for _, d := range f.devices {
+		if d.TenantID == tenant && (before == nil || compareUUID(d.ID, *before) < 0) {
+			out = append(out, d)
+		}
+	}
+	slices.SortFunc(out, func(a, b pbx.Device) int { return -compareUUID(a.ID, b.ID) })
+	return out[:min(limit, len(out))], nil
+}
+
 func (f *fakePbxStore) UpdateDevice(_ context.Context, d pbx.Device, a auth.AuditEntry) (pbx.Device, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

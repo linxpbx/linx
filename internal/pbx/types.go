@@ -108,6 +108,9 @@ type Store interface {
 	CreateDevice(ctx context.Context, d Device, audit auth.AuditEntry) error
 	Device(ctx context.Context, tenant, id uuid.UUID) (Device, error)
 	ListDevicesByExtension(ctx context.Context, tenant, extension uuid.UUID, before *uuid.UUID, limit int) ([]Device, error)
+	// ListDevices returns a page of every device in the tenant, newest
+	// first (the Extensions list's "Phones" column, docs/ui/ADMIN_SCREENS_PHASE1E.md §5.1).
+	ListDevices(ctx context.Context, tenant uuid.UUID, before *uuid.UUID, limit int) ([]Device, error)
 	// UpdateDevice saves d if its stored version is still d.Version and
 	// returns it with the new version (ErrVersionChanged otherwise).
 	UpdateDevice(ctx context.Context, d Device, audit auth.AuditEntry) (Device, error)

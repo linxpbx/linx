@@ -139,6 +139,18 @@ func TestPbxDocker(t *testing.T) {
 			t.Fatalf("ListDevicesByExtension() = %+v, %v", devices, err)
 		}
 
+		all, err := s.ListDevices(ctx, tenant, nil, 50)
+		if err != nil {
+			t.Fatalf("ListDevices() = %+v, %v", all, err)
+		}
+		foundAll := false
+		for _, x := range all {
+			foundAll = foundAll || x.ID == d.ID
+		}
+		if !foundAll {
+			t.Error("device missing from ListDevices")
+		}
+
 		revoked, err := s.RevokeDevice(ctx, tenant, d.ID, time.Now(), audit("device.revoke"))
 		if err != nil || revoked.Enabled || revoked.Version != 3 {
 			t.Fatalf("RevokeDevice() = %+v, %v", revoked, err)

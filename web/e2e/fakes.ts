@@ -46,6 +46,46 @@ export const PASSKEYS = [
   { id: "0199a2", name: "Mac — Safari", synced: true, created_at: "2026-09-02T09:00:00Z", last_used_at: new Date(Date.now() - 3 * 86_400_000).toISOString() },
 ];
 
+// People, Extensions and devices (docs/ui/ADMIN_SCREENS_PHASE1E.md §4-5):
+// enough seed data and CRUD to screenshot every list/status/sheet state.
+interface FakeExtension {
+  id: string; number: string; display_name: string; enabled: boolean; created_at: string; updated_at: string; etag: string;
+}
+interface FakeUser {
+  id: string; email: string; name: string; role: string; extension_id?: string; mfa_enabled: boolean; passkeys: number;
+  has_password: boolean; password_only: boolean; company_sign_in: string[]; disabled: boolean; locked: boolean;
+  created_at: string; updated_at: string; etag: string;
+}
+interface FakeDevice {
+  id: string; extension_id: string; name: string; kind: string; sip_username: string; enabled: boolean; online: boolean;
+  revoked_at?: string; created_at: string; updated_at: string; etag: string;
+}
+
+function seedPeople(): { extensions: FakeExtension[]; users: FakeUser[]; devices: FakeDevice[] } {
+  const now = new Date().toISOString();
+  const extensions: FakeExtension[] = [
+    { id: "e1001", number: "1001", display_name: ME.name, enabled: true, created_at: now, updated_at: now, etag: '"1"' },
+    { id: "e1024", number: "1024", display_name: "Sara Haddad", enabled: true, created_at: now, updated_at: now, etag: '"1"' },
+    { id: "e1110", number: "1110", display_name: "Reception", enabled: true, created_at: now, updated_at: now, etag: '"1"' },
+  ];
+  const users: FakeUser[] = [
+    { id: "u1001", email: ME.email, name: ME.name, role: "system_admin", extension_id: "e1001", mfa_enabled: true, passkeys: 2,
+      has_password: true, password_only: false, company_sign_in: [], disabled: false, locked: false, created_at: now, updated_at: now, etag: '"1"' },
+    { id: "u1024", email: "sara@example.com", name: "Sara Haddad", role: "user", extension_id: "e1024", mfa_enabled: false, passkeys: 0,
+      has_password: false, password_only: false, company_sign_in: ["Google"], disabled: false, locked: false, created_at: now, updated_at: now, etag: '"1"' },
+    { id: "u1042", email: "aisha@example.com", name: "Aisha Rahman", role: "admin", mfa_enabled: false, passkeys: 0,
+      has_password: false, password_only: false, company_sign_in: [], disabled: false, locked: false, created_at: now, updated_at: now, etag: '"1"' },
+    { id: "u1044", email: "yusuf@example.com", name: "Yusuf Nasser", role: "user", mfa_enabled: false, passkeys: 0,
+      has_password: true, password_only: true, company_sign_in: [], disabled: false, locked: true, created_at: now, updated_at: now, etag: '"1"' },
+    { id: "u1047", email: "chen@example.com", name: "Chen Wei", role: "reporter", mfa_enabled: false, passkeys: 0,
+      has_password: true, password_only: false, company_sign_in: [], disabled: true, locked: false, created_at: now, updated_at: now, etag: '"1"' },
+  ];
+  const devices: FakeDevice[] = [
+    { id: "d1", extension_id: "e1024", name: "Sara's desk", kind: "softphone", sip_username: "d_x7k2m9", enabled: true, online: true, created_at: now, updated_at: now, etag: '"1"' },
+  ];
+  return { extensions, users, devices };
+}
+
 export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   if (process.env.LINX_E2E_DEBUG) {
     page.on("console", (m) => console.log(`[page] ${m.type()}: ${m.text()}`));
@@ -54,15 +94,97 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   const json = (body: unknown, status = 200) => ({
     status, contentType: status >= 400 ? "application/problem+json" : "application/json", body: JSON.stringify(body),
   });
+  const seed = seedPeople();
+  const people = { extensions: seed.extensions, users: seed.users, devices: seed.devices, nextId: 2000 };
+  const idAfter = (p: string, prefix: string) => (p.startsWith(prefix) ? p.slice(prefix.length).split("/")[0] : null);
+  const now = () => new Date().toISOString();
+
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
     const p = url.pathname;
+    if (p === "/api/v1/users" && method === "GET") return route.fulfill(json({ items: people.users }));
+    if (p === "/api/v1/users" && method === "POST") {
+      const body = route.request().postDataJSON() as { email: string; name: string; role: string; extension_id?: string };
+      const id = `u${people.nextId++}`;
+      people.users.push({
+        id, email: body.email, name: body.name, role: body.role, extension_id: body.extension_id, mfa_enabled: false, passkeys: 0,
+        has_password: false, password_only: false, company_sign_in: [], disabled: false, locked: false, created_at: now(), updated_at: now(), etag: '"1"',
+      });
+      return route.fulfill(json({ user: people.users.at(-1), setup_link_token: "fake-invite-token" }, 201));
+    }
+    const patchUserId = idAfter(p, "/api/v1/users/");
+    if (patchUserId && p === `/api/v1/users/${patchUserId}` && method === "PATCH") {
+      const u = people.users.find((x) => x.id === patchUserId);
+      if (!u) return route.fulfill(json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "No." }, 404));
+      Object.assign(u, route.request().postDataJSON(), { updated_at: now(), etag: '"2"' });
+      return route.fulfill(json(u));
+    }
+    if (patchUserId && p === `/api/v1/users/${patchUserId}/setup-link` && method === "POST") {
+      return route.fulfill(json({ setup_link_token: "fake-invite-token" }));
+    }
+    if (patchUserId && p === `/api/v1/users/${patchUserId}/reset-mfa` && method === "POST") {
+      const u = people.users.find((x) => x.id === patchUserId);
+      if (u) Object.assign(u, { mfa_enabled: false, passkeys: 0 });
+      return route.fulfill(json(u));
+    }
+    if (patchUserId && p === `/api/v1/users/${patchUserId}/unlock` && method === "POST") {
+      const u = people.users.find((x) => x.id === patchUserId);
+      if (u) u.locked = false;
+      return route.fulfill(json(u));
+    }
+    if (p === "/api/v1/extensions" && method === "GET") return route.fulfill(json({ items: people.extensions }));
+    if (p === "/api/v1/extensions" && method === "POST") {
+      const body = route.request().postDataJSON() as { number: string; display_name: string };
+      const id = `e${people.nextId++}`;
+      people.extensions.push({ id, number: body.number, display_name: body.display_name, enabled: true, created_at: now(), updated_at: now(), etag: '"1"' });
+      return route.fulfill(json(people.extensions.at(-1), 201));
+    }
+    const extId = idAfter(p, "/api/v1/extensions/");
+    if (extId && p === `/api/v1/extensions/${extId}` && method === "PATCH") {
+      const e = people.extensions.find((x) => x.id === extId);
+      if (!e) return route.fulfill(json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "No." }, 404));
+      Object.assign(e, route.request().postDataJSON(), { updated_at: now(), etag: '"2"' });
+      return route.fulfill(json(e));
+    }
+    if (extId && p === `/api/v1/extensions/${extId}` && method === "DELETE") {
+      people.extensions = people.extensions.filter((x) => x.id !== extId);
+      return route.fulfill({ status: 204 });
+    }
+    if (extId && p === `/api/v1/extensions/${extId}/devices` && method === "GET") {
+      return route.fulfill(json({ items: people.devices.filter((d) => d.extension_id === extId) }));
+    }
+    if (extId && p === `/api/v1/extensions/${extId}/devices` && method === "POST") {
+      const body = route.request().postDataJSON() as { name: string };
+      const id = `d${people.nextId++}`;
+      const device = { id, extension_id: extId, name: body.name, kind: "softphone", sip_username: `d_${id}`, enabled: true, online: false, created_at: now(), updated_at: now(), etag: '"1"' };
+      people.devices.push(device);
+      return route.fulfill(json({
+        device, password: "not-a-real-password", server: DOMAIN, port: 5061, transport: "tls",
+        settings_text: `Server: ${DOMAIN}\nPort: 5061\nTransport: TLS\nUsername: ${device.sip_username}`,
+      }, 201));
+    }
+    if (p === "/api/v1/devices" && method === "GET") return route.fulfill(json({ items: people.devices }));
+    const devId = idAfter(p, "/api/v1/devices/");
+    if (devId && p === `/api/v1/devices/${devId}` && method === "DELETE") {
+      const d = people.devices.find((x) => x.id === devId);
+      if (d) d.revoked_at = now();
+      return route.fulfill({ status: 204 });
+    }
+    if (devId && p === `/api/v1/devices/${devId}/reset-password` && method === "POST") {
+      const d = people.devices.find((x) => x.id === devId);
+      if (!d) return route.fulfill(json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "No." }, 404));
+      return route.fulfill(json({
+        device: d, password: "not-a-real-password-either", server: DOMAIN, port: 5061, transport: "tls",
+        settings_text: `Server: ${DOMAIN}\nPort: 5061\nTransport: TLS\nUsername: ${d.sip_username}`,
+      }));
+    }
     if (p === "/api/v1/me") {
       if (!opts.signedIn && !opts.pending) {
         return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "unauthenticated", detail: "Sign in." }, 401));
       }
-      const adminScopes = ["settings:read", "settings:write", "system:read", "calls:read", "routing:read", "users:read", "users:write", "extensions:read", "extensions:write", "routing:write"];
+      const adminScopes = ["settings:read", "settings:write", "system:read", "calls:read", "routing:read", "users:read", "users:write",
+        "extensions:read", "extensions:write", "devices:read", "devices:write", "routing:write"];
       return route.fulfill(json({
         id: "0199", type: "user", role: "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
@@ -111,19 +233,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         ],
       }));
     }
-    if (p === "/api/v1/users" && method === "GET") {
-      return route.fulfill(json({ items: [{ id: "0199", email: ME.email, name: ME.name, role: "system_admin", mfa_enabled: true, disabled: false, created_at: "2026-09-01T09:00:00Z", updated_at: "2026-09-01T09:00:00Z", etag: "1" }] }));
-    }
-    if (p === "/api/v1/users" && method === "POST") {
-      return route.fulfill(json({
-        user: { id: "0199u1", email: "sara@example.com", name: "Sara Haddad", role: "user", mfa_enabled: false, disabled: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), etag: "1" },
-        setup_link_token: "fake-invite-token",
-      }, 201));
-    }
-    if (p === "/api/v1/extensions" && method === "POST") {
-      return route.fulfill(json({ id: "0199x1", number: "101", display_name: "Sara Haddad", enabled: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), etag: "1" }, 201));
-    }
-    if (p === "/api/v1/numbering/next" && method === "GET") return route.fulfill(json({ number: "101" }));
+    if (p === "/api/v1/numbering/next" && method === "GET") return route.fulfill(json({ number: "1111" }));
     if (p === "/api/v1/call-permission-levels" && method === "GET") return route.fulfill(json({ items: [] }));
     if (p === "/api/v1/sign-in-options") {
       return route.fulfill(json({ company: opts.company ? [GOOGLE] : [], company_sign_in_required: !!opts.companyRequired, passkeys_available: true }));

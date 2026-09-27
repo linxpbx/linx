@@ -150,6 +150,50 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-admin-home`);
     });
 
+    test("people list and detail", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true });
+      await page.goto("/admin/people");
+      await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
+      await expect(page.getByRole("cell", { name: "Invited" })).toBeVisible();
+      await shot(page, `${scheme}-people`);
+      await page.getByRole("row", { name: /Sara Haddad/ }).click();
+      await expect(page.getByRole("heading", { name: "Sara Haddad" })).toBeVisible();
+      await shot(page, `${scheme}-people-detail`);
+      await page.getByRole("button", { name: "Close" }).click();
+
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await expect(page.getByRole("heading", { name: "Add a person" })).toBeVisible();
+      await shot(page, `${scheme}-people-add-chooser`);
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      await expect(page.getByText("1 Name")).toBeVisible();
+      await page.getByLabel("Name").fill("Priya Menon");
+      await page.getByLabel("Email").fill("priya@example.com");
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Create" }).click();
+      await expect(page.getByText("Send this to Priya Menon")).toBeVisible();
+      await shot(page, `${scheme}-people-add-guided-done`);
+    });
+
+    test("extensions list and detail", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true });
+      await page.goto("/admin/extensions");
+      await expect(page.getByRole("heading", { name: "Extensions" })).toBeVisible();
+      await expect(page.getByRole("cell", { name: "Desk phone" })).toBeVisible();
+      await shot(page, `${scheme}-extensions`);
+      await page.getByRole("row", { name: /Reception/ }).click();
+      await expect(page.getByRole("heading", { name: "Extension 1110" })).toBeVisible();
+      await shot(page, `${scheme}-extensions-detail`);
+      await page.getByRole("button", { name: "+ Add a desk phone or phone app" }).click();
+      await page.getByRole("radio", { name: "Desk phone" }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByLabel("Name").fill("Front desk phone");
+      await page.getByRole("button", { name: "Create" }).click();
+      await expect(page.getByText('Settings for "Front desk phone"')).toBeVisible();
+      await shot(page, `${scheme}-extensions-add-device`);
+    });
+
     test("team, dialer, settings, calls", async ({ page }) => {
       const sip = await fakeServer(page, { signedIn: true });
       await page.goto("/team");
