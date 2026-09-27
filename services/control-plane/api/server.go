@@ -107,6 +107,9 @@ func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponse
 	if me.Scopes == nil {
 		me.Scopes = []string{}
 	}
+	if p.AdminNetworkRestricted {
+		me.AdminNetworkRestricted = &p.AdminNetworkRestricted
+	}
 	if p.Role != "" {
 		me.Role = &p.Role
 	}

@@ -65,6 +65,23 @@ func TestGetMeWithPrincipal(t *testing.T) {
 	}
 }
 
+func TestGetMeReportsAdminNetworkRestriction(t *testing.T) {
+	p := auth.Principal{Type: auth.TypeSystem, ID: "cli", Role: auth.RoleSystemAdmin, AdminNetworkRestricted: true}
+	ctx := auth.WithPrincipal(context.Background(), p)
+
+	resp, err := testServer(t).GetMe(ctx, GetMeRequestObject{})
+	if err != nil {
+		t.Fatalf("GetMe: %v", err)
+	}
+	got, ok := resp.(GetMe200JSONResponse)
+	if !ok {
+		t.Fatalf("response type = %T, want GetMe200JSONResponse", resp)
+	}
+	if got.AdminNetworkRestricted == nil || !*got.AdminNetworkRestricted {
+		t.Fatalf("AdminNetworkRestricted = %v, want true", got.AdminNetworkRestricted)
+	}
+}
+
 func TestListEventTypesDefaultReturnsEverything(t *testing.T) {
 	resp, err := testServer(t).ListEventTypes(context.Background(), ListEventTypesRequestObject{})
 	if err != nil {

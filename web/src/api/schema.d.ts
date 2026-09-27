@@ -2012,6 +2012,8 @@ export interface components {
             presence?: components["schemas"]["Presence"];
             /** @description The company sign-in providers a signed-in person has linked an account on (their names). */
             company_sign_in?: string[];
+            /** @description True when this session's admin/system_admin scopes were dropped to an ordinary person's because it signed in from outside the allowed networks (docs/ADMIN.md §3): the admin area explains why it's missing rather than just hiding. */
+            admin_network_restricted?: boolean;
         };
         EventType: {
             /** @description e.g. `call.missed`. */

@@ -17,6 +17,28 @@ type Auth =
 
 const SETUP = /^\/setup\/([^/]+)$/;
 
+/**
+ * Where a completed sign-in lands: the first system_admin from a setup link
+ * (docs/ADMIN.md §4) goes to the setup wizard if it isn't finished yet;
+ * everyone else (an ordinary invited person, or any later sign-in) goes to
+ * the app (docs/ui/ADMIN_SCREENS_PHASE1E.md §3.1).
+ */
+async function finishSignIn(setupToken: string | undefined, loadMe: () => Promise<void>) {
+  if (setupToken) {
+    const { data: me } = await api.GET("/api/v1/me");
+    if (me?.type === "user" && !me.pending && (me.role === "system_admin" || me.role === "admin")) {
+      const { data: setup } = await api.GET("/api/v1/setup");
+      if (setup && !setup.completed) {
+        navigate("/setup", true);
+        void loadMe();
+        return;
+      }
+    }
+  }
+  navigate("/", true);
+  void loadMe();
+}
+
 export function App() {
   const path = usePath();
   if (path === "/company-done") return <CompanyDonePage />;
@@ -65,7 +87,7 @@ function Main({ path }: { path: string }) {
   if (auth.state === "signed-out") {
     return (
       <SignInScreen key={setupToken ?? auth.step} initialStep={auth.step} initialMethods={auth.methods} setupToken={setupToken}
-        onSignedIn={() => { navigate("/", true); void loadMe(); }} />
+        onSignedIn={() => void finishSignIn(setupToken, loadMe)} />
     );
   }
   return (

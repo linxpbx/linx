@@ -2,7 +2,9 @@
 // screen, and the call panel on the right while a call is on.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  BarChart3, Check, CircleUser, Clock, Grid3x3, Inbox, LogOut, Phone, Search, Settings as SettingsIcon, Users, Video, Voicemail,
+  Activity, BarChart3, Check, CircleUser, Clock, FlaskConical, Grid3x3, Hash, IdCard, Inbox, KeyRound, LogOut, Network,
+  Phone, PhoneCall, PhoneIncoming, PhoneOutgoing, Search, Settings as SettingsIcon, Users, Video, Voicemail, Webhook,
+  Home as HomeIcon,
 } from "lucide-react";
 import type { Me, Presence, TeamMember } from "@/api/client";
 import { LogoMark, Wordmark } from "@/components/brand";
@@ -12,12 +14,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { navigate } from "@/hooks/useRoute";
+import { anyLineDown, type SystemStatus } from "@/hooks/useSystemStatus";
+import { hasScope, seesAdminArea } from "@/lib/roles";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
 import { cn } from "@/lib/utils";
 import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
-export type Screen = "dialer" | "team" | "settings" | "account";
+export type Screen = "dialer" | "team" | "settings" | "account" | "admin-home";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
@@ -31,8 +35,27 @@ const LATER: { label: string; icon: typeof Users }[] = [
   { label: "Reports", icon: BarChart3 },
 ];
 
-function NavItem({ active, label, icon: Icon, onClick, disabled }:
-  { active?: boolean; label: string; icon: typeof Users; onClick?: () => void; disabled?: boolean }) {
+// The admin group (docs/ui/ADMIN_SCREENS_PHASE1E.md §1), in checklist order.
+// Only Home has a screen so far (Phase 1E step 5); the rest arrive in
+// steps 6-8 and appear greyed "Coming soon" until then, like 1C's LATER.
+const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
+  { label: "Home", icon: HomeIcon, path: "/admin" },
+  { label: "People", icon: IdCard },
+  { label: "Extensions", icon: Hash },
+  { label: "Phone lines", icon: PhoneCall },
+  { label: "Incoming", icon: PhoneIncoming },
+  { label: "Outgoing", icon: PhoneOutgoing },
+  { label: "Simulator", icon: FlaskConical },
+  { label: "System", icon: Activity },
+];
+const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users }[] = [
+  { label: "Connections", icon: Network },
+  { label: "Webhooks", icon: Webhook },
+  { label: "API keys", icon: KeyRound },
+];
+
+function NavItem({ active, label, icon: Icon, onClick, disabled, badge, dot }:
+  { active?: boolean; label: string; icon: typeof Users; onClick?: () => void; disabled?: boolean; badge?: number; dot?: boolean }) {
   const item = (
     <button type="button" onClick={onClick} aria-current={active ? "page" : undefined}
       aria-disabled={disabled || undefined} tabIndex={disabled ? -1 : undefined}
@@ -43,11 +66,22 @@ function NavItem({ active, label, icon: Icon, onClick, disabled }:
         disabled && "cursor-default text-sidebar-foreground/40",
         "max-md:justify-center max-md:px-0",
       )}>
-      <Icon aria-hidden="true" className="size-5 shrink-0" />
+      <span className="relative shrink-0">
+        <Icon aria-hidden="true" className="size-5" />
+        {dot && (
+          <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-status-busy ring-2 ring-sidebar" />
+        )}
+      </span>
       <span className="max-md:sr-only">{label}</span>
+      {!!badge && (
+        <span aria-hidden="true" className="ms-auto max-md:sr-only rounded-full bg-status-busy px-1.5 py-0.5 text-xs font-medium text-white">
+          {badge}
+        </span>
+      )}
     </button>
   );
-  if (!disabled) {
+  const detail = badge ? `${label} · ${badge} open` : dot ? `${label} · needs attention` : disabled ? `${label} · Coming soon` : label;
+  if (!disabled && !badge && !dot) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>{item}</TooltipTrigger>
@@ -58,7 +92,7 @@ function NavItem({ active, label, icon: Icon, onClick, disabled }:
   return (
     <Tooltip>
       <TooltipTrigger asChild>{item}</TooltipTrigger>
-      <TooltipContent side="right">{label} · Coming soon</TooltipContent>
+      <TooltipContent side="right">{detail}</TooltipContent>
     </Tooltip>
   );
 }
@@ -165,8 +199,53 @@ function SearchBar({ members, query, setQuery, onTeam }: {
   );
 }
 
-export function Shell({ me, screen, members, presence, onPresence, onSignOut, children }: {
+function AdminNav({ me, systemStatus, simpleMode, onSimpleModeChange, screen }: {
+  me: Me; systemStatus: SystemStatus | null; simpleMode: boolean; onSimpleModeChange: (v: boolean) => void; screen: Screen;
+}) {
+  if (!seesAdminArea(me)) return null;
+  const openAlerts = systemStatus?.open_alerts.length ?? 0;
+  const linesDown = anyLineDown(systemStatus);
+  const canToggleSimpleMode = hasScope(me, "settings:write");
+
+  if (me.admin_network_restricted) {
+    return (
+      <>
+        <div className="my-2 border-t border-sidebar-foreground/10" />
+        <p className="px-3 py-1 text-xs font-medium tracking-wide text-sidebar-foreground/50 max-md:sr-only">ADMIN</p>
+        <NavItem label="Admin" icon={HomeIcon} disabled />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="my-2 border-t border-sidebar-foreground/10" />
+      <p className="px-3 py-1 text-xs font-medium tracking-wide text-sidebar-foreground/50 max-md:sr-only">ADMIN</p>
+      {ADMIN_NAV.map((n) => (
+        <NavItem key={n.label} label={n.label} icon={n.icon} disabled={!n.path}
+          active={!!n.path && screen === "admin-home" && n.path === "/admin"}
+          onClick={n.path ? () => navigate(n.path!) : undefined}
+          badge={n.label === "Home" ? openAlerts : undefined}
+          dot={n.label === "Phone lines" ? linesDown : undefined} />
+      ))}
+      {!simpleMode && (
+        <>
+          <p className="px-3 py-1 text-xs font-medium tracking-wide text-sidebar-foreground/50 max-md:sr-only">EXPERT</p>
+          {ADMIN_EXPERT_NAV.map((n) => <NavItem key={n.label} label={n.label} icon={n.icon} disabled />)}
+        </>
+      )}
+      <button type="button" onClick={() => onSimpleModeChange(!simpleMode)} disabled={!canToggleSimpleMode}
+        title={!canToggleSimpleMode ? "Only a system admin or admin can change this" : undefined}
+        className="mt-1 px-3 py-1 text-start text-xs text-sidebar-foreground/60 hover:text-sidebar-foreground/90 disabled:cursor-not-allowed disabled:opacity-50 max-md:sr-only">
+        {simpleMode ? "Show expert pages" : "Hide expert pages"}
+      </button>
+    </>
+  );
+}
+
+export function Shell({ me, screen, members, presence, systemStatus, simpleMode, onSimpleModeChange, onPresence, onSignOut, children }: {
   me: Me; screen: Screen; members: TeamMember[] | null; presence: Presence;
+  systemStatus: SystemStatus | null; simpleMode: boolean; onSimpleModeChange: (v: boolean) => void;
   onPresence: (p: Presence) => void; onSignOut: () => void; children: (query: string) => ReactNode;
 }) {
   const { call, status, problem } = usePhoneState();
@@ -192,12 +271,13 @@ export function Shell({ me, screen, members, presence, onPresence, onSignOut, ch
           <Wordmark onDark className="text-3xl text-sidebar-foreground max-md:hidden" />
           <LogoMark className="size-7 text-link-on-dark md:hidden" />
         </div>
-        <div className="mt-4 flex flex-col gap-1">
+        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           {NAV.map((n) => (
             <NavItem key={n.id} label={n.label} icon={n.icon} active={screen === n.id} onClick={() => navigate(n.path)} />
           ))}
           <div className="my-2 border-t border-sidebar-foreground/10" />
           {LATER.map((n) => <NavItem key={n.label} label={n.label} icon={n.icon} disabled />)}
+          <AdminNav me={me} systemStatus={systemStatus} simpleMode={simpleMode} onSimpleModeChange={onSimpleModeChange} screen={screen} />
         </div>
         <div className="mt-auto flex flex-col gap-2">
           <NavItem label="Settings" icon={SettingsIcon} active={screen === "settings"} onClick={() => navigate("/settings")} />

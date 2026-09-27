@@ -142,6 +142,14 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-confirm-identity`);
     });
 
+    test("admin home", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupStep: 4 });
+      await page.goto("/admin");
+      await expect(page.getByRole("heading", { name: "Getting started" })).toBeVisible();
+      await expect(page.getByText("Line \"Telnyx\" is down")).toBeVisible();
+      await shot(page, `${scheme}-admin-home`);
+    });
+
     test("team, dialer, settings, calls", async ({ page }) => {
       const sip = await fakeServer(page, { signedIn: true });
       await page.goto("/team");
@@ -178,6 +186,52 @@ for (const scheme of ["light", "dark"] as const) {
     });
   });
 }
+
+test.describe("setup wizard", () => {
+  test("place", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 0 });
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "Where will you use Linx?" })).toBeVisible();
+    await shot(page, "setup-wizard-place");
+    await page.getByRole("button", { name: "Business" }).click();
+    await expect(page.getByRole("button", { name: "Next" })).toBeEnabled();
+  });
+
+  test("numbers", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 2 });
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "How should extension numbers look?" })).toBeVisible();
+    await expect(page.getByText("100–599")).toBeVisible();
+    await shot(page, "setup-wizard-numbers");
+    await page.getByText("Change the ranges").click();
+    await shot(page, "setup-wizard-numbers-ranges");
+  });
+
+  test("people", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 3 });
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "Who will use Linx?" })).toBeVisible();
+    await page.getByRole("button", { name: "+ Add another row" }).click();
+    await shot(page, "setup-wizard-people");
+  });
+
+  test("line and calls", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 4 });
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "Connect a phone line now?" })).toBeVisible();
+    await shot(page, "setup-wizard-line");
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByRole("heading", { name: "What can your phones call?" })).toBeVisible();
+    await shot(page, "setup-wizard-calls");
+  });
+
+  test("done", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 7, setupCompleted: true });
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "Linx is ready" })).toBeVisible();
+    await shot(page, "setup-wizard-done");
+  });
+});
 
 test.describe("phone width", () => {
   test.use({ viewport: { width: 390, height: 844 } });

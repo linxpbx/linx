@@ -29,6 +29,13 @@ export interface FakeOptions {
   // companyRequired: "people must use company sign-in".
   company?: boolean;
   companyRequired?: boolean;
+  // The admin home page and setup wizard (docs/ui/ADMIN_SCREENS_PHASE1E.md):
+  // broadens the fake session's scopes and answers the settings/system
+  // endpoints they need. setupStep is the wizard's saved resume point
+  // (GET /setup); undefined means "not started".
+  admin?: boolean;
+  setupStep?: number;
+  setupCompleted?: boolean;
 }
 
 const GOOGLE = { id: "0199c1", kind: "google", name: "Google" };
@@ -55,14 +62,69 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       if (!opts.signedIn && !opts.pending) {
         return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "unauthenticated", detail: "Sign in." }, 401));
       }
+      const adminScopes = ["settings:read", "settings:write", "system:read", "calls:read", "routing:read", "users:read", "users:write", "extensions:read", "extensions:write", "routing:write"];
       return route.fulfill(json({
-        id: "0199", type: "user", role: "admin", scopes: opts.pending ? [] : ["team:read"], pending: !!opts.pending,
+        id: "0199", type: "user", role: "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
         mfa_enabled: opts.pending === "code" || !opts.pending, passkeys: opts.pending === "enroll" ? 0 : opts.pending === "code" ? 1 : PASSKEYS.length,
         has_password: true, password_only: opts.pending === "enroll", recovery_codes_left: opts.pending === "enroll" ? 0 : 8,
         company_sign_in: opts.company ? ["Google"] : [],
       }));
     }
+    if (p === "/api/v1/system/status" && method === "GET") {
+      return route.fulfill(json({
+        services: { control_plane: "ok", asterisk: "ok", database: "ok" },
+        open_alerts: [
+          { severity: "critical", title: "Line down", message: 'Line "Telnyx" is down since 09:12.', since: new Date(Date.now() - 4 * 60_000).toISOString() },
+          { severity: "warning", title: "Certificate", message: "Certificate renews in 9 days (normal).", since: new Date().toISOString() },
+        ],
+        trunks: [
+          { id: "0199e1", name: "UCM", status: "registered" },
+          { id: "0199e2", name: "Telnyx", status: "unreachable", status_since: new Date(Date.now() - 4 * 60_000).toISOString() },
+        ],
+        wireguard_profiles: [],
+      }));
+    }
+    if (p === "/api/v1/setup" && method === "GET") {
+      return route.fulfill(json({ step: opts.setupStep ?? 0, completed: !!opts.setupCompleted }));
+    }
+    if (p === "/api/v1/setup" && method === "PUT") {
+      const body = route.request().postDataJSON() as { step: number; complete?: boolean };
+      return route.fulfill(json({ step: body.step, completed: !!body.complete }));
+    }
+    if (p === "/api/v1/settings" && method === "GET") {
+      return route.fulfill(json({
+        country: "AE", extension_digits: 3,
+        extension_ranges: [{ kind: "people", from: 100, to: 599 }, { kind: "groups", from: 600, to: 699 }, { kind: "reserved", from: 700, to: 899 }],
+        site_kind: "business", simple_mode: true, admin_network_restricted: false, admin_networks: [],
+        default_call_permission_level_id: opts.setupCompleted ? "0199f1" : undefined, setup_step: opts.setupStep ?? 0,
+      }));
+    }
+    if (p === "/api/v1/settings" && method === "PATCH") return route.fulfill({ status: 204 });
+    if (p === "/api/v1/inbound-routes" && method === "GET") return route.fulfill(json({ items: [] }));
+    if (p === "/api/v1/calls/active" && method === "GET") {
+      return route.fulfill(json({
+        phone_engine_connected: true,
+        items: [
+          { id: "0199c1", direction: "outbound", from: { extension: "1024", name: "Sara Haddad" }, to: "+971501234567", state: "answered", started_at: new Date(Date.now() - 252_000).toISOString() },
+          { id: "0199c2", direction: "internal", from: { extension: "1031", name: "Omar Khalil" }, to: "1042", state: "answered", started_at: new Date().toISOString() },
+        ],
+      }));
+    }
+    if (p === "/api/v1/users" && method === "GET") {
+      return route.fulfill(json({ items: [{ id: "0199", email: ME.email, name: ME.name, role: "system_admin", mfa_enabled: true, disabled: false, created_at: "2026-09-01T09:00:00Z", updated_at: "2026-09-01T09:00:00Z", etag: "1" }] }));
+    }
+    if (p === "/api/v1/users" && method === "POST") {
+      return route.fulfill(json({
+        user: { id: "0199u1", email: "sara@example.com", name: "Sara Haddad", role: "user", mfa_enabled: false, disabled: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), etag: "1" },
+        setup_link_token: "fake-invite-token",
+      }, 201));
+    }
+    if (p === "/api/v1/extensions" && method === "POST") {
+      return route.fulfill(json({ id: "0199x1", number: "101", display_name: "Sara Haddad", enabled: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), etag: "1" }, 201));
+    }
+    if (p === "/api/v1/numbering/next" && method === "GET") return route.fulfill(json({ number: "101" }));
+    if (p === "/api/v1/call-permission-levels" && method === "GET") return route.fulfill(json({ items: [] }));
     if (p === "/api/v1/sign-in-options") {
       return route.fulfill(json({ company: opts.company ? [GOOGLE] : [], company_sign_in_required: !!opts.companyRequired, passkeys_available: true }));
     }
