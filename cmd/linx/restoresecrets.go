@@ -19,7 +19,12 @@ const restoreSecretsUsage = `linx restore-secrets — restore the encryption key
 Usage:
   sudo linx restore-secrets --yes [--password-file PATH] REPO SNAPSHOT
 
-  REPO             The restic repository the backup is in.
+  REPO             The restic repository the backup is in: a local path, or
+                   an "sftp:user@host:path" / "s3:https://endpoint/bucket"
+                   string. For sftp, set up root's own SSH access to that
+                   host first; for s3, export AWS_ACCESS_KEY_ID and
+                   AWS_SECRET_ACCESS_KEY (and AWS_DEFAULT_REGION if needed)
+                   before running this.
   SNAPSHOT         Which backup (a snapshot id; "latest" for the newest one).
   --yes            Required: this overwrites this server's own encryption
                    keys and can't be undone.
@@ -38,7 +43,7 @@ type restoreSecretsEnv struct {
 	terminal     bool
 	secretsDir   string // defaults to installer.SecretsDir; overridden in tests only
 	readPassword func() (string, error)
-	run          func(ctx context.Context, w io.Writer, name string, args ...string) error
+	run          func(ctx context.Context, w io.Writer, env []string, name string, args ...string) error
 }
 
 func realRestoreSecretsEnv() restoreSecretsEnv {
@@ -102,7 +107,10 @@ func runRestoreSecrets(ctx context.Context, args []string, stdout, stderr io.Wri
 		return 1
 	}
 
-	pairID, err := backup.PairIDForSnapshot(ctx, env.run, repo, password, snapshotID)
+	t := backup.Target{Repo: repo, Password: password}
+	runner := backup.Runner(env.run)
+
+	pairID, err := backup.PairIDForSnapshot(ctx, runner, t, snapshotID)
 	if err != nil {
 		fmt.Fprintf(stderr, "Couldn't read that snapshot: %v\n", err)
 		return 1
@@ -115,7 +123,7 @@ func runRestoreSecrets(ctx context.Context, args []string, stdout, stderr io.Wri
 	}
 	defer os.RemoveAll(target)
 
-	if err := backup.RestoreKeys(ctx, env.run, repo, password, snapshotID, target); err != nil {
+	if err := backup.RestoreKeys(ctx, runner, t, snapshotID, target); err != nil {
 		fmt.Fprintf(stderr, "Couldn't restore the keys: %v\n", err)
 		return 1
 	}

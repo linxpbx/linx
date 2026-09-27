@@ -21,10 +21,26 @@ import (
 )
 
 // Runner runs restic, writing its standard output to stdout (nil discards
-// it). The returned error, if any, must already read as a complete,
-// human-readable message (its caller's stderr folded in) — this package
-// never inspects a separate stderr stream, only the error text.
-type Runner func(ctx context.Context, stdout io.Writer, name string, args ...string) error
+// it) with env appended to the process's own environment (nil needs
+// nothing extra; only an S3 destination's credentials do). The returned
+// error, if any, must already read as a complete, human-readable message
+// (its caller's stderr folded in) — this package never inspects a
+// separate stderr stream, only the error text.
+type Runner func(ctx context.Context, stdout io.Writer, env []string, name string, args ...string) error
+
+// Target is where one restic operation runs: which repository, its
+// password, and any extra environment variables its backend needs (an
+// S3-compatible destination's credentials; nil for local and SFTP, which
+// carry everything they need in Repo and Extra restic options instead).
+type Target struct {
+	Repo     string
+	Password string
+	Env      []string
+	// Extra is additional restic global options (e.g. an SFTP
+	// destination's "-o sftp.command=...", docs/BACKUP.md §3), inserted
+	// right after --password-file.
+	Extra []string
+}
 
 // KeysDirName is the fixed directory name secret files are stored under
 // inside a snapshot, so restore knows what to ask restic to extract without
@@ -95,20 +111,28 @@ func passwordFile(password string) (path string, cleanup func(), err error) {
 	return f.Name(), cleanup, nil
 }
 
+// resticArgs starts every restic command: the repository, its password
+// file, and any of Target's extra global options.
+func resticArgs(t Target, pf string) []string {
+	args := []string{"-r", t.Repo, "--password-file", pf}
+	return append(args, t.Extra...)
+}
+
 // alreadyInitializedMarker is in restic's own message when a repository
 // already exists; InitRepo treats that as success, not failure (backup
 // runs unattended on a schedule and mustn't fail forever after its first
 // run against an already-initialized repository).
 const alreadyInitializedMarker = "already initialized"
 
-// InitRepo creates repo if it doesn't already have a restic config.
-func InitRepo(ctx context.Context, runner Runner, repo, password string) error {
-	pf, cleanup, err := passwordFile(password)
+// InitRepo creates the repository if it doesn't already have a restic config.
+func InitRepo(ctx context.Context, runner Runner, t Target) error {
+	pf, cleanup, err := passwordFile(t.Password)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	err = runner(ctx, nil, "restic", "-r", repo, "--password-file", pf, "init")
+	args := append(resticArgs(t, pf), "init")
+	err = runner(ctx, nil, t.Env, "restic", args...)
 	if err != nil && !strings.Contains(err.Error(), alreadyInitializedMarker) {
 		return fmt.Errorf("restic init: %w", err)
 	}
@@ -124,16 +148,15 @@ type summary struct {
 // Backup runs one restic backup of dumpFile (the database dump) and
 // KeysPath (the secret files staged there, docs/BACKUP.md §2), tagged
 // with pairID, and returns the new snapshot's id.
-func Backup(ctx context.Context, runner Runner, repo, password, pairID, dumpFile string) (snapshotID string, err error) {
-	pf, cleanup, err := passwordFile(password)
+func Backup(ctx context.Context, runner Runner, t Target, pairID, dumpFile string) (snapshotID string, err error) {
+	pf, cleanup, err := passwordFile(t.Password)
 	if err != nil {
 		return "", err
 	}
 	defer cleanup()
+	args := append(resticArgs(t, pf), "backup", dumpFile, KeysPath, "--tag", PairTag+":"+pairID, "--json")
 	var stdout bytes.Buffer
-	err = runner(ctx, &stdout, "restic", "-r", repo, "--password-file", pf, "backup", dumpFile, KeysPath,
-		"--tag", PairTag+":"+pairID, "--json")
-	if err != nil {
+	if err := runner(ctx, &stdout, t.Env, "restic", args...); err != nil {
 		return "", fmt.Errorf("restic backup: %w", err)
 	}
 	for _, line := range strings.Split(stdout.String(), "\n") {
@@ -154,15 +177,14 @@ func Backup(ctx context.Context, runner Runner, repo, password, pairID, dumpFile
 // Forget prunes old snapshots per the retention policy, keeping the most
 // recent keepLast regardless of age (docs/BACKUP.md §5's default of 14,
 // changed by the caller for weekly/monthly schedules).
-func Forget(ctx context.Context, runner Runner, repo, password string, keepLast int) error {
-	pf, cleanup, err := passwordFile(password)
+func Forget(ctx context.Context, runner Runner, t Target, keepLast int) error {
+	pf, cleanup, err := passwordFile(t.Password)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	err = runner(ctx, nil, "restic", "-r", repo, "--password-file", pf, "forget",
-		"--keep-last", fmt.Sprint(keepLast), "--prune")
-	if err != nil {
+	args := append(resticArgs(t, pf), "forget", "--keep-last", fmt.Sprint(keepLast), "--prune")
+	if err := runner(ctx, nil, t.Env, "restic", args...); err != nil {
 		return fmt.Errorf("restic forget: %w", err)
 	}
 	return nil
@@ -178,14 +200,15 @@ type snapshotMeta struct {
 // PairIDForSnapshot returns the pair id a snapshot was tagged with, so
 // restore can compare it against what's already on disk (docs/BACKUP.md
 // §4) before overwriting anything.
-func PairIDForSnapshot(ctx context.Context, runner Runner, repo, password, snapshotID string) (string, error) {
-	pf, cleanup, err := passwordFile(password)
+func PairIDForSnapshot(ctx context.Context, runner Runner, t Target, snapshotID string) (string, error) {
+	pf, cleanup, err := passwordFile(t.Password)
 	if err != nil {
 		return "", err
 	}
 	defer cleanup()
+	args := append(resticArgs(t, pf), "snapshots", snapshotID, "--json")
 	var stdout bytes.Buffer
-	if err := runner(ctx, &stdout, "restic", "-r", repo, "--password-file", pf, "snapshots", snapshotID, "--json"); err != nil {
+	if err := runner(ctx, &stdout, t.Env, "restic", args...); err != nil {
 		return "", fmt.Errorf("restic snapshots: %w", err)
 	}
 	var snaps []snapshotMeta
@@ -206,8 +229,8 @@ func PairIDForSnapshot(ctx context.Context, runner Runner, repo, password, snaps
 // touches the real secrets path itself, so a bug here can't silently
 // corrupt a running system's credentials mid-copy; the caller copies the
 // individual files out from there once it's satisfied.
-func RestoreKeys(ctx context.Context, runner Runner, repo, password, snapshotID, target string) error {
-	pf, cleanup, err := passwordFile(password)
+func RestoreKeys(ctx context.Context, runner Runner, t Target, snapshotID, target string) error {
+	pf, cleanup, err := passwordFile(t.Password)
 	if err != nil {
 		return err
 	}
@@ -215,9 +238,8 @@ func RestoreKeys(ctx context.Context, runner Runner, repo, password, snapshotID,
 	if err := os.MkdirAll(target, 0o700); err != nil {
 		return err
 	}
-	err = runner(ctx, nil, "restic", "-r", repo, "--password-file", pf, "restore", snapshotID,
-		"--target", target, "--include", filepath.ToSlash(KeysPath))
-	if err != nil {
+	args := append(resticArgs(t, pf), "restore", snapshotID, "--target", target, "--include", filepath.ToSlash(KeysPath))
+	if err := runner(ctx, nil, t.Env, "restic", args...); err != nil {
 		return fmt.Errorf("restic restore: %w", err)
 	}
 	return nil

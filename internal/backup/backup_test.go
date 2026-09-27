@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -15,16 +16,18 @@ import (
 // Runner's contract).
 type fakeRestic struct {
 	calls   [][]string
-	stdout  []string // one entry per call, in order
-	err     []error  // one entry per call, in order (nil = success)
+	envs    [][]string // one entry per call, in order
+	stdout  []string   // one entry per call, in order
+	err     []error    // one entry per call, in order (nil = success)
 	callNum int
 }
 
-func (f *fakeRestic) run(_ context.Context, w io.Writer, name string, args ...string) error {
+func (f *fakeRestic) run(_ context.Context, w io.Writer, env []string, name string, args ...string) error {
 	if name != "restic" {
 		return errors.New("unexpected command: " + name)
 	}
 	f.calls = append(f.calls, args)
+	f.envs = append(f.envs, env)
 	i := f.callNum
 	f.callNum++
 	if w != nil && i < len(f.stdout) {
@@ -59,7 +62,7 @@ func TestNewPasswordAndPairID(t *testing.T) {
 
 func TestInitRepoTreatsAlreadyInitializedAsSuccess(t *testing.T) {
 	f := &fakeRestic{err: []error{errors.New("Fatal: create repository at /repo failed: config file already initialized")}}
-	if err := InitRepo(context.Background(), f.run, "/repo", "pw"); err != nil {
+	if err := InitRepo(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}); err != nil {
 		t.Fatalf("InitRepo() = %v, want nil for an already-initialized repository", err)
 	}
 	args := f.lastArgs()
@@ -70,14 +73,14 @@ func TestInitRepoTreatsAlreadyInitializedAsSuccess(t *testing.T) {
 
 func TestInitRepoRealFailure(t *testing.T) {
 	f := &fakeRestic{err: []error{errors.New("permission denied")}}
-	if err := InitRepo(context.Background(), f.run, "/repo", "pw"); err == nil {
+	if err := InitRepo(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}); err == nil {
 		t.Fatal("InitRepo() succeeded, want an error")
 	}
 }
 
 func TestInitRepoUsesAPasswordFileNotAnArgument(t *testing.T) {
 	f := &fakeRestic{}
-	if err := InitRepo(context.Background(), f.run, "/repo", "super-secret-password"); err != nil {
+	if err := InitRepo(context.Background(), f.run, Target{Repo: "/repo", Password: "super-secret-password"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, a := range f.lastArgs() {
@@ -106,7 +109,7 @@ func TestBackupParsesTheSnapshotID(t *testing.T) {
 		`{"message_type":"status","percent_done":0.5}` + "\n" +
 			`{"message_type":"summary","snapshot_id":"abc123"}` + "\n",
 	}}
-	id, err := Backup(context.Background(), f.run, "/repo", "pw", "pair-1", "/tmp/dump.sql")
+	id, err := Backup(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "pair-1", "/tmp/dump.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,21 +130,21 @@ func TestBackupParsesTheSnapshotID(t *testing.T) {
 
 func TestBackupNoSummaryLineIsAnError(t *testing.T) {
 	f := &fakeRestic{stdout: []string{`{"message_type":"status"}` + "\n"}}
-	if _, err := Backup(context.Background(), f.run, "/repo", "pw", "pair-1", "/tmp/dump.sql"); err == nil {
+	if _, err := Backup(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "pair-1", "/tmp/dump.sql"); err == nil {
 		t.Fatal("Backup() succeeded with no summary line, want an error")
 	}
 }
 
 func TestBackupCommandFailure(t *testing.T) {
 	f := &fakeRestic{err: []error{errors.New("no space left on device")}}
-	if _, err := Backup(context.Background(), f.run, "/repo", "pw", "pair-1", "/tmp/dump.sql"); err == nil {
+	if _, err := Backup(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "pair-1", "/tmp/dump.sql"); err == nil {
 		t.Fatal("Backup() succeeded, want an error")
 	}
 }
 
 func TestForgetKeepsLast(t *testing.T) {
 	f := &fakeRestic{}
-	if err := Forget(context.Background(), f.run, "/repo", "pw", 14); err != nil {
+	if err := Forget(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, 14); err != nil {
 		t.Fatal(err)
 	}
 	args := f.lastArgs()
@@ -158,7 +161,7 @@ func TestForgetKeepsLast(t *testing.T) {
 
 func TestPairIDForSnapshot(t *testing.T) {
 	f := &fakeRestic{stdout: []string{`[{"short_id":"abc123","tags":["other:x","pair:pair-42"]}]`}}
-	id, err := PairIDForSnapshot(context.Background(), f.run, "/repo", "pw", "abc123")
+	id, err := PairIDForSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,14 +172,14 @@ func TestPairIDForSnapshot(t *testing.T) {
 
 func TestPairIDForSnapshotMissingTag(t *testing.T) {
 	f := &fakeRestic{stdout: []string{`[{"short_id":"abc123","tags":["other:x"]}]`}}
-	if _, err := PairIDForSnapshot(context.Background(), f.run, "/repo", "pw", "abc123"); err == nil {
+	if _, err := PairIDForSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "abc123"); err == nil {
 		t.Fatal("PairIDForSnapshot() succeeded for a snapshot with no pair tag, want an error")
 	}
 }
 
 func TestPairIDForSnapshotNotFound(t *testing.T) {
 	f := &fakeRestic{stdout: []string{`[]`}}
-	if _, err := PairIDForSnapshot(context.Background(), f.run, "/repo", "pw", "nope"); err == nil {
+	if _, err := PairIDForSnapshot(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "nope"); err == nil {
 		t.Fatal("PairIDForSnapshot() succeeded for an unknown snapshot, want an error")
 	}
 }
@@ -184,7 +187,7 @@ func TestPairIDForSnapshotNotFound(t *testing.T) {
 func TestRestoreKeysOnlyIncludesTheKeysDir(t *testing.T) {
 	f := &fakeRestic{}
 	dir := t.TempDir()
-	if err := RestoreKeys(context.Background(), f.run, "/repo", "pw", "abc123", dir); err != nil {
+	if err := RestoreKeys(context.Background(), f.run, Target{Repo: "/repo", Password: "pw"}, "abc123", dir); err != nil {
 		t.Fatal(err)
 	}
 	args := f.lastArgs()
@@ -196,5 +199,32 @@ func TestRestoreKeysOnlyIncludesTheKeysDir(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("--include %s missing from args: %v", KeysPath, args)
+	}
+}
+
+func TestTargetExtraAndEnvAreThreadedThrough(t *testing.T) {
+	f := &fakeRestic{}
+	target := Target{
+		Repo:     "sftp:user@host:path",
+		Password: "pw",
+		Env:      []string{"AWS_ACCESS_KEY_ID=id", "AWS_SECRET_ACCESS_KEY=secret"},
+		Extra:    []string{"-o", "sftp.command=ssh -i key user@host -s sftp"},
+	}
+	if err := InitRepo(context.Background(), f.run, target); err != nil {
+		t.Fatal(err)
+	}
+	args := f.lastArgs()
+	found := false
+	for i, a := range args {
+		if a == "-o" && args[i+1] == "sftp.command=ssh -i key user@host -s sftp" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Extra options missing from args: %v", args)
+	}
+	env := f.envs[len(f.envs)-1]
+	if !slices.Contains(env, "AWS_ACCESS_KEY_ID=id") || !slices.Contains(env, "AWS_SECRET_ACCESS_KEY=secret") {
+		t.Fatalf("Env missing from the call: %v", env)
 	}
 }

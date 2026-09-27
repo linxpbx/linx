@@ -22,7 +22,7 @@ type fakeRestoreRunner struct {
 	initErr      error
 }
 
-func (f *fakeRestoreRunner) run(_ context.Context, w io.Writer, _ string, args ...string) error {
+func (f *fakeRestoreRunner) run(_ context.Context, w io.Writer, _ []string, _ string, args ...string) error {
 	for i, a := range args {
 		switch a {
 		case "snapshots":
