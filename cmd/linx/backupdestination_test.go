@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"errors"
 	"net/netip"
 	"os"
@@ -209,5 +210,48 @@ func TestBackupRunsAgainstAConfiguredDestination(t *testing.T) {
 	}
 	if strings.Contains(out.String(), string(pw)) {
 		t.Fatal("the password shouldn't be shown again on a normal backup run")
+	}
+}
+
+// linxNetworks asks Docker for the Compose project's own networks only: on
+// a real server the home network is one of the host's too, and a NAS there
+// must be allowed (found in the backup demo).
+func TestLinxNetworksAreDockersNotTheHosts(t *testing.T) {
+	var calls []string
+	run := func(_ context.Context, w io.Writer, _ []string, name string, args ...string) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		switch args[1] {
+		case "ls":
+			_, _ = io.WriteString(w, "aaa\nbbb\n")
+		case "inspect":
+			_, _ = io.WriteString(w, "172.19.0.0/16 \n172.20.0.0/16 fd00:4c58::/64 \n")
+		}
+		return nil
+	}
+	got, err := linxNetworks(t.Context(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].String() != "172.19.0.0/16" || got[2].String() != "fd00:4c58::/64" {
+		t.Fatalf("networks %v", got)
+	}
+	if !strings.Contains(calls[0], "label=com.docker.compose.project=linx") || !strings.HasSuffix(calls[1], "aaa bbb") {
+		t.Fatalf("calls %v", calls)
+	}
+
+	// With those networks, a NAS on the home network is fine; one on
+	// linx-private isn't.
+	env := setupDestinationEnv(t)
+	env.ownNetworks = func() ([]netip.Prefix, error) { return got, nil }
+	env.lookup = func(_ context.Context, host string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr(host)}, nil
+	}
+	var out, errb bytes.Buffer
+	if code := runBackup(t.Context(), []string{"destination", "add", "--kind", "sftp", "--host", "192.168.1.250", "--user", "backup", "--remote-path", "/srv/linx", "nas"}, &out, &errb, env); code != 0 {
+		t.Fatalf("a NAS on the home network was refused: %q", errb.String())
+	}
+	errb.Reset()
+	if code := runBackup(t.Context(), []string{"destination", "add", "--kind", "sftp", "--host", "172.19.0.5", "--user", "backup", "--remote-path", "/srv/linx", "inside"}, &out, &errb, env); code != 1 {
+		t.Fatal("a host on Linx's own network was accepted")
 	}
 }

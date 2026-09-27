@@ -16,7 +16,6 @@ import (
 
 	"linxpbx.com/linx/internal/backup"
 	"linxpbx.com/linx/internal/installer"
-	"linxpbx.com/linx/internal/safehttp"
 )
 
 // Container and database names from deploy/compose/compose.yaml (matching
@@ -85,18 +84,17 @@ type backupEnv struct {
 	// lookup resolves a destination host, for the outbound safety check
 	// (docs/BACKUP.md §7). Real use: backup.DefaultLookup.
 	lookup backup.Lookup
-	// ownNetworks returns this host's own network ranges. Real use:
-	// safehttp.OwnNetworks.
+	// ownNetworks returns Linx's own container networks. Real use:
+	// linxNetworks, asking Docker.
 	ownNetworks func() ([]netip.Prefix, error)
 }
 
 func realBackupEnv() backupEnv {
-	return backupEnv{
-		isRoot:      os.Geteuid() == 0,
-		secretsDir:  installer.SecretsDir,
-		stagingDir:  backup.StagingDir,
-		lookup:      backup.DefaultLookup,
-		ownNetworks: safehttp.OwnNetworks,
+	env := backupEnv{
+		isRoot:     os.Geteuid() == 0,
+		secretsDir: installer.SecretsDir,
+		stagingDir: backup.StagingDir,
+		lookup:     backup.DefaultLookup,
 		run: func(ctx context.Context, w io.Writer, env []string, name string, args ...string) error {
 			cmd := exec.CommandContext(ctx, name, args...)
 			if len(env) > 0 {
@@ -113,6 +111,37 @@ func realBackupEnv() backupEnv {
 			return nil
 		},
 	}
+	env.ownNetworks = func() ([]netip.Prefix, error) { return linxNetworks(context.Background(), env.run) }
+	return env
+}
+
+// linxNetworks returns the subnets of Linx's own container networks (the
+// Compose project "linx"), the ones a backup destination must never be on
+// (docs/BACKUP.md §7). Not safehttp.OwnNetworks: on the host, that's every
+// interface's network, the home network included, where a NAS — the most
+// common SFTP destination — lives.
+func linxNetworks(ctx context.Context, run func(context.Context, io.Writer, []string, string, ...string) error) ([]netip.Prefix, error) {
+	var ids bytes.Buffer
+	if err := run(ctx, &ids, nil, "docker", "network", "ls", "--quiet", "--filter", "label=com.docker.compose.project=linx"); err != nil {
+		return nil, fmt.Errorf("listing Linx's networks: %w", err)
+	}
+	if strings.TrimSpace(ids.String()) == "" {
+		return nil, nil
+	}
+	var subnets bytes.Buffer
+	args := append([]string{"network", "inspect", "--format", "{{range .IPAM.Config}}{{.Subnet}} {{end}}"}, strings.Fields(ids.String())...)
+	if err := run(ctx, &subnets, nil, "docker", args...); err != nil {
+		return nil, fmt.Errorf("reading Linx's networks: %w", err)
+	}
+	var out []netip.Prefix
+	for _, f := range strings.Fields(subnets.String()) {
+		p, err := netip.ParsePrefix(f)
+		if err != nil {
+			return nil, fmt.Errorf("reading Linx's networks: %q isn't a subnet", f)
+		}
+		out = append(out, p.Masked())
+	}
+	return out, nil
 }
 
 // destinationsManifest is where env's configured destinations and their
