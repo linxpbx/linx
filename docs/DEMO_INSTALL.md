@@ -7,7 +7,7 @@ A hand-run check that the web-first install (`docs/INSTALL.md` §9, steps 1–6)
 The examples use a VPS `vps.mym.ae` at `203.0.113.5` and a home VM `home.mym.ae` at `192.168.1.214`, both in the Cloudflare zone `mym.ae`, and the owner's Pangolin on the home network. Use your own.
 
 ## You need
-- **A VPS** with Ubuntu 24.04, at least 4 GB memory and 10 GB free disk (setup refuses less; 2 cores, 4 GB, 40 GB is a good size), its own public IPv4 address, and nothing installed. In the provider's firewall allow **TCP 443, UDP 443 and TCP 6464** in. Plan to delete it at the end.
+- **A VPS** with Ubuntu 24.04, at least 1 GB memory and 5 GB free disk (setup refuses less; 2 GB and 20 GB or more recommended), its own public IPv4 address, and nothing installed. In the provider's firewall allow **TCP 443, UDP 443 and TCP 6464** in. Plan to delete it at the end.
 - **A second home VM** with Ubuntu 24.04 on the home network (bridged, like the lab one), fresh. Give it a fixed address in the router (a DHCP reservation).
 - Your **Pangolin** (the one in front of the lab server), and the router sending TCP/UDP 443 to it, as today.
 - A **Cloudflare token** for `mym.ae` with Zone · DNS · Edit and Zone · Zone · Read (docs/ops/STAGING_TEST.md "You need").

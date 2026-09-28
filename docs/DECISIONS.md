@@ -687,3 +687,11 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Linx now writes a DNS record at the base domain, which may already be someone's website: an A record there that Linx didn't make is never changed, not even by setup (`RecordsClient`), and setup and the install page say to use a name just for Linx (like `pbx.example.com`). Moving a server over: re-run setup (new certificate with the base domain, new front-door block, the base domain's DNS record), and change the redirect URI at each company sign-in provider.
 
+
+## ADR-060 — Help pages and search inside every Linx (owner decisions, approved 2026-09-28)
+
+**Context.** Linx has no public website. The owner asked for all support documentation and how-to guides in one place, with a search box that takes questions in natural language (like generative AI), kept up to date by itself with every release.
+
+**Decision.** (`docs/HELP.md`.) The guides are Markdown in `docs/help/`, built into each release's image and served at `https://<domain>/help` to signed-in people only, filtered by role, except the sign-in guides (`audience: public`), which open without a session from the sign-in page. Search runs in the control plane over an index built at image build time (sections ranked with BM25, stemming, everyday-word synonyms), so it's always there, private and free. Written answers from a language model are optional and off by default: an admin picks the provider (Ollama, Anthropic, OpenAI-compatible) and key; only the question and the matching guide sections are sent, through the SSRF guard, with per-person and per-server limits. Tests keep the guides in step with the app (every screen has a guide, links and screenshots exist, bolded button names still exist).
+
+**Consequences.** A server's help always matches its own version and works without reaching any outside site (China, closed networks). Writing and updating guides becomes part of every user-visible change. Without the AI provider, search finds sections by their words, not their meaning. No public site means nobody can read the guides before installing (a public copy can be added later from the same files).
