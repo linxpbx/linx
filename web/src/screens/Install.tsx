@@ -4,16 +4,17 @@
 // nothing changes on the server until "Check and get a certificate": then
 // linx setup, on the host, checks the answers with setup.yaml's own rules.
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Building2, Check, ChevronDown, CircleAlert, House, LoaderCircle, LockOpen } from "lucide-react";
+import { Building2, Check, ChevronDown, CircleAlert, Clock, House, LoaderCircle, LockOpen, TriangleAlert } from "lucide-react";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
-  checkAnswers, domainProblem, emailProblem, emptyAnswers, getState, LinkClosed, nameProblem, portProblem,
+  browserTimeZone, checkAnswers, domainProblem, mmss, timeZones, emailProblem, emptyAnswers, getState, LinkClosed, nameProblem, portProblem,
   proxyAddressProblem, proxyKinds, saveDraft, type Answers, type Facts, type FieldError, type FrontDoor,
   type InstallState, type Step,
 } from "@/lib/install";
@@ -43,12 +44,45 @@ function LinkUnusable() {
       <h1 className="font-display text-xl font-semibold">This link can't be used</h1>
       <p className="mt-2 text-sm text-muted-foreground">Setup links work once, for one hour. For a new one, run on the server:</p>
       <code className="mt-4 block rounded-md bg-muted px-3 py-2 font-mono text-sm">sudo linx setup</code>
+      <p className="mt-4 text-sm text-muted-foreground">Answers you already gave are kept for the new link.</p>
     </Frame>
   );
 }
 
-function Frame({ step, onStep, strip = true, children }: {
-  step?: Step; onStep?: (s: Step) => void; strip?: boolean; children: ReactNode;
+/** Seconds left, counted down from what the server said when the page loaded. */
+function useSecondsLeft(initial: number): number {
+  const [left, setLeft] = useState(initial);
+  useEffect(() => {
+    const end = performance.now() + initial * 1000;
+    const t = setInterval(() => setLeft(Math.max(0, Math.round((end - performance.now()) / 1000))), 1000);
+    return () => clearInterval(t);
+  }, [initial]);
+  return left;
+}
+
+/**
+ * How long this link has left, and how to get a new one (under the card).
+ * The last five minutes are a warning.
+ */
+function Countdown({ left }: { left: number }) {
+  const soon = left <= 300;
+  return (
+    <div role="timer" aria-live={soon ? "polite" : "off"}
+      className={cn("mt-4 flex items-start gap-2 rounded-md px-4 py-3 text-sm", soon ? "border border-status-away bg-card" : "text-muted-foreground")}>
+      {soon
+        ? <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-away" />
+        : <Clock aria-hidden="true" className="mt-0.5 size-4 shrink-0" />}
+      <span>
+        {soon ? <strong className="font-medium text-foreground">This link closes in {mmss(left)}.</strong> : <>This link closes in {mmss(left)}.</>}{" "}
+        Need more time? Run <code className="font-mono text-foreground">sudo linx setup --new-link</code> on the server for a new link.
+        Your answers so far are kept.
+      </span>
+    </div>
+  );
+}
+
+function Frame({ step, onStep, strip = true, footer, children }: {
+  step?: Step; onStep?: (s: Step) => void; strip?: boolean; footer?: ReactNode; children: ReactNode;
 }) {
   return (
     <main className="flex min-h-dvh items-start justify-center bg-background px-4 py-10 sm:items-center">
@@ -66,6 +100,7 @@ function Frame({ step, onStep, strip = true, children }: {
           )}
           <div className="p-6">{children}</div>
         </section>
+        {footer}
       </div>
     </main>
   );
@@ -104,7 +139,12 @@ function ProgressLine({ step, onStep }: { step: Step; onStep?: (s: Step) => void
 function Wizard({ initial, onClosed }: { initial: InstallState; onClosed: () => void }) {
   const facts = initial.facts;
   const [step, setStep] = useState<Step>(initial.accepted ? "checked" : initial.draft?.step ?? "welcome");
-  const [answers, setAnswers] = useState<Answers>(initial.accepted ?? initial.draft?.answers ?? { ...emptyAnswers, where: facts.where });
+  const [answers, setAnswers] = useState<Answers>(() => {
+    const a = initial.accepted ?? initial.draft?.answers ?? { ...emptyAnswers, where: facts.where };
+    return { ...a, time_zone: a.time_zone || browserTimeZone() };
+  });
+  const left = useSecondsLeft(initial.expires_in);
+  useEffect(() => { if (left === 0) onClosed(); }, [left, onClosed]);
   const [serverErrors, setServerErrors] = useState<FieldError[]>([]);
 
   // Keep the draft on the server (a moment after the last change), so this
@@ -141,7 +181,7 @@ function Wizard({ initial, onClosed }: { initial: InstallState; onClosed: () => 
       break;
     case "you":
       body = (
-        <YouStep {...common} onBack={() => go("domain")} onClosed={onClosed}
+        <YouStep {...common} facts={facts} onBack={() => go("domain")} onClosed={onClosed}
           onRefused={(errs) => { setServerErrors(errs); go(errs[0]?.step ?? "you"); }}
           onAccepted={() => go("checked")} />
       );
@@ -150,7 +190,7 @@ function Wizard({ initial, onClosed }: { initial: InstallState; onClosed: () => 
       body = <Checked answers={answers} facts={facts} />;
       break;
   }
-  return <Frame step={step} onStep={go}>{body}</Frame>;
+  return <Frame step={step} onStep={go} footer={<Countdown left={left} />}>{body}</Frame>;
 }
 
 function Title({ children, lead }: { children: ReactNode; lead?: ReactNode }) {
@@ -379,8 +419,8 @@ function DomainStep({ answers, set, errorFor, onBack, onNext }: StepProps & { on
   );
 }
 
-function YouStep({ answers, set, errorFor, onBack, onRefused, onAccepted, onClosed }: StepProps & {
-  onBack: () => void; onRefused: (e: FieldError[]) => void; onAccepted: () => void; onClosed: () => void;
+function YouStep({ answers, set, errorFor, facts, onBack, onRefused, onAccepted, onClosed }: StepProps & {
+  facts: Facts; onBack: () => void; onRefused: (e: FieldError[]) => void; onAccepted: () => void; onClosed: () => void;
 }) {
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -388,6 +428,9 @@ function YouStep({ answers, set, errorFor, onBack, onRefused, onAccepted, onClos
   const nameErr = nameProblem(answers.name);
   const emailErr = emailProblem(answers.email);
   const termsErr = answers.agreed_to_terms ? "" : "Tick the box to agree. Linx can't get a certificate without it.";
+  const zones = timeZones();
+  // Said only when it differs: a rented server's clock is usually UTC.
+  const serverZone = facts.time_zone && facts.time_zone !== answers.time_zone ? facts.time_zone : "";
 
   const send = async () => {
     setTouched(true);
@@ -422,6 +465,20 @@ function YouStep({ answers, set, errorFor, onBack, onRefused, onAccepted, onClos
           <Label htmlFor="email">Your email</Label>
           <Input id="email" type="email" autoComplete="email" value={answers.email} onChange={(e) => set({ email: e.target.value })} aria-invalid={touched && !!emailErr} />
           <FieldError message={(touched && emailErr) || errorFor("email")} />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="time-zone">Your time zone</Label>
+          <Select value={answers.time_zone} onValueChange={(v) => set({ time_zone: v })}>
+            <SelectTrigger id="time-zone" className="w-full sm:w-72"><SelectValue /></SelectTrigger>
+            <SelectContent className="max-h-72">
+              {zones.map((z) => <SelectItem key={z} value={z}>{z.replaceAll("_", " ")}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <p className="text-sm text-muted-foreground">
+            For schedules, like backups at 03:00 your time.
+            {serverZone && <> This server's own clock is set to {serverZone}; Linx doesn't change it.</>}
+          </p>
+          <FieldError message={errorFor("time_zone")} />
         </div>
       </div>
       <p className="mt-6 text-sm text-muted-foreground">

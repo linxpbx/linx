@@ -22,7 +22,7 @@ Boxes are wireframes (element placement), not pixel layouts. Addresses and names
 
 ## 1. The terminal
 
-Everything the terminal shows. No questions (§10 of `docs/INSTALL.md`).
+Everything the terminal shows. One question (owner addition, `docs/INSTALL.md` §11): first, *How do you want to finish setting up Linx? 1) browser (recommended) 2) terminal*; Enter picks the browser, and the terminal choice asks the questions setup always asked (plus the time zone). Below is the browser path.
 
 ```
 $ sudo linx setup
@@ -185,6 +185,8 @@ The front-door choices of today's `linx setup`, filtered by §2.2. One card per 
                          [ Back ]  [ Check and get a certificate ]
 ```
 
+- **Your time zone** (owner addition, `docs/INSTALL.md` §11): a drop-down between email and the note, pre-set to the browser's zone, "For schedules, like backups at 03:00 your time." plus "This server's own clock is set to Etc/UTC; Linx doesn't change it." when they differ.
+- **Every plain page** also has a countdown under the card: "This link closes in 47:12. Need more time? Run sudo linx setup --new-link on the server for a new link. Your answers so far are kept." (a warning for the last 5 minutes).
 - The Let's Encrypt agreement tick is required (today's terminal setup accepts it silently; the web page asks, as Let's Encrypt expects).
 - **Check and get a certificate** is the first button that changes anything: the host validates the answers (the same code as `setup.yaml`) and starts §2.7. A refusal comes back to the step it belongs to, in plain words.
 

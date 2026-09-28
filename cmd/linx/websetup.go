@@ -35,7 +35,6 @@ type webEnv struct {
 	routeAddress  func() (netip.Addr, bool)
 	publicAddress func(ctx context.Context) (netip.Addr, error)
 	statePath     string
-	removeFile    func(string) error
 	now           func() time.Time
 	// wait pauses between looks at the service's progress; false once ctx
 	// has ended.
@@ -50,9 +49,8 @@ func realWebEnv() webEnv {
 			defer cancel()
 			return publicip.Lookup(ctx, &http.Client{Timeout: 8 * time.Second}, publicip.TraceURL)
 		},
-		statePath:  install.HostPath,
-		removeFile: os.Remove,
-		now:        time.Now,
+		statePath: install.HostPath,
+		now:       time.Now,
 		wait: func(ctx context.Context, d time.Duration) bool {
 			select {
 			case <-ctx.Done():
@@ -78,7 +76,8 @@ func runWebSetup(ctx context.Context, o webOptions, stdout, stderr io.Writer, en
 	}
 	if cfg, err := loadSetupConfig("", env); err == nil && cfg.Installed() {
 		fmt.Fprintf(stdout, "Linx is already installed here, at https://meet.%s.\n"+
-			"To change its settings, edit %s and run:\n\n  sudo linx setup --config %s\n\nNothing was changed.\n",
+			"To change its settings, run  sudo linx setup  in a terminal, or edit %s and run:\n\n"+
+			"  sudo linx setup --config %s\n\nNothing was changed.\n",
 			cfg.Domain.Name, installer.ConfigPath, installer.ConfigPath)
 		return 0
 	}
@@ -92,8 +91,8 @@ func runWebSetup(ctx context.Context, o webOptions, stdout, stderr io.Writer, en
 	if active && o.newLink && !o.dryRun {
 		fmt.Fprintln(stdout, "Cancelling the link and the browser using it…")
 		_, _ = env.runner.Run(ctx, nil, "systemctl", "stop", install.Unit)
-		if err := w.removeFile(w.statePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintln(stderr, "Can't remove the old link:", err)
+		if err := install.Cancel(w.statePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintln(stderr, "Can't cancel the old link:", err)
 			return 1
 		}
 		active = false
@@ -397,7 +396,7 @@ func runInstallService(ctx context.Context, stderr io.Writer, env setupEnv) int 
 
 // installFacts is what the install pages show as found, not asked.
 func installFacts(ctx context.Context, env setupEnv, lan installer.LAN) install.Facts {
-	f := install.Facts{Where: install.WhereRented, Hardware: hardware(env.detect())}
+	f := install.Facts{Where: install.WhereRented, Hardware: hardware(env.detect()), TimeZone: installer.HostTimezone()}
 	if lan.OK() {
 		f.Where, f.LANAddress, f.LANNetwork = install.WhereHome, lan.Address.String(), lan.Network.String()
 	}

@@ -13,6 +13,8 @@ export interface Facts {
   lan_network?: string;
   where: Where;
   port_443?: string;
+  /** This server's own clock setting, e.g. Etc/UTC. */
+  time_zone?: string;
   hardware?: string;
 }
 
@@ -24,6 +26,8 @@ export interface Answers {
   domain: string;
   name: string;
   email: string;
+  /** The time zone for schedules (backups, office hours), e.g. Asia/Dubai. */
+  time_zone: string;
   agreed_to_terms: boolean;
 }
 
@@ -44,6 +48,8 @@ export interface InstallState {
   draft?: Draft;
   accepted?: Answers;
   expires_at: string;
+  /** Seconds left, by the server's clock. */
+  expires_in: number;
   connected: boolean;
 }
 
@@ -74,7 +80,33 @@ export async function checkAnswers(a: Answers): Promise<CheckResult> {
   return { ok: false, problem: body.detail ?? "Setup on the server couldn't check your answers. Try again." };
 }
 
-export const emptyAnswers: Answers = { where: "", front_door: "", domain: "", name: "", email: "", agreed_to_terms: false };
+export const emptyAnswers: Answers = { where: "", front_door: "", domain: "", name: "", email: "", time_zone: "", agreed_to_terms: false };
+
+/** This browser's time zone: where the person setting up is. */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/** Every time zone this browser knows, UTC first. */
+export function timeZones(): string[] {
+  let all: string[] = [];
+  try {
+    all = Intl.supportedValuesOf("timeZone");
+  } catch {
+    all = [];
+  }
+  return ["UTC", ...all.filter((z) => z !== "UTC")];
+}
+
+/** "47:12" for a countdown. */
+export function mmss(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
 
 /** Front doors that are another program at an address on the home network. */
 export const proxyKinds: FrontDoor[] = ["pangolin", "nginx", "http-proxy"];

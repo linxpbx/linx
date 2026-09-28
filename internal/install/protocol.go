@@ -113,6 +113,8 @@ type Facts struct {
 	Where string `json:"where"`
 	// Port443 names the program already using TCP port 443 here, if any.
 	Port443 string `json:"port_443,omitempty"`
+	// TimeZone is this server's own clock setting, e.g. Etc/UTC.
+	TimeZone string `json:"time_zone,omitempty"`
 	// Hardware is a one-line summary: "4 processor cores, 8 GB memory".
 	Hardware string `json:"hardware,omitempty"`
 }
@@ -133,6 +135,9 @@ type Answers struct {
 	Domain       string `json:"domain"`
 	Name         string `json:"name"`
 	Email        string `json:"email"`
+	// TimeZone is the time zone for schedules (the browser's, unless
+	// changed), e.g. Asia/Dubai.
+	TimeZone string `json:"time_zone"`
 	// AgreedToTerms: Let's Encrypt's Subscriber Agreement was ticked.
 	AgreedToTerms bool `json:"agreed_to_terms"`
 }

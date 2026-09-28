@@ -143,6 +143,12 @@ func WebConfig(base Config, a install.Answers, lan LAN, now time.Time) (Config, 
 	case !emailRE.MatchString(email):
 		add(install.StepYou, "email", "That doesn't look like an email address.")
 	}
+	zone := strings.TrimSpace(a.TimeZone)
+	if zone == "" {
+		add(install.StepYou, "time_zone", "Choose your time zone.")
+	} else if ValidateTimeZone(zone) != nil {
+		add(install.StepYou, "time_zone", "That isn't a time zone this server knows. Choose one from the list.")
+	}
 	if !a.AgreedToTerms {
 		add(install.StepYou, "agreed_to_terms", "Tick the box to agree to Let's Encrypt's Subscriber Agreement. Linx can't get a certificate without it.")
 	}
@@ -157,6 +163,7 @@ func WebConfig(base Config, a install.Answers, lan LAN, now time.Time) (Config, 
 	// (docs/INSTALL.md §4.2): the setting is the real one.
 	c.Certificates = CertificateConfig{Staging: false, Wildcard: true, Email: email}
 	c.FrontDoor = fd
+	c.TimeZone = zone
 	c.Install = InstallConfig{Where: a.Where, TermsAgreedAt: now.UTC().Format(time.RFC3339)}
 	if err := c.Validate(); err != nil {
 		// WebConfig's own checks should have caught everything; say what's

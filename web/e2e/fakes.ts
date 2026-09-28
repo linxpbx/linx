@@ -542,16 +542,17 @@ export type { Json };
 // The web install's plain page (docs/ui/INSTALL_SCREENS.md §2): its own
 // small API on port 6464, answered here. "rented" or "home" is what setup
 // detected; the check refuses co.uk like the host does.
-export async function fakeInstall(page: Page, where: "rented" | "home", opts: { closed?: boolean } = {}) {
+export async function fakeInstall(page: Page, where: "rented" | "home", opts: { closed?: boolean; expiresIn?: number } = {}) {
   const facts = where === "home"
-    ? { where, public_address: "5.36.12.4", lan_address: "192.168.1.212", lan_network: "192.168.1.0/24", hardware: "4 processor cores, 8 GB memory, 62 GB free" }
-    : { where, public_address: "203.0.113.5", hardware: "4 processor cores, 8 GB memory, 62 GB free" };
+    ? { where, public_address: "5.36.12.4", lan_address: "192.168.1.212", lan_network: "192.168.1.0/24", time_zone: "Asia/Dubai", hardware: "4 processor cores, 8 GB memory, 62 GB free" }
+    : { where, public_address: "203.0.113.5", time_zone: "Etc/UTC", hardware: "4 processor cores, 8 GB memory, 62 GB free" };
+  const expiresIn = opts.expiresIn ?? 2832;
   let draft: unknown;
   await page.route("**/install/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (opts.closed) return route.fulfill({ status: 404, body: "" });
     if (url.pathname === "/install/api/state") {
-      return route.fulfill({ json: { facts, draft, expires_at: new Date(Date.now() + 3_600_000).toISOString(), connected: true } });
+      return route.fulfill({ json: { facts, draft, expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(), expires_in: expiresIn, connected: true } });
     }
     if (url.pathname === "/install/api/draft") {
       draft = route.request().postDataJSON();

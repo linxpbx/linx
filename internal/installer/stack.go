@@ -153,14 +153,14 @@ COMPOSE_PROFILES=%s
 # (or at LINX_DNS_ADDRESS, when set), following it when it changes.
 LINX_DNS_RECORDS=%s
 LINX_DNS_ADDRESS=%s
-# This server's time zone, so "03:00" in the backup schedule means 03:00 on
-# its clock (the services otherwise run on UTC). Setup reads it again each
-# time it runs: after changing it, run setup.
+# The time zone schedules use, so "03:00" in the backup schedule means 03:00
+# there (the services otherwise run on UTC): setup.yaml's time_zone, or this
+# server's own when that's empty.
 LINX_TZ=%s
 `, ConfigPath, imageTag, c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Email, c.Certificates.Staging, c.Certificates.Wildcard,
 		lan.BindAddress(), asteriskconf.FormatSIPNetworks(lan.Networks()),
 		c.FrontDoor.Kind, fd.TrustedProxies, fd.ProxyProtocol, fd.WebAddress, fd.TURNUDPAddress, fd.TURNUDPPort, fd.TURNURLs,
-		fd.SNIAddress, fd.ComposeProfiles, dnsRecords(c), fd.DNSAddress, HostTimezone())
+		fd.SNIAddress, fd.ComposeProfiles, dnsRecords(c), fd.DNSAddress, c.Zone())
 }
 
 // localtimePath is where the host's time zone is set (timedatectl
@@ -168,6 +168,29 @@ LINX_TZ=%s
 var localtimePath = "/etc/localtime"
 
 var tzNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+){0,2}$`)
+
+// Zone is the time zone Linx's schedules use: setup.yaml's time_zone, or
+// the host's own (HostTimezone).
+func (c Config) Zone() string {
+	if c.TimeZone != "" {
+		return c.TimeZone
+	}
+	return HostTimezone()
+}
+
+// ValidateTimeZone checks an IANA time zone name ("Asia/Dubai").
+func ValidateTimeZone(name string) error {
+	if name == "UTC" {
+		return nil
+	}
+	if !tzNameRE.MatchString(name) {
+		return fmt.Errorf("%q isn't a time zone like Asia/Dubai", name)
+	}
+	if _, err := time.LoadLocation(name); err != nil {
+		return fmt.Errorf("%q isn't a time zone this server knows", name)
+	}
+	return nil
+}
 
 // HostTimezone is the host's time zone name ("Asia/Dubai"), read from where
 // /etc/localtime points — not /etc/timezone, which timedatectl can leave

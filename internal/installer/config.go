@@ -32,6 +32,10 @@ type Config struct {
 	Domain          DomainConfig      `yaml:"domain"`
 	Certificates    CertificateConfig `yaml:"certificates"`
 	FrontDoor       FrontDoorConfig   `yaml:"front_door"`
+	// TimeZone is the time zone schedules (backups, and later office
+	// hours) use, e.g. Asia/Dubai. Empty: this server's own. Setup never
+	// changes the server's clock settings.
+	TimeZone string `yaml:"time_zone,omitempty"`
 	// Install is set by the web-first install (docs/INSTALL.md).
 	Install InstallConfig `yaml:"install,omitempty"`
 }
@@ -126,6 +130,11 @@ func (c Config) Validate() error {
 	if err := c.FrontDoor.Validate(); err != nil {
 		errs = append(errs, fmt.Errorf("front_door.%w", err))
 	}
+	if c.TimeZone != "" {
+		if err := ValidateTimeZone(c.TimeZone); err != nil {
+			errs = append(errs, fmt.Errorf("time_zone: %w", err))
+		}
+	}
 	if err := c.Install.validate(); err != nil {
 		errs = append(errs, fmt.Errorf("install.%w", err))
 	}
@@ -201,6 +210,12 @@ front_door:
 		fmt.Fprintf(&b, `  # The UDP port the router forwards to Linx for call audio (443 if not set).
   turn_udp_port: %d
 `, c.FrontDoor.TURNUDPPort)
+	}
+	if c.TimeZone != "" {
+		fmt.Fprintf(&b, `# The time zone schedules use (backups, office hours), e.g. Asia/Dubai.
+# Leave it out to use this server's own.
+time_zone: %s
+`, c.TimeZone)
 	}
 	if c.Install != (InstallConfig{}) {
 		fmt.Fprintf(&b, `# The web install (docs/INSTALL.md): where this server is (home or rented),

@@ -390,12 +390,18 @@ type pageState struct {
 	Draft     json.RawMessage `json:"draft,omitempty"`
 	Accepted  *Answers        `json:"accepted,omitempty"`
 	ExpiresAt time.Time       `json:"expires_at"`
-	Connected bool            `json:"connected"`
+	// ExpiresIn is the seconds left, by this server's clock: the page
+	// counts down from it, so a wrong clock on the visitor's computer
+	// doesn't matter.
+	ExpiresIn int  `json:"expires_in"`
+	Connected bool `json:"connected"`
 }
 
 func (s *Server) getState(w http.ResponseWriter) {
 	v, connected := s.Snapshot()
-	writeJSON(w, http.StatusOK, pageState{Facts: v.Facts, Draft: v.Draft, Accepted: v.Accepted, ExpiresAt: v.ExpiresAt, Connected: connected})
+	left := max(0, int(v.ExpiresAt.Sub(s.now()).Seconds()))
+	writeJSON(w, http.StatusOK, pageState{Facts: v.Facts, Draft: v.Draft, Accepted: v.Accepted, ExpiresAt: v.ExpiresAt,
+		ExpiresIn: left, Connected: connected})
 }
 
 // sameOrigin is the check every change makes on top of the SameSite

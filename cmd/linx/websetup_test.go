@@ -14,15 +14,14 @@ import (
 )
 
 func webTestEnv(t *testing.T, runner hostRunner, route string) setupEnv {
-	env := testEnv(nil)
-	env.isRoot = true
+	env := testEnv("", nil)
+	env.isRoot, env.interactive = true, false // no terminal: straight to the browser
 	env.runner = runner
 	now := time.Date(2026, 9, 28, 12, 4, 0, 0, time.UTC)
 	env.web = webEnv{
 		routeAddress:  func() (netip.Addr, bool) { return netip.MustParseAddr(route), true },
 		publicAddress: func(context.Context) (netip.Addr, error) { return netip.MustParseAddr("203.0.113.5"), nil },
 		statePath:     filepath.Join(t.TempDir(), "install-state.json"),
-		removeFile:    func(string) error { return nil },
 		now:           func() time.Time { return now },
 		wait:          func(context.Context, time.Duration) bool { return false },
 	}

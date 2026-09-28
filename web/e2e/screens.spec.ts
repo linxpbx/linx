@@ -511,8 +511,8 @@ test.describe("system status", () => {
 
 // The web install's plain page (docs/ui/INSTALL_SCREENS.md §2 and §7), in
 // both colour schemes and at phone width.
-for (const [label, opts] of [["light", { colorScheme: "light" }], ["dark", { colorScheme: "dark" }],
-  ["phone", { colorScheme: "light", viewport: { width: 390, height: 844 } }]] as const) {
+for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia/Dubai" }], ["dark", { colorScheme: "dark", timezoneId: "Asia/Dubai" }],
+  ["phone", { colorScheme: "light", timezoneId: "Asia/Dubai", viewport: { width: 390, height: 844 } }]] as const) {
   test.describe(`install ${label}`, () => {
     test.use(opts);
 
@@ -521,6 +521,8 @@ for (const [label, opts] of [["light", { colorScheme: "light" }], ["dark", { col
       await page.goto("/install");
       await expect(page.getByRole("heading", { name: "Let's set up Linx" })).toBeVisible();
       await expect(page.getByText("This page isn't encrypted yet. Nothing secret is asked here.")).toBeVisible();
+      await expect(page.getByRole("timer")).toContainText(/This link closes in 4[67]:\d\d\./);
+      await expect(page.getByRole("timer")).toContainText("sudo linx setup --new-link");
       await shot(page, `install-claim-${label}`);
       await page.getByRole("button", { name: "Start" }).click();
 
@@ -547,6 +549,9 @@ for (const [label, opts] of [["light", { colorScheme: "light" }], ["dark", { col
       await expect(page.getByRole("heading", { name: "Who's setting this up?" })).toBeVisible();
       await page.getByLabel("Your name").fill("Mohammed AlMudharreb");
       await page.getByLabel("Your email").fill("mohammed@example.com");
+      // The browser's zone, and the rented server's own UTC clock named.
+      await expect(page.getByLabel("Your time zone")).toContainText("Asia/Dubai");
+      await expect(page.getByText("This server's own clock is set to Etc/UTC")).toBeVisible();
       await page.getByRole("button", { name: "Check and get a certificate" }).click();
       await expect(page.getByRole("alert")).toContainText("Tick the box to agree");
       await page.getByRole("checkbox").click();
@@ -587,6 +592,21 @@ for (const [label, opts] of [["light", { colorScheme: "light" }], ["dark", { col
       await page.reload();
       await expect(page.getByRole("heading", { name: "What's your domain?" })).toBeVisible();
       await expect(page.getByLabel("Domain")).toHaveValue("pbx.example.com");
+    });
+
+    test("link about to close", async ({ page }) => {
+      await fakeInstall(page, "rented", { expiresIn: 242 });
+      await page.goto("/install");
+      await page.getByRole("button", { name: "Start" }).click();
+      await expect(page.getByRole("timer")).toContainText(/This link closes in 4:0\d\./);
+      await shot(page, `install-closing-${label}`);
+    });
+
+    test("link runs out while open", async ({ page }) => {
+      await fakeInstall(page, "rented", { expiresIn: 2 });
+      await page.goto("/install");
+      await expect(page.getByRole("heading", { name: "This link can't be used" })).toBeVisible({ timeout: 5000 });
+      await expect(page.getByText("Answers you already gave are kept")).toBeVisible();
     });
 
     test("link can't be used", async ({ page }) => {

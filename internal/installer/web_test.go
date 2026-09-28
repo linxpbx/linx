@@ -18,7 +18,7 @@ var (
 
 func goodAnswers() install.Answers {
 	return install.Answers{Where: install.WhereRented, FrontDoor: FrontDoorLinx443, Domain: " Example.COM ",
-		Name: "Owner", Email: "owner@example.com", AgreedToTerms: true}
+		Name: "Owner", Email: "owner@example.com", TimeZone: "Asia/Dubai", AgreedToTerms: true}
 }
 
 func TestWebConfig(t *testing.T) {
@@ -28,7 +28,7 @@ func TestWebConfig(t *testing.T) {
 	}
 	if c.Domain.Name != "example.com" || c.Domain.DNSProvider != DNSCloudflare || c.Certificates.Staging ||
 		c.Certificates.Email != "owner@example.com" || !c.Docker.Install || c.FrontDoor.Kind != FrontDoorLinx443 ||
-		c.Install.Where != install.WhereRented || c.Install.TermsAgreedAt != "2026-09-28T12:05:00Z" || c.Installed() {
+		c.Install.Where != install.WhereRented || c.TimeZone != "Asia/Dubai" || c.Zone() != "Asia/Dubai" || c.Install.TermsAgreedAt != "2026-09-28T12:05:00Z" || c.Installed() {
 		t.Errorf("config: %+v", c)
 	}
 	// What's saved reads back the same.
@@ -80,6 +80,8 @@ func TestWebConfigRefuses(t *testing.T) {
 		{"control characters", func(a *install.Answers) { a.Name = "O\x1b[2Jwner" }, LAN{}, "name", "control characters"},
 		{"email", func(a *install.Answers) { a.Email = "owner@example" }, LAN{}, "email", "doesn't look like an email"},
 		{"email quote", func(a *install.Answers) { a.Email = `o"wner@example.com` }, LAN{}, "email", "doesn't look like an email"},
+		{"no time zone", func(a *install.Answers) { a.TimeZone = "" }, LAN{}, "time_zone", "Choose your time zone"},
+		{"unknown time zone", func(a *install.Answers) { a.TimeZone = "Mars/Olympus" }, LAN{}, "time_zone", "isn't a time zone"},
 		{"terms", func(a *install.Answers) { a.AgreedToTerms = false }, LAN{}, "agreed_to_terms", "Subscriber Agreement"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

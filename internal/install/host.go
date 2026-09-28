@@ -98,6 +98,21 @@ func (st HostState) Save(path string) error {
 	return os.Rename(tmp.Name(), path)
 }
 
+// Cancel ends the link or session in the state file at path (sudo linx
+// setup --new-link, with the service stopped): the next start makes a new
+// link and keeps the answers given so far.
+func Cancel(path string) error {
+	st, err := LoadHostState(path)
+	if err != nil {
+		return err
+	}
+	st.Secret, st.View.LinkHash, st.View.SessionHash = "", "", ""
+	if st.View.Ended == "" {
+		st.View.Ended = EndedCancelled
+	}
+	return st.Save(path)
+}
+
 // Host is linx setup's side of the bridge, running as the linx-setup
 // service: it keeps the state, decides claims and checks answers.
 type Host struct {
@@ -157,7 +172,11 @@ func (h *Host) Start(ctx context.Context) error {
 		if h.Facts != nil {
 			facts = h.Facts(ctx)
 		}
+		old := st
 		st = NewHostState(h.now(), facts)
+		// A new link after the hour, or --new-link: the answers given so
+		// far carry over, so whoever opens it doesn't start again.
+		st.View.Draft, st.View.Accepted = old.View.Draft, old.View.Accepted
 	}
 	h.mu.Lock()
 	h.st = st
