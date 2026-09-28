@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -35,7 +36,7 @@ const service = "linx-certd"
 
 func main() {
 	once := flag.Bool("once", false, "check and renew once, then exit")
-	records := flag.String("records", "", "point these host names (comma-separated, e.g. @,turn; @ is the domain itself) at this network's public address, then exit")
+	records := flag.String("records", "", "point these host names (comma-separated, e.g. @,turn,sip=192.168.1.212; @ is the domain itself; a name with =ADDRESS points there) at this network's public address, then exit")
 	address := flag.String("address", "", "with -records: point them at this address instead (home only)")
 	bootstrap := flag.String("bootstrap", "", "staging or real: get the install's first certificate through port 443, print the result, then exit")
 	flag.Parse()
@@ -54,7 +55,7 @@ func main() {
 		os.Exit(2)
 	}
 	if *records != "" {
-		os.Exit(pointRecords(cfg, strings.Split(*records, ","), *address, log))
+		os.Exit(pointRecords(cfg, *records, *address, log))
 	}
 	follower, err := followerFromEnv(cfg, os.Getenv, log)
 	if err != nil {
@@ -110,15 +111,15 @@ func main() {
 	}
 }
 
-// checkHosts accepts only Linx's own host names (and the web app's names
-// from before it moved to the base domain, until setup runs again).
-func checkHosts(hosts []string) error {
-	for _, h := range hosts {
-		if !slices.Contains(certs.Hostnames, h) && !slices.Contains(certs.LegacyHosts, h) {
-			return fmt.Errorf("%q isn't one of Linx's host names %v", h, certs.Hostnames)
-		}
+// parseRecords accepts only Linx's own host names (and the web app's names
+// from before it moved to the base domain, until setup runs again), each
+// optionally pinned to its own address ("sip=192.168.1.212").
+func parseRecords(cfg certs.Config, s string) ([]string, []certs.PinnedRecord, error) {
+	hosts, pinned, err := certs.ParseRecords(s, slices.Concat(certs.Hostnames, certs.LegacyHosts))
+	if err == nil && len(pinned) > 0 && cfg.Provider == certs.ProviderDuckDNS {
+		err = errors.New("DuckDNS gives every name one address, so no name can have its own")
 	}
-	return nil
+	return hosts, pinned, err
 }
 
 func parseAddress(s string) (netip.Addr, error) {
@@ -133,10 +134,14 @@ func parseAddress(s string) (netip.Addr, error) {
 }
 
 // pointRecords is -records.
-func pointRecords(cfg certs.Config, hosts []string, address string, log *slog.Logger) int {
+func pointRecords(cfg certs.Config, records, address string, log *slog.Logger) int {
 	fixed, err := parseAddress(address)
+	var (
+		hosts  []string
+		pinned []certs.PinnedRecord
+	)
 	if err == nil {
-		err = checkHosts(hosts)
+		hosts, pinned, err = parseRecords(cfg, records)
 	}
 	if err != nil {
 		log.Error("-records", "err", err)
@@ -144,7 +149,7 @@ func pointRecords(cfg certs.Config, hosts []string, address string, log *slog.Lo
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	f := &certs.Follower{Client: certs.NewRecordsClient(), Config: cfg, Hosts: hosts, Fixed: fixed, Log: log}
+	f := &certs.Follower{Client: certs.NewRecordsClient(), Config: cfg, Hosts: hosts, Fixed: fixed, Pinned: pinned, Log: log}
 	if err := f.Check(ctx); err != nil {
 		log.Error("DNS records", "err", err)
 		return 1
@@ -158,8 +163,8 @@ func followerFromEnv(cfg certs.Config, getenv func(string) string, log *slog.Log
 	if v == "" {
 		return nil, nil
 	}
-	hosts := strings.Split(v, ",")
-	if err := checkHosts(hosts); err != nil {
+	hosts, pinned, err := parseRecords(cfg, v)
+	if err != nil {
 		return nil, fmt.Errorf("LINX_DNS_RECORDS: %w", err)
 	}
 	fixed, err := parseAddress(strings.TrimSpace(getenv("LINX_DNS_ADDRESS")))
@@ -168,7 +173,7 @@ func followerFromEnv(cfg certs.Config, getenv func(string) string, log *slog.Log
 	}
 	client := certs.NewRecordsClient()
 	client.OwnOnly = true
-	return &certs.Follower{Client: client, Config: cfg, Hosts: hosts, Fixed: fixed, Log: log.With("component", "dns")}, nil
+	return &certs.Follower{Client: client, Config: cfg, Hosts: hosts, Fixed: fixed, Pinned: pinned, Log: log.With("component", "dns")}, nil
 }
 
 // runBootstrap is -bootstrap.

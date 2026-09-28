@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/dnsname"
 )
 
@@ -275,20 +276,32 @@ func FrontDoorPlan(c Config, lan LAN) (files, dns Plan) {
 		}
 	case FrontDoorLinx443, FrontDoorHomeOnly:
 		files = Plan{write("Write the port 443 router's settings", HAProxyConfigFile, HAProxyConfig(d))}
-	default:
-		return nil, nil
 	}
-	return files, Plan{recordsStep(c, FrontDoorFor(c, lan))}
+	if DNSRecords(c, lan) != "" {
+		dns = Plan{recordsStep(c, lan)}
+	}
+	return files, dns
 }
 
-func recordsStep(c Config, s FrontDoorSettings) Step {
-	names := dnsname.Hosts(PublicHosts, c.Domain.Name)
-	where, args := "this network's public address", []string{"-records", strings.Join(PublicHosts, ",")}
-	if s.DNSAddress != "" {
-		where, args = s.DNSAddress+" (this server, at home)", append(args, "-address", s.DNSAddress)
+func recordsStep(c Config, lan LAN) Step {
+	return cmdStep(RecordsTitle(c, lan), "docker", append([]string{"compose", "--file", stackFile, "run", "--rm", "certd"}, RecordsArgs(c, lan)...)...)
+}
+
+// RecordsTitle says in plain words which names go where.
+func RecordsTitle(c Config, lan LAN) string {
+	hosts, pinned, _ := certs.ParseRecords(DNSRecords(c, lan), certs.Hostnames)
+	var parts []string
+	if len(hosts) > 0 {
+		where := "this network's public address"
+		if a := FrontDoorFor(c, lan).DNSAddress; a != "" {
+			where = a + " (this server, at home)"
+		}
+		parts = append(parts, strings.Join(dnsname.Hosts(hosts, c.Domain.Name), ", ")+" at "+where)
 	}
-	return cmdStep("Point "+strings.Join(names, ", ")+" at "+where+" (DNS)",
-		"docker", append([]string{"compose", "--file", stackFile, "run", "--rm", "certd"}, args...)...)
+	for _, p := range pinned {
+		parts = append(parts, dnsname.Host(p.Host, c.Domain.Name)+" at "+p.Address.String()+" (for desk phones at home)")
+	}
+	return "Point " + strings.Join(parts, "; ") + " (DNS)"
 }
 
 // PangolinTraefik is the block to add to Pangolin's Traefik file-provider

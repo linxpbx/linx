@@ -519,6 +519,11 @@ func (h *Host) redeem(m Message) error {
 		if a := st.View.Accepted; a != nil && a.Where == WhereRented && a.FrontDoor == "linx-443" {
 			f.SkipAllowed = true
 		}
+		// Portainer is only ever on the home network.
+		f.PortainerAllowed = st.View.Facts.LANAddress != "" && (st.View.Accepted == nil || st.View.Accepted.Where == WhereHome)
+		if h.Apply != nil {
+			f.Profiles, f.ProfilePick, f.ProfileReason = h.Apply.Profiles(context.Background())
+		}
 		st.View.Finish = f
 	}
 	st.Progress = append(st.Progress, h.line("Moved to the secure page", false, false))

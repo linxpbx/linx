@@ -129,11 +129,11 @@ func CertdRun(token bool, args ...string) []string {
 	return append(append(a, "certd"), args...)
 }
 
-// RecordsArgs is certd -records for the certificate page's token mode: the
-// public names at this network's public address, or home only's at the
-// home address.
+// RecordsArgs is certd -records for DNSRecords: the public names at this
+// network's public address (or home only's at the home address), and
+// sip.<domain> at the home address.
 func RecordsArgs(c Config, lan LAN) []string {
-	args := []string{"-records", strings.Join(PublicHosts, ",")}
+	args := []string{"-records", DNSRecords(c, lan)}
 	if a := FrontDoorFor(c, lan).DNSAddress; a != "" {
 		args = append(args, "-address", a)
 	}

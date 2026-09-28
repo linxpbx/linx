@@ -7,7 +7,7 @@
 // https://<domain> the same address is the secure page.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Building2, ChevronDown, House } from "lucide-react";
-import { Countdown, FieldMessage, Frame, LinkUnusable, Nav, submit, Title, useSecondsLeft } from "@/components/InstallFrame";
+import { Choice, Countdown, FieldMessage, Frame, LinkUnusable, Nav, submit, Title, useSecondsLeft } from "@/components/InstallFrame";
 import { CertificateStep, SecureInstall } from "@/screens/InstallCertificate";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -118,26 +118,6 @@ function Welcome({ onStart }: { onStart: () => void }) {
       </ul>
       <Nav next="Start" />
     </form>
-  );
-}
-
-function Choice({ id, value, title, hint, badge, disabled, children }: {
-  id: string; value: string; title: ReactNode; hint?: ReactNode; badge?: string; disabled?: boolean; children?: ReactNode;
-}) {
-  return (
-    <div className={cn("rounded-md border p-4 has-[[data-state=checked]]:border-primary", disabled && "opacity-60")}>
-      <label htmlFor={id} className={cn("flex items-start gap-3", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
-        <RadioGroupItem id={id} value={value} className="mt-1" disabled={disabled} />
-        <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-sm font-medium">
-            {title}
-            {badge && <span className="ms-2 rounded-sm bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">{badge}</span>}
-          </span>
-          {hint && <span className="text-sm text-muted-foreground">{hint}</span>}
-        </span>
-      </label>
-      {children && <div className="mt-3 ps-7">{children}</div>}
-    </div>
   );
 }
 

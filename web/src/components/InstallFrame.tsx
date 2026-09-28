@@ -2,14 +2,19 @@
 // in the middle, the whole install's progress line above it, the plain
 // page's strip, and the pieces every install step uses.
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { CircleAlert, Clock, LoaderCircle, LockOpen, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, CircleX, Clock, Copy, LoaderCircle, LockOpen, TriangleAlert } from "lucide-react";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
+import { RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { mmss } from "@/lib/install";
 
-/** The whole install's steps: the plain page covers the first four. */
-export const PROGRESS = ["Server", "Domain", "You", "Certificate", "DNS", "Sign-in", "Install"] as const;
+/**
+ * The whole install's steps: the plain page covers the first four. Sign-in
+ * comes after Install (docs/INSTALL.md §14 item 2): the first admin needs
+ * the full Linx, which Install starts.
+ */
+export const PROGRESS = ["Server", "Domain", "You", "Certificate", "DNS", "Install", "Sign-in"] as const;
 
 export function LinkUnusable() {
   return (
@@ -148,4 +153,79 @@ export function Nav({ onBack, next = "Next", busy = false, disabled = false }: {
 
 export function submit(fn: () => void) {
   return (e: FormEvent) => { e.preventDefault(); fn(); };
+}
+
+export type Mark = "ok" | "waiting" | "todo" | "running" | "failed" | "later";
+
+export function Row({ n, state, title, children }: { n: number; state: Mark; title: string; children?: ReactNode }) {
+  const icon = {
+    ok: <Check aria-hidden="true" className="size-4 text-status-available" />,
+    running: <LoaderCircle aria-hidden="true" className="size-4 animate-spin text-link" />,
+    waiting: <LoaderCircle aria-hidden="true" className="size-4 animate-spin text-muted-foreground" />,
+    failed: <CircleX aria-hidden="true" className="size-4 text-destructive" />,
+    todo: <span aria-hidden="true" className="size-2.5 rounded-full border-2 border-primary" />,
+    later: <span aria-hidden="true" className="size-2.5 rounded-full border" />,
+  }[state];
+  const words = { ok: "done", running: "working on it", waiting: "waiting", failed: "didn't work", todo: "your turn", later: "not yet" }[state];
+  return (
+    <li className="flex min-w-0 gap-3">
+      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <p className={cn("text-sm font-medium", state === "later" && "text-muted-foreground")}>
+          <span className="me-1 text-muted-foreground">{n}</span> {title}
+          <span className="sr-only"> ({words})</span>
+        </p>
+        {children && <div className="mt-2">{children}</div>}
+      </div>
+    </li>
+  );
+}
+
+export function Disclosure({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="min-w-0">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-start text-sm text-link hover:underline">
+        <ChevronDown aria-hidden="true" className={cn("size-4 shrink-0 transition-transform", !open && "-rotate-90")} />
+        {label}
+      </button>
+      {open && <div className="mt-2 ps-5">{children}</div>}
+    </div>
+  );
+}
+
+export function CopyButton({ text, label }: { text: string; label: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <Button type="button" variant="ghost" size="icon" aria-label={done ? `${label} copied` : `Copy ${label}`}
+      onClick={() => { void navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); }); }}>
+      {done ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+    </Button>
+  );
+}
+
+export function Detail({ text }: { text?: string }) {
+  if (!text) return null;
+  return <span className="break-words">It got: <span className="font-mono text-xs">{text}</span></span>;
+}
+
+export function Choice({ id, value, title, hint, badge, disabled, children }: {
+  id: string; value: string; title: ReactNode; hint?: ReactNode; badge?: string; disabled?: boolean; children?: ReactNode;
+}) {
+  return (
+    <div className={cn("rounded-md border p-4 has-[[data-state=checked]]:border-primary", disabled && "opacity-60")}>
+      <label htmlFor={id} className={cn("flex items-start gap-3", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
+        <RadioGroupItem id={id} value={value} className="mt-1" disabled={disabled} />
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-sm font-medium">
+            {title}
+            {badge && <span className="ms-2 rounded-sm bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">{badge}</span>}
+          </span>
+          {hint && <span className="text-sm text-muted-foreground">{hint}</span>}
+        </span>
+      </label>
+      {children && <div className="mt-3 ps-7">{children}</div>}
+    </div>
+  );
 }

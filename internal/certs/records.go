@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -222,6 +223,32 @@ func (c *RecordsClient) cf(ctx context.Context, token, method, path string, body
 	}
 	if out != nil {
 		return json.Unmarshal(env.Result, out)
+	}
+	return nil
+}
+
+// ErrTokenRefused is CheckToken's answer when the DNS company says no.
+var ErrTokenRefused = errors.New("token refused")
+
+// CheckToken makes sure a Cloudflare token can see domain's zone and its
+// records, changing nothing (docs/ui/INSTALL_SCREENS.md §3.2); the error
+// says why in plain words and wraps ErrTokenRefused when it's the token.
+// DuckDNS has no way to check without changing the address: nil.
+func (c *RecordsClient) CheckToken(ctx context.Context, provider, domain, token string) error {
+	if provider != ProviderCloudflare {
+		return nil
+	}
+	zone, err := c.cfZone(ctx, token, domain)
+	if err != nil {
+		var ne net.Error
+		if errors.As(err, &ne) || errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("Linx couldn't reach Cloudflare to check the token: %w", err)
+		}
+		return fmt.Errorf("%w: that token can't see %s at Cloudflare. It needs Zone → Zone → Read and Zone → DNS → Edit on that zone", ErrTokenRefused, domain)
+	}
+	var recs []cfRecord
+	if err := c.cf(ctx, token, http.MethodGet, "/zones/"+zone+"/dns_records?"+url.Values{"per_page": {"5"}}.Encode(), nil, &recs); err != nil {
+		return fmt.Errorf("%w: that token can't read %s's DNS records at Cloudflare. It needs Zone → DNS → Edit on that zone", ErrTokenRefused, domain)
 	}
 	return nil
 }

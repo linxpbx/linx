@@ -5,13 +5,15 @@
 // person can do: set up the front door, add the DNS record, or give the
 // DNS token when port 443 can't reach Linx.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, CircleX, Copy, LoaderCircle, LockKeyhole, TriangleAlert } from "lucide-react";
+import { LoaderCircle, LockKeyhole, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Countdown, FieldMessage, Frame, LinkUnusable, submit, Title, useSecondsLeft } from "@/components/InstallFrame";
-import { cn } from "@/lib/utils";
+import {
+  CopyButton, Countdown, Detail, Disclosure, FieldMessage, Frame, LinkUnusable, Row, submit, Title, useSecondsLeft, type Mark,
+} from "@/components/InstallFrame";
+import { SecureFinish } from "@/screens/InstallFinish";
 import {
   canOpen, frontDoorReady, getState, LinkClosed, newHandoff, Problem, redeemHandoff, retryCertificate, sendToken,
   type Answers, type CertView, type DNSRecord, type DNSState, type Facts, type InstallState, type Stage,
@@ -172,35 +174,9 @@ function CertificateStage({ cert, facts, act }: Pick<RowsProps, "cert" | "facts"
   return null;
 }
 
-type Mark = "ok" | "waiting" | "todo" | "running" | "failed" | "later";
-
 function stageMark(s: Stage, later: boolean): Mark {
   if (s.state === "ok" || s.state === "running" || s.state === "failed") return s.state;
   return later ? "later" : "waiting";
-}
-
-function Row({ n, state, title, children }: { n: number; state: Mark; title: string; children?: ReactNode }) {
-  const icon = {
-    ok: <Check aria-hidden="true" className="size-4 text-status-available" />,
-    running: <LoaderCircle aria-hidden="true" className="size-4 animate-spin text-link" />,
-    waiting: <LoaderCircle aria-hidden="true" className="size-4 animate-spin text-muted-foreground" />,
-    failed: <CircleX aria-hidden="true" className="size-4 text-destructive" />,
-    todo: <span aria-hidden="true" className="size-2.5 rounded-full border-2 border-primary" />,
-    later: <span aria-hidden="true" className="size-2.5 rounded-full border" />,
-  }[state];
-  const words = { ok: "done", running: "working on it", waiting: "waiting", failed: "didn't work", todo: "your turn", later: "not yet" }[state];
-  return (
-    <li className="flex min-w-0 gap-3">
-      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center">{icon}</span>
-      <div className="min-w-0 flex-1">
-        <p className={cn("text-sm font-medium", state === "later" && "text-muted-foreground")}>
-          <span className="me-1 text-muted-foreground">{n}</span> {title}
-          <span className="sr-only"> ({words})</span>
-        </p>
-        {children && <div className="mt-2">{children}</div>}
-      </div>
-    </li>
-  );
 }
 
 function setupTitle(cert: CertView, facts: Facts): string {
@@ -228,30 +204,6 @@ function SetupSteps({ cert, onDone }: { cert: CertView; onDone: () => void }) {
         <Label htmlFor="door-done" className="font-normal leading-snug">I've done this</Label>
       </div>
     </div>
-  );
-}
-
-function Disclosure({ label, children }: { label: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="min-w-0">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 text-start text-sm text-link hover:underline">
-        <ChevronDown aria-hidden="true" className={cn("size-4 shrink-0 transition-transform", !open && "-rotate-90")} />
-        {label}
-      </button>
-      {open && <div className="mt-2 ps-5">{children}</div>}
-    </div>
-  );
-}
-
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <Button type="button" variant="ghost" size="icon" aria-label={done ? `${label} copied` : `Copy ${label}`}
-      onClick={() => { void navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); }); }}>
-      {done ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-    </Button>
   );
 }
 
@@ -308,11 +260,6 @@ function problemWords(s: Stage, cert: CertView, facts: Facts): string {
     case "rate_limited": return "Let's Encrypt has had too many tries for this domain. Wait an hour, then try again.";
   }
   return "Something went wrong.";
-}
-
-function Detail({ text }: { text?: string }) {
-  if (!text) return null;
-  return <span className="break-words">It got: <span className="font-mono text-xs">{text}</span></span>;
 }
 
 function Failure({ title, onRetry, children }: { title?: string; onRetry: () => void; children: ReactNode }) {
@@ -486,27 +433,20 @@ export function SecureInstall() {
 }
 
 function SecureArrive({ state, onClosed }: { state: InstallState; onClosed: () => void }) {
-  const [next, setNext] = useState(false);
+  // Back on a page that's past arriving (a reload): straight to where it was.
+  const past = !!state.finish && (!!state.finish.token || !!state.finish.install.state);
+  const [next, setNext] = useState(past);
   const left = useSecondsLeft(state.expires_in);
-  useEffect(() => { if (left === 0) onClosed(); }, [left, onClosed]);
+  useEffect(() => { if (left === 0 && !next) onClosed(); }, [left, next, onClosed]);
+  if (next) return <SecureFinish initial={state} />;
   return (
     <Frame at={4} strip={false} footer={<Countdown left={left} secure />}>
-      {!next ? (
-        <form onSubmit={submit(() => setNext(true))}>
-          <Title lead="From here on, everything you type is encrypted.">
-            <span className="flex items-center gap-2"><LockKeyhole aria-hidden="true" className="size-5 text-status-available" />You're on the secure page now</span>
-          </Title>
-          <div className="flex justify-end"><Button type="submit">Continue</Button></div>
-        </form>
-      ) : (
-        <div>
-          <Title>Linx has its certificate</Title>
-          <p className="text-sm text-muted-foreground">
-            The rest of setup (your DNS company's token, your sign-in, and installing the phone system) isn't in this version of the
-            install page yet. It arrives with the next Linx update.
-          </p>
-        </div>
-      )}
+      <form onSubmit={submit(() => setNext(true))}>
+        <Title lead="From here on, everything you type is encrypted.">
+          <span className="flex items-center gap-2"><LockKeyhole aria-hidden="true" className="size-5 text-status-available" />You're on the secure page now</span>
+        </Title>
+        <div className="flex justify-end"><Button type="submit">Continue</Button></div>
+      </form>
     </Frame>
   );
 }

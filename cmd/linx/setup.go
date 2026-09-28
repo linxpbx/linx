@@ -538,9 +538,14 @@ func printPhones(w io.Writer, cfg installer.Config, lan installer.LAN) {
 	}
 	fmt.Fprintln(w, "\nPhones:")
 	fmt.Fprintf(w, "  Phones sign in to sip.%s (port 5061, TLS) from your local network (%s) only.\n", cfg.Domain.Name, lan.Network)
-	fmt.Fprintf(w, "  So they can find this server, add a DNS record at your DNS provider: sip.%s, type A, value %s\n",
-		cfg.Domain.Name, lan.Address)
-	fmt.Fprintln(w, "  (at Cloudflare: \"DNS only\", not proxied). If this server's address changes, run setup again.")
+	if strings.Contains(installer.DNSRecords(cfg, lan), installer.SIPHost+"=") {
+		fmt.Fprintf(w, "  Linx points sip.%s at this server (%s) in DNS and keeps it there.\n", cfg.Domain.Name, lan.Address)
+		fmt.Fprintln(w, "  If this server's address changes, run setup again (a fixed address in your router helps).")
+	} else {
+		fmt.Fprintf(w, "  So they can find this server, add a DNS record at your DNS provider: sip.%s, type A, value %s\n",
+			cfg.Domain.Name, lan.Address)
+		fmt.Fprintln(w, "  If this server's address changes, run setup again.")
+	}
 	fmt.Fprintln(w, "  linx doctor checks all of this.")
 }
 

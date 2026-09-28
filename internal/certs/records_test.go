@@ -3,6 +3,7 @@ package certs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -188,5 +189,38 @@ func TestPointRecordsApex(t *testing.T) {
 	}
 	if got := strings.Join(cf.writes, ","); got != "POST pbx.example.com,PUT pbx.example.com" {
 		t.Errorf("writes = %s", got)
+	}
+}
+
+func TestCheckToken(t *testing.T) {
+	cf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer good" {
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]any{"success": false, "errors": []map[string]string{{"message": "Invalid access token"}}})
+			return
+		}
+		if r.Method != http.MethodGet {
+			t.Errorf("CheckToken changed something: %s %s", r.Method, r.URL)
+		}
+		res := any([]any{})
+		if r.URL.Path == "/zones" && r.URL.Query().Get("name") == "example.com" {
+			res = []map[string]string{{"id": "z"}}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "result": res})
+	}))
+	defer cf.Close()
+	c := &RecordsClient{HTTP: http.DefaultClient, CloudflareAPI: cf.URL}
+	ctx := context.Background()
+	if err := c.CheckToken(ctx, ProviderCloudflare, "pbx.example.com", "good"); err != nil {
+		t.Errorf("good token: %v", err)
+	}
+	if err := c.CheckToken(ctx, ProviderCloudflare, "pbx.example.com", "bad"); !errors.Is(err, ErrTokenRefused) {
+		t.Errorf("bad token: %v", err)
+	}
+	if err := c.CheckToken(ctx, ProviderCloudflare, "pbx.other.org", "good"); !errors.Is(err, ErrTokenRefused) {
+		t.Errorf("other zone: %v", err)
+	}
+	if err := c.CheckToken(ctx, ProviderDuckDNS, "me.duckdns.org", "x"); err != nil {
+		t.Errorf("DuckDNS: %v", err)
 	}
 }

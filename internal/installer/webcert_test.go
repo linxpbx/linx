@@ -114,10 +114,10 @@ func TestCertdRun(t *testing.T) {
 	if !strings.Contains(got, "--volume "+DNSTokenPath+":/run/secrets/linx_dns_token:ro certd -once") {
 		t.Errorf("with the token: %s", got)
 	}
-	if got := strings.Join(RecordsArgs(webCertConfig(FrontDoorHomeOnly, ""), homeLAN), " "); got != "-records @,turn -address 192.168.1.212" {
+	if got := strings.Join(RecordsArgs(webCertConfig(FrontDoorHomeOnly, ""), homeLAN), " "); got != "-records @,turn,sip=192.168.1.212 -address 192.168.1.212" {
 		t.Errorf("home only records: %s", got)
 	}
-	if got := strings.Join(RecordsArgs(webCertConfig(FrontDoorHTTPProxy, "192.168.1.20"), homeLAN), " "); got != "-records @,turn" {
+	if got := strings.Join(RecordsArgs(webCertConfig(FrontDoorHTTPProxy, "192.168.1.20"), homeLAN), " "); got != "-records @,turn,sip=192.168.1.212" {
 		t.Errorf("proxy records: %s", got)
 	}
 	s := SaveDNSTokenPlan(" tok \n")[0]

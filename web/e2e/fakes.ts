@@ -611,7 +611,47 @@ export async function fakeInstall(page: Page, where: "rented" | "home", opts: {
  * The secure page at https://example.com, served from the test's own
  * build (the requests never leave the browser).
  */
-export async function fakeSecureInstall(page: Page, base: string, opts: { usedHandoff?: boolean } = {}) {
+export async function fakeSecureInstall(page: Page, base: string, opts: {
+  usedHandoff?: boolean; where?: "rented" | "home"; failAt?: number; installed?: boolean;
+} = {}) {
+  const where = opts.where ?? "rented";
+  const facts = where === "home"
+    ? { where, public_address: "5.36.12.4", lan_address: "192.168.1.212", lan_network: "192.168.1.0/24" }
+    : { where, public_address: "203.0.113.5" };
+  const titles = where === "home"
+    ? ["Save your settings", "Firewall and phone ports on 192.168.1.212", "Internal certificate authority", "Portainer (home network only)",
+      "Download Linx's services", "Certificate for example.com and *.example.com", "Start Linx (this setup page closes)",
+      "Your account (mohammed@example.com)", "Phone system and call audio",
+      "example.com, turn.example.com at this network's public address; sip.example.com at 192.168.1.212 (for desk phones at home)",
+      "Helpers: backups, status, firewall sync", "Finish"]
+    : ["Save your settings", "Firewall", "Internal certificate authority", "Download Linx's services", "Certificate (renews through port 443)",
+      "Start Linx (this setup page closes)", "Your account (mohammed@example.com)", "Phone system and call audio",
+      "Helpers: backups, status, firewall sync", "Finish"];
+  const finish: Record<string, unknown> = {
+    provider: "cloudflare", skip_allowed: where === "rented", portainer_allowed: where === "home",
+    profiles: [
+      { name: "lite", description: "audio first, small meetings, AI off, lighter monitoring" },
+      { name: "standard", description: "all features, medium-sized meetings" },
+      { name: "performance", description: "all features, large meetings, can run AI on this server" },
+    ],
+    profile_pick: "standard", profile_reason: "4 processor cores and 8 GB memory", install: {},
+  };
+  const install = (failAt?: number) => {
+    const at = failAt ?? 3;
+    finish.install = { state: failAt === undefined ? "running" : "failed", detail: failAt === undefined ? undefined : "Download Linx's services: no space left" };
+    finish.sign_in_path = "/setup/" + "s".repeat(43);
+    finish.steps = titles.map((title, i) => ({
+      title, state: i < at ? "ok" : i === at ? (failAt === undefined ? "running" : "failed") : "",
+      detail: i === at && failAt !== undefined ? "Download the Linx service images: write /var/lib/docker: no space left on device" : undefined,
+    }));
+    finish.keep = [{ title: "Certificate authority backup passphrase", value: "K7QM-2XPD-9RTA-LW4E-HB6N-C3VY",
+      note: "Linx's internal certificate authority keeps its master key only as a backup locked with this passphrase, in /etc/linx/ca-backup on the server. Write the passphrase down, copy that folder somewhere safe, then delete it from the server." }];
+  };
+  if (opts.installed) {
+    finish.token = "skipped";
+    finish.extras = { profile: "", portainer: false };
+    install(opts.failAt);
+  }
   await page.route("https://example.com/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/install/api/redeem") {
@@ -620,11 +660,39 @@ export async function fakeSecureInstall(page: Page, base: string, opts: { usedHa
         : route.fulfill({ status: 204 });
     }
     if (url.pathname === "/install/api/state") {
-      return route.fulfill({ json: { facts: { where: "rented" }, secure: true, cert: fakeCert({ certificate: { state: "ok" } }),
-        expires_at: new Date(Date.now() + 14_400_000).toISOString(), expires_in: 14400, connected: true } });
+      return route.fulfill({ json: { facts, secure: true, cert: fakeCert({ certificate: { state: "ok" } }), accepted: { ...acceptedAnswers, where },
+        expires_at: new Date(Date.now() + 14_400_000).toISOString(), expires_in: 14400, connected: true, finish } });
+    }
+    if (url.pathname === "/install/api/token") {
+      const { token } = route.request().postDataJSON() as { token: string };
+      if (token.length < 20) {
+        return route.fulfill({ status: 422, json: { errors: [{ step: "token", field: "token",
+          message: "That token can't see example.com at Cloudflare. It needs Zone → Zone → Read and Zone → DNS → Edit on that zone." }] } });
+      }
+      finish.token = "saved";
+      return route.fulfill({ status: 204 });
+    }
+    if (url.pathname === "/install/api/skip-token") {
+      finish.token = "skipped";
+      return route.fulfill({ status: 204 });
+    }
+    if (url.pathname === "/install/api/extras") {
+      finish.extras = route.request().postDataJSON();
+      return route.fulfill({ status: 204 });
+    }
+    if (url.pathname === "/install/api/install") {
+      install(opts.failAt);
+      return route.fulfill({ status: 204 });
     }
     const path = url.pathname.startsWith("/install") ? "/" : url.pathname;
     const res = await route.fetch({ url: base + path });
     return route.fulfill({ response: res });
   });
+  return {
+    /** The full Linx takes over: the switch, then the first sign-in. */
+    switchOver() {
+      finish.switching = true;
+      (finish.steps as { state: string }[]).forEach((s, i) => { if (i < titles.indexOf("Start Linx (this setup page closes)")) s.state = "ok"; });
+    },
+  };
 }

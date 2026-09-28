@@ -181,3 +181,20 @@ func TestHostTimezone(t *testing.T) {
 		t.Errorf("no /etc/localtime: got %q", got)
 	}
 }
+
+func TestStackSplit(t *testing.T) {
+	c := DefaultConfig()
+	c.Domain.Name = "pbx.example.com"
+	before, up := StackPlan(c, "test-token-xxxxxxxxxxxxxxxx", "sha-"+strings.Repeat("a", 40), LAN{}).Split()
+	if up.Cmd == nil || !strings.HasSuffix(up.Cmd.String(), "up --detach --wait") || len(before) == 0 {
+		t.Fatalf("split: %d steps before, then %+v", len(before), up)
+	}
+	for _, st := range before {
+		if st.Cmd != nil && strings.Contains(st.Cmd.String(), " up ") {
+			t.Errorf("started before the last step: %s", st.Cmd)
+		}
+	}
+	if got := StartServicesStep("x", "control-plane").Cmd.String(); !strings.HasSuffix(got, "up --detach --wait control-plane") {
+		t.Errorf("start one: %s", got)
+	}
+}

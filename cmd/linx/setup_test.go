@@ -92,7 +92,7 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 		"Give a port number, like 443 or 3478.",
 		"Write the Pangolin settings to add (/etc/linx/front-door/pangolin-dynamic-config.yml)",
 		"Start the Linx services",
-		"Point lab.linxpbx.com, turn.lab.linxpbx.com at this network's public address (DNS)",
+		"Point lab.linxpbx.com, turn.lab.linxpbx.com at this network's public address; sip.lab.linxpbx.com at 192.168.1.20 (for desk phones at home) (DNS)",
 		"$ docker compose --file /etc/linx/compose.yaml run --rm certd -records @,turn",
 		"Install the linx command as /usr/local/bin/linx",
 		"Save your answers",

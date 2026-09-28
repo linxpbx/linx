@@ -79,6 +79,45 @@ export interface CertView {
   secure_url?: string;
 }
 
+/** One row of the install's progress list (§3.5). */
+export interface InstallStep {
+  title: string;
+  state?: StageState;
+  detail?: string;
+}
+
+/** Something to write down now: shown once, never kept on the server. */
+export interface KeepItem {
+  title: string;
+  value: string;
+  note?: string;
+}
+
+export interface ProfileOption {
+  name: string;
+  description: string;
+}
+
+/** The secure page's steps (docs/ui/INSTALL_SCREENS.md §3.2–3.5), as the server tells them. */
+export interface FinishView {
+  /** "" (not answered), saved or skipped. */
+  token?: "" | "saved" | "skipped";
+  skip_allowed?: boolean;
+  provider?: "cloudflare" | "duckdns";
+  extras?: { profile: string; portainer: boolean };
+  profiles?: ProfileOption[];
+  profile_pick?: string;
+  profile_reason?: string;
+  portainer_allowed?: boolean;
+  steps?: InstallStep[];
+  install: Stage;
+  /** The full Linx is starting in this page's place. */
+  switching?: boolean;
+  /** /setup/<token>: the first sign-in, ready before the switch. */
+  sign_in_path?: string;
+  keep?: KeepItem[];
+}
+
 export interface InstallState {
   facts: Facts;
   draft?: Draft;
@@ -90,6 +129,8 @@ export interface InstallState {
   cert?: CertView;
   /** This is the secure page (https://<domain>). */
   secure?: boolean;
+  /** The secure page's steps: only ever sent there. */
+  finish?: FinishView;
 }
 
 export class LinkClosed extends Error {}
@@ -158,6 +199,52 @@ export async function canOpen(secureURL: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Secure page: no DNS token (a rented server where Linx takes 443). */
+export async function skipToken(): Promise<void> {
+  await post("/install/api/skip-token");
+}
+
+/** Secure page: the size of server and Portainer. */
+export async function saveExtras(extras: { profile: string; portainer: boolean }): Promise<void> {
+  await post("/install/api/extras", extras);
+}
+
+/** Secure page: install Linx (again, after a failure). */
+export async function startInstall(): Promise<void> {
+  await post("/install/api/install");
+}
+
+/**
+ * After the switch: whether the full Linx answers at this address yet
+ * (its public sign-in options; the installer's page never has them).
+ */
+export async function linxAnswers(): Promise<boolean> {
+  try {
+    const r = await fetch("/api/v1/sign-in-options", { cache: "no-store", credentials: "omit" });
+    return r.ok && (r.headers.get("Content-Type") ?? "").includes("json");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the first sign-in's link works yet: true, false (it doesn't:
+ * someone already set up an account, so sign in normally), or undefined
+ * (can't tell yet). Each "no" counts like a failed sign-in, so this is
+ * asked only a few times.
+ */
+export async function setupLinkReady(path: string): Promise<boolean | undefined> {
+  const token = path.replace(/^\/setup\//, "");
+  try {
+    const r = await fetch(`/api/v1/setup-links/${encodeURIComponent(token)}`, { cache: "no-store", credentials: "omit" });
+    if (r.ok) return true;
+    if (r.status === 400 || r.status === 404) return false;
+    return undefined;
+  } catch {
+    return undefined;
   }
 }
 

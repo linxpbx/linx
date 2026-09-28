@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"linxpbx.com/linx/internal/asteriskconf"
+	"linxpbx.com/linx/internal/install"
 	"linxpbx.com/linx/internal/installer"
 )
 
@@ -45,6 +46,7 @@ func Phones(ctx context.Context, env Env, cfg installer.Config) []Result {
 	}
 	no5060(ctx, env, &rs)
 	firewall(ctx, env, &rs, lan)
+	installerClosed(ctx, env, &rs, cfg)
 	if lan.OK() {
 		phoneDNS(ctx, env, &rs, cfg, lan)
 	} else {
@@ -328,6 +330,41 @@ func no5060(ctx context.Context, env Env, rs *results) {
 		}
 	}
 	rs.ok("Nothing on this server offers unencrypted SIP (port 5060).")
+}
+
+// installerClosed checks the web install's first page (port 6464) is shut
+// for good once setup has finished (docs/INSTALL.md §6): nothing publishes
+// or listens on it, and the firewall drops it. While a web install is
+// under way it's meant to be open, so nothing is said.
+func installerClosed(ctx context.Context, env Env, rs *results, cfg installer.Config) {
+	if !cfg.Installed() {
+		return
+	}
+	port := strconv.Itoa(install.Port)
+	fix := "Linx's installer page should be closed now. Stop what uses port " + port + ": sudo ss -lntp 'sport = :" + port + "'; sudo docker ps"
+	if out, err := env.Runner.Run(ctx, nil, "docker", "ps", "--format", "{{.Names}} {{.Ports}}"); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.Contains(line, ":"+port+"->") {
+				name, _, _ := strings.Cut(line, " ")
+				rs.fail("The container "+name+" opens port "+port+" (the installer's page) on this server.", fix)
+				return
+			}
+		}
+	}
+	if out, err := env.Runner.Run(ctx, nil, "ss", "-Hlntu"); err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			if f := strings.Fields(line); len(f) >= 5 && strings.HasSuffix(f[4], ":"+port) {
+				rs.fail("Something on this server listens on port "+port+" (the installer's page).", fix)
+				return
+			}
+		}
+	}
+	out, err := env.Runner.Run(ctx, nil, "nft", "list", "chain", "inet", installer.FirewallTable, "prerouting")
+	if err != nil || !strings.Contains(string(out), "tcp dport "+port+" counter") {
+		rs.warn("The firewall doesn't block port "+port+" (the installer's first page) yet.", "Run setup again: "+rerunSetup)
+		return
+	}
+	rs.ok("The installer's first page (port " + port + ") is closed for good.")
 }
 
 // firewall checks linx setup's nftables table is loaded, allows the LAN

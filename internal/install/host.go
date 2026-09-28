@@ -39,6 +39,10 @@ type HostState struct {
 	// page, until HandoffExpires or it's used.
 	HandoffHash    string    `json:"handoff_hash,omitempty"`
 	HandoffExpires time.Time `json:"handoff_expires,omitzero"`
+	// Switched: the install's last steps replaced the installer's stack
+	// with the full one (docs/INSTALL.md §14 item 2). From then on nothing
+	// may stop the stack, and the install pages are gone.
+	Switched bool `json:"switched,omitempty"`
 }
 
 // Progress is one line the terminal shows under the link.
@@ -195,6 +199,18 @@ func (h *Host) Start(ctx context.Context) error {
 		// So does the certificate page, where it's got to.
 		st.View.Draft, st.View.Accepted, st.View.Cert = old.View.Draft, old.View.Accepted, old.View.Cert
 	}
+	// An install the service was stopped in the middle of: before the
+	// switch the page offers Install again; after it there's no page.
+	if f := st.View.Finish; f != nil && f.Install.State == StageRunning {
+		c := *f
+		c.Install = Stage{State: StageFailed, Detail: "The install was interrupted (setup on the server restarted). Press Install to carry on.", At: h.now().UTC()}
+		c.Switching = false
+		st.View.Finish = &c
+	}
+	if st.Switched && st.View.Ended == "" {
+		st.View.Ended = EndedStopped
+		st.Progress = append(st.Progress, Progress{At: h.now().UTC(), Text: "The install was interrupted after Linx started. Run sudo linx setup again to finish.", Failed: true})
+	}
 	// What was running when the service last stopped runs again.
 	if st.View.Cert != nil {
 		c := *st.View.Cert
@@ -282,6 +298,8 @@ func (h *Host) End(ctx context.Context, reason string) {
 	switch reason {
 	case EndedCancelled:
 		text = "This link was cancelled."
+	case EndedStopped:
+		text = "The install pages are closed. Run sudo linx setup again to finish."
 	case EndedFinished:
 		text, failed = "The installer is closed for good.", false
 		// Written down on the page by now; never kept on the server.

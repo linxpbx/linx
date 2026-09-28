@@ -1,6 +1,6 @@
 # Web-first install — low-fidelity screen specs (install step 1)
 
-*Approved by the owner 2026-09-28, with §8's three decisions as recommended. Since then (`docs/INSTALL.md` §14): links last four hours, not one; the first page is HTTPS on 6464 with a self-signed certificate and offers the DNS token first; Sign-in comes after Install.*
+*Approved by the owner 2026-09-28, with §8's three decisions as recommended. Since then (`docs/INSTALL.md` §14): links last four hours, not one; the first page is HTTPS on 6464 with a self-signed certificate and offers the DNS token first; Sign-in comes after Install. §3.2, §3.4 and §3.5 built in install step 4 part 2 (`web/src/screens/InstallFinish.tsx`); the DNS company is shown as a fact (the domain decides it), not a choice.*
 
 Layout only: no colour, type or icon decisions (those come from `linx-tokens.json` / `DESIGN_TOKENS.md` when the screens are built in install steps 2–5). This is for the owner to sign off on **what's on each screen and where** before any code is written. The design these screens follow is `docs/INSTALL.md` (ADR-057, ADR-058).
 

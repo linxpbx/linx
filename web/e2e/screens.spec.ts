@@ -653,6 +653,69 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await shot(page, `install-secure-arrive-${label}`);
     });
 
+    test("secure page: token, extras, installing", async ({ page, baseURL }) => {
+      await fakeSecureInstall(page, baseURL!);
+      await page.goto("https://example.com/install");
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByRole("heading", { name: "Let Linx look after your DNS" })).toBeVisible();
+      await expect(page.getByText("sip.example.com")).toHaveCount(0);
+      await page.getByLabel("Token").fill("short-token");
+      await page.getByRole("button", { name: "Check and save" }).click();
+      await expect(page.getByRole("alert")).toContainText("can't see example.com at Cloudflare");
+      await shot(page, `install-dns-token-${label}`);
+      await page.getByRole("button", { name: "Skip" }).click();
+      await expect(page.getByRole("heading", { name: "A few extras" })).toBeVisible();
+      await expect(page.getByRole("radio", { name: /Standard/ })).toBeChecked();
+      await expect(page.getByText("Portainer")).toHaveCount(0);
+      await shot(page, `install-extras-${label}`);
+      await page.getByRole("button", { name: "Install" }).click();
+      await expect(page.getByRole("heading", { name: "Installing Linx" })).toBeVisible();
+      await expect(page.getByRole("list", { name: "Install steps" }).getByRole("listitem")).toHaveCount(10);
+      await expect(page.getByText("K7QM-2XPD-9RTA-LW4E-HB6N-C3VY")).toBeVisible();
+      await shot(page, `install-progress-${label}`);
+    });
+
+    test("secure page at home: the token is needed, Portainer offered", async ({ page, baseURL }) => {
+      await fakeSecureInstall(page, baseURL!, { where: "home" });
+      await page.goto("https://example.com/install");
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByText("adds sip.example.com for your desk phones")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Skip" })).toHaveCount(0);
+      await expect(page.getByText("At home your desk phones need sip.example.com")).toBeVisible();
+      await page.getByLabel("Token").fill("t".repeat(40));
+      await page.getByRole("button", { name: "Check and save" }).click();
+      await expect(page.getByRole("heading", { name: "A few extras" })).toBeVisible();
+      await page.getByLabel("Portainer").click();
+      await expect(page.getByLabel("Portainer")).toBeChecked();
+      await page.getByRole("button", { name: "Back" }).click();
+      await expect(page.getByText("Cloudflare token added")).toBeVisible();
+    });
+
+    test("the install stops", async ({ page, baseURL }) => {
+      await fakeSecureInstall(page, baseURL!, { installed: true, failAt: 3 });
+      await page.goto("https://example.com/install");
+      await expect(page.getByRole("heading", { name: "The install stopped" })).toBeVisible();
+      await expect(page.getByText("no space left on device")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+      await shot(page, `install-progress-failed-${label}`);
+    });
+
+    test("moves to the first sign-in once Linx answers", async ({ page, baseURL }) => {
+      const fake = await fakeSecureInstall(page, baseURL!, { installed: true });
+      await page.goto("https://example.com/install");
+      await expect(page.getByRole("heading", { name: "Installing Linx" })).toBeVisible();
+      let linxUp = false;
+      await page.route("https://example.com/api/v1/sign-in-options", (route) =>
+        linxUp ? route.fulfill({ json: { password: true, providers: [] } }) : route.fulfill({ status: 404, contentType: "text/html", body: "" }));
+      await page.route("https://example.com/api/v1/setup-links/*", (route) => route.fulfill({ json: { email: "mohammed@example.com", name: "Mohammed" } }));
+      fake.switchOver();
+      await expect(page.getByText("The installer's first page (port 6464) is now closed for good")).toBeVisible();
+      linxUp = true;
+      await expect(page.getByText("Tick “I've written these down” to go to your first sign-in")).toBeVisible({ timeout: 15_000 });
+      await page.getByLabel("I've written these down").click();
+      await page.waitForURL("https://example.com/setup/" + "s".repeat(43));
+    });
+
     test("a used handoff", async ({ page, baseURL }) => {
       await fakeSecureInstall(page, baseURL!, { usedHandoff: true });
       await page.goto("https://example.com/install/continue#" + "h".repeat(43));

@@ -59,6 +59,7 @@ func addPhones(t *testing.T, f *fixture) {
 	f.runner["ss -Hlntu"] = "tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:*\nudp UNCONN 0 0 127.0.0.53%lo:53 0.0.0.0:*\n"
 	f.runner[nftGet] = nftSet
 	f.runner["systemctl is-enabled linx-firewall.service"] = "enabled\n"
+	f.runner["nft list chain inet linx prerouting"] = "table inet linx {\n\tchain prerouting {\n\t\tfib daddr type local tcp dport 6464 counter packets 0 bytes 0 drop\n\t}\n}\n"
 	f.env.LAN = func() installer.LAN { return testLAN }
 	f.env.LookupIP = func(_ context.Context, host string) ([]netip.Addr, error) {
 		if host != "sip.lab.example.com" {
@@ -175,6 +176,13 @@ func TestPhonesProblems(t *testing.T) {
 		{"5060 listening", func(f *fixture) { f.runner["ss -Hlntu"] = "udp UNCONN 0 0 0.0.0.0:5060 0.0.0.0:*\n" },
 			installer.Fail, "listens on port 5060"},
 		{"firewall not loaded", func(f *fixture) { delete(f.runner, nftGet) }, installer.Fail, "aren't loaded"},
+		{"installer page published", func(f *fixture) {
+			f.runner["docker ps --format {{.Names}} {{.Ports}}"] = "linx-control-plane 203.0.113.5:6464->6464/tcp\n"
+		}, installer.Fail, "linx-control-plane opens port 6464"},
+		{"installer port listening", func(f *fixture) { f.runner["ss -Hlntu"] = "tcp LISTEN 0 4096 0.0.0.0:6464 0.0.0.0:*\n" },
+			installer.Fail, "listens on port 6464"},
+		{"installer port not blocked", func(f *fixture) { delete(f.runner, "nft list chain inet linx prerouting") },
+			installer.Warn, "doesn't block port 6464"},
 		{"firewall for another network", func(f *fixture) { f.runner[nftGet] = strings.Replace(nftSet, "192.168.1.0", "10.0.0.0", 1) },
 			installer.Fail, "connect from 10.0.0.0/24, but this server's local network is 192.168.1.0/24"},
 		{"firewall not at boot", func(f *fixture) { f.runner["systemctl is-enabled linx-firewall.service"] = "disabled\n" },

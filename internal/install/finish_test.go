@@ -17,6 +17,9 @@ type fakeApplier struct {
 	switched  bool
 	release   chan struct{}
 	failFirst bool
+	// failAfterSwitch: Run fails once the full stack has replaced the
+	// installer's.
+	failAfterSwitch bool
 }
 
 func (f *fakeApplier) Steps(context.Context, ApplyInput) ([]string, error) {
@@ -30,6 +33,8 @@ func (f *fakeApplier) Run(_ context.Context, in ApplyInput, report func(int, str
 	f.mu.Unlock()
 	report(0, StageRunning, "")
 	if fail {
+		// Something to write down was made before it failed.
+		keep(KeepItem{Title: "Certificate authority backup passphrase", Value: "ABCD-EFGH"})
 		report(0, StageFailed, "nftables isn't installed")
 		return errNotYet
 	}
@@ -39,7 +44,11 @@ func (f *fakeApplier) Run(_ context.Context, in ApplyInput, report func(int, str
 	switching()
 	f.mu.Lock()
 	f.switched = true
+	after := f.failAfterSwitch
 	f.mu.Unlock()
+	if after {
+		return errNotYet
+	}
 	return nil
 }
 func (f *fakeApplier) SaveToken(_ context.Context, token string) (string, error) {
@@ -51,8 +60,8 @@ func (f *fakeApplier) SaveToken(_ context.Context, token string) (string, error)
 	f.mu.Unlock()
 	return "", nil
 }
-func (f *fakeApplier) Profiles(context.Context) ([]string, string) {
-	return []string{"lite", "standard", "performance"}, "standard"
+func (f *fakeApplier) Profiles(context.Context) ([]ProfileOption, string, string) {
+	return []ProfileOption{{Name: "lite"}, {Name: "standard"}, {Name: "performance"}}, "standard", "4 processor cores"
 }
 
 // secureRig is a rig whose browser has moved to the secure page.
@@ -96,7 +105,8 @@ func TestSecurePageInstall(t *testing.T) {
 	}
 	ps := r.secureState(t, cookie)
 	// A rented server where Linx takes 443: Skip is offered.
-	if ps.Finish == nil || !ps.Finish.SkipAllowed || ps.Finish.Token != "" {
+	if ps.Finish == nil || !ps.Finish.SkipAllowed || ps.Finish.Token != "" || len(ps.Finish.Profiles) != 3 ||
+		ps.Finish.ProfilePick != "standard" || ps.Finish.PortainerAllowed {
 		t.Fatalf("finish: %+v", ps.Finish)
 	}
 	if code := post("/install/api/install", "{}"); code != http.StatusConflict {
@@ -112,7 +122,11 @@ func TestSecurePageInstall(t *testing.T) {
 	if code := post("/install/api/extras", `{"profile":"huge","portainer":false}`); code != http.StatusConflict {
 		t.Errorf("unknown size: %d", code)
 	}
-	if code := post("/install/api/extras", `{"profile":"standard","portainer":true}`); code != http.StatusNoContent {
+	// Portainer is only for a server at home.
+	if code := post("/install/api/extras", `{"profile":"standard","portainer":true}`); code != http.StatusConflict {
+		t.Errorf("Portainer on a rented server: %d", code)
+	}
+	if code := post("/install/api/extras", `{"profile":"standard","portainer":false}`); code != http.StatusNoContent {
 		t.Fatalf("extras: %d", code)
 	}
 	if code := post("/install/api/install", "{}"); code != http.StatusNoContent {
@@ -130,7 +144,7 @@ func TestSecurePageInstall(t *testing.T) {
 	ap.mu.Lock()
 	ran := *ap.ran
 	ap.mu.Unlock()
-	if ran.SkipToken || !ran.Extras.Portainer || ran.SetupToken != strings.TrimPrefix(f.SignInPath, "/setup/") || ap.token != token {
+	if ran.SkipToken || ran.Extras.Profile != "standard" || ran.SetupToken != strings.TrimPrefix(f.SignInPath, "/setup/") || ap.token != token {
 		t.Errorf("apply input: %+v", ran)
 	}
 
@@ -151,7 +165,6 @@ func TestSecurePageInstall(t *testing.T) {
 
 func TestInstallFailureCanBeTriedAgain(t *testing.T) {
 	ap := &fakeApplier{release: make(chan struct{}), failFirst: true}
-	close(ap.release)
 	r, cookie := secureRig(t, ap)
 	post := func(path, body string) int {
 		return r.secureDo("POST", "example.com", path, cookie, body, secureJSONHeaders...).Code
@@ -166,10 +179,32 @@ func TestInstallFailureCanBeTriedAgain(t *testing.T) {
 	if code := post("/install/api/install", "{}"); code != http.StatusNoContent {
 		t.Fatalf("try again: %d", code)
 	}
+	// What the failed try made to write down is still there.
+	waitFor(t, func() bool { return len(r.host.State().View.Finish.Keep) == 2 })
+	close(ap.release)
 	waitFor(t, func() bool { st := r.host.State(); return st.View.Ended == EndedFinished })
 	ap.mu.Lock()
 	defer ap.mu.Unlock()
 	if !ap.ran.SkipToken || r.host.State().View.Finish.SignInPath != first {
 		t.Errorf("second try: %+v, link %s vs %s", ap.ran, r.host.State().View.Finish.SignInPath, first)
+	}
+}
+
+func TestInstallStoppedAfterSwitch(t *testing.T) {
+	ap := &fakeApplier{release: make(chan struct{}), failAfterSwitch: true}
+	close(ap.release)
+	r, cookie := secureRig(t, ap)
+	post := func(path, body string) int {
+		return r.secureDo("POST", "example.com", path, cookie, body, secureJSONHeaders...).Code
+	}
+	post("/install/api/skip-token", "{}")
+	post("/install/api/extras", `{"profile":"","portainer":false}`)
+	if code := post("/install/api/install", "{}"); code != http.StatusNoContent {
+		t.Fatalf("install: %d", code)
+	}
+	waitFor(t, func() bool { return r.host.State().View.Ended == EndedStopped })
+	st := r.host.State()
+	if !st.Switched || st.View.Finish.Install.State != StageFailed {
+		t.Errorf("stopped: switched %v, %+v", st.Switched, st.View.Finish.Install)
 	}
 }

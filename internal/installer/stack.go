@@ -121,6 +121,18 @@ func StackPlan(c Config, dnsToken, imageTag string, lan LAN) StackSetup {
 	}
 }
 
+// Split is the plan without its last step, and that step: starting every
+// service. The web install starts the control plane on its own first, to
+// make the first admin while the rest starts (docs/INSTALL.md §14).
+func (s StackSetup) Split() (Plan, Step) {
+	return s.Plan[:len(s.Plan)-1], s.Plan[len(s.Plan)-1]
+}
+
+// StartServicesStep starts only services (and what they need).
+func StartServicesStep(title string, services ...string) Step {
+	return cmdStep(title, "docker", append([]string{"compose", "--file", stackFile, "up", "--detach", "--wait"}, services...)...)
+}
+
 // stackDotEnv renders the non-secret settings compose.yaml reads. Every value
 // is validated before it gets here (Config.Validate, ImageTag), so none needs
 // quoting.
@@ -162,7 +174,7 @@ LINX_TZ=%s
 `, ConfigPath, imageTag, c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Email, c.Certificates.Staging, c.Certificates.Wildcard, certChallenge(c),
 		lan.BindAddress(), asteriskconf.FormatSIPNetworks(lan.Networks()),
 		c.FrontDoor.Kind, fd.TrustedProxies, fd.ProxyProtocol, fd.WebAddress, fd.TURNUDPAddress, fd.TURNUDPPort, fd.TURNURLs,
-		fd.SNIAddress, fd.ComposeProfiles, dnsRecords(c), fd.DNSAddress, c.Zone())
+		fd.SNIAddress, fd.ComposeProfiles, DNSRecords(c, lan), fd.DNSAddress, c.Zone())
 }
 
 // certChallenge is LINX_CERT_CHALLENGE.
@@ -267,11 +279,24 @@ func existingOrNewKeyBytes(path string, n int) []byte {
 	return b
 }
 
-// dnsRecords is LINX_DNS_RECORDS: the public names, once there's a front
-// door ("" otherwise: certd leaves DNS alone).
-func dnsRecords(c Config) string {
-	if c.FrontDoor.Kind == FrontDoorNone || c.FrontDoor.Kind == "" || c.Certificates.NoDNSToken {
+// DNSRecords is LINX_DNS_RECORDS, and what setup's own certd -records
+// run points: the public names once there's a front door, and at home
+// sip.<domain> pinned to this server's home address for desk phones (owner
+// decision 2026-09-27; Cloudflare only, since DuckDNS gives every name one
+// address). "" without a DNS token: certd leaves DNS alone.
+func DNSRecords(c Config, lan LAN) string {
+	if c.Certificates.NoDNSToken {
 		return ""
 	}
-	return strings.Join(PublicHosts, ",")
+	var r []string
+	if c.FrontDoor.Kind != FrontDoorNone && c.FrontDoor.Kind != "" {
+		r = append(r, PublicHosts...)
+	}
+	if lan.OK() && c.Domain.DNSProvider == DNSCloudflare {
+		r = append(r, SIPHost+"="+lan.BindAddress().String())
+	}
+	return strings.Join(r, ",")
 }
+
+// SIPHost is desk phones' name under the domain.
+const SIPHost = "sip"

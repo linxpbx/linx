@@ -141,11 +141,19 @@ func TestFrontDoorFiles(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Domain.Name = "lab.example.com"
 	lan := LAN{Address: linx, Network: netip.MustParsePrefix("192.168.1.0/24")}
-	if f, d := FrontDoorPlan(cfg, lan); f != nil || d != nil {
-		t.Error("no front door writes front door files")
+	// No front door: only the desk phones' name, at the home address.
+	if f, d := FrontDoorPlan(cfg, lan); f != nil || len(d) != 1 || !strings.HasSuffix(d[0].Cmd.String(), "certd -records sip=192.168.1.20") ||
+		d[0].Title != "Point sip.lab.example.com at 192.168.1.20 (for desk phones at home) (DNS)" {
+		t.Errorf("no front door: files %v, dns %+v", f, d)
 	}
-	if env := string(stackDotEnv(cfg, "abc", lan)); !strings.Contains(env, "LINX_DNS_RECORDS=\n") {
-		t.Errorf("no front door, but certd would manage DNS:\n%s", env)
+	if env := string(stackDotEnv(cfg, "abc", lan)); !strings.Contains(env, "LINX_DNS_RECORDS=sip=192.168.1.20\n") {
+		t.Errorf("no front door, but certd wouldn't keep sip.:\n%s", env)
+	}
+	// DuckDNS can't: every name has the domain's address.
+	duck := cfg
+	duck.Domain = DomainConfig{Name: "me.duckdns.org", DNSProvider: DNSDuckDNS}
+	if _, d := FrontDoorPlan(duck, lan); d != nil {
+		t.Errorf("DuckDNS, no front door: %+v", d)
 	}
 	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30"}
 	files, dns := FrontDoorPlan(cfg, lan)
@@ -155,7 +163,7 @@ func TestFrontDoorFiles(t *testing.T) {
 	env := string(stackDotEnv(cfg, "abc", lan))
 	for _, want := range []string{"LINX_TRUSTED_PROXIES=192.168.1.30\n", "LINX_WEB_ADDRESS=192.168.1.20\n",
 		"LINX_TURN_UDP_ADDRESS=192.168.1.20\n", "LINX_TURN_UDP_PORT=443\n", "COMPOSE_PROFILES=\n",
-		"LINX_PROXY_PROTOCOL=true\n", "LINX_DNS_RECORDS=@,turn\n", "LINX_DNS_ADDRESS=\n"} {
+		"LINX_PROXY_PROTOCOL=true\n", "LINX_DNS_RECORDS=@,turn,sip=192.168.1.20\n", "LINX_DNS_ADDRESS=\n"} {
 		if !strings.Contains(env, want) {
 			t.Errorf(".env missing %q:\n%s", want, env)
 		}
@@ -194,7 +202,7 @@ func TestFrontDoorFilesMore(t *testing.T) {
 	lan := LAN{Address: linx, Network: netip.MustParsePrefix("192.168.1.0/24")}
 	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorHomeOnly}
 	files, dns := FrontDoorPlan(cfg, lan)
-	if len(files) != 1 || files[0].File.Path != HAProxyConfigFile || !strings.HasSuffix(dns[0].Cmd.String(), "-records @,turn -address 192.168.1.20") {
+	if len(files) != 1 || files[0].File.Path != HAProxyConfigFile || !strings.HasSuffix(dns[0].Cmd.String(), "-records @,turn,sip=192.168.1.20 -address 192.168.1.20") {
 		t.Errorf("home-only plan: %+v / %s", files, dns[0].Cmd)
 	}
 	for _, k := range []string{FrontDoorNginx, FrontDoorHTTPProxy} {

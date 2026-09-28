@@ -31,6 +31,14 @@ type FinishView struct {
 	Provider    string `json:"provider,omitempty"`
 	// Extras, once saved.
 	Extras *Extras `json:"extras,omitempty"`
+	// Profiles are the sizes offered, ProfilePick setup's pick for this
+	// server's hardware and ProfileReason why.
+	Profiles      []ProfileOption `json:"profiles,omitempty"`
+	ProfilePick   string          `json:"profile_pick,omitempty"`
+	ProfileReason string          `json:"profile_reason,omitempty"`
+	// PortainerAllowed: Portainer is offered (a server at home: it's only
+	// ever on the home network).
+	PortainerAllowed bool `json:"portainer_allowed,omitempty"`
 	// Steps are the install's steps, as they go.
 	Steps []InstallStep `json:"steps,omitempty"`
 	// Install is the whole install: running, ok or failed.
@@ -51,6 +59,12 @@ type Extras struct {
 	// Profile is lite, standard or performance ("" = setup's pick).
 	Profile   string `json:"profile"`
 	Portainer bool   `json:"portainer"`
+}
+
+// ProfileOption is one size of server.
+type ProfileOption struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // InstallStep is one row of the progress list.
@@ -86,12 +100,19 @@ type Applier interface {
 	Run(ctx context.Context, in ApplyInput, report func(i int, state, detail string), keep func(KeepItem), switching func()) error
 	// SaveToken checks the DNS token and keeps it on the host.
 	SaveToken(ctx context.Context, token string) (refusal string, err error)
-	// Profiles are the sizes offered, and setup's pick for this server.
-	Profiles(ctx context.Context) (options []string, pick string)
+	// Profiles are the sizes offered, and setup's pick for this server
+	// with why.
+	Profiles(ctx context.Context) (options []ProfileOption, pick, reason string)
 }
 
-// EndedFinished: the install finished and the full stack runs.
-const EndedFinished = "finished"
+const (
+	// EndedFinished: the install finished and the full stack runs.
+	EndedFinished = "finished"
+	// EndedStopped: the install stopped after the full stack replaced the
+	// installer's, so there's no install page left to try again on; the
+	// terminal says what to do. Nothing is stopped.
+	EndedStopped = "stopped"
+)
 
 var (
 	errNeedsToken    = errors.New("Add your DNS company's token first (or Skip, where that's offered).")
@@ -99,7 +120,15 @@ var (
 	errInstallBegun  = errors.New("The install has already started.")
 	errBadExtras     = errors.New("That size isn't one of the choices.")
 	errSkipForbidden = errors.New("Skipping the token only works on a rented server where Linx takes port 443 itself.")
+	errNoPortainer   = errors.New("Portainer is only offered on a server at home.")
 )
+
+// canChangeLocked: the token and extras can still change (the install
+// hasn't started, or it stopped before the switch and can be tried again).
+func (h *Host) canChangeLocked() bool {
+	f := h.st.View.Finish
+	return h.secureOpenLocked() && f != nil && f.Install.State != StageRunning && f.Install.State != StageOK && !h.st.Switched
+}
 
 // secureOpenLocked reports whether the secure page's session can act.
 func (h *Host) secureOpenLocked() bool {
@@ -132,7 +161,7 @@ func (h *Host) setFinish(fn func(f *FinishView), progress ...Progress) {
 // already asked on the plain page.
 func (h *Host) secureToken(ctx context.Context, token string) ([]FieldError, error) {
 	h.mu.Lock()
-	ok := h.secureOpenLocked() && h.st.View.Finish != nil && h.st.View.Finish.Install.State == ""
+	ok := h.canChangeLocked()
 	h.mu.Unlock()
 	if !ok {
 		return nil, errNotYet
@@ -150,7 +179,7 @@ func (h *Host) secureToken(ctx context.Context, token string) ([]FieldError, err
 
 func (h *Host) skipToken() error {
 	h.mu.Lock()
-	ok := h.secureOpenLocked() && h.st.View.Finish != nil && h.st.View.Finish.Install.State == ""
+	ok := h.canChangeLocked()
 	allowed := ok && h.st.View.Finish.SkipAllowed
 	h.mu.Unlock()
 	switch {
@@ -168,15 +197,19 @@ func (h *Host) extras(ctx context.Context, e *Extras) error {
 		return errBadExtras
 	}
 	h.mu.Lock()
-	ok := h.secureOpenLocked() && h.st.View.Finish != nil && h.st.View.Finish.Install.State == ""
+	ok := h.canChangeLocked()
+	portainer := ok && h.st.View.Finish.PortainerAllowed
 	h.mu.Unlock()
 	if !ok {
 		return errNotYet
 	}
-	options, _ := h.Apply.Profiles(ctx)
+	if e.Portainer && !portainer {
+		return errNoPortainer
+	}
+	options, _, _ := h.Apply.Profiles(ctx)
 	valid := e.Profile == ""
 	for _, o := range options {
-		valid = valid || o == e.Profile
+		valid = valid || o.Name == e.Profile
 	}
 	if !valid {
 		return errBadExtras
@@ -190,7 +223,7 @@ func (h *Host) extras(ctx context.Context, e *Extras) error {
 // can be started again: steps that finished are safe to repeat.
 func (h *Host) beginInstall(ctx context.Context) error {
 	h.mu.Lock()
-	ok := h.secureOpenLocked() && h.st.View.Finish != nil
+	ok := h.secureOpenLocked() && h.st.View.Finish != nil && !h.st.Switched
 	f := h.finish()
 	var a Answers
 	if h.st.View.Accepted != nil {
@@ -221,7 +254,9 @@ func (h *Host) beginInstall(ctx context.Context) error {
 		steps[i] = InstallStep{Title: t}
 	}
 	h.setFinish(func(f *FinishView) {
-		f.Steps, f.Install, f.SignInPath, f.Keep = steps, Stage{State: StageRunning, At: h.now().UTC()}, "/setup/"+token, nil
+		// Keep stays: what a failed try already made (the CA's passphrase)
+		// isn't made again.
+		f.Steps, f.Install, f.SignInPath = steps, Stage{State: StageRunning, At: h.now().UTC()}, "/setup/"+token
 	}, h.line("Installing Linx", true, false))
 	go h.runInstall(context.WithoutCancel(ctx), in)
 	return nil
@@ -245,6 +280,9 @@ func (h *Host) runInstall(ctx context.Context, in ApplyInput) {
 	}
 	keep := func(k KeepItem) { h.setFinish(func(f *FinishView) { f.Keep = append(f.Keep, k) }) }
 	switching := func() {
+		h.mu.Lock()
+		h.st.Switched = true
+		h.mu.Unlock()
 		h.setFinish(func(f *FinishView) { f.Switching = true },
 			h.line("Starting the full Linx: this installer page (port 6464) closes for good", true, false))
 		// Give the page a moment to hear it before the bridge goes.
@@ -253,6 +291,18 @@ func (h *Host) runInstall(ctx context.Context, in ApplyInput) {
 	err := h.Apply.Run(ctx, in, report, keep, switching)
 	if err != nil {
 		h.log().Error("installing Linx", "err", err)
+		h.mu.Lock()
+		switched := h.st.Switched
+		h.mu.Unlock()
+		if switched {
+			// The page is gone with the installer's stack: the terminal
+			// is the only place left to say so.
+			h.setFinish(func(f *FinishView) {
+				f.Install = Stage{State: StageFailed, Detail: firstLine(err.Error()), At: h.now().UTC()}
+			}, h.line("The install stopped after Linx started: "+firstLine(err.Error()), false, true))
+			h.End(ctx, EndedStopped)
+			return
+		}
 		h.setFinish(func(f *FinishView) {
 			f.Install = Stage{State: StageFailed, Detail: firstLine(err.Error()), At: h.now().UTC()}
 			f.Switching = false
