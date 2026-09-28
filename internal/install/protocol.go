@@ -33,14 +33,20 @@ const LinkLifetime = time.Hour
 //
 // Host → control plane: "view" (on connecting and after every change) and
 // "result" (to a request, same ID).
-// Control plane → host: "claim" and "check" (requests: the host answers
-// with "result"), and "draft" (no answer).
+// Control plane → host: "claim", "check", and the certificate page's
+// "door_ready", "retry", "token", "handoff" and "redeem" (requests: the
+// host answers with "result"), and "draft" (no answer).
 const (
-	TypeView   = "view"
-	TypeResult = "result"
-	TypeClaim  = "claim"
-	TypeCheck  = "check"
-	TypeDraft  = "draft"
+	TypeView      = "view"
+	TypeResult    = "result"
+	TypeClaim     = "claim"
+	TypeCheck     = "check"
+	TypeDraft     = "draft"
+	TypeDoorReady = "door_ready"
+	TypeRetry     = "retry"
+	TypeToken     = "token"
+	TypeHandoff   = "handoff"
+	TypeRedeem    = "redeem"
 )
 
 // Message is one line on the bridge.
@@ -53,6 +59,8 @@ type Message struct {
 
 	// claim: the link's secret as the browser gave it, the hash of the
 	// session the control plane made for that browser, and who it is.
+	// redeem: the handoff as the secure page got it, and the hash of the
+	// secure page's new session. handoff's result: the new handoff.
 	Secret      string `json:"secret,omitempty"`
 	SessionHash string `json:"session_hash,omitempty"`
 	Browser     string `json:"browser,omitempty"`
@@ -63,6 +71,9 @@ type Message struct {
 
 	// check
 	Answers *Answers `json:"answers,omitempty"`
+
+	// token: the DNS company's token (docs/INSTALL.md §4.3).
+	Token string `json:"token,omitempty"`
 
 	// result
 	OK     bool         `json:"ok,omitempty"`
@@ -91,6 +102,12 @@ type View struct {
 	Accepted *Answers `json:"accepted,omitempty"`
 	// Ended is "" while the install page is open, else why it closed.
 	Ended string `json:"ended,omitempty"`
+	// Cert is the certificate page, once the answers are saved.
+	Cert *CertView `json:"cert,omitempty"`
+	// Secure: the session moved to https://meet.<domain> (the handoff was
+	// used); SessionHash is then the secure page's cookie's, and the plain
+	// page's no longer works.
+	Secure bool `json:"secure,omitempty"`
 }
 
 // Why a link or session ended.
@@ -156,6 +173,7 @@ const (
 	StepFrontDoor = "front_door"
 	StepDomain    = "domain"
 	StepYou       = "you"
+	StepToken     = "token"
 )
 
 // MaxDraft is the most a page may keep as its draft.

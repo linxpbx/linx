@@ -43,6 +43,42 @@ export interface Draft {
   answers: Answers;
 }
 
+export type StageState = "" | "running" | "ok" | "failed";
+export type ProblemKind = "connection" | "dns" | "wrong_answer" | "rate_limited" | "other";
+
+export interface Stage {
+  state?: StageState;
+  kind?: ProblemKind;
+  detail?: string;
+  at?: string;
+}
+
+export interface SetupFile {
+  title: string;
+  path?: string;
+  text: string;
+}
+
+export type DNSState = "missing" | "wrong" | "ok" | "error";
+export interface DNSRecord { type: string; name: string; value: string }
+
+/** The certificate page (docs/ui/INSTALL_SCREENS.md §2.6–2.7), as the server tells it. */
+export interface CertView {
+  mode: "port443" | "token";
+  domain: string;
+  front_door: FrontDoor;
+  /** The DNS records to add by hand: meet. and turn. */
+  add_records?: DNSRecord[];
+  setup?: { files?: SetupFile[]; steps?: string[]; done?: boolean };
+  dns: { state?: DNSState; names?: { name: string; state: DNSState; seen?: string[] }[]; checked_at?: string };
+  prepare: Stage;
+  reach: Stage;
+  records: Stage;
+  certificate: Stage;
+  token_saved?: boolean;
+  secure_url?: string;
+}
+
 export interface InstallState {
   facts: Facts;
   draft?: Draft;
@@ -51,6 +87,9 @@ export interface InstallState {
   /** Seconds left, by the server's clock. */
   expires_in: number;
   connected: boolean;
+  cert?: CertView;
+  /** This is the secure page (https://meet.<domain>). */
+  secure?: boolean;
 }
 
 export class LinkClosed extends Error {}
@@ -78,6 +117,53 @@ export async function checkAnswers(a: Answers): Promise<CheckResult> {
   const body = (await r.json().catch(() => ({}))) as { errors?: FieldError[]; detail?: string };
   if (r.status === 422 && body.errors) return { ok: false, errors: body.errors };
   return { ok: false, problem: body.detail ?? "Setup on the server couldn't check your answers. Try again." };
+}
+
+/** A problem the server explained, in plain words. */
+export class Problem extends Error {}
+
+async function post(path: string, body: unknown = {}): Promise<Response> {
+  const r = await fetch(path, { method: "POST", headers: json, body: JSON.stringify(body), credentials: "same-origin" });
+  if (r.status === 404) throw new LinkClosed();
+  if (r.ok) return r;
+  const b = (await r.json().catch(() => ({}))) as { errors?: FieldError[]; detail?: string };
+  throw new Problem(b.errors?.[0]?.message ?? b.detail ?? "Setup on the server couldn't do that. Try again.");
+}
+
+/** "I've done this" for the front door's own steps. */
+export async function frontDoorReady(): Promise<void> {
+  await post("/install/api/door-ready");
+}
+
+/** Run a failed step again. */
+export async function retryCertificate(): Promise<void> {
+  await post("/install/api/retry");
+}
+
+/** The DNS company's token (only when port 443 can't reach Linx, §2.6). */
+export async function sendToken(token: string): Promise<void> {
+  await post("/install/api/token", { token });
+}
+
+/** A new one-time link to the secure page (two minutes). */
+export async function newHandoff(): Promise<string> {
+  const r = await post("/install/api/handoff");
+  return ((await r.json()) as { handoff: string }).handoff;
+}
+
+/** Whether this browser can open the secure page yet (its DNS may lag). */
+export async function canOpen(secureURL: string): Promise<boolean> {
+  try {
+    await fetch(`${secureURL}/install/api/ping`, { mode: "no-cors", cache: "no-store" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** On the secure page: swap the handoff for this page's own session. */
+export async function redeemHandoff(handoff: string): Promise<void> {
+  await post("/install/api/redeem", { handoff });
 }
 
 export const emptyAnswers: Answers = { where: "", front_door: "", domain: "", name: "", email: "", time_zone: "", agreed_to_terms: false };

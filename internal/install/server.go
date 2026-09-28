@@ -30,6 +30,10 @@ import (
 // address the link was opened at.
 const CookieName = "linx_install"
 
+// SecureCookieName is the session's cookie on https://meet.<domain>, once
+// the handoff is used.
+const SecureCookieName = "__Host-linx_install"
+
 // Request timeouts on the bridge.
 const (
 	claimTimeout = 10 * time.Second
@@ -245,7 +249,7 @@ func (s *Server) Snapshot() (View, bool) {
 func (s *Server) Handler() http.Handler {
 	web := webapp.Handler(s.Web)
 	return webapp.PlainHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.session(r) {
+		if !s.session(r, false) {
 			if !s.allow(r) {
 				w.Header().Set("Retry-After", "10")
 				http.Error(w, "Too many requests. Wait a moment and try again.", http.StatusTooManyRequests)
@@ -265,6 +269,14 @@ func (s *Server) Handler() http.Handler {
 			s.putDraft(w, r)
 		case p == "/install/api/check" && r.Method == http.MethodPost:
 			s.check(w, r)
+		case p == "/install/api/door-ready" && r.Method == http.MethodPost:
+			s.simple(w, r, TypeDoorReady)
+		case p == "/install/api/retry" && r.Method == http.MethodPost:
+			s.simple(w, r, TypeRetry)
+		case p == "/install/api/token" && r.Method == http.MethodPost:
+			s.token(w, r)
+		case p == "/install/api/handoff" && r.Method == http.MethodPost:
+			s.handoff(w, r)
 		case strings.HasPrefix(p, "/install/api/"):
 			notFound(w)
 		case p == "/" || strings.HasPrefix(p, "/install/"):
@@ -280,16 +292,21 @@ func (s *Server) Handler() http.Handler {
 }
 
 // session reports whether r carries the claimed browser's cookie for a
-// link that's still open.
-func (s *Server) session(r *http.Request) bool {
-	c, err := r.Cookie(CookieName)
+// link that's still open: the plain page's until the handoff is used, the
+// secure page's after.
+func (s *Server) session(r *http.Request, secure bool) bool {
+	name := CookieName
+	if secure {
+		name = SecureCookieName
+	}
+	c, err := r.Cookie(name)
 	if err != nil {
 		return false
 	}
 	s.mu.Lock()
 	v, ok := s.view, s.haveView
 	s.mu.Unlock()
-	return ok && v.Ended == "" && v.SessionHash != "" && s.now().Before(v.ExpiresAt) && Matches(c.Value, v.SessionHash)
+	return ok && v.Ended == "" && v.SessionHash != "" && v.Secure == secure && s.now().Before(v.ExpiresAt) && Matches(c.Value, v.SessionHash)
 }
 
 // allow rate-limits requests without a session, per address.
@@ -393,23 +410,30 @@ type pageState struct {
 	// ExpiresIn is the seconds left, by this server's clock: the page
 	// counts down from it, so a wrong clock on the visitor's computer
 	// doesn't matter.
-	ExpiresIn int  `json:"expires_in"`
-	Connected bool `json:"connected"`
+	ExpiresIn int       `json:"expires_in"`
+	Connected bool      `json:"connected"`
+	Cert      *CertView `json:"cert,omitempty"`
+	// Secure: this is the secure page (https://meet.<domain>).
+	Secure bool `json:"secure,omitempty"`
 }
 
 func (s *Server) getState(w http.ResponseWriter) {
 	v, connected := s.Snapshot()
 	left := max(0, int(v.ExpiresAt.Sub(s.now()).Seconds()))
 	writeJSON(w, http.StatusOK, pageState{Facts: v.Facts, Draft: v.Draft, Accepted: v.Accepted, ExpiresAt: v.ExpiresAt,
-		ExpiresIn: left, Connected: connected})
+		ExpiresIn: left, Connected: connected, Cert: v.Cert, Secure: v.Secure})
 }
 
 // sameOrigin is the check every change makes on top of the SameSite
 // cookie: a JSON body, sent by this page.
 func sameOrigin(r *http.Request) bool {
 	ct := r.Header.Get("Content-Type")
+	scheme := "http://"
+	if r.TLS != nil {
+		scheme = "https://"
+	}
 	return (ct == "application/json" || strings.HasPrefix(ct, "application/json;")) &&
-		r.Header.Get("Origin") == "http://"+r.Host
+		r.Header.Get("Origin") == scheme+r.Host
 }
 
 func (s *Server) putDraft(w http.ResponseWriter, r *http.Request) {
@@ -467,6 +491,80 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 	s.view.Accepted = &a
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, checkResult{OK: true})
+}
+
+// simple sends a request with no body to the host (the certificate page's
+// "I've done this" and "Try again").
+func (s *Server) simple(w http.ResponseWriter, r *http.Request, typ string) {
+	if !sameOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "This change didn't come from the install page.")
+		return
+	}
+	s.relay(w, r, Message{Type: typ}, claimTimeout)
+}
+
+// relay sends m to the host and answers with its result.
+func (s *Server) relay(w http.ResponseWriter, r *http.Request, m Message, timeout time.Duration) (Message, bool) {
+	res, err := s.request(r.Context(), m, timeout)
+	if err != nil {
+		s.log().Warn("install request", "type", m.Type, "err", err)
+		writeProblem(w, http.StatusServiceUnavailable, "Setup on the server isn't answering. Check that sudo linx setup is still running, then try again.")
+		return res, false
+	}
+	switch {
+	case res.Error != "":
+		writeProblem(w, http.StatusConflict, res.Error)
+		return res, false
+	case len(res.Errors) > 0:
+		writeJSON(w, http.StatusUnprocessableEntity, checkResult{Errors: res.Errors})
+		return res, false
+	case !res.OK:
+		writeProblem(w, http.StatusConflict, "Setup on the server refused that.")
+		return res, false
+	}
+	if m.Type != TypeHandoff && m.Type != TypeRedeem {
+		w.WriteHeader(http.StatusNoContent)
+	}
+	return res, true
+}
+
+// maxToken is the most a DNS token body may be.
+const maxToken = 1 << 10
+
+// token passes the DNS company's token to the host (docs/INSTALL.md §4.3:
+// the page warned it isn't encrypted). It's never logged or kept here.
+func (s *Server) token(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "This change didn't come from the install page.")
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxToken))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "The token couldn't be read.")
+		return
+	}
+	s.relay(w, r, Message{Type: TypeToken, Token: body.Token}, checkTimeout)
+}
+
+// handoff is a new one-time link to the secure page, for this browser.
+func (s *Server) handoff(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "This change didn't come from the install page.")
+		return
+	}
+	res, ok := s.relay(w, r, Message{Type: TypeHandoff}, claimTimeout)
+	if !ok {
+		return
+	}
+	if !ValidSecret(res.Secret) {
+		writeProblem(w, http.StatusServiceUnavailable, "Setup on the server didn't make a link to the secure page. Try again.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"handoff": res.Secret})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

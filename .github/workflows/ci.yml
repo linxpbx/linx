@@ -285,6 +285,18 @@ jobs:
           LINX_COTURN_IMAGE: linx-coturn:ci
         run: make setup-dev && make test-browser
 
+      # The web install (docs/INSTALL.md §4): the install page and the first
+      # certificate through port 443, with this control plane, a certd
+      # build and Pebble (Let's Encrypt's test server) in front of linx-sni.
+      - name: Build certd for the install suite
+        if: matrix.arch == 'amd64'
+        run: make image SERVICE=certd
+      - name: Install suite
+        if: matrix.arch == 'amd64'
+        env:
+          LINX_CONTROL_PLANE_IMAGE: linx-control-plane:ci
+        run: make test-install
+
       - name: Log in to GitHub Container Registry
         if: env.PUBLISH == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0

@@ -9,8 +9,9 @@ import { reportCompanyDone } from "@/lib/company";
 // Everything after sign-in (the phone line, JsSIP, the screens) loads
 // separately, so the sign-in page stays small (docs/WEB.md §6).
 const SignedIn = lazy(() => import("@/screens/SignedIn"));
-// The web install's plain page (docs/INSTALL.md): only ever served on port
-// 6464, before the rest of Linx exists.
+// The web install's pages (docs/INSTALL.md): the plain page on port 6464,
+// then the secure one on https://meet.<domain>, before the rest of Linx
+// exists.
 const Install = lazy(() => import("@/screens/Install"));
 
 type Auth =
@@ -45,7 +46,7 @@ async function finishSignIn(setupToken: string | undefined, loadMe: () => Promis
 export function App() {
   const path = usePath();
   if (path === "/company-done") return <CompanyDonePage />;
-  if (path === "/install") {
+  if (path === "/install" || path === "/install/continue") {
     return <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}><Install /></Suspense>;
   }
   return <Main path={path} />;

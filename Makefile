@@ -60,6 +60,13 @@ test-docker: ## Run tests that need Docker (internal CA, real Postgres)
 	@if out=$$(LINX_DOCKER_TESTS=1 go test -count=1 -run Docker ./internal/... 2>&1); then echo "docker tests: ok"; \
 	else echo "$$out" | grep -Ev '^(ok|\?) '; echo "docker tests: FAILED"; exit 1; fi
 
+.PHONY: test-install
+test-install: ## Web install suite: install page + first certificate through port 443 with Pebble (needs make image SERVICE=control-plane and SERVICE=certd)
+	@if out=$$(LINX_DOCKER_TESTS=1 go test -p 1 -count=1 -v -run "TestInstallModeDocker|TestWebCertificateInstall" ./internal/install/ ./internal/installer/ 2>&1); then \
+		if echo "$$out" | grep -q -- "--- SKIP"; then echo "$$out" | grep -A2 -- "--- SKIP"; echo "install suite: SKIPPED"; exit 1; fi; \
+		echo "install suite: ok"; \
+	else echo "$$out" | grep -Ev '^(ok|\?|=== RUN) ' | tail -80; echo "install suite: FAILED"; exit 1; fi
+
 .PHONY: test-calls
 test-calls: ## Phone engine call suite only: Asterisk + SIPp over TLS/SRTP (needs make image SERVICE=asterisk and SERVICE=wireguard)
 	@if out=$$(LINX_DOCKER_TESTS=1 go test -count=1 -v -run "TestCallsDocker|TestTrunksDocker|TestWireGuardDocker" ./internal/calltest/ 2>&1); then \

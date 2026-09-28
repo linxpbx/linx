@@ -1,13 +1,18 @@
 // Command certd issues, renews and deploys Linx's public certificate (lego,
 // ADR-010). With -once it checks and renews once, then exits (tests, doctor).
 // With -records meet,api,turn it points those names at this network's
-// public address in DNS, then exits (linx setup, docs/WEB.md §3).
+// public address in DNS, then exits (linx setup, docs/WEB.md §3). With
+// -bootstrap staging|real it gets the web install's first certificate by
+// TLS-ALPN-01, with no DNS token (docs/INSTALL.md §4), prints one result
+// line and exits.
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -32,7 +37,12 @@ func main() {
 	once := flag.Bool("once", false, "check and renew once, then exit")
 	records := flag.String("records", "", "point these host names (comma-separated, e.g. meet,api,turn) at this network's public address, then exit")
 	address := flag.String("address", "", "with -records: point them at this address instead (home only)")
+	bootstrap := flag.String("bootstrap", "", "staging or real: get the install's first certificate through port 443, print the result, then exit")
 	flag.Parse()
+
+	if *bootstrap != "" {
+		os.Exit(runBootstrap(*bootstrap, os.Getenv, os.Stdout))
+	}
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", service)
 	legolog.Logger = slog.NewLogLogger(log.With("component", "lego").Handler(), slog.LevelInfo)
@@ -151,4 +161,33 @@ func followerFromEnv(cfg certs.Config, getenv func(string) string, log *slog.Log
 	client := certs.NewRecordsClient()
 	client.OwnOnly = true
 	return &certs.Follower{Client: client, Config: cfg, Hosts: hosts, Fixed: fixed, Log: log.With("component", "dns")}, nil
+}
+
+// runBootstrap is -bootstrap.
+func runBootstrap(mode string, getenv func(string) string, stdout io.Writer) int {
+	log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("service", service, "mode", "bootstrap")
+	legolog.Logger = slog.NewLogLogger(log.With("component", "lego").Handler(), slog.LevelInfo)
+	res := certs.BootstrapResult{OK: true}
+	defer func() { _ = json.NewEncoder(stdout).Encode(map[string]certs.BootstrapResult{certs.ResultKey: res}) }()
+	if mode != "staging" && mode != "real" {
+		res = certs.BootstrapResult{Kind: certs.ProblemOther, Detail: "-bootstrap: want staging or real, got " + mode}
+		return 2
+	}
+	b, err := certs.BootstrapFromEnv(getenv)
+	if err != nil {
+		log.Error("invalid configuration", "err", err)
+		res = certs.BootstrapResult{Kind: certs.ProblemOther, Detail: err.Error()}
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	log.Info("getting the first certificate", "names", b.Names(), "staging", mode == "staging")
+	if err := b.Obtain(ctx, mode == "staging", time.Now()); err != nil {
+		p := certs.Classify(err)
+		log.Error("first certificate", "err", err)
+		res = certs.BootstrapResult{Kind: p.Kind, Detail: p.Detail}
+		return 1
+	}
+	log.Info("first certificate done", "staging", mode == "staging")
+	return 0
 }

@@ -4,6 +4,13 @@
 # port 6464 with the one-time setup link's pages and nothing else. It holds
 # no secrets and needs no database. linx setup, on the host, talks to it
 # through docker exec (service install-bridge) and decides everything.
+#
+# Once the plain page's answers are saved, linx setup writes the front
+# door's settings into install.env and starts it again: the control plane
+# then also answers what the front door sends port 443 to (8443, and 5349
+# for turn.<domain>), and certd is run from here to get the first
+# certificate (docs/INSTALL.md §4). The certificate lands in the same
+# volume the full stack's services read.
 name: linx
 
 services:
@@ -17,25 +24,111 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    environment:
+      # Who may, and must, send the visitor's address in a PROXY header on
+      # 8443 (the front door), as in the full stack.
+      LINX_TRUSTED_PROXIES: ${LINX_TRUSTED_PROXIES:-}
+      LINX_PROXY_PROTOCOL: ${LINX_PROXY_PROTOCOL:-true}
     # The bridge's socket: in memory, only this image's user can open it.
     tmpfs:
       - /run/linx:uid=65532,gid=65532,mode=0700
+    volumes:
+      # certd's certificate once it has one, and its challenge certificates
+      # for Let's Encrypt's check meanwhile.
+      - certs:/var/lib/linx/certs:ro
+      - acme-challenge:/var/lib/linx/acme-challenge:ro
     # The address the server is reached at on its own network (public on a
-    # rented server, the home network's at home).
+    # rented server, the home network's at home); then 8443 and 5349 where
+    # the front door reaches them (127.0.0.1: nowhere; Linx's own port 443
+    # router reaches them inside Docker).
     ports:
       - ${LINX_INSTALL_ADDRESS:?set by linx setup}:6464:6464/tcp
+      - ${LINX_WEB_ADDRESS:-127.0.0.1}:8443:8443/tcp
+      - ${LINX_WEB_ADDRESS:-127.0.0.1}:5349:5349/tcp
     healthcheck:
       test: [CMD, /usr/local/bin/service, healthcheck, --install]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 5s
-    networks: [linx-install]
+    networks:
+      linx-install:
+      linx-public:
+        # linx-sni sends turn.<domain> to coturn, which doesn't run yet:
+        # during the install, Let's Encrypt's check on that name reaches
+        # the control plane instead.
+        aliases: [coturn]
     mem_limit: 128m
     pids_limit: 64
+
+  # Run by linx setup (docker compose run), never started by "up".
+  certd:
+    image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-certd:${LINX_VERSION:?set by linx setup}
+    profiles: [certificate]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      LINX_DOMAIN: ${LINX_DOMAIN:-}
+      LINX_ACME_EMAIL: ${LINX_ACME_EMAIL:-}
+      # Only with the DNS token (Caddy or Nginx Proxy Manager, or home
+      # only), which linx setup mounts for that run.
+      LINX_DNS_PROVIDER: ${LINX_DNS_PROVIDER:-cloudflare}
+      LINX_ACME_STAGING: "false"
+      LINX_CERT_WILDCARD: "true"
+    volumes:
+      - certd-state:/var/lib/linx/state
+      - certs:/var/lib/linx/certs
+      - acme-challenge:/var/lib/linx/acme-challenge
+    networks: [linx-egress]
+    mem_limit: 64m
+    pids_limit: 64
+
+  # Linx takes 443, and home only: the full stack's linx-sni, with the same
+  # generated settings.
+  sni:
+    # haproxy:3.2.23-alpine (LTS)
+    image: haproxy:3.2.23-alpine@sha256:5961c68bc8a81c5124d0a98ab20f81b74717d6afe596e805977d9cf84c126222
+    container_name: linx-sni
+    profiles: [linx-443]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - ${LINX_SNI_ADDRESS:-127.0.0.1}:443:443/tcp
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    tmpfs: [/tmp]
+    networks:
+      linx-public:
+        aliases: [linx-sni]
+    depends_on: [control-plane]
+    mem_limit: 64m
+    pids_limit: 64
+
+volumes:
+  # The same volumes as the full stack's (same project name), so the
+  # certificate and certd's accounts carry over.
+  certd-state:
+  certs:
+  # Challenge certificates: in memory only, written by certd and read by
+  # the control plane, which run as the same user; nobody else.
+  acme-challenge:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=65532,gid=65532,mode=0700,size=256k
 
 networks:
   # Only for publishing port 6464 (Docker publishes no port from an
   # internal network); the installer connects to nothing.
   linx-install:
     name: linx-install
+  # The front door's side, as in the full stack.
+  linx-public:
+    name: linx-public
+  # certd's way out, to Let's Encrypt (and the DNS company, with a token).
+  linx-egress:
+    name: linx-egress

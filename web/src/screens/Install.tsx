@@ -2,11 +2,13 @@
 // docs/ui/INSTALL_SCREENS.md §2): where the server is, what's in front of
 // it, the domain and who's setting it up. Nothing secret is asked here, and
 // nothing changes on the server until "Check and get a certificate": then
-// linx setup, on the host, checks the answers with setup.yaml's own rules.
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Building2, Check, ChevronDown, CircleAlert, Clock, House, LoaderCircle, LockOpen, TriangleAlert } from "lucide-react";
-import { Wordmark } from "@/components/brand";
-import { Button } from "@/components/ui/button";
+// linx setup, on the host, checks the answers with setup.yaml's own rules,
+// and the certificate page follows (InstallCertificate.tsx). On
+// https://meet.<domain> the same address is the secure page.
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Building2, ChevronDown, House } from "lucide-react";
+import { Countdown, FieldMessage, Frame, LinkUnusable, Nav, submit, Title, useSecondsLeft } from "@/components/InstallFrame";
+import { CertificateStep, SecureInstall } from "@/screens/InstallCertificate";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,19 +16,22 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
-  browserTimeZone, checkAnswers, domainProblem, mmss, timeZones, emailProblem, emptyAnswers, getState, LinkClosed, nameProblem, portProblem,
+  browserTimeZone, checkAnswers, domainProblem, timeZones, emailProblem, emptyAnswers, getState, LinkClosed, nameProblem, portProblem,
   proxyAddressProblem, proxyKinds, saveDraft, type Answers, type Facts, type FieldError, type FrontDoor,
   type InstallState, type Step,
 } from "@/lib/install";
 
-/** The whole install's steps; the plain page covers the first three. */
-const PROGRESS = ["Server", "Domain", "You", "Certificate", "DNS", "Sign-in", "Install"] as const;
 const progressIndex: Record<Step, number> = { welcome: 0, where: 0, front_door: 0, domain: 1, you: 2, checked: 3 };
 const firstStepOf: Step[] = ["where", "domain", "you"];
 
 const LE_AGREEMENT = "https://letsencrypt.org/repository/";
 
 export default function InstallScreen() {
+  if (window.location.protocol === "https:") return <SecureInstall />;
+  return <PlainInstall />;
+}
+
+function PlainInstall() {
   const [state, setState] = useState<InstallState | "loading" | "closed">("loading");
   useEffect(() => {
     // Any failure to read the state means the page can't go on: the link
@@ -36,104 +41,6 @@ export default function InstallScreen() {
   if (state === "loading") return <main className="min-h-dvh bg-background" aria-busy="true" />;
   if (state === "closed") return <LinkUnusable />;
   return <Wizard initial={state} onClosed={() => setState("closed")} />;
-}
-
-function LinkUnusable() {
-  return (
-    <Frame>
-      <h1 className="font-display text-xl font-semibold">This link can't be used</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Setup links work once, for one hour. For a new one, run on the server:</p>
-      <code className="mt-4 block rounded-md bg-muted px-3 py-2 font-mono text-sm">sudo linx setup</code>
-      <p className="mt-4 text-sm text-muted-foreground">Answers you already gave are kept for the new link.</p>
-    </Frame>
-  );
-}
-
-/** Seconds left, counted down from what the server said when the page loaded. */
-function useSecondsLeft(initial: number): number {
-  const [left, setLeft] = useState(initial);
-  useEffect(() => {
-    const end = performance.now() + initial * 1000;
-    const t = setInterval(() => setLeft(Math.max(0, Math.round((end - performance.now()) / 1000))), 1000);
-    return () => clearInterval(t);
-  }, [initial]);
-  return left;
-}
-
-/**
- * How long this link has left, and how to get a new one (under the card).
- * The last five minutes are a warning.
- */
-function Countdown({ left }: { left: number }) {
-  const soon = left <= 300;
-  return (
-    <div role="timer" aria-live={soon ? "polite" : "off"}
-      className={cn("mt-4 flex items-start gap-2 rounded-md px-4 py-3 text-sm", soon ? "border border-status-away bg-card" : "text-muted-foreground")}>
-      {soon
-        ? <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-away" />
-        : <Clock aria-hidden="true" className="mt-0.5 size-4 shrink-0" />}
-      <span>
-        {soon ? <strong className="font-medium text-foreground">This link closes in {mmss(left)}.</strong> : <>This link closes in {mmss(left)}.</>}{" "}
-        Need more time? Run <code className="font-mono text-foreground">sudo linx setup --new-link</code> on the server for a new link.
-        Your answers so far are kept.
-      </span>
-    </div>
-  );
-}
-
-function Frame({ step, onStep, strip = true, footer, children }: {
-  step?: Step; onStep?: (s: Step) => void; strip?: boolean; footer?: ReactNode; children: ReactNode;
-}) {
-  return (
-    <main className="flex min-h-dvh items-start justify-center bg-background px-4 py-10 sm:items-center">
-      <div className="w-full max-w-xl">
-        <div className="mb-8 flex justify-center">
-          <Wordmark className="text-5xl" />
-        </div>
-        {step && step !== "welcome" && <ProgressLine step={step} onStep={onStep} />}
-        <section className="rounded-lg border bg-card shadow-xs">
-          {strip && (
-            <p className="flex items-start gap-2 border-b px-6 py-3 text-sm text-muted-foreground">
-              <LockOpen aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              <span>This page isn't encrypted yet. Nothing secret is asked here.</span>
-            </p>
-          )}
-          <div className="p-6">{children}</div>
-        </section>
-        {footer}
-      </div>
-    </main>
-  );
-}
-
-/** "● Server ─ ● Domain ─ ◉ You ─ ○ …"; "Step 3 of 7 · You" on a phone. */
-function ProgressLine({ step, onStep }: { step: Step; onStep?: (s: Step) => void }) {
-  const at = progressIndex[step];
-  return (
-    <nav aria-label="Install progress" className="mb-4">
-      <p className="text-center text-sm text-muted-foreground sm:hidden">Step {at + 1} of {PROGRESS.length} · {PROGRESS[at]}</p>
-      <ol className="hidden flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm sm:flex">
-        {PROGRESS.map((name, i) => {
-          const done = i < at;
-          const back = done && i < firstStepOf.length && step !== "checked" && onStep;
-          const dot = (
-            <span className={cn("flex items-center gap-1.5", i === at ? "font-medium text-foreground" : done ? "text-foreground" : "text-muted-foreground")}>
-              <span aria-hidden="true" className={cn("inline-block size-2.5 rounded-full border",
-                done ? "border-primary bg-primary" : i === at ? "border-primary ring-2 ring-primary/30" : "border-border")} />
-              {name}
-              {i === at && <span className="sr-only"> (this step)</span>}
-            </span>
-          );
-          return (
-            <li key={name} className="flex items-center gap-2">
-              {i > 0 && <span aria-hidden="true" className="h-px w-3 bg-border" />}
-              {back ? <button type="button" className="hover:underline" onClick={() => onStep(firstStepOf[i] ?? "where")}>{dot}</button> : dot}
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
-  );
 }
 
 function Wizard({ initial, onClosed }: { initial: InstallState; onClosed: () => void }) {
@@ -187,48 +94,18 @@ function Wizard({ initial, onClosed }: { initial: InstallState; onClosed: () => 
       );
       break;
     case "checked":
-      body = <Checked answers={answers} facts={facts} />;
+      body = <CertificateStep initial={initial} answers={answers} facts={facts} onClosed={onClosed} />;
       break;
   }
-  return <Frame step={step} onStep={go} footer={<Countdown left={left} />}>{body}</Frame>;
-}
-
-function Title({ children, lead }: { children: ReactNode; lead?: ReactNode }) {
   return (
-    <div className="mb-6">
-      <h1 className="font-display text-xl font-semibold">{children}</h1>
-      {lead && <p className="mt-1 text-sm text-muted-foreground">{lead}</p>}
-    </div>
-  );
-}
-
-function FieldError({ message }: { message: string }) {
-  if (!message) return null;
-  return (
-    <p role="alert" className="flex items-start gap-2 text-sm font-medium">
-      <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
-      {message}
-    </p>
-  );
-}
-
-function Nav({ onBack, next = "Next", busy = false, disabled = false }: { onBack?: () => void; next?: string; busy?: boolean; disabled?: boolean }) {
-  return (
-    <div className="mt-8 flex flex-wrap items-center justify-end gap-3">
-      {onBack && <Button type="button" variant="outline" onClick={onBack} disabled={busy}>Back</Button>}
-      <Button type="submit" disabled={busy || disabled}>
-        {busy && <LoaderCircle aria-hidden="true" className="animate-spin" />}
-        {next}
-      </Button>
-    </div>
+    <Frame at={step === "welcome" ? undefined : progressIndex[step]} back={step === "checked" ? undefined : (i) => go(firstStepOf[i] ?? "where")}
+      footer={<Countdown left={left} />}>
+      {body}
+    </Frame>
   );
 }
 
 type StepProps = { answers: Answers; set: (p: Partial<Answers>) => void; errorFor: (f: string) => string };
-
-function submit(fn: () => void) {
-  return (e: FormEvent) => { e.preventDefault(); fn(); };
-}
 
 function Welcome({ onStart }: { onStart: () => void }) {
   return (
@@ -298,7 +175,7 @@ function WhereStep({ answers, set, errorFor, facts, onNext }: StepProps & { fact
       </RadioGroup>
       <p className="mt-4 text-sm text-muted-foreground">{found}</p>
       {mismatch && <p className="mt-2 text-sm">{mismatch}</p>}
-      <div className="mt-2"><FieldError message={errorFor("where")} /></div>
+      <div className="mt-2"><FieldMessage message={errorFor("where")} /></div>
       <Nav disabled={!answers.where} />
     </form>
   );
@@ -358,7 +235,7 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
           <Input id="proxy-address" inputMode="decimal" autoComplete="off" placeholder="192.168.1.20" className="max-w-56"
             value={answers.proxy_address ?? ""} onChange={(e) => set({ proxy_address: e.target.value })} aria-invalid={touched && !!addrProblem} />
           {facts.lan_address && <p className="text-sm text-muted-foreground">{facts.lan_address} if it's this server.</p>}
-          <FieldError message={(touched && addrProblem) || errorFor("proxy_address")} />
+          <FieldMessage message={(touched && addrProblem) || errorFor("proxy_address")} />
           <button type="button" aria-expanded={portOpen} onClick={() => setPortOpen(!portOpen)}
             className="mt-2 flex items-center gap-1 justify-self-start text-start text-sm text-link hover:underline">
             <ChevronDown aria-hidden="true" className={cn("size-4 shrink-0 transition-transform", !portOpen && "-rotate-90")} />
@@ -372,12 +249,12 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
               <p className="text-sm text-muted-foreground">
                 443 works when your router can send UDP 443 to Linx while TCP 443 goes to {answers.front_door === "pangolin" ? "Pangolin" : "the proxy"}. Some (UniFi) can't: use 3478 then.
               </p>
-              <FieldError message={portErr || errorFor("turn_udp_port")} />
+              <FieldMessage message={portErr || errorFor("turn_udp_port")} />
             </div>
           )}
         </div>
       )}
-      <div className="mt-3"><FieldError message={errorFor("front_door")} /></div>
+      <div className="mt-3"><FieldMessage message={errorFor("front_door")} /></div>
       <p className="mt-4 text-sm text-muted-foreground">
         Want no web address at all? Use <code className="font-mono">sudo linx setup --config</code> instead.
       </p>
@@ -403,7 +280,7 @@ function DomainStep({ answers, set, errorFor, onBack, onNext }: StepProps & { on
         <Label htmlFor="domain">Domain</Label>
         <Input id="domain" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="example.com"
           value={answers.domain} onChange={(e) => set({ domain: e.target.value })} aria-invalid={touched && !!problem} />
-        <FieldError message={(touched && problem) || errorFor("domain")} />
+        <FieldMessage message={(touched && problem) || errorFor("domain")} />
       </div>
       <p className="mt-6 text-sm text-muted-foreground">Linx will use these names under it:</p>
       <dl className="mt-2 grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
@@ -459,12 +336,12 @@ function YouStep({ answers, set, errorFor, facts, onBack, onRefused, onAccepted,
         <div className="flex flex-col gap-2">
           <Label htmlFor="name">Your name</Label>
           <Input id="name" autoComplete="name" value={answers.name} onChange={(e) => set({ name: e.target.value })} aria-invalid={touched && !!nameErr} />
-          <FieldError message={(touched && nameErr) || errorFor("name")} />
+          <FieldMessage message={(touched && nameErr) || errorFor("name")} />
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="email">Your email</Label>
           <Input id="email" type="email" autoComplete="email" value={answers.email} onChange={(e) => set({ email: e.target.value })} aria-invalid={touched && !!emailErr} />
-          <FieldError message={(touched && emailErr) || errorFor("email")} />
+          <FieldMessage message={(touched && emailErr) || errorFor("email")} />
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="time-zone">Your time zone</Label>
@@ -478,7 +355,7 @@ function YouStep({ answers, set, errorFor, facts, onBack, onRefused, onAccepted,
             For schedules, like backups at 03:00 your time.
             {serverZone && <> This server's own clock is set to {serverZone}; Linx doesn't change it.</>}
           </p>
-          <FieldError message={errorFor("time_zone")} />
+          <FieldMessage message={errorFor("time_zone")} />
         </div>
       </div>
       <p className="mt-6 text-sm text-muted-foreground">
@@ -495,33 +372,9 @@ function YouStep({ answers, set, errorFor, facts, onBack, onRefused, onAccepted,
           </span>
         </Label>
       </div>
-      <div className="mt-2"><FieldError message={(touched && termsErr) || errorFor("agreed_to_terms")} /></div>
-      {problem && <div className="mt-4"><FieldError message={problem} /></div>}
+      <div className="mt-2"><FieldMessage message={(touched && termsErr) || errorFor("agreed_to_terms")} /></div>
+      {problem && <div className="mt-4"><FieldMessage message={problem} /></div>}
       <Nav onBack={onBack} next="Check and get a certificate" busy={busy} />
     </form>
-  );
-}
-
-/**
- * The answers are saved on the server. What comes next — the record to
- * add, then the certificate — is the waiting page
- * (docs/ui/INSTALL_SCREENS.md §2.7).
- */
-function Checked({ answers, facts }: { answers: Answers; facts: Facts }) {
-  const d = answers.domain.trim().toLowerCase();
-  const value = answers.front_door === "home-only" ? facts.lan_address : facts.public_address;
-  return (
-    <div>
-      <Title lead="Linx checked them and saved them on the server.">
-        <span className="flex items-center gap-2"><Check aria-hidden="true" className="size-5 text-status-available" />Your answers are saved</span>
-      </Title>
-      <p className="text-sm">Next, Linx gets a certificate for <span className="font-mono break-all">meet.{d}</span>. It needs this record at your DNS company:</p>
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-md border p-4 text-sm">
-        <dt className="text-muted-foreground">Type</dt><dd className="font-mono">A</dd>
-        <dt className="text-muted-foreground">Name</dt><dd className="font-mono break-all">meet.{d}</dd>
-        <dt className="text-muted-foreground">Value</dt><dd className="font-mono">{value ?? "this server's public address"}</dd>
-        <dt className="text-muted-foreground">Proxy</dt><dd>off (grey cloud, on Cloudflare)</dd>
-      </dl>
-    </div>
   );
 }

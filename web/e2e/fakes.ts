@@ -542,17 +542,40 @@ export type { Json };
 // The web install's plain page (docs/ui/INSTALL_SCREENS.md §2): its own
 // small API on port 6464, answered here. "rented" or "home" is what setup
 // detected; the check refuses co.uk like the host does.
-export async function fakeInstall(page: Page, where: "rented" | "home", opts: { closed?: boolean; expiresIn?: number } = {}) {
+export type FakeCert = Record<string, unknown>;
+
+/** A certificate page as the host would tell it (docs/ui/INSTALL_SCREENS.md §2.7). */
+export function fakeCert(over: FakeCert = {}): FakeCert {
+  return {
+    mode: "port443", domain: "example.com", front_door: "linx-443",
+    add_records: [{ type: "A", name: "meet.example.com", value: "203.0.113.5" }, { type: "A", name: "turn.example.com", value: "203.0.113.5" }],
+    dns: { state: "wrong", checked_at: "2026-09-28T08:07:15Z", names: [
+      { name: "meet.example.com", state: "wrong", seen: ["198.51.100.7"] }, { name: "turn.example.com", state: "missing" }] },
+    prepare: { state: "ok" }, reach: {}, records: {}, certificate: {},
+    ...over,
+  };
+}
+
+const acceptedAnswers = {
+  where: "rented", front_door: "linx-443", domain: "example.com", name: "Mohammed AlMudharreb", email: "mohammed@example.com",
+  time_zone: "Asia/Dubai", agreed_to_terms: true,
+};
+
+export async function fakeInstall(page: Page, where: "rented" | "home", opts: {
+  closed?: boolean; expiresIn?: number; cert?: FakeCert; accepted?: Record<string, unknown>;
+} = {}) {
   const facts = where === "home"
     ? { where, public_address: "5.36.12.4", lan_address: "192.168.1.212", lan_network: "192.168.1.0/24", time_zone: "Asia/Dubai", hardware: "4 processor cores, 8 GB memory, 62 GB free" }
     : { where, public_address: "203.0.113.5", time_zone: "Etc/UTC", hardware: "4 processor cores, 8 GB memory, 62 GB free" };
   const expiresIn = opts.expiresIn ?? 2832;
   let draft: unknown;
+  let accepted: unknown = opts.cert ? { ...acceptedAnswers, where, ...opts.accepted } : undefined;
+  let cert: FakeCert | undefined = opts.cert;
   await page.route("**/install/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (opts.closed) return route.fulfill({ status: 404, body: "" });
     if (url.pathname === "/install/api/state") {
-      return route.fulfill({ json: { facts, draft, expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(), expires_in: expiresIn, connected: true } });
+      return route.fulfill({ json: { facts, draft, accepted, cert, expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(), expires_in: expiresIn, connected: true } });
     }
     if (url.pathname === "/install/api/draft") {
       draft = route.request().postDataJSON();
@@ -563,8 +586,45 @@ export async function fakeInstall(page: Page, where: "rented" | "home", opts: { 
       if (a.domain === "co.uk") {
         return route.fulfill({ status: 422, json: { errors: [{ step: "domain", field: "domain", message: "co.uk is shared by everyone. Use your own domain." }] } });
       }
+      accepted = a;
+      cert = fakeCert({ domain: a.domain, add_records: ["meet", "turn"].map((h) => ({ type: "A", name: `${h}.${a.domain}`, value: facts.public_address })) });
       return route.fulfill({ json: { ok: true } });
     }
+    if (url.pathname === "/install/api/door-ready" && cert) {
+      cert = { ...cert, setup: { ...(cert.setup as object), done: true } };
+      return route.fulfill({ status: 204 });
+    }
+    if (url.pathname === "/install/api/handoff") {
+      return route.fulfill({ json: { handoff: "h".repeat(43) } });
+    }
+    if (url.pathname === "/install/api/token") {
+      const { token } = route.request().postDataJSON() as { token: string };
+      if (token.length < 20) return route.fulfill({ status: 422, json: { errors: [{ step: "token", field: "token", message: "That doesn't look like a DNS provider token (5 characters)." }] } });
+      cert = { ...cert, token_saved: true, records: { state: "running" } };
+      return route.fulfill({ status: 204 });
+    }
     return route.fulfill({ status: 404, body: "" });
+  });
+}
+
+/**
+ * The secure page at https://meet.example.com, served from the test's own
+ * build (the requests never leave the browser).
+ */
+export async function fakeSecureInstall(page: Page, base: string, opts: { usedHandoff?: boolean } = {}) {
+  await page.route("https://meet.example.com/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/install/api/redeem") {
+      return opts.usedHandoff
+        ? route.fulfill({ status: 409, json: { detail: "That link to the secure page can't be used." } })
+        : route.fulfill({ status: 204 });
+    }
+    if (url.pathname === "/install/api/state") {
+      return route.fulfill({ json: { facts: { where: "rented" }, secure: true, cert: fakeCert({ certificate: { state: "ok" } }),
+        expires_at: new Date(Date.now() + 3600_000).toISOString(), expires_in: 3600, connected: true } });
+    }
+    const path = url.pathname.startsWith("/install") ? "/" : url.pathname;
+    const res = await route.fetch({ url: base + path });
+    return route.fulfill({ response: res });
   });
 }

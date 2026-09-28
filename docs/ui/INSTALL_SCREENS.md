@@ -220,6 +220,8 @@ Only for the two choices where Let's Encrypt can't reach Linx on port 443 (`docs
 
 ### 2.7 Waiting for the certificate
 
+*As built (install step 3): row 2 shows two records, `meet.` and `turn.`, each with its own status line (`docs/INSTALL.md` §13).*
+
 One page, a checklist that ticks itself (checked every 5 s). What's shown depends on the front door.
 
 ```

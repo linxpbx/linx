@@ -356,6 +356,16 @@ func runInstallService(ctx context.Context, stderr io.Writer, env setupEnv) int 
 	defer stop()
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 	lan := env.lan()
+	imageTag, err := installer.ImageTag(env.commit)
+	if err != nil {
+		log.Error("which Linx images to use", "err", err)
+		return 1
+	}
+	address, ok := env.web.routeAddress()
+	if !ok {
+		log.Error("can't tell this server's network address")
+		return 1
+	}
 	h := &install.Host{
 		Path:  env.web.statePath,
 		Log:   log,
@@ -379,6 +389,7 @@ func runInstallService(ctx context.Context, stderr io.Writer, env setupEnv) int 
 			}
 			return installer.WebProgress(cfg), nil, nil
 		},
+		Cert: &webCert{env: env, lan: lan, imageTag: imageTag, address: address},
 		OnEnd: func(ctx context.Context, reason string) {
 			log.Info("the install page closed; stopping the installer", "reason", reason)
 			if err := installer.InstallStackDown(ctx, env.runner); err != nil {

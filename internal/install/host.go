@@ -35,6 +35,10 @@ type HostState struct {
 	Browser  string     `json:"browser,omitempty"`
 	Address  string     `json:"address,omitempty"`
 	Progress []Progress `json:"progress,omitempty"`
+	// HandoffHash is the hash of the latest one-time link to the secure
+	// page, until HandoffExpires or it's used.
+	HandoffHash    string    `json:"handoff_hash,omitempty"`
+	HandoffExpires time.Time `json:"handoff_expires,omitzero"`
 }
 
 // Progress is one line the terminal shows under the link.
@@ -133,10 +137,16 @@ type Host struct {
 	Log   *slog.Logger
 	// Retry is the wait between bridge attempts (default 2 s).
 	Retry time.Duration
+	// Cert gets the first certificate once the answers are saved (nil:
+	// the install stops there).
+	Cert Certifier
+	// Poll is how often the certificate page looks at DNS (default 5 s).
+	Poll time.Duration
 
 	mu     sync.Mutex
 	st     HostState
 	notify chan struct{}
+	kick   chan struct{}
 }
 
 func (h *Host) now() time.Time {
@@ -176,10 +186,18 @@ func (h *Host) Start(ctx context.Context) error {
 		st = NewHostState(h.now(), facts)
 		// A new link after the hour, or --new-link: the answers given so
 		// far carry over, so whoever opens it doesn't start again.
-		st.View.Draft, st.View.Accepted = old.View.Draft, old.View.Accepted
+		// So does the certificate page, where it's got to.
+		st.View.Draft, st.View.Accepted, st.View.Cert = old.View.Draft, old.View.Accepted, old.View.Cert
+	}
+	// What was running when the service last stopped runs again.
+	if st.View.Cert != nil {
+		c := *st.View.Cert
+		resetCert(&c)
+		st.View.Cert = &c
 	}
 	h.mu.Lock()
 	h.st = st
+	h.kick = make(chan struct{}, 1)
 	h.mu.Unlock()
 	return st.Save(h.Path)
 }
@@ -190,6 +208,9 @@ func (h *Host) Run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go h.watchExpiry(ctx, cancel)
+	if h.Cert != nil {
+		go h.runCert(ctx)
+	}
 	retry := h.Retry
 	if retry <= 0 {
 		retry = 2 * time.Second
@@ -347,6 +368,13 @@ func (h *Host) Serve(ctx context.Context, rw io.ReadWriter) error {
 			_ = send(res)
 		case TypeDraft:
 			h.draft(m.Draft)
+		case TypeDoorReady, TypeRetry, TypeToken, TypeHandoff, TypeRedeem:
+			if m.ID == "" || len(m.ID) > 64 {
+				continue
+			}
+			res := h.certRequest(ctx, m)
+			res.Type, res.ID = TypeResult, m.ID
+			_ = send(res)
 		}
 	}
 	cancel()
@@ -391,15 +419,45 @@ func (h *Host) claim(m Message) bool {
 	return true
 }
 
+func (h *Host) certRequest(ctx context.Context, m Message) Message {
+	var err error
+	switch m.Type {
+	case TypeDoorReady:
+		err = h.doorReady()
+	case TypeRetry:
+		err = h.retry()
+	case TypeToken:
+		var errs []FieldError
+		if errs, err = h.token(ctx, m.Token); err == nil && len(errs) > 0 {
+			return Message{Errors: errs}
+		}
+	case TypeHandoff:
+		var secret string
+		if secret, err = h.handoff(); err == nil {
+			return Message{OK: true, Secret: secret}
+		}
+	case TypeRedeem:
+		err = h.redeem(m)
+	}
+	if err != nil {
+		return Message{Error: err.Error()}
+	}
+	return Message{OK: true}
+}
+
 func (h *Host) check(ctx context.Context, m Message) Message {
 	h.mu.Lock()
-	open := h.st.View.Ended == "" && h.st.View.SessionHash != "" && h.now().Before(h.st.View.ExpiresAt)
+	open := h.plainOpenLocked()
 	h.mu.Unlock()
 	if !open {
 		return Message{Error: "This setup link has closed. Run sudo linx setup again for a new one."}
 	}
 	if m.Answers == nil {
 		return Message{Error: "No answers were sent."}
+	}
+	if h.cert() != nil {
+		// The certificate is being got for the saved answers.
+		return Message{Error: "Your answers are already saved, and Linx is getting the certificate for them."}
 	}
 	a := *m.Answers
 	text, errs, err := h.Check(ctx, a)
@@ -416,6 +474,7 @@ func (h *Host) check(ctx context.Context, m Message) Message {
 	h.saveLocked()
 	h.changedLocked()
 	h.mu.Unlock()
+	h.certPlan(ctx, a)
 	return Message{OK: true}
 }
 
@@ -425,7 +484,7 @@ func (h *Host) draft(d json.RawMessage) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.st.View.Ended != "" || h.st.View.SessionHash == "" {
+	if !h.plainOpenLocked() {
 		return
 	}
 	h.st.View.Draft = append(json.RawMessage(nil), d...)
