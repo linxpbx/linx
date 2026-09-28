@@ -26,9 +26,17 @@ const firstStepOf: Step[] = ["where", "domain", "you"];
 
 const LE_AGREEMENT = "https://letsencrypt.org/repository/";
 
+/** The first page's port: HTTPS too (self-signed), so the scheme alone can't tell the pages apart. */
+const FIRST_PAGE_PORT = "6464";
+
 export default function InstallScreen() {
-  if (window.location.protocol === "https:") return <SecureInstall />;
+  if (isSecurePage(window.location)) return <SecureInstall />;
   return <PlainInstall />;
+}
+
+/** The secure page is https://<domain> (port 443); the first page is port 6464, over HTTP or HTTPS. */
+export function isSecurePage(l: Pick<Location, "protocol" | "port">): boolean {
+  return l.protocol === "https:" && l.port !== FIRST_PAGE_PORT;
 }
 
 function PlainInstall() {
