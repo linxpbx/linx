@@ -521,7 +521,7 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.goto("/install");
       await expect(page.getByRole("heading", { name: "Let's set up Linx" })).toBeVisible();
       await expect(page.getByText("This page isn't encrypted yet. Nothing secret is asked here.")).toBeVisible();
-      await expect(page.getByRole("timer")).toContainText(/This link closes in 4[67]:\d\d\./);
+      await expect(page.getByRole("timer")).toContainText(/This link closes in 3:4[67]:\d\d\./);
       await expect(page.getByRole("timer")).toContainText("sudo linx setup --new-link");
       await shot(page, `install-claim-${label}`);
       await page.getByRole("button", { name: "Start" }).click();
@@ -649,6 +649,7 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await expect(page.getByRole("heading", { name: "You're on the secure page now" })).toBeVisible();
       expect(page.url()).toBe("https://example.com/install");
       await expect(page.getByText("This page isn't encrypted yet")).toHaveCount(0);
+      await expect(page.getByRole("timer")).toContainText(/This setup page closes in (4:00:00|3:59:5\d)\./);
       await shot(page, `install-secure-arrive-${label}`);
     });
 

@@ -97,7 +97,7 @@ func TestFollowInstall(t *testing.T) {
 		for _, want := range []string{
 			"http://192.168.1.20:6464/install/" + st.Secret + "\n  (on a computer on the same network as this server)",
 			"http://203.0.113.5:6464/install/" + st.Secret,
-			"It works once, for one hour",
+			"It works once, for four hours",
 			"Waiting for you in the browser",
 		} {
 			if !strings.Contains(out.String(), want) {

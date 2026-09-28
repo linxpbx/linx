@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FieldMessage, Frame, LinkUnusable, submit, Title } from "@/components/InstallFrame";
+import { Countdown, FieldMessage, Frame, LinkUnusable, submit, Title, useSecondsLeft } from "@/components/InstallFrame";
 import { cn } from "@/lib/utils";
 import {
   canOpen, frontDoorReady, getState, LinkClosed, newHandoff, Problem, redeemHandoff, retryCertificate, sendToken,
@@ -482,13 +482,15 @@ export function SecureInstall() {
       </Frame>
     );
   }
-  return <SecureArrive />;
+  return <SecureArrive state={state} onClosed={() => setState("closed")} />;
 }
 
-function SecureArrive() {
+function SecureArrive({ state, onClosed }: { state: InstallState; onClosed: () => void }) {
   const [next, setNext] = useState(false);
+  const left = useSecondsLeft(state.expires_in);
+  useEffect(() => { if (left === 0) onClosed(); }, [left, onClosed]);
   return (
-    <Frame at={4} strip={false}>
+    <Frame at={4} strip={false} footer={<Countdown left={left} secure />}>
       {!next ? (
         <form onSubmit={submit(() => setNext(true))}>
           <Title lead="From here on, everything you type is encrypted.">

@@ -77,7 +77,7 @@ const setupUsage = `Usage: sudo linx setup [--new-link] [--replace-docker] [--dr
        sudo linx setup --config FILE [--dry-run] [--owner-email EMAIL --owner-name NAME]
 
 Checks this server and installs Docker and Linx. Then it asks how you want to
-finish: in a browser (it prints one link that works once, for one hour;
+finish: in a browser (it prints one link that works once, for four hours;
 docs/INSTALL.md) or here, with questions in the terminal. Without a terminal
 (a script), it uses the browser. Answers are saved to ` + installer.ConfigPath + `.
 

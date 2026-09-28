@@ -15,7 +15,7 @@ export function LinkUnusable() {
   return (
     <Frame>
       <h1 className="font-display text-xl font-semibold">This link can't be used</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Setup links work once, for one hour. For a new one, run on the server:</p>
+      <p className="mt-2 text-sm text-muted-foreground">Setup links work once, for four hours. For a new one, run this on the server:</p>
       <code className="mt-4 block rounded-md bg-muted px-3 py-2 font-mono text-sm">sudo linx setup</code>
       <p className="mt-4 text-sm text-muted-foreground">Answers you already gave are kept for the new link.</p>
     </Frame>
@@ -35,9 +35,10 @@ export function useSecondsLeft(initial: number): number {
 
 /**
  * How long this link has left, and how to get a new one (under the card).
- * The last five minutes are a warning.
+ * The last five minutes are a warning. On the secure page there's no link
+ * to renew: it says what happens when the time is up instead.
  */
-export function Countdown({ left }: { left: number }) {
+export function Countdown({ left, secure = false }: { left: number; secure?: boolean }) {
   const soon = left <= 300;
   return (
     <div role="timer" aria-live={soon ? "polite" : "off"}
@@ -46,9 +47,11 @@ export function Countdown({ left }: { left: number }) {
         ? <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-away" />
         : <Clock aria-hidden="true" className="mt-0.5 size-4 shrink-0" />}
       <span>
-        {soon ? <strong className="font-medium text-foreground">This link closes in {mmss(left)}.</strong> : <>This link closes in {mmss(left)}.</>}{" "}
-        Need more time? Run <code className="font-mono text-foreground">sudo linx setup --new-link</code> on the server for a new link.
-        Your answers so far are kept.
+        {soon ? <strong className="font-medium text-foreground">This {secure ? "setup page" : "link"} closes in {mmss(left)}.</strong>
+          : <>This {secure ? "setup page" : "link"} closes in {mmss(left)}.</>}{" "}
+        {secure
+          ? <>If it does, run <code className="font-mono text-foreground">sudo linx setup</code> on the server for a new link. Your answers so far are kept.</>
+          : <>Need more time? Run <code className="font-mono text-foreground">sudo linx setup --new-link</code> on the server for a new link. Your answers so far are kept.</>}
       </span>
     </div>
   );

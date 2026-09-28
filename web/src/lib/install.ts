@@ -188,10 +188,13 @@ export function timeZones(): string[] {
   return ["UTC", ...all.filter((z) => z !== "UTC")];
 }
 
-/** "47:12" for a countdown. */
+/** "47:12", or "3:47:12" past an hour, for a countdown. */
 export function mmss(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
 /** Front doors that are another program at an address on the home network. */

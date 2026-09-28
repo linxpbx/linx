@@ -638,7 +638,7 @@ func page(w http.ResponseWriter, status int, title, body string) {
 // and for every other path: a guess learns nothing.
 func notFound(w http.ResponseWriter) {
 	page(w, http.StatusNotFound, "This link can't be used",
-		`<p>Setup links work once, for one hour.</p><p>For a new one, run on the server:</p><code>sudo linx setup</code>`)
+		`<p>Setup links work once, for four hours.</p><p>For a new one, run this on the server. Answers you already gave are kept:</p><code>sudo linx setup</code>`)
 }
 
 func starting(w http.ResponseWriter) {

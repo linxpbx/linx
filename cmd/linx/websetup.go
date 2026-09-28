@@ -337,7 +337,7 @@ func printLink(w io.Writer, env setupEnv, st install.HostState) {
 			fmt.Fprintf(w, "\n  %s\n  (from anywhere else, if port %d on %s is sent to this server)\n", link(public), install.Port, public)
 		}
 	}
-	fmt.Fprintln(w, "\nIt works once, for one hour, in the first browser that opens it.")
+	fmt.Fprintln(w, "\nIt works once, for four hours, in the first browser that opens it.")
 	if local.IsValid() && publicip.IsPublic(local) {
 		fmt.Fprintf(w, "If it doesn't open, allow TCP port %d in your server provider's firewall\n"+
 			"(this server's own firewall is already open for it).\n", install.Port)

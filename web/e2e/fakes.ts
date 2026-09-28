@@ -567,7 +567,7 @@ export async function fakeInstall(page: Page, where: "rented" | "home", opts: {
   const facts = where === "home"
     ? { where, public_address: "5.36.12.4", lan_address: "192.168.1.212", lan_network: "192.168.1.0/24", time_zone: "Asia/Dubai", hardware: "4 processor cores, 8 GB memory, 62 GB free" }
     : { where, public_address: "203.0.113.5", time_zone: "Etc/UTC", hardware: "4 processor cores, 8 GB memory, 62 GB free" };
-  const expiresIn = opts.expiresIn ?? 2832;
+  const expiresIn = opts.expiresIn ?? 13632;
   let draft: unknown;
   let accepted: unknown = opts.cert ? { ...acceptedAnswers, where, ...opts.accepted } : undefined;
   let cert: FakeCert | undefined = opts.cert;
@@ -621,7 +621,7 @@ export async function fakeSecureInstall(page: Page, base: string, opts: { usedHa
     }
     if (url.pathname === "/install/api/state") {
       return route.fulfill({ json: { facts: { where: "rented" }, secure: true, cert: fakeCert({ certificate: { state: "ok" } }),
-        expires_at: new Date(Date.now() + 3600_000).toISOString(), expires_in: 3600, connected: true } });
+        expires_at: new Date(Date.now() + 14_400_000).toISOString(), expires_in: 14400, connected: true } });
     }
     const path = url.pathname.startsWith("/install") ? "/" : url.pathname;
     const res = await route.fetch({ url: base + path });

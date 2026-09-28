@@ -26,8 +26,9 @@ const Port = 6464
 const DefaultSocket = "/run/linx/install.sock"
 
 // LinkLifetime is how long a link, and the browser session that claimed
-// it, lasts (docs/INSTALL.md §6).
-const LinkLifetime = time.Hour
+// it, lasts: long enough to sign up with a DNS company on the way
+// (docs/INSTALL.md §6, owner decision 2026-09-28).
+const LinkLifetime = 4 * time.Hour
 
 // The bridge carries one JSON object per line, both ways.
 //
