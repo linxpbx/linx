@@ -36,11 +36,19 @@ export function SecureFinish({ initial }: { initial: InstallState }) {
   const switching = !!f.switching;
   const installing = f.install.state === "running" || f.install.state === "ok" || switching;
 
+  const running = useRef(false);
+  running.current = f.install.state === "running";
   const refresh = useRef(async () => {
     try {
       setState(await getState());
     } catch (e) {
-      if (e instanceof LinkClosed) setClosed(true);
+      if (!(e instanceof LinkClosed)) return;
+      // While installing, the installer's page going away is the switch to
+      // the full Linx (its "switching" news can be missed by a moment), not
+      // the link closing (found in the install demo: "This link can't be
+      // used" flashed up during the switch).
+      if (running.current) setState((s) => ({ ...s, finish: { ...(s.finish ?? { install: {} }), switching: true } }));
+      else setClosed(true);
     }
   });
   useEffect(() => {
@@ -320,15 +328,18 @@ function MoveToSignIn({ path, domain, ready }: { path: string; domain: string; r
       }
       if (stop) return;
       setPhase("up");
-      // The first admin is made just after Linx starts: give it a moment,
-      // then ask a few times at most (each "no" counts like a failed sign-in).
-      for (let i = 0; i < 4 && !stop; i++) {
-        await wait(i === 0 ? 3000 : 5000);
-        const ok = await setupLinkReady(path);
-        if (ok === true) return setTarget(path);
-        if (ok === false) return setTarget("/");
+      // The first admin is made just after Linx starts, so the link can be
+      // "not there" for a while yet (found in the install demo: the page
+      // gave up after four tries and went to the ordinary sign-in). Every 5
+      // s for up to 3 minutes stays under the per-address limit on failed
+      // tries (20 a minute); still nothing means someone already set up an
+      // account (a second install), so the ordinary sign-in.
+      const until = Date.now() + 3 * 60_000;
+      while (!stop && Date.now() < until) {
+        await wait(5000);
+        if ((await setupLinkReady(path)) === true) return setTarget(path);
       }
-      if (!stop) setTarget(path);
+      if (!stop) setTarget("/");
     })();
     return () => { stop = true; };
   }, [path]);

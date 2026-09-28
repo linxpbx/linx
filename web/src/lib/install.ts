@@ -231,10 +231,10 @@ export async function linxAnswers(): Promise<boolean> {
 }
 
 /**
- * Whether the first sign-in's link works yet: true, false (it doesn't:
- * someone already set up an account, so sign in normally), or undefined
- * (can't tell yet). Each "no" counts like a failed sign-in, so this is
- * asked only a few times.
+ * Whether the first sign-in's link works yet: true, false (not there, or
+ * not yet: the first admin is made just after Linx starts), or undefined
+ * (can't tell). Each "no" counts like a failed sign-in, so the caller asks
+ * at most every few seconds.
  */
 export async function setupLinkReady(path: string): Promise<boolean | undefined> {
   const token = path.replace(/^\/setup\//, "");
