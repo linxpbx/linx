@@ -36,12 +36,20 @@ type Finding struct {
 
 const gib = 1 << 30
 
-// Hardware limits. A "4 GB" board reports a little under 4 GiB of MemTotal.
+// Hardware limits, from a real Linx at rest (install demo, 2026-09-28): its
+// services use about 170 MB of memory and Docker about 170 MB more, so a
+// "1 GB" server (which reports a little under 1 GiB) runs the phone system;
+// under about 2 GB setup adds swap as a safety margin (SwapPlan). On disk
+// the images and Docker take about 2.5 GB.
 const (
-	minMemBytes  = 3500 << 20
-	minDiskFree  = 10 * gib
-	goodDiskFree = 32 * gib
+	minMemBytes  = 900 << 20
+	lowMemBytes  = 1800 << 20
+	minDiskFree  = 5 * gib
+	goodDiskFree = 20 * gib
 )
+
+// LowMemory reports whether h has so little memory that setup adds swap.
+func LowMemory(h hostinfo.Info) bool { return h.MemBytes > 0 && h.MemBytes < lowMemBytes }
 
 // CheckHost returns findings for the prerequisites step. Any Fail means setup
 // cannot continue.
@@ -75,7 +83,11 @@ func CheckHost(h hostinfo.Info) []Finding {
 	case h.MemBytes == 0:
 		add(Warn, "Couldn't read how much memory this server has.")
 	case h.MemBytes < minMemBytes:
-		add(Fail, "Memory: %s. Linx needs at least 4 GB.", humanBytes(h.MemBytes))
+		add(Fail, "Memory: %s. Linx needs at least 1 GB.", humanBytes(h.MemBytes))
+	case h.MemBytes < lowMemBytes && h.SwapBytes < swapSize:
+		add(Warn, "Memory: %s. Enough for the phone system; setup adds 1 GB of swap as a safety margin. 2 GB or more is recommended.", humanBytes(h.MemBytes))
+	case h.MemBytes < lowMemBytes:
+		add(Warn, "Memory: %s. Enough for the phone system. 2 GB or more is recommended.", humanBytes(h.MemBytes))
 	default:
 		add(OK, "Memory: %s", humanBytes(h.MemBytes))
 	}
@@ -84,9 +96,9 @@ func CheckHost(h hostinfo.Info) []Finding {
 	case h.DiskTotal == 0:
 		add(Warn, "Couldn't read how much free disk space this server has.")
 	case h.DiskFree < minDiskFree:
-		add(Fail, "Free disk space: %s. Linx needs at least 10 GB free.", humanBytes(h.DiskFree))
+		add(Fail, "Free disk space: %s. Linx needs at least 5 GB free.", humanBytes(h.DiskFree))
 	case h.DiskFree < goodDiskFree:
-		add(Warn, "Free disk space: %s. That's enough to start, but call recordings and voicemail will fill it. 32 GB or more is recommended.", humanBytes(h.DiskFree))
+		add(Warn, "Free disk space: %s. That's enough to start, but backups, call recordings and voicemail will fill it. 20 GB or more is recommended.", humanBytes(h.DiskFree))
 	default:
 		add(OK, "Free disk space: %s", humanBytes(h.DiskFree))
 	}

@@ -237,6 +237,14 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		plan = append(plan, dp...)
 	}
 
+	// 3b. Swap on a small server (installer.SwapPlan).
+	sp, err := installer.SwapPlan(host, env.readFile)
+	if err != nil {
+		fmt.Fprintln(stderr, "Can't check the swap settings:", err)
+		return 1
+	}
+	plan = append(plan, sp...)
+
 	// 4. Phones: from the local network only (docs/PBX.md §6).
 	lan := env.lan()
 	if lan.OK() {

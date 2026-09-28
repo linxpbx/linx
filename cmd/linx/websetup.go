@@ -121,7 +121,7 @@ func runWebSetup(ctx context.Context, o webOptions, stdout, stderr io.Writer, en
 		fmt.Fprintln(stderr, "\nSetup can't continue until the problems above are fixed.")
 		return 1
 	}
-	if user := installer.PortUser(ctx, env.runner, install.Port); user != "" {
+	if user := installer.PortUser(ctx, env.runner, install.Port); user != "" && !installerRunning(ctx, env.runner) {
 		fmt.Fprintf(stdout, "  ✕ Port %d is used by %s. Linx's installer needs it: stop that, then run setup again.\n", install.Port, user)
 		return 1
 	}
@@ -183,10 +183,16 @@ func runWebSetup(ctx context.Context, o webOptions, stdout, stderr io.Writer, en
 		fmt.Fprintln(stderr, "\nCan't make the installer's certificate:", err)
 		return 1
 	}
+	swapPlan, err := installer.SwapPlan(host, env.readFile)
+	if err != nil {
+		fmt.Fprintln(stderr, "\nCan't check the swap settings:", err)
+		return 1
+	}
 	phases := []struct {
 		title string
 		plan  installer.Plan
 	}{
+		{"Adding swap (this server has little memory)", swapPlan},
 		{"Installing Docker", dockerPlan},
 		{"Installing the linx command", installer.CLIPlan(env.executable, env.resolve)},
 		{"Making the installer's temporary certificate", tlsPlan},
@@ -257,6 +263,15 @@ func unitActive(ctx context.Context, r installer.Runner) bool {
 	return err == nil
 }
 
+// installerRunning reports whether port 6464's container is Linx's own
+// installer (install mode, from a setup started before, e.g. before
+// --new-link): starting the installer again replaces it, so the port isn't
+// taken by something else (found in the install demo).
+func installerRunning(ctx context.Context, r installer.Runner) bool {
+	out, err := r.Run(ctx, nil, "docker", "inspect", "--format", "{{join .Config.Cmd \" \"}}", "linx-control-plane")
+	return err == nil && strings.TrimSpace(string(out)) == "install-server"
+}
+
 func runningContainers(ctx context.Context, r installer.Runner) int {
 	out, err := r.Run(ctx, nil, "docker", "ps", "--quiet")
 	if err != nil {
@@ -275,7 +290,10 @@ func followInstall(ctx context.Context, stdout io.Writer, env setupEnv, again bo
 	deadline := w.now().Add(linkWait)
 	for {
 		s, err := install.LoadHostState(w.statePath)
-		if err == nil && (s.Secret != "" || s.View.SessionHash != "" || s.View.Ended != "") {
+		// A service just started always writes a state that's still open
+		// (a new link, or the one it carries on): until then the file can
+		// still hold the old, ended one (after --new-link).
+		if err == nil && (s.Secret != "" || s.View.SessionHash != "" || s.View.Ended != "") && (again || s.View.Ended == "") {
 			st = s
 			break
 		}

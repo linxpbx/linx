@@ -22,10 +22,15 @@ type Info struct {
 	Arch        string // Go architecture name: "amd64", "arm64"
 	CPUs        int
 	MemBytes    uint64
+	SwapBytes   uint64 // swap already turned on (SwapTotal)
 	DiskFree    uint64 // free bytes where Docker keeps its data (/var/lib)
 	DiskTotal   uint64
 	Model       string // board model from the device tree, e.g. "Raspberry Pi 5 Model B Rev 1.0"
 	RootDevice  string // block device holding "/", e.g. "/dev/mmcblk0p2"
+	// Container is the kind of container this system runs in ("lxc" for a
+	// Proxmox LXC, from systemd's /run/systemd/container), "" for a VM or
+	// a machine of its own.
+	Container string
 }
 
 // IsRaspberryPi reports whether the board is a Raspberry Pi.
@@ -54,13 +59,17 @@ func detect(root fs.FS, usage func(path string) (free, total uint64, err error))
 		}
 	}
 	if b, err := fs.ReadFile(root, "proc/meminfo"); err == nil {
-		info.MemBytes = parseMemTotal(b)
+		info.MemBytes = parseMeminfo(b, "MemTotal:")
+		info.SwapBytes = parseMeminfo(b, "SwapTotal:")
 	}
 	if b, err := fs.ReadFile(root, "proc/device-tree/model"); err == nil {
 		info.Model = strings.TrimSpace(strings.TrimRight(string(b), "\x00"))
 	}
 	if b, err := fs.ReadFile(root, "proc/self/mountinfo"); err == nil {
 		info.RootDevice = parseRootDevice(b)
+	}
+	if b, err := fs.ReadFile(root, "run/systemd/container"); err == nil {
+		info.Container = strings.TrimSpace(string(b))
 	}
 	if free, total, err := usage("/var/lib"); err == nil {
 		info.DiskFree, info.DiskTotal = free, total
@@ -86,11 +95,12 @@ func parseOSRelease(b []byte) map[string]string {
 	return m
 }
 
-func parseMemTotal(b []byte) uint64 {
+// parseMeminfo reads one /proc/meminfo line's value (in kB) as bytes.
+func parseMeminfo(b []byte, key string) uint64 {
 	sc := bufio.NewScanner(bytes.NewReader(b))
 	for sc.Scan() {
 		f := strings.Fields(sc.Text())
-		if len(f) >= 2 && f[0] == "MemTotal:" {
+		if len(f) >= 2 && f[0] == key {
 			kb, err := strconv.ParseUint(f[1], 10, 64)
 			if err != nil {
 				return 0

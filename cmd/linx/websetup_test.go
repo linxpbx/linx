@@ -153,6 +153,17 @@ func TestWebSetupStops(t *testing.T) {
 			t.Errorf("exit %d:\n%s", code, out.String())
 		}
 	})
+	t.Run("port 6464 held by Linx's own installer is fine", func(t *testing.T) {
+		env := webTestEnv(t, hostRunner{
+			"ss -Hltnp sport = :6464": `LISTEN 0 4096 192.168.1.20:6464 0.0.0.0:* users:(("docker-proxy",pid=12,fd=3))`,
+			`docker inspect --format {{join .Config.Cmd " "}} linx-control-plane`: "install-server",
+		}, "192.168.1.20")
+		var out, errOut bytes.Buffer
+		runSetup(context.Background(), nil, &out, &errOut, env)
+		if strings.Contains(out.String(), "Port 6464 is used") {
+			t.Errorf("stopped on its own installer:\n%s", out.String())
+		}
+	})
 	t.Run("distro Docker with running containers", func(t *testing.T) {
 		env := webTestEnv(t, hostRunner{
 			"docker version --format {{.Server.Version}}":                  "24.0.7",
@@ -233,8 +244,31 @@ func TestFollowInstall(t *testing.T) {
 		st.Progress = []install.Progress{{At: env.web.now(), Text: "The link expired. Run sudo linx setup again for a new one.", Failed: true}}
 		_ = st.Save(env.web.statePath)
 		var out bytes.Buffer
-		if code := followInstall(context.Background(), &out, env, false); code != 0 || !strings.Contains(out.String(), "✕ The link expired") {
+		if code := followInstall(context.Background(), &out, env, true); code != 0 || !strings.Contains(out.String(), "✕ The link expired") {
 			t.Errorf("exit %d:\n%s", code, out.String())
+		}
+	})
+	// After --new-link the file still holds the cancelled link until the
+	// service writes its new one: the terminal waits for that (found in
+	// the install demo, where it printed the old progress and no link).
+	t.Run("new link after a cancelled one", func(t *testing.T) {
+		env := webTestEnv(t, active, "192.168.1.20")
+		old := install.NewHostState(env.web.now(), install.Facts{})
+		old.Secret, old.View.LinkHash, old.View.Ended = "", "", install.EndedCancelled
+		old.Progress = []install.Progress{{At: env.web.now(), Text: "Link opened (Chrome, 192.168.1.9)"}}
+		_ = old.Save(env.web.statePath)
+		fresh := install.NewHostState(env.web.now(), install.Facts{})
+		waits := 0
+		env.web.wait = func(context.Context, time.Duration) bool {
+			if waits++; waits == 2 {
+				_ = fresh.Save(env.web.statePath)
+			}
+			return waits < 10
+		}
+		var out bytes.Buffer
+		followInstall(context.Background(), &out, env, false)
+		if !strings.Contains(out.String(), "/install/"+fresh.Secret) || strings.Contains(out.String(), "Link opened") {
+			t.Errorf("output:\n%s", out.String())
 		}
 	})
 }

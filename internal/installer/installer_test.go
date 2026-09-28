@@ -52,7 +52,13 @@ func TestCheckHost(t *testing.T) {
 	pi32 := pi
 	pi32.OSID, pi32.Arch = "raspbian", "arm"
 	small := ubuntu
-	small.MemBytes, small.DiskFree = 2*gib, 5*gib
+	small.MemBytes, small.DiskFree = 800<<20, 4*gib
+	oneGB := ubuntu // a "1 GB" VPS: runs, with swap added
+	oneGB.MemBytes, oneGB.DiskFree = 960<<20, 20*gib
+	twoGB := ubuntu // the owner's VPS (1.9 GB): a warning, nothing blocks
+	twoGB.MemBytes, twoGB.SwapBytes, twoGB.DiskFree = 1962<<20, 5399<<20, 40*gib
+	smallDisk := ubuntu
+	smallDisk.DiskFree = 6 * gib
 	oldUbuntu := ubuntu
 	oldUbuntu.OSVersionID = "22.04"
 	mac := hostinfo.Info{GOOS: "darwin"}
@@ -64,9 +70,12 @@ func TestCheckHost(t *testing.T) {
 		wantWarns int
 	}{
 		{"ubuntu ok", ubuntu, false, 0},
-		{"pi on sd card with little disk", pi, false, 2},
-		{"32-bit pi os", pi32, true, 2},
+		{"pi on sd card", pi, false, 1},
+		{"32-bit pi os", pi32, true, 1},
 		{"too small", small, true, 0},
+		{"1 GB server", oneGB, false, 1},
+		{"2 GB server with swap", twoGB, false, 0},
+		{"6 GB free disk", smallDisk, false, 1},
 		{"old ubuntu", oldUbuntu, true, 0},
 		{"not linux", mac, true, 0},
 	}

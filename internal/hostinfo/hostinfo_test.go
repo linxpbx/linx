@@ -14,7 +14,7 @@ VERSION_ID="12"
 VERSION_CODENAME=bookworm
 ID=debian
 `)},
-		"proc/meminfo":           {Data: []byte("MemTotal:        8245632 kB\nMemFree:  100 kB\n")},
+		"proc/meminfo":           {Data: []byte("MemTotal:        8245632 kB\nMemFree:  100 kB\nSwapTotal:       1048572 kB\n")},
 		"proc/device-tree/model": {Data: []byte("Raspberry Pi 5 Model B Rev 1.0\x00")},
 		"proc/self/mountinfo": {Data: []byte(
 			"22 1 179:2 / / rw,noatime shared:1 - ext4 /dev/mmcblk0p2 rw\n" +
@@ -29,8 +29,8 @@ ID=debian
 	if got.OSName != "Debian GNU/Linux 12 (bookworm)" {
 		t.Errorf("OSName = %q", got.OSName)
 	}
-	if got.MemBytes != 8245632*1024 {
-		t.Errorf("MemBytes = %d", got.MemBytes)
+	if got.MemBytes != 8245632*1024 || got.SwapBytes != 1048572*1024 {
+		t.Errorf("MemBytes = %d, SwapBytes = %d", got.MemBytes, got.SwapBytes)
 	}
 	if !got.IsRaspberryPi() || got.Model != "Raspberry Pi 5 Model B Rev 1.0" {
 		t.Errorf("Model = %q", got.Model)
@@ -55,10 +55,18 @@ func TestDetectUbuntuUsesUbuntuCodename(t *testing.T) {
 	if got.OSID != "ubuntu" || got.OSVersionID != "24.04" || got.OSCodename != "noble" {
 		t.Errorf("os = %q %q %q", got.OSID, got.OSVersionID, got.OSCodename)
 	}
-	if got.IsRaspberryPi() || got.RootOnSDCard() {
-		t.Errorf("unexpected Pi/SD detection: %+v", got)
+	if got.IsRaspberryPi() || got.RootOnSDCard() || got.Container != "" {
+		t.Errorf("unexpected Pi/SD/container detection: %+v", got)
 	}
 	if got.MemBytes != 0 || got.DiskFree != 0 {
 		t.Errorf("missing sources should leave zero values: %+v", got)
+	}
+}
+
+func TestDetectContainer(t *testing.T) {
+	root := fstest.MapFS{"run/systemd/container": {Data: []byte("lxc\n")}}
+	usage := func(string) (uint64, uint64, error) { return 0, 0, errors.New("no statfs") }
+	if got := detect(root, usage); got.Container != "lxc" {
+		t.Errorf("Container = %q", got.Container)
 	}
 }
