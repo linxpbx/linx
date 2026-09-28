@@ -313,6 +313,7 @@ func (w webSettings) rows(ctx context.Context, ch install.ServerChange, x change
 		restart = append(restart, files...)
 	}
 	restart = append(restart, installer.StackPlan(next, token, w.imageTag, w.lan).Plan...)
+	restart = append(restart, installer.PruneOldImagesStep())
 	if (x.domain || x.door) && installer.FrontDoorFor(next, w.lan).ComposeProfiles == installer.FrontDoorLinx443 {
 		restart = append(restart, installer.RestartSNIStep())
 	}

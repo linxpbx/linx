@@ -132,6 +132,18 @@ func (s StackSetup) Split() (Plan, Step) {
 	return s.Plan[:len(s.Plan)-1], s.Plan[len(s.Plan)-1]
 }
 
+// LinxImageLabel is the label every image Linx builds carries.
+const LinxImageLabel = "org.opencontainers.image.source=https://github.com/linxpbx/linx"
+
+// PruneOldImagesStep removes Linx's own images that no container uses: the
+// versions an update left behind (about 450 MB each time otherwise). Only
+// images carrying LinxImageLabel, and only unused ones, so the running
+// version, the database's and step-ca's images, and anything else on the
+// server are never touched.
+func PruneOldImagesStep() Step {
+	return cmdStep("Remove the previous Linx versions' images", "docker", "image", "prune", "--all", "--force", "--filter", "label="+LinxImageLabel)
+}
+
 // StartServicesStep starts only services (and what they need).
 func StartServicesStep(title string, services ...string) Step {
 	return cmdStep(title, "docker", append([]string{"compose", "--file", stackFile, "up", "--detach", "--wait"}, services...)...)

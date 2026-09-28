@@ -162,6 +162,10 @@ RUN menuselect/menuselect \
 # parallel, which doesn't share that problem.
 RUN make -C third-party
 RUN NOISY_BUILD=yes make -j"$(nproc)" && make install
+# Debugging data (DWARF) only matters to someone attaching a debugger, and
+# is most of the binaries' size; function names stay (--strip-debug keeps
+# the symbol table), so Asterisk's own backtraces still read.
+RUN strip --strip-debug /usr/sbin/asterisk /usr/lib/libasterisk*.so* /usr/lib/asterisk/modules/*.so
 
 # --- Go entrypoint (config renderer + exec into asterisk) ---
 # golang:1.27.1-bookworm

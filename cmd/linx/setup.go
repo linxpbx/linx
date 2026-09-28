@@ -315,6 +315,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	plan = append(plan, installer.ResticPlan(ctx, env.runner)...)
 	plan = append(plan, installer.BackupAgentPlan(env.executable, env.resolve, env.stat)...)
 	plan = append(plan, installer.OpsAgentPlan(env.executable, env.resolve, env.stat)...)
+	plan = append(plan, installer.PruneOldImagesStep())
 	if ask {
 		// Set up here in the terminal, not by a browser install.
 		cfg.Install = installer.InstallConfig{}

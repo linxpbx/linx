@@ -226,3 +226,19 @@ func TestComposeNoSearchDomain(t *testing.T) {
 		}
 	}
 }
+
+// Updates leave the previous version's images behind; setup removes only
+// Linx's own unused ones (checked on the install demo's server: the running
+// version, postgres, step-ca and Portainer were kept).
+func TestPruneOldImagesStep(t *testing.T) {
+	got := PruneOldImagesStep().Cmd.String()
+	if got != "docker image prune --all --force --filter label=org.opencontainers.image.source=https://github.com/linxpbx/linx" {
+		t.Errorf("%s", got)
+	}
+	for _, f := range []string{"deploy/docker/asterisk.Dockerfile", "deploy/docker/coturn.Dockerfile", "deploy/docker/control-plane.Dockerfile", "deploy/docker/go-service.Dockerfile"} {
+		b, err := os.ReadFile("../../" + f)
+		if err != nil || !strings.Contains(string(b), `org.opencontainers.image.source="https://github.com/linxpbx/linx"`) {
+			t.Errorf("%s doesn't carry the label the cleanup selects by (%v)", f, err)
+		}
+	}
+}
