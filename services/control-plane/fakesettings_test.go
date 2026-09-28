@@ -71,7 +71,7 @@ func (f *fakeStore) SetSetupStep(_ context.Context, step int, completedAt *time.
 	return nil
 }
 
-func (f *fakeStore) NextFreeExtensionNumber(_ context.Context, tenant uuid.UUID, digits, from, to int) (string, error) {
+func (f *fakeStore) NextFreeExtensionNumber(_ context.Context, tenant uuid.UUID, _ string, digits, from, to int) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	used := map[string]bool{}
@@ -82,7 +82,7 @@ func (f *fakeStore) NextFreeExtensionNumber(_ context.Context, tenant uuid.UUID,
 	}
 	for n := from; n <= to; n++ {
 		s := zeroPad(n, digits)
-		if !used[s] {
+		if !used[s] && reservedNumber(s) == nil {
 			return s, nil
 		}
 	}
@@ -96,9 +96,6 @@ func reservedInRange(digits, from, to int) (string, string) {
 		s := zeroPad(n, digits)
 		if strings.HasPrefix(s, "0") {
 			return s, "national_prefix"
-		}
-		if s == "999" {
-			return s, "emergency"
 		}
 	}
 	return "", ""

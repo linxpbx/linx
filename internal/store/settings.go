@@ -82,14 +82,17 @@ func (s *Store) SetSetupStep(ctx context.Context, step int, completedAt *time.Ti
 }
 
 // NextFreeExtensionNumber returns the lowest number, digits long, in
-// [from, to] that no extension (including deleted ones don't count: their
-// number is already free) currently holds, or "" if the range is full.
-func (s *Store) NextFreeExtensionNumber(ctx context.Context, tenant uuid.UUID, digits, from, to int) (string, error) {
+// [from, to] that no extension currently holds (deleted ones don't count:
+// their number is already free) and that isn't reserved in country (an
+// emergency or service number inside the range is skipped, never handed
+// out), or "" if the range is full.
+func (s *Store) NextFreeExtensionNumber(ctx context.Context, tenant uuid.UUID, country string, digits, from, to int) (string, error) {
 	var n string
 	err := s.pool.QueryRow(ctx, `
-		SELECT t.n FROM (SELECT lpad(gs::text, $2, '0') AS n FROM generate_series($3, $4) AS gs) t
+		SELECT t.n FROM (SELECT lpad(gs::text, $2::int, '0') AS n FROM generate_series($3::int, $4::int) AS gs) t
 		WHERE NOT EXISTS (SELECT 1 FROM extension e WHERE e.tenant_id = $1 AND e.deleted_at IS NULL AND e.number = t.n)
-		ORDER BY t.n LIMIT 1`, tenant, digits, from, to).Scan(&n)
+		  AND numbering_extension_clash($5, t.n) IS NULL
+		ORDER BY t.n LIMIT 1`, tenant, digits, from, to, country).Scan(&n)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -99,12 +102,15 @@ func (s *Store) NextFreeExtensionNumber(ctx context.Context, tenant uuid.UUID, d
 // RangeReservedNumber reuses migration 0016's numbering_extension_clash (the
 // same check an extension's own number gets) over every number in the
 // range, so a saved range can never disagree with what a real extension
-// number is refused for.
+// number is refused for. It reports only a dialling-prefix clash (a whole
+// block of numbers, like every one starting with 0): a single emergency or
+// service number inside a range (112 in 100-599) is fine, and is simply
+// never handed out (NextFreeExtensionNumber skips it).
 func (s *Store) RangeReservedNumber(ctx context.Context, country string, digits, from, to int) (string, string, error) {
 	var number, reason string
 	err := s.pool.QueryRow(ctx, `
-		SELECT t.n, numbering_extension_clash($1, t.n) FROM (SELECT lpad(gs::text, $2, '0') AS n FROM generate_series($3, $4) AS gs) t
-		WHERE numbering_extension_clash($1, t.n) IS NOT NULL
+		SELECT t.n, numbering_extension_clash($1, t.n) FROM (SELECT lpad(gs::text, $2::int, '0') AS n FROM generate_series($3::int, $4::int) AS gs) t
+		WHERE numbering_extension_clash($1, t.n) IS NOT NULL AND numbering_extension_clash($1, t.n) NOT IN ('emergency', 'service')
 		ORDER BY t.n LIMIT 1`, country, digits, from, to).Scan(&number, &reason)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", nil

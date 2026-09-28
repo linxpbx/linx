@@ -276,7 +276,7 @@ func (s *Service) NextNumber(ctx context.Context) (string, error) {
 	}
 	for _, r := range cur.ExtensionRanges {
 		if r.Kind == RangePeople {
-			n, err := s.Store.NextFreeExtensionNumber(ctx, p.TenantID, cur.ExtensionDigits, r.From, r.To)
+			n, err := s.Store.NextFreeExtensionNumber(ctx, p.TenantID, cur.Country, cur.ExtensionDigits, r.From, r.To)
 			if err != nil {
 				return "", err
 			}

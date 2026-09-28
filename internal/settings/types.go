@@ -61,12 +61,13 @@ type Store interface {
 	SetSetupStep(ctx context.Context, step int, completedAt *time.Time) error
 
 	// NextFreeExtensionNumber returns the lowest unused number, digits long,
-	// in [from, to], or "" if the range is full.
-	NextFreeExtensionNumber(ctx context.Context, tenant uuid.UUID, digits, from, to int) (string, error)
+	// in [from, to] that isn't reserved in country, or "" if none is left.
+	NextFreeExtensionNumber(ctx context.Context, tenant uuid.UUID, country string, digits, from, to int) (string, error)
 	// RangeReservedNumber returns the first number in [from, to] (digits
-	// long) that's reserved in country (an emergency/short number, or one
-	// that looks like a prefixed outside number), and why; "", "" if none
-	// is.
+	// long) that looks like a prefixed outside number in country (a whole
+	// block that can't be extensions), and why; "", "" if none does. Single
+	// emergency and service numbers inside a range don't count: they're
+	// skipped when numbers are handed out.
 	RangeReservedNumber(ctx context.Context, country string, digits, from, to int) (number, reason string, err error)
 	// ExtensionsWithOtherLength lists (up to a handful of) extension numbers
 	// that aren't digits digits long: what a digit-count change would have

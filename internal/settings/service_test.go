@@ -65,7 +65,7 @@ func (f *fakeStore) SetSetupStep(_ context.Context, step int, completedAt *time.
 	return nil
 }
 
-func (f *fakeStore) NextFreeExtensionNumber(_ context.Context, _ uuid.UUID, digits, from, to int) (string, error) {
+func (f *fakeStore) NextFreeExtensionNumber(_ context.Context, _ uuid.UUID, _ string, digits, from, to int) (string, error) {
 	for n := from; n <= to; n++ {
 		s := zeroPad(n, digits)
 		if !f.used[s] {
@@ -152,7 +152,7 @@ func TestUpdateSettingsRangeOutOfBounds(t *testing.T) {
 
 func TestUpdateSettingsRangeReserved(t *testing.T) {
 	st := newFakeStore()
-	st.reserved[key(700, 999)] = [2]string{"999", "emergency"}
+	st.reserved[key(700, 999)] = [2]string{"999", "international_prefix"}
 	svc := &Service{Store: st, Now: time.Now}
 	ctx := testCtx(uuid.New())
 
