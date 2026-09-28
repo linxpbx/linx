@@ -349,7 +349,8 @@ func clock(t time.Time) string { return t.Local().Format("15:04") }
 func printLink(w io.Writer, env setupEnv, st install.HostState) {
 	fmt.Fprintln(w, "\nOpen this link in a browser to finish setting up Linx:")
 	printLinkAt(w, env, st, "/install")
-	fmt.Fprintln(w, "\nIt works once, for four hours, in the first browser that opens it.")
+	fmt.Fprintln(w, "\nIt works once, for four hours, in the first browser that opens it. Open it in the browser you'll\n"+
+		"finish in: after that it won't open anywhere else, not even for you (sudo linx setup --new-link makes a new one).")
 	printFingerprint(w, env)
 	if local, ok := env.web.routeAddress(); ok && publicip.IsPublic(local) {
 		fmt.Fprintf(w, "If it doesn't open, allow TCP port %d in your server provider's firewall\n"+
@@ -588,7 +589,8 @@ func runServerSettings(ctx context.Context, o webOptions, cfg installer.Config, 
 	if problem != "" {
 		fmt.Fprintf(stdout, "If https://%s opens in your browser anyway, use the Server settings page there:\n  %s\n\n", cfg.Domain.Name, url)
 	}
-	fmt.Fprintln(stdout, "Otherwise open this link to fix it (it works once, for four hours, in the first browser that opens it):")
+	fmt.Fprintln(stdout, "Otherwise open this link to fix it. It works once, for four hours, in the first browser that opens it:\n"+
+		"open it in the browser you'll use, since after that it won't open anywhere else (--new-link makes a new one).")
 	printRepairLink(stdout, env, rs)
 	if rs.NoSignIn {
 		fmt.Fprintln(stdout, "\nThis link skips the sign-in: anyone who opens it first can change this server's settings. Don't share it.")

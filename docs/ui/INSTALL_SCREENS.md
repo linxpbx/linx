@@ -379,7 +379,7 @@ You'll need to sign in as a system admin there.
 
 ### 5.2 Host settings (secure, system admin)
 
-*As built (install step 4 parts 4a/4b): System → Server settings at `/admin/system/server` (system admins only). Size, Portainer and the DNS token change in place with one Apply; front door and domain have **Change** (inline), then **Check** shows "Before you apply" (warnings, DNS records to add, the front door's block with "I've done these steps", the steps) before Apply; "where" is shown only (it follows the server's network). Screenshots `system-server-closed`, `system-server-settings`, `system-server-changing`, `system-server-move`, `system-server-move-records`.*
+*As built (install step 4 parts 4a/4b): System → Server settings at `/admin/system/server` (system admins only). Size, Portainer and the DNS token change in place with one Apply; front door and domain have **Change** (inline) with a **Check** right next to each field (the DNS token too; off until the field changes), which shows "Before you apply" under that row (warnings, DNS records to add, the front door's block with "I've done these steps", the steps) before Apply; "where" is shown only (it follows the server's network). Screenshots `system-server-closed`, `system-server-settings`, `system-server-changing`, `system-server-move`, `system-server-move-records`.*
 
 `https://meet.example.com/install`, full page, same frame, no progress line. Needs a system admin sign-in (and "Confirm it's you" before saving):
 
@@ -403,7 +403,7 @@ You'll need to sign in as a system admin there.
 
 ### 5.3 Broken address (plain page again)
 
-*As built (install step 4 part 4b): `https://<address>:6464/repair/<secret>` → `/repair`, served by the running Linx. The sign-in card (password, then authenticator or recovery code; no passkey or company buttons) with setup's check result, the link's countdown and the passkey-only hint under it; then "Fix this server's address" with the §5.2 panel. With `--no-sign-in`, straight to the panel. Screenshots `repair-sign-in`, `repair-settings`, `repair-no-sign-in`, `phone-repair`.*
+*As built (install step 4 part 4b): `https://<address>:6464/repair/<secret>` → `/repair`, served by the running Linx. The sign-in card (password, then authenticator or recovery code; no passkey or company buttons) with setup's check result, the link's countdown and the passkey-only hint under it; then "Fix this server's address" with the §5.2 panel. With `--no-sign-in`, straight to the panel. Every page a one-time link opens (install and repair) says under the card that the link works only once and now belongs to this browser (owner request, 2026-09-28). Screenshots `repair-sign-in`, `repair-settings`, `repair-no-sign-in`, `phone-repair`.*
 
 The §2 frame, but §2.1's welcome is replaced by the system-admin sign-in (email, password or passkey, second step) before anything else. A passkey can't be used on port 6464 (passkeys belong to `meet.example.com`); the sign-in says so: "Passkeys only work on the secure page. Use your password and authenticator app, or a recovery code." Then the progress line starts at the step that's broken (usually Certificate).
 

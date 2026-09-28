@@ -145,6 +145,10 @@ function Settings({ me, s, client, onChanged, onMoved }:
   const [proxy, setProxy] = useState(s.proxy_address ?? "");
   const [udp, setUdp] = useState(String(s.turn_udp_port || 443));
   const [preview, setPreview] = useState<ServerPreview | null>(null);
+  // Which row's Check showed the preview (it's shown there).
+  const [checkedAt, setCheckedAt] = useState<CheckAt | null>(null);
+  // A new token checked on its own: the DNS company let Linx see the domain.
+  const [tokenOK, setTokenOK] = useState(false);
   const [doorDone, setDoorDone] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState(false);
@@ -178,7 +182,7 @@ function Settings({ me, s, client, onChanged, onMoved }:
     }
   }, [s.apply.state, s.profile, s.portainer, s.front_door, s.proxy_address, s.turn_udp_port]);
   // Anything edited after a preview needs a new one.
-  useEffect(() => { setPreview(null); setDoorDone(false); }, [profile, portainer, token, domain, door, proxy, udp, editDomain, editDoor]);
+  useEffect(() => { setPreview(null); setCheckedAt(null); setTokenOK(false); setDoorDone(false); }, [profile, portainer, token, domain, door, proxy, udp, editDomain, editDoor]);
 
   const body = (): ServerChange => ({
     profile: profile as ServerChange["profile"], portainer,
@@ -202,7 +206,9 @@ function Settings({ me, s, client, onChanged, onMoved }:
     return p;
   };
 
-  const check = async () => {
+  // at: the row whose Check was pressed, or "apply" (the button at the
+  // bottom, which checks first too).
+  const check = async (at: CheckAt | "apply") => {
     setError("");
     const local = localProblems();
     setFieldErrors(local);
@@ -218,7 +224,10 @@ function Settings({ me, s, client, onChanged, onMoved }:
         setFieldErrors(Object.fromEntries(data.errors.map((e) => [e.field, e.message])));
         return;
       }
-      if (moves) setPreview(data);
+      if (moves) {
+        setPreview(data);
+        setCheckedAt(at === "apply" ? (newDomain && newDomain !== s.domain ? "domain" : "door") : at);
+      } else if (at === "token") setTokenOK(true);
       else setAsking(true);
     } catch {
       setError("Linx didn't answer. Try again in a moment.");
@@ -243,6 +252,10 @@ function Settings({ me, s, client, onChanged, onMoved }:
   };
 
   const needsTick = !!preview?.setup;
+  const review = preview && (
+    <Review preview={preview} doorDone={doorDone} onDoorDone={setDoorDone} running={running}
+      onCancel={() => { setPreview(null); setCheckedAt(null); }} onApply={() => setAsking(true)} ready={!needsTick || doorDone} />
+  );
   return (
     <>
       <Card title="Server settings">
@@ -282,9 +295,13 @@ function Settings({ me, s, client, onChanged, onMoved }:
                   </>
                 )}
                 <FieldError message={fieldErrors.front_door} />
-                <Button variant="link" className="h-auto w-fit p-0" onClick={() => { setEditDoor(false); setDoor(s.front_door); }}>Keep it as it is</Button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <CheckButton busy={checking} disabled={!doorChanged || running || !!preview} onClick={() => void check("door")} />
+                  <Button variant="link" className="h-auto w-fit p-0" onClick={() => { setEditDoor(false); setDoor(s.front_door); }}>Keep it as it is</Button>
+                </div>
               </div>
             )}
+            {preview && checkedAt === "door" && review}
           </Row>
           <Row label="Domain">
             {s.domain}
@@ -292,13 +309,17 @@ function Settings({ me, s, client, onChanged, onMoved }:
             {editDomain && (
               <div className="mt-3 flex max-w-md flex-col gap-1.5">
                 <Label htmlFor="server-domain">New domain</Label>
-                <Input id="server-domain" autoComplete="off" spellCheck={false} placeholder="example.com" value={domain}
-                  onChange={(e) => setDomain(e.target.value)} aria-invalid={fieldErrors.domain ? true : undefined} />
+                <div className="flex gap-2">
+                  <Input id="server-domain" autoComplete="off" spellCheck={false} placeholder="example.com" value={domain} className="min-w-0 flex-1"
+                    onChange={(e) => setDomain(e.target.value)} aria-invalid={fieldErrors.domain ? true : undefined} />
+                  <CheckButton busy={checking} disabled={!newDomain || newDomain === s.domain || running || !!preview} onClick={() => void check("domain")} />
+                </div>
                 <FieldError message={fieldErrors.domain} />
                 <p className="text-muted-foreground">Linx moves to it: passkeys and desk phones set up for {s.domain} need attention.</p>
                 <Button variant="link" className="h-auto w-fit p-0" onClick={() => { setEditDomain(false); setDomain(""); }}>Keep {s.domain}</Button>
               </div>
             )}
+            {preview && checkedAt === "domain" && review}
           </Row>
           <Row label="DNS company">
             {s.token_saved ? `${company} token added ✓` : "No token: the certificate renews through port 443, and DNS records are yours to keep."}
@@ -306,9 +327,17 @@ function Settings({ me, s, client, onChanged, onMoved }:
             {addToken && (
               <div className="mt-2 flex max-w-md flex-col gap-2">
                 <Label htmlFor="server-token">New {newDomain.endsWith(".duckdns.org") ? "DuckDNS" : newDomain ? "Cloudflare" : company} token</Label>
-                <Input id="server-token" type="password" autoComplete="off" spellCheck={false} value={token}
-                  onChange={(e) => setToken(e.target.value)} aria-invalid={fieldErrors.token ? true : undefined} />
+                <div className="flex gap-2">
+                  <Input id="server-token" type="password" autoComplete="off" spellCheck={false} value={token} className="min-w-0 flex-1"
+                    onChange={(e) => setToken(e.target.value)} aria-invalid={fieldErrors.token ? true : undefined} />
+                  <CheckButton busy={checking} disabled={!token.trim() || running} onClick={() => void check("token")} />
+                </div>
                 <FieldError message={fieldErrors.token} />
+                {tokenOK && (
+                  <p role="status" className="flex items-center gap-2">
+                    <Check aria-hidden="true" className="size-4 shrink-0 text-status-available" />Linx can use this token. Press Apply to save it.
+                  </p>
+                )}
                 <p className="text-muted-foreground">Linx checks it can see {newDomain || s.domain} before using it.</p>
               </div>
             )}
@@ -340,17 +369,13 @@ function Settings({ me, s, client, onChanged, onMoved }:
         {error && <p role="alert" className="mt-3 text-sm font-medium">{error}</p>}
         {!preview && (
           <div className="mt-4 flex justify-end">
-            <Button disabled={!changed || running || checking} onClick={() => void check()}>
+            <Button disabled={!changed || running || checking} onClick={() => void check("apply")}>
               {checking && <LoaderCircle aria-hidden="true" className="animate-spin" />}
-              {moves ? "Check" : "Apply"}
+              Apply
             </Button>
           </div>
         )}
       </Card>
-      {preview && (
-        <Review preview={preview} doorDone={doorDone} onDoorDone={setDoorDone} running={running}
-          onCancel={() => setPreview(null)} onApply={() => setAsking(true)} ready={!needsTick || doorDone} />
-      )}
       {s.steps.length > 0 && <Progress s={s} />}
       <Dialog open={asking} onOpenChange={setAsking}>
         <DialogContent>
@@ -377,8 +402,9 @@ function Review({ preview, doorDone, onDoorDone, ready, running, onCancel, onApp
   onCancel: () => void; onApply: () => void;
 }) {
   return (
-    <Card title="Before you apply">
-      <div className="flex flex-col gap-5 text-sm">
+    <section aria-labelledby="server-review" className="mt-4 rounded-md border p-4">
+      <h3 id="server-review" className="font-display text-base font-semibold">Before you apply</h3>
+      <div className="mt-3 flex flex-col gap-5 text-sm">
         {preview.warnings.length > 0 && (
           <ul className="flex flex-col gap-2">
             {preview.warnings.map((w) => (
@@ -424,7 +450,19 @@ function Review({ preview, doorDone, onDoorDone, ready, running, onCancel, onApp
           <Button disabled={!ready || running} onClick={onApply}>Apply</Button>
         </div>
       </div>
-    </Card>
+    </section>
+  );
+}
+
+type CheckAt = "domain" | "door" | "token";
+
+/** The Check next to a field that setup on the server checks. */
+function CheckButton({ busy, disabled, onClick }: { busy: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <Button type="button" variant="outline" disabled={disabled || busy} onClick={onClick}>
+      {busy && <LoaderCircle aria-hidden="true" className="animate-spin" />}
+      Check
+    </Button>
   );
 }
 

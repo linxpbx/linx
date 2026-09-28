@@ -524,6 +524,7 @@ test.describe("system: server settings", () => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
     await page.goto("/admin/system/server");
     await page.getByRole("button", { name: "Change" }).nth(1).click();
+    await expect(page.getByRole("button", { name: "Check" })).toBeDisabled();
     await page.getByLabel("New domain").fill("203.0.113.9");
     await page.getByRole("button", { name: "Check" }).click();
     await expect(page.getByRole("alert")).toContainText("That's an address, not a domain");
@@ -548,7 +549,9 @@ test.describe("system: server settings", () => {
     await expect(page.getByRole("radio", { name: "Pangolin" })).toHaveCount(0);
     await page.getByRole("button", { name: "Change" }).first().click();
     await page.getByLabel("New domain").fill("pbx.example.org");
-    await page.getByRole("button", { name: "Check" }).click();
+    // The front door's editor is open too: its Check stays off until it changes.
+    await expect(page.getByRole("button", { name: "Check" }).first()).toBeDisabled();
+    await page.getByRole("button", { name: "Check" }).last().click();
     await expect(page.getByText("DNS records to add")).toBeVisible();
     await expect(page.getByText("turn.pbx.example.org", { exact: true })).toBeVisible();
     await shot(page, "system-server-move-records");

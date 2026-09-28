@@ -44,6 +44,34 @@ export function useSecondsLeft(initial: number): number {
  * to renew: it says what happens when the time is up instead.
  */
 export function Countdown({ left, secure = false, repair = false }: { left: number; secure?: boolean; repair?: boolean }) {
+  return (
+    <>
+      <OnceNotice secure={secure} />
+      <TimeLeft left={left} secure={secure} repair={repair} />
+    </>
+  );
+}
+
+/**
+ * The link worked once: this browser holds it now. Said on every page a
+ * one-time link opens (the install's, the repair page), so nobody closes
+ * the tab expecting to open the link again.
+ */
+export function OnceNotice({ secure = false }: { secure?: boolean }) {
+  return (
+    <p className="mt-4 flex items-start gap-2 rounded-md border border-status-away bg-card px-4 py-3 text-sm">
+      <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-away" />
+      <span>
+        <strong className="font-medium">{secure ? "This page works in this browser only." : "This link works only once."}</strong>{" "}
+        It now belongs to this browser: it won't open in another browser, a private window or on another device, even for you.
+        Keep this tab open until you're done. If you lose it, run <code className="font-mono">sudo linx setup --new-link</code> on
+        the server for a new link.
+      </span>
+    </p>
+  );
+}
+
+function TimeLeft({ left, secure, repair }: { left: number; secure: boolean; repair: boolean }) {
   const soon = left <= 300;
   return (
     <div role="timer" aria-live={soon ? "polite" : "off"}
