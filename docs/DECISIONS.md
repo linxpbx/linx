@@ -657,7 +657,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** An admin account — or a control plane someone broke into — can read Linx's own service logs and restart Linx's own services, nothing else on the host: no other container, no command, no file. Reading logs is a new `logs:read` scope and restarting `system:write`, neither given to reporters. One more always-running host service; without it the page says so and everything else keeps working.
 
-## ADR-057 — Web-first install, with a first page over plain HTTP (proposed 2026-09-28, owner direction 2026-09-27)
+## ADR-057 — Web-first install, with a first page over plain HTTP (owner decision, approved 2026-09-28)
 
 **Context.** `linx setup` asks about ten questions in the terminal. The owner wants the terminal to ask nothing and the whole install to happen in a browser. A browser needs somewhere to start before Linx has a certificate. Design: `docs/INSTALL.md`.
 
@@ -665,7 +665,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** A written exception to "never fall back to plaintext": a first page, for a few minutes, with nothing secret on it except the one-time link. Someone actively tampering between the owner's browser and the server during that time could redirect the install (threat model). The DNS token is asked over HTTP only when the secure page can't exist yet (home-only, or a proxy that decrypts TLS), after a plain warning. Setup no longer creates a first admin from the terminal, so re-runs can't create a second one.
 
-## ADR-058 — First certificate by TLS-ALPN-01 on 443 (proposed 2026-09-28)
+## ADR-058 — First certificate by TLS-ALPN-01 on 443 (owner decision, approved 2026-09-28)
 
 **Context.** The secure page needs a trusted certificate before the DNS token is asked for. DNS-01 needs the token, and the security rules and the owner rule out port 80.
 

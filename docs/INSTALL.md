@@ -1,6 +1,6 @@
 # Linx — Web-first install
 
-*Status: design drafted 2026-09-28 from the owner's direction of 2026-09-27 (CLAUDE.md "Pre-launch"), **not yet approved**. ADR-057 and ADR-058 record the decisions. Owner questions: §10.*
+*Status: design drafted 2026-09-28 from the owner's direction of 2026-09-27 (CLAUDE.md "Pre-launch"), **approved by the owner 2026-09-28, all §10 questions as recommended**. ADR-057 and ADR-058 record the decisions.*
 
 Today `sudo linx setup` asks about ten questions in the terminal: resource profile, Docker, front door, Portainer, domain, DNS provider and token, test certificates, contact email, owner email and name. With this design the terminal asks nothing. It checks the server, installs Docker and Linx, and prints **one link**. Everything else happens in a browser.
 
@@ -16,7 +16,7 @@ Today `sudo linx setup` asks about ten questions in the terminal: resource profi
 
 | Question today (terminal) | Where it goes | Why there |
 |---|---|---|
-| Host checks, Docker install | terminal, no question | Running setup *is* the yes. Replacing a distro Docker that has running containers still stops and asks for `--replace-docker` (§10 Q3). |
+| Host checks, Docker install | terminal, no question | Running setup *is* the yes. Replacing a distro Docker that has running containers still stops and asks for `--replace-docker` (§10 item 3). |
 | Resource profile | automatic; "More options" on the secure page | The suggested profile is right almost every time. |
 | Where the server is, front door (Pangolin/nginx/Caddy·NPM/Linx takes 443/home only/none) | HTTP page | Decides how port 443 reaches Linx, which the certificate needs. Not secret. |
 | Domain | HTTP page | Needed for the certificate. Not secret. |
@@ -71,7 +71,7 @@ For the first two, the HTTP page asks for the DNS token instead and issues the w
 2. **DNS provider + token** (Cloudflare or DuckDNS today). Saved as the `linx_dns_token` Docker secret by the host. Then certd, in the background:
    - issues the **wildcard** by DNS-01 and replaces the bootstrap certificate (consumers already reload, `docs/ops/CERT_RELOAD.md`);
    - creates `meet`, `api` and `turn` at the public address **and `sip.<domain>` at the LAN address** (the owner's decision of 2026-09-27: setup no longer prints it for you to add). The IP follower keeps each record at its own address, and a LAN change still needs setup re-run.
-   - *Skip* is allowed only on a rented server (§10 Q1). The certificate then keeps renewing through 443 by TLS-ALPN-01, with no phones on the LAN and no automatic DNS.
+   - *Skip* is allowed only on a rented server (§10 item 1). The certificate then keeps renewing through 443 by TLS-ALPN-01, with no phones on the LAN and no automatic DNS.
 3. **You.** The account from the HTTP page's name and email becomes the first `system_admin` and goes straight into the existing first-run flow: password (or passkey-only), then a passkey or authenticator (docs/ADMIN.md §4–5).
 4. **Extras**: resource profile, Portainer (LAN only). Then **Apply**. The host brings up the full stack (Asterisk, coturn, WireGuard agent, phone ports and firewall, backup/ops/firewall-sync helpers) and the page shows each step.
 5. The existing **setup wizard** follows ("Set up fresh" or "Restore from a backup", then Place …). Its "Place" step starts from the answer given in §2, so you aren't asked twice.
@@ -111,7 +111,7 @@ Each item links to its page and can be ticked off. The list goes away when every
 
 This replaces most of `linx setup`'s questions and the Phase 1F "Domain & DNS" page: changing the domain or token later is §7's secure page.
 
-## 10. Owner questions (each with a recommendation)
+## 10. Owner decisions (2026-09-28, all as recommended)
 
 1. **DNS token on a rented server: required or skippable?** *Recommend skippable there, required at home.* On a VPS, phones don't use the LAN, and TLS-ALPN-01 renews by itself, so a domain at any DNS company works. At home, `sip.` needs the token.
 2. **An extra code from the terminal on the secure page, against someone tampering with the unencrypted page on the way?** *Recommend no.* You asked for one link. The HTTP page holds nothing secret, and taking over also needs the one-time handoff to be used first. The remaining risk (someone actively tampering between your browser and the server during those minutes) is written into the threat model.
