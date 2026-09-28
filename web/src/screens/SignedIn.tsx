@@ -14,6 +14,7 @@ import { AdminHomeScreen } from "./AdminHome";
 import { DialerScreen } from "./Dialer";
 import { ExtensionsScreen } from "./Extensions";
 import { PeopleScreen } from "./People";
+import { SystemServerScreen } from "@/screens/SystemServer";
 import { SystemBackupsScreen } from "./SystemBackups";
 import { SystemStatusScreen } from "./SystemStatus";
 import { SettingsScreen } from "./Settings";
@@ -80,6 +81,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
     : path === "/admin" ? "admin-home" : path === "/admin/people" ? "admin-people" : path === "/admin/extensions" ? "admin-extensions"
       : path === "/admin/system" || path === "/admin/system/status" ? "admin-system-status"
       : path === "/admin/system/backups" ? "admin-system-backups"
+      : path === "/admin/system/server" && me.role === "system_admin" ? "admin-system-server"
       : "dialer";
 
   return (
@@ -97,6 +99,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
               : screen === "admin-extensions" ? <ExtensionsScreen me={me} />
               : screen === "admin-system-status" ? <SystemStatusScreen me={me} />
               : screen === "admin-system-backups" ? <SystemBackupsScreen me={me} />
+              : screen === "admin-system-server" ? <SystemServerScreen me={me} />
               : <DialerScreen members={team.members} />}
       </Shell>
     </PhoneContext.Provider>

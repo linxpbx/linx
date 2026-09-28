@@ -36,6 +36,7 @@ import (
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/health"
+	"linxpbx.com/linx/internal/install"
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/ops"
 	"linxpbx.com/linx/internal/pbx"
@@ -382,6 +383,15 @@ func main() {
 	} else {
 		runBackground(func(ctx context.Context) { opsHub.Serve(ctx, ln) })
 	}
+	// System → Server settings (docs/INSTALL.md §7): `sudo linx setup` on
+	// an installed server connects in through install-bridge, the web
+	// install's own socket, and relays this server's own settings.
+	serverSettings := &install.Server{Log: log}
+	if ln, err := install.Listen(installSocket(os.Getenv)); err != nil {
+		log.Warn("no setup socket; System → Server settings can't reach setup on the server", "err", err)
+	} else {
+		runBackground(func(ctx context.Context) { serverSettings.ServeBridge(ctx, ln) })
+	}
 	stopARI, err := startARI(bgCtx, ariCfg, tracker, log, runBackground)
 	if err != nil {
 		log.Error("ARI setup failed", "err", err)
@@ -397,6 +407,7 @@ func main() {
 
 	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, backups,
 		func(s *controlplaneapi.Server) {
+			s.SetServerSettings(serverSettings)
 			s.SetOps(opsHub, st.Audit, func() time.Time {
 				if sec := certExpiry.Load(); sec > 0 {
 					return time.Unix(sec, 0)

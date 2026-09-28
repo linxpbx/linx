@@ -128,3 +128,10 @@ func lanOrLoopback(a netip.Addr) netip.Addr {
 	}
 	return netip.AddrFrom4([4]byte{127, 0, 0, 1})
 }
+
+// PortainerStopPlan stops and removes Portainer (turned off on the Server
+// settings page). Its password file and data volume are kept, so turning
+// it on again finds the same admin.
+func PortainerStopPlan() Plan {
+	return Plan{cmdStep("Stop Portainer", "docker", "compose", "--file", portainerDir+"/compose.yaml", "down")}
+}

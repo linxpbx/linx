@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -36,6 +38,9 @@ type webEnv struct {
 	publicAddress func(ctx context.Context) (netip.Addr, error)
 	statePath     string
 	now           func() time.Time
+	// secureCheck says whether https://<domain> works from here (nil: not
+	// checked).
+	secureCheck func(ctx context.Context, domain string) error
 	// wait pauses between looks at the service's progress; false once ctx
 	// has ended.
 	wait func(ctx context.Context, d time.Duration) bool
@@ -49,8 +54,9 @@ func realWebEnv() webEnv {
 			defer cancel()
 			return publicip.Lookup(ctx, &http.Client{Timeout: 8 * time.Second}, publicip.TraceURL)
 		},
-		statePath: install.HostPath,
-		now:       time.Now,
+		statePath:   install.HostPath,
+		now:         time.Now,
+		secureCheck: secureAddressWorks,
 		wait: func(ctx context.Context, d time.Duration) bool {
 			select {
 			case <-ctx.Done():
@@ -75,11 +81,7 @@ func runWebSetup(ctx context.Context, o webOptions, stdout, stderr io.Writer, en
 		return 1
 	}
 	if cfg, err := loadSetupConfig("", env); err == nil && cfg.Installed() {
-		fmt.Fprintf(stdout, "Linx is already installed here, at https://%s.\n"+
-			"To change its settings, run  sudo linx setup  in a terminal, or edit %s and run:\n\n"+
-			"  sudo linx setup --config %s\n\nNothing was changed.\n",
-			cfg.Domain.Name, installer.ConfigPath, installer.ConfigPath)
-		return 0
+		return runServerSettings(ctx, o, cfg, stdout, stderr, env)
 	}
 	// Ctrl-C (or a dropped SSH session) only stops this terminal's view:
 	// the install carries on in the linx-setup service.
@@ -372,7 +374,7 @@ func printLink(w io.Writer, env setupEnv, st install.HostState) {
 // runInstallService is `linx install-service`: the web install on the
 // host, run by `linx setup` as the linx-setup systemd service. Not for
 // running by hand.
-func runInstallService(ctx context.Context, stderr io.Writer, env setupEnv) int {
+func runInstallService(ctx context.Context, args []string, stderr io.Writer, env setupEnv) int {
 	if !env.isRoot {
 		fmt.Fprintln(stderr, "linx install-service runs as the linx-setup service; run sudo linx setup instead.")
 		return 1
@@ -385,6 +387,19 @@ func runInstallService(ctx context.Context, stderr io.Writer, env setupEnv) int 
 	if err != nil {
 		log.Error("which Linx images to use", "err", err)
 		return 1
+	}
+	if len(args) == 1 && args[0] == settingsFlag {
+		// An installed server: the full Linx's Server settings page.
+		h := &install.SettingsHost{
+			Apply: webSettings{newWebApply(env, lan, imageTag)},
+			Log:   log,
+			Dial:  func(ctx context.Context) (io.ReadWriteCloser, error) { return ops.DialBridge(ctx, "install-bridge") },
+		}
+		if err := h.Run(ctx); err != nil {
+			log.Error("the Server settings page", "err", err)
+			return 1
+		}
+		return 0
 	}
 	address, ok := env.web.routeAddress()
 	if !ok {
@@ -459,4 +474,67 @@ func hardware(h hostinfo.Info) string {
 		parts = append(parts, fmt.Sprintf("%.0f GB free", float64(h.DiskFree)/(1<<30)))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// settingsFlag runs install-service in settings mode.
+const settingsFlag = "--settings"
+
+// ServerSettingsPath is the full Linx's Server settings page.
+const ServerSettingsPath = "/admin/system/server"
+
+// runServerSettings is `sudo linx setup` on an installed server, in the
+// browser (docs/INSTALL.md §7, docs/ui/INSTALL_SCREENS.md §5.1): nothing
+// reopens; the linx-setup service opens the Server settings page for four
+// hours, for a system admin to change this server's size, Portainer and
+// DNS token.
+func runServerSettings(ctx context.Context, o webOptions, cfg installer.Config, stdout, stderr io.Writer, env setupEnv) int {
+	url := "https://" + cfg.Domain.Name + ServerSettingsPath
+	if o.dryRun {
+		fmt.Fprintf(stdout, "Linx is installed at https://%s. Setup would open the Server settings page for four hours:\n  %s\n\nDry run: nothing was changed.\n", cfg.Domain.Name, url)
+		return 0
+	}
+	if o.newLink {
+		fmt.Fprintln(stderr, "Linx is installed here, so there's no install link to renew. Run  sudo linx setup  for the Server settings page.")
+		return 2
+	}
+	working := true
+	if env.web.secureCheck != nil {
+		if err := env.web.secureCheck(ctx, cfg.Domain.Name); err != nil {
+			working = false
+			fmt.Fprintf(stdout, "Linx is installed, but https://%s didn't answer from this server:\n  %v\n\n", cfg.Domain.Name, err)
+		}
+	}
+	if working {
+		fmt.Fprintf(stdout, "Linx is installed at https://%s (working ✓).\n\n", cfg.Domain.Name)
+	}
+	if !unitActive(ctx, env.runner) {
+		_, _ = env.runner.Run(ctx, nil, "systemctl", "reset-failed", install.Unit)
+		if out, err := env.runner.Run(ctx, nil, "systemd-run", "--unit", install.Unit, "--description", "Linx setup: the Server settings page",
+			"--collect", "--property", "Restart=on-failure", "--property", "RestartSec=5",
+			installer.CLIPath, "install-service", settingsFlag); err != nil {
+			fmt.Fprintf(stderr, "Can't start %s: %v\n%s\n", install.Unit, err, indent(strings.TrimSpace(string(out))))
+			return 1
+		}
+	}
+	fmt.Fprintf(stdout, "To change its size, Portainer or DNS token, sign in as a system admin at:\n\n  %s\n\n"+
+		"That page can make changes for the next four hours. Nothing was reopened.\n", url)
+	if !working {
+		fmt.Fprintln(stdout, "\nIf that address doesn't open in your browser either, run  sudo linx setup  again and choose\n"+
+			"the terminal: it asks its questions with your saved answers.")
+	}
+	fmt.Fprintln(stdout, "To change the domain or what's in front of this server, run  sudo linx setup  and choose the terminal.")
+	return 0
+}
+
+// secureAddressWorks checks https://<domain> answers with a certificate
+// this server's own trust store accepts for that name.
+func secureAddressWorks(ctx context.Context, domain string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	d := tls.Dialer{Config: &tls.Config{ServerName: domain, MinVersion: tls.VersionTLS12}}
+	c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(domain, "443"))
+	if err != nil {
+		return err
+	}
+	return c.Close()
 }

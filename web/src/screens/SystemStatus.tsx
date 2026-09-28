@@ -87,7 +87,7 @@ export function SystemStatusScreen({ me }: { me: Me }) {
   if (!status) {
     return (
       <div className="w-full max-w-5xl px-4 py-6 md:px-6" aria-busy={!error}>
-        <SystemHeader current="/admin/system/status" />
+        <SystemHeader current="/admin/system/status" systemAdmin={me.role === "system_admin"} />
         {error && <p role="alert" className="mt-6 text-sm font-medium text-destructive">{error}</p>}
       </div>
     );
@@ -96,7 +96,7 @@ export function SystemStatusScreen({ me }: { me: Me }) {
   const services = status.containers.filter((c) => !(c.optional && c.state === "missing"));
   return (
     <div className="w-full max-w-5xl px-4 py-6 md:px-6">
-      <SystemHeader current="/admin/system/status" />
+      <SystemHeader current="/admin/system/status" systemAdmin={me.role === "system_admin"} />
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground" role="status">
           {status.helper.checked_at ? `Checked ${ago(status.helper.checked_at, now)}` : "Not checked yet"}

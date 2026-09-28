@@ -695,9 +695,14 @@ func chooseSetupMode(ctx context.Context, p *prompter, env setupEnv, webFlags bo
 		return true, nil
 	}
 	if cfg, err := loadSetupConfig("", env); err == nil && cfg.Installed() {
-		fmt.Fprintf(p.out, "Linx is already installed here (https://%s). Setup asks its questions again,\n"+
-			"with your saved answers as the defaults: press Enter to keep one.\n\n", cfg.Domain.Name)
-		return false, nil
+		labels := map[string]string{
+			setupInBrowser:  "the Server settings page, for a system admin (size, Portainer, DNS token)",
+			setupInTerminal: "answer setup's questions again here, with your saved answers as the defaults",
+		}
+		fmt.Fprintf(p.out, "Linx is already installed here (https://%s).\n", cfg.Domain.Name)
+		mode, err := p.choose("How do you want to change its settings?", []string{setupInBrowser, setupInTerminal}, labels, setupInBrowser)
+		fmt.Fprintln(p.out)
+		return mode == setupInBrowser, err
 	}
 	labels := map[string]string{
 		setupInBrowser:  "open one link in a browser and answer there (recommended: easiest)",

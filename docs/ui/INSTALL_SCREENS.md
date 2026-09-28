@@ -379,6 +379,8 @@ You'll need to sign in as a system admin there.
 
 ### 5.2 Host settings (secure, system admin)
 
+*As built (install step 4 part 4a): System → Server settings at `/admin/system/server` (system admins only). Size, Portainer and the DNS token change in place with one Apply; where, front door and domain are shown only (the terminal changes them for now). Screenshots `system-server-closed`, `system-server-settings`, `system-server-changing`.*
+
 `https://meet.example.com/install`, full page, same frame, no progress line. Needs a system admin sign-in (and "Confirm it's you" before saving):
 
 ```

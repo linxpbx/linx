@@ -198,6 +198,41 @@ func (bc *bridgeConn) write(m Message) error {
 	return nil
 }
 
+// ServerSettings is the Server settings page as setup on the server last
+// told it: nil when setup isn't running in settings mode (or not
+// connected). The full control plane relays the page through this.
+func (s *Server) ServerSettings() *ServerView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil || !s.haveView || s.view.Server == nil {
+		return nil
+	}
+	v := *s.view.Server
+	return &v
+}
+
+// ChangeServerSettings asks setup on the server to make c. Refusals come
+// back as field errors or a plain-words error.
+func (s *Server) ChangeServerSettings(ctx context.Context, c ServerChange) ([]FieldError, error) {
+	res, err := s.request(ctx, Message{Type: TypeServerChange, Change: &c}, checkTimeout)
+	switch {
+	case err != nil:
+		return nil, err
+	case res.Error != "":
+		return nil, &Refused{Detail: res.Error}
+	case len(res.Errors) > 0:
+		return res.Errors, nil
+	case !res.OK:
+		return nil, &Refused{Detail: "Setup on the server refused that."}
+	}
+	return nil, nil
+}
+
+// Refused is setup on the server saying no, in plain words.
+type Refused struct{ Detail string }
+
+func (e *Refused) Error() string { return e.Detail }
+
 // request sends m to the host and waits for its result.
 func (s *Server) request(ctx context.Context, m Message, timeout time.Duration) (Message, error) {
 	s.mu.Lock()

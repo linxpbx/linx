@@ -82,6 +82,9 @@ type Message struct {
 	// extras
 	Extras *Extras `json:"extras,omitempty"`
 
+	// server_change
+	Change *ServerChange `json:"change,omitempty"`
+
 	// result
 	OK     bool         `json:"ok,omitempty"`
 	Errors []FieldError `json:"errors,omitempty"`
@@ -117,6 +120,9 @@ type View struct {
 	Secure bool `json:"secure,omitempty"`
 	// Finish is the secure page's steps (FinishView), once there.
 	Finish *FinishView `json:"finish,omitempty"`
+	// Server is the Server settings page, when setup runs in settings
+	// mode on an installed server (settings.go); nothing else is set then.
+	Server *ServerView `json:"server,omitempty"`
 }
 
 // Why a link or session ended.

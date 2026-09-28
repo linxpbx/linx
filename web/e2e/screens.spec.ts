@@ -389,10 +389,10 @@ test.describe("phone width", () => {
     ["/", "dialer", "Dialer"], ["/team", "team", "Team"], ["/settings", "settings", "Settings"],
     ["/admin", "admin-home", "Getting started"], ["/admin/people", "people", "People"],
     ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/status", "system-status", "Linx services"],
-    ["/admin/system/backups", "system-backups", "Backups"],
+    ["/admin/system/backups", "system-backups", "Backups"], ["/admin/system/server", "system-server", "Server settings"],
   ] as const) {
     test(`no sideways scrolling: ${name}`, async ({ page }) => {
-      await fakeServer(page, { signedIn: true, admin: true, setupStep: 5, backups: true, download: "ready" });
+      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 5, backups: true, download: "ready", serverSettings: "home" });
       await page.goto(path);
       await expect(page.getByRole("heading", { name: ready, exact: true }).first()).toBeVisible();
       await shot(page, `phone-${name}`);
@@ -478,6 +478,51 @@ test.describe("my account: authenticator app", () => {
     await page.getByText("I've saved these codes").click();
     await page.getByRole("button", { name: "Done" }).click();
     await expect(page.getByRole("dialog")).toBeHidden();
+  });
+});
+
+test.describe("system: server settings", () => {
+  test("closed until sudo linx setup opens it", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true });
+    await page.goto("/admin/system/server");
+    await expect(page.getByRole("button", { name: "Server settings" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByText("sudo linx setup", { exact: true })).toBeVisible();
+    await shot(page, "system-server-closed");
+  });
+
+  test("at home: size, Portainer, then the change's steps", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
+    await page.goto("/admin/system/server");
+    await expect(page.getByText("Cloudflare token added ✓")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Apply" })).toBeDisabled();
+    await page.getByRole("radio", { name: /Standard/ }).click();
+    await page.getByLabel("Portainer").click();
+    await shot(page, "system-server-settings");
+    await page.getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("dialog", { name: "Apply these changes?" })).toContainText("Calls in progress may drop.");
+    await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("list", { name: "Change steps" }).getByRole("listitem")).toHaveCount(3);
+    await expect(page.getByText("Qx7-m2Pd-9vRk")).toBeVisible();
+    await shot(page, "system-server-changing");
+  });
+
+  test("rented: no Portainer, a token to add", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
+    await page.goto("/admin/system/server");
+    await expect(page.getByText("No token: the certificate renews through port 443")).toBeVisible();
+    await expect(page.getByLabel("Portainer")).toHaveCount(0);
+    await page.getByRole("button", { name: "Add a token" }).click();
+    await page.getByLabel("New Cloudflare token").fill("short");
+    await page.getByRole("button", { name: "Apply" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("alert")).toContainText("can't see example.com at Cloudflare");
+  });
+
+  test("only a system admin sees the tab", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true });
+    await page.goto("/admin/system/status");
+    await expect(page.getByRole("button", { name: "Backups" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Server settings" })).toHaveCount(0);
   });
 });
 

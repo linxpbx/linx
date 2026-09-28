@@ -197,7 +197,8 @@ func TestSetupConfigFile(t *testing.T) {
 
 func TestSetupKeepsSavedToken(t *testing.T) {
 	// Saved answers and token; the owner accepts every default.
-	env := testEnv(strings.Repeat("\n", 11), map[string]string{installer.DNSTokenPath: "saved-token-xxxxxxxxxxxxxxxxxxx\n"})
+	// First: the terminal, not the Server settings page.
+	env := testEnv("2\n"+strings.Repeat("\n", 11), map[string]string{installer.DNSTokenPath: "saved-token-xxxxxxxxxxxxxxxxxxx\n"})
 	env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
 	env.readSecret = func() (string, error) { t.Error("asked for a token although one is saved"); return "", io.EOF }
 	var out, errOut bytes.Buffer

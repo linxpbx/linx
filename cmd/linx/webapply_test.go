@@ -242,3 +242,42 @@ func TestWebApplyToken(t *testing.T) {
 		t.Errorf("profiles %+v %q %q", opts, pick, reason)
 	}
 }
+
+func TestWebSettings(t *testing.T) {
+	ctx := context.Background()
+	r := newApplyRig(t, homeAnswers, homeLAN)
+	s := webSettings{r.w}
+	v, err := s.View(ctx)
+	if err != nil || v.Where != install.WhereHome || v.Token != "saved" || v.Profile != "lite" || v.Portainer || !v.PortainerAllowed {
+		t.Fatalf("view %+v %v", v, err)
+	}
+	titles, err := s.Steps(ctx, install.ServerChange{Profile: "standard", Portainer: true})
+	if err != nil || !slices.Equal(titles, []string{"Save your settings", "Portainer (home network only)", "Restart Linx with the new settings"}) {
+		t.Fatalf("rows %v %v", titles, err)
+	}
+	var kept []install.KeepItem
+	if err := s.Run(ctx, install.ServerChange{Profile: "standard", Portainer: true}, func(int, string, string) {}, func(k install.KeepItem) { kept = append(kept, k) }); err != nil {
+		t.Fatal(err)
+	}
+	first := planText(r.plans[0])
+	if !strings.Contains(first, "resource_profile: standard") || !strings.Contains(first, "container_ui: portainer") || len(kept) != 1 ||
+		!strings.Contains(planText(r.plans[2]), "up --detach --wait") || !strings.Contains(planText(r.plans[2]), testToken) {
+		t.Errorf("plans:\n%s\n%s, kept %v", first, planText(r.plans[2]), kept)
+	}
+
+	// Rented, set up without a token: adding one brings the DNS records.
+	r = newApplyRig(t, rentedAnswers, installer.LAN{})
+	delete(r.saved, installer.DNSTokenPath)
+	s = webSettings{r.w}
+	if v, _ := s.View(ctx); v.Token != "" || v.PortainerAllowed {
+		t.Errorf("rented view %+v", v)
+	}
+	token := strings.Repeat("y", 40)
+	titles, _ = s.Steps(ctx, install.ServerChange{Profile: "lite", Token: token})
+	if !slices.Contains(titles, "Your DNS company's token") || !strings.HasPrefix(titles[len(titles)-1], "pbx.example.com, turn.pbx.example.com at") {
+		t.Errorf("token rows %v", titles)
+	}
+	if refusal, _ := s.CheckToken(ctx, strings.Repeat("n", 40)); refusal == "" {
+		t.Error("refused token accepted")
+	}
+}

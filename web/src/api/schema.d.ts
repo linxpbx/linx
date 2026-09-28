@@ -212,6 +212,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/server-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This server's own settings
+         * @description System → Server settings (docs/INSTALL.md §7): where the server is, what's in front of it, its domain, DNS token, size and Portainer, as setup on the server tells them. They can be seen and changed only while `sudo linx setup` has the page open (four hours); `open` is false otherwise. System admins signed in with a browser only (403 `system_admin_only` for anyone else, and for API keys).
+         */
+        get: operations["getServerSettings"];
+        put?: never;
+        /**
+         * Change this server's size, Portainer or DNS token
+         * @description Setup on the server makes the change with its own plans (Linx restarts the services whose settings changed, about a minute; calls in progress may drop) and reports each step in GET's `settings`. System admins signed in with a browser, after "confirm it's you". 409 `server_settings_closed` when the page isn't open, 409 `server_settings_refused` with setup's own words, 422 with a `token` field error when the DNS company refuses the token. Audited as `system.server_settings`.
+         */
+        post: operations["changeServerSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/backup-settings": {
         parameters: {
             query?: never;
@@ -3536,6 +3560,53 @@ export interface components {
                 text: string;
             }[];
         };
+        ServerSettings: {
+            /** @description Setup on the server has the page open (`sudo linx setup`, four hours). */
+            open: boolean;
+            settings?: components["schemas"]["ServerSettingsView"];
+        };
+        ServerSettingsView: {
+            /** @enum {string} */
+            where: "home" | "rented";
+            front_door: string;
+            domain: string;
+            provider: string;
+            token_saved: boolean;
+            profile: string;
+            profiles: {
+                name: string;
+                description: string;
+            }[];
+            profile_pick?: string;
+            profile_reason?: string;
+            portainer: boolean;
+            portainer_allowed: boolean;
+            /** @description The last change: empty (none yet), running, ok or failed. */
+            apply: {
+                state: string;
+                detail?: string;
+            };
+            steps: {
+                title: string;
+                state: string;
+                detail?: string;
+            }[];
+            /** @description What to write down now (Portainer's password when it's turned on), until the page closes. */
+            keep: {
+                title: string;
+                value: string;
+                note?: string;
+            }[];
+            /** Format: date-time */
+            expires_at: string;
+        };
+        ServerSettingsChange: {
+            /** @enum {string} */
+            profile: "lite" | "standard" | "performance";
+            portainer: boolean;
+            /** @description A new DNS token (left out keeps the one there is, or none). */
+            token?: string;
+        };
         ServiceRestart: {
             service: string;
             /** @enum {string} */
@@ -3985,6 +4056,50 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ServiceRestart"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getServerSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings, or that the page isn't open. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerSettings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    changeServerSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServerSettingsChange"];
+            };
+        };
+        responses: {
+            /** @description Setup on the server is making the change. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

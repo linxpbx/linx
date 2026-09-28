@@ -290,6 +290,15 @@ func stepProblem(err error) string {
 
 func (w *webApply) SaveToken(ctx context.Context, token string) (string, error) {
 	token = strings.TrimSpace(token)
+	if refusal, err := w.tokenRefusal(ctx, token); refusal != "" || err != nil {
+		return refusal, err
+	}
+	return "", w.execute(ctx, installer.SaveDNSTokenPlan(token))
+}
+
+// tokenRefusal checks a DNS token, changing nothing: its form, then
+// whether the DNS company lets it see the domain. A refusal is plain words.
+func (w *webApply) tokenRefusal(ctx context.Context, token string) (string, error) {
 	if err := installer.ValidateDNSToken(token); err != nil {
 		return upper(err.Error()) + ".", nil
 	}
@@ -307,7 +316,7 @@ func (w *webApply) SaveToken(ctx context.Context, token string) (string, error) 
 		}
 		return upper(err.Error()) + ".", nil
 	}
-	return "", w.execute(ctx, installer.SaveDNSTokenPlan(token))
+	return "", nil
 }
 
 func (w *webApply) Profiles(context.Context) ([]install.ProfileOption, string, string) {

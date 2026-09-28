@@ -83,7 +83,7 @@ export function SystemBackupsScreen({ me }: { me: Me }) {
 
   return (
     <div className="w-full max-w-5xl px-4 py-6 md:px-6">
-      <SystemHeader current="/admin/system/backups" />
+      <SystemHeader current="/admin/system/backups" systemAdmin={me.role === "system_admin"} />
       <div className="mt-6 flex flex-col gap-4">
         <Card title="Backups" action={<BackUpNow canWrite={canWrite} settings={settings} onAsked={setSettings} />}>
           <Schedule canWrite={canWrite} settings={settings} onSaved={setSettings} />

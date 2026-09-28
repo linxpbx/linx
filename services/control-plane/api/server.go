@@ -48,9 +48,11 @@ type Server struct {
 	now       func() time.Time
 
 	// System → Status's server helper (SetOps).
-	ops        OpsSource
-	writeAudit func(context.Context, auth.AuditEntry) error
-	certExpiry func() time.Time
+	ops OpsSource
+	// System → Server settings (SetServerSettings).
+	serverSettings ServerSettingsSource
+	writeAudit     func(context.Context, auth.AuditEntry) error
+	certExpiry     func() time.Time
 }
 
 // AuditLogSource is the database access /audit-log needs.

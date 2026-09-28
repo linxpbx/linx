@@ -1,22 +1,25 @@
 // The System page's frame (docs/ui/ADMIN_SCREENS_PHASE1E.md §10): its
-// heading and tabs, and the cards each tab is made of. Status and Backups
-// are built; Alerts, Activity and Settings are greyed "Coming soon".
+// heading and tabs, and the cards each tab is made of. Status, Backups and
+// Server settings (system admins only) are built; Alerts, Activity and
+// Settings are greyed "Coming soon".
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { navigate } from "@/hooks/useRoute";
 import { cn } from "@/lib/utils";
 
+const SERVER = "/admin/system/server";
 const SYSTEM_TABS: { label: string; path?: string }[] = [
   { label: "Status", path: "/admin/system/status" }, { label: "Alerts" }, { label: "Activity" }, { label: "Settings" },
-  { label: "Backups", path: "/admin/system/backups" },
+  { label: "Backups", path: "/admin/system/backups" }, { label: "Server settings", path: SERVER },
 ];
 
-export function SystemHeader({ current }: { current: string }) {
+/** systemAdmin: Server settings is only a system admin's tab. */
+export function SystemHeader({ current, systemAdmin = false }: { current: string; systemAdmin?: boolean }) {
   return (
     <>
       <h1 className="font-display text-3xl font-semibold tracking-tight">System</h1>
       <nav aria-label="System" className="mt-4 flex flex-wrap gap-x-1 border-b">
-        {SYSTEM_TABS.map((t) => {
+        {SYSTEM_TABS.filter((t) => t.path !== SERVER || systemAdmin).map((t) => {
           const active = t.path === current;
           const tab = (
             <button key={t.label} type="button" aria-current={active ? "page" : undefined} aria-disabled={!t.path || undefined}

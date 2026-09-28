@@ -48,6 +48,9 @@ export interface FakeOptions {
   // or the phone system isn't answering.
   helperMissing?: boolean;
   phoneSystemDown?: boolean;
+  // System → Server settings (docs/INSTALL.md §7): open (sudo linx setup
+  // has it open) at home or on a rented server; closed by default.
+  serverSettings?: "home" | "rented";
 }
 
 const GOOGLE = { id: "0199c1", kind: "google", name: "Google" };
@@ -123,6 +126,17 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     : opts.download === "preparing" ? { status: "preparing", mine: true, requested_at: ago(1) }
     : opts.download === "failed" ? { status: "failed", mine: true, requested_at: ago(1), error: "backups don't go to a folder on this server, so there's nothing here to download." }
     : { status: "none", mine: false };
+  let serverSettings: { portainer: boolean; [k: string]: unknown } | undefined = opts.serverSettings && {
+    where: opts.serverSettings, front_door: opts.serverSettings === "home" ? "pangolin" : "linx-443", domain: "example.com", provider: "cloudflare",
+    token_saved: opts.serverSettings === "home", profile: "lite", profile_pick: "lite", profile_reason: "4 processor cores and 8 GB memory",
+    profiles: [
+      { name: "lite", description: "audio first, small meetings, AI off, lighter monitoring" },
+      { name: "standard", description: "all features, medium-sized meetings" },
+      { name: "performance", description: "all features, large meetings, can run AI on this server" },
+    ],
+    portainer: false, portainer_allowed: opts.serverSettings === "home", apply: { state: "" }, steps: [], keep: [],
+    expires_at: new Date(Date.now() + 4 * 3600_000).toISOString(),
+  };
   const json = (body: unknown, status = 200) => ({
     status, contentType: status >= 400 ? "application/problem+json" : "application/json", body: JSON.stringify(body),
   });
@@ -300,6 +314,24 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     }
     if (p === "/api/v1/backup-restore/file" && method === "PUT") {
       return route.fulfill(json({ upload_id: "0199b0aa-0000-7000-8000-000000000001", size: route.request().postDataBuffer()?.length ?? 0 }, 201));
+    }
+    if (p === "/api/v1/server-settings" && method === "GET") {
+      return route.fulfill(json(serverSettings ? { open: true, settings: serverSettings } : { open: false }));
+    }
+    if (p === "/api/v1/server-settings" && method === "POST" && serverSettings) {
+      const body = route.request().postDataJSON() as { profile: string; portainer: boolean; token?: string };
+      if (body.token && body.token.length < 20) {
+        return route.fulfill(json({ status: 422, code: "token_refused", detail: "That token can't see example.com at Cloudflare. It needs Zone → DNS → Edit on that zone." }, 422));
+      }
+      const steps = ["Save your settings", ...(body.token ? ["Your DNS company's token"] : []),
+        ...(body.portainer && !serverSettings.portainer ? ["Portainer (home network only)"] : []), "Restart Linx with the new settings"];
+      serverSettings = {
+        ...serverSettings, apply: { state: "running" },
+        steps: steps.map((title, i) => ({ title, state: i === 0 ? "ok" : i === 1 ? "running" : "" })),
+        keep: body.portainer && !serverSettings.portainer
+          ? [{ title: "Portainer password", value: "Qx7-m2Pd-9vRk", note: "Open https://192.168.1.212:9443 from your home network and sign in as admin." }] : [],
+      };
+      return route.fulfill({ status: 202, body: "" });
     }
     if (p === "/api/v1/backup-settings" && method === "GET") return route.fulfill(json(backupSettings));
     if (p === "/api/v1/backup-settings" && method === "PATCH") {

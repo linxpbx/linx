@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/fs"
 	"net/netip"
 	"path/filepath"
@@ -52,12 +53,38 @@ func TestWebSetupDryRun(t *testing.T) {
 }
 
 func TestWebSetupAlreadyInstalled(t *testing.T) {
-	env := webTestEnv(t, hostRunner{}, "192.168.1.20")
-	env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
-	var out, errOut bytes.Buffer
-	if code := runSetup(context.Background(), nil, &out, &errOut, env); code != 0 || !strings.Contains(out.String(), "already installed here, at https://lab.linxpbx.com") {
-		t.Errorf("exit %d:\n%s%s", code, out.String(), errOut.String())
-	}
+	start := "systemd-run --unit linx-setup.service --description Linx setup: the Server settings page --collect --property Restart=on-failure --property RestartSec=5 /usr/local/bin/linx install-service --settings"
+	t.Run("working", func(t *testing.T) {
+		env := webTestEnv(t, hostRunner{start: ""}, "192.168.1.20")
+		env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
+		env.web.secureCheck = func(context.Context, string) error { return nil }
+		var out, errOut bytes.Buffer
+		code := runSetup(context.Background(), nil, &out, &errOut, env)
+		for _, want := range []string{"Linx is installed at https://lab.linxpbx.com (working ✓)", "https://lab.linxpbx.com/admin/system/server", "Nothing was reopened"} {
+			if code != 0 || !strings.Contains(out.String(), want) {
+				t.Errorf("exit %d, missing %q:\n%s%s", code, want, out.String(), errOut.String())
+			}
+		}
+	})
+	t.Run("address not answering", func(t *testing.T) {
+		env := webTestEnv(t, hostRunner{start: ""}, "192.168.1.20")
+		env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
+		env.web.secureCheck = func(context.Context, string) error { return errors.New("x509: certificate has expired") }
+		var out, errOut bytes.Buffer
+		code := runSetup(context.Background(), nil, &out, &errOut, env)
+		if code != 0 || !strings.Contains(out.String(), "didn't answer from this server:\n  x509: certificate has expired") ||
+			!strings.Contains(out.String(), "choose\nthe terminal") {
+			t.Errorf("exit %d:\n%s%s", code, out.String(), errOut.String())
+		}
+	})
+	t.Run("no new link", func(t *testing.T) {
+		env := webTestEnv(t, hostRunner{}, "192.168.1.20")
+		env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
+		var out, errOut bytes.Buffer
+		if code := runSetup(context.Background(), []string{"--new-link"}, &out, &errOut, env); code != 2 {
+			t.Errorf("exit %d", code)
+		}
+	})
 }
 
 func TestWebSetupStops(t *testing.T) {

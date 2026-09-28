@@ -65,7 +65,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runRestore(context.Background(), args[1:], stdout, stderr, realRestoreEnv())
 	case "install-service":
 		// Not in the usage: linx setup runs it as the linx-setup service.
-		return runInstallService(context.Background(), stderr, realSetupEnv())
+		return runInstallService(context.Background(), args[1:], stderr, realSetupEnv())
 	default:
 		fmt.Fprintf(stderr, "linx: unknown command %q\n\n%s", args[0], usage)
 		return 2

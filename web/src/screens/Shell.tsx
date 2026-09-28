@@ -22,7 +22,7 @@ import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
 export type Screen = "dialer" | "team" | "settings" | "account" | "admin-home" | "admin-people" | "admin-extensions"
-  | "admin-system-status" | "admin-system-backups";
+  | "admin-system-status" | "admin-system-backups" | "admin-system-server";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
@@ -53,6 +53,7 @@ const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
 const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
   "/admin": "admin-home", "/admin/people": "admin-people", "/admin/extensions": "admin-extensions",
   "/admin/system/status": "admin-system-status", "/admin/system/backups": "admin-system-backups",
+  "/admin/system/server": "admin-system-server",
 };
 
 const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users }[] = [
@@ -231,7 +232,7 @@ function AdminNav({ me, systemStatus, simpleMode, onSimpleModeChange, screen }: 
       {ADMIN_NAV.map((n) => (
         <NavItem key={n.label} label={n.label} icon={n.icon} disabled={!n.path}
           active={!!n.path && (screen === ADMIN_SCREEN_FOR_PATH[n.path]
-            || (n.label === "System" && screen === "admin-system-backups"))}
+            || (n.label === "System" && (screen === "admin-system-backups" || screen === "admin-system-server")))}
           onClick={n.path ? () => navigate(n.path!) : undefined}
           badge={n.label === "Home" ? openAlerts : undefined}
           dot={n.label === "Phone lines" ? linesDown : undefined} />

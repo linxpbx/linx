@@ -327,6 +327,56 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/server-settings:
+    get:
+      operationId: getServerSettings
+      summary: This server's own settings
+      description: >-
+        System → Server settings (docs/INSTALL.md §7): where the server is,
+        what's in front of it, its domain, DNS token, size and Portainer, as
+        setup on the server tells them. They can be seen and changed only
+        while `sudo linx setup` has the page open (four hours); `open` is
+        false otherwise. System admins signed in with a browser only (403
+        `system_admin_only` for anyone else, and for API keys).
+      tags: [settings]
+      security:
+        - bearer: [system:read]
+      responses:
+        "200":
+          description: The settings, or that the page isn't open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerSettings"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: changeServerSettings
+      summary: Change this server's size, Portainer or DNS token
+      description: >-
+        Setup on the server makes the change with its own plans (Linx
+        restarts the services whose settings changed, about a minute; calls
+        in progress may drop) and reports each step in GET's `settings`.
+        System admins signed in with a browser, after "confirm it's you".
+        409 `server_settings_closed` when the page isn't open, 409
+        `server_settings_refused` with setup's own words, 422 with a
+        `token` field error when the DNS company refuses the token. Audited
+        as `system.server_settings`.
+      tags: [settings]
+      security:
+        - bearer: [system:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServerSettingsChange"
+      responses:
+        "202":
+          description: Setup on the server is making the change.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/backup-settings:
     get:
       operationId: getBackupSettings
@@ -5944,6 +5994,104 @@ components:
                 format: date-time
               text:
                 type: string
+
+    ServerSettings:
+      type: object
+      required: [open]
+      properties:
+        open:
+          type: boolean
+          description: Setup on the server has the page open (`sudo linx setup`, four hours).
+        settings:
+          $ref: "#/components/schemas/ServerSettingsView"
+
+    ServerSettingsView:
+      type: object
+      required: [where, front_door, domain, provider, token_saved, profile, profiles, portainer, portainer_allowed, apply, steps, keep, expires_at]
+      properties:
+        where:
+          type: string
+          enum: [home, rented]
+        front_door:
+          type: string
+        domain:
+          type: string
+        provider:
+          type: string
+        token_saved:
+          type: boolean
+        profile:
+          type: string
+        profiles:
+          type: array
+          items:
+            type: object
+            required: [name, description]
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+        profile_pick:
+          type: string
+        profile_reason:
+          type: string
+        portainer:
+          type: boolean
+        portainer_allowed:
+          type: boolean
+        apply:
+          type: object
+          description: "The last change: empty (none yet), running, ok or failed."
+          required: [state]
+          properties:
+            state:
+              type: string
+            detail:
+              type: string
+        steps:
+          type: array
+          items:
+            type: object
+            required: [title, state]
+            properties:
+              title:
+                type: string
+              state:
+                type: string
+              detail:
+                type: string
+        keep:
+          type: array
+          description: What to write down now (Portainer's password when it's turned on), until the page closes.
+          items:
+            type: object
+            required: [title, value]
+            properties:
+              title:
+                type: string
+              value:
+                type: string
+              note:
+                type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    ServerSettingsChange:
+      type: object
+      required: [profile, portainer]
+      additionalProperties: false
+      properties:
+        profile:
+          type: string
+          enum: [lite, standard, performance]
+        portainer:
+          type: boolean
+        token:
+          type: string
+          maxLength: 1000
+          description: A new DNS token (left out keeps the one there is, or none).
 
     ServiceRestart:
       type: object
