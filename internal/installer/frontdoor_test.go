@@ -113,10 +113,18 @@ func TestFrontDoorFiles(t *testing.T) {
 		`- address: "192.168.1.20:5349"`,
 		"serversTransport: linx-proxy-protocol",
 		"version: 2",
+		"linx-lab-example-com-web:",
+		"service: linx-lab-example-com-turn",
 	} {
 		if !strings.Contains(tr, want) {
 			t.Errorf("Traefik file missing %q:\n%s", want, tr)
 		}
+	}
+	// A second Linx behind the same Pangolin gets its own names (found in
+	// the install demo: both used linx-web, so one replaced the other).
+	if other := string(PangolinTraefik("home.example.com", linx)); strings.Contains(other, "linx-lab-example-com") ||
+		strings.Contains(tr, "linx-web:") {
+		t.Errorf("names shared between two Linx servers:\n%s", other)
 	}
 	if strings.Contains(tr, "insecureSkipVerify") {
 		t.Error("the Traefik file must never turn certificate checks off")
