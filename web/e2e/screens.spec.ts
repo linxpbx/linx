@@ -2,7 +2,7 @@
 // (e2e/fakes.ts), for comparison with docs/ui (the front-end rule in
 // CLAUDE.md). `npm run screens` writes them to e2e/screenshots/.
 import { expect, test, type Page } from "@playwright/test";
-import { fakeServer } from "./fakes";
+import { fakeInstall, fakeServer } from "./fakes";
 
 // The account row says "Available" once the phone line has signed in.
 const lineReady = (page: Page) => expect(page.getByTestId("account-menu")).toContainText("Available");
@@ -508,3 +508,92 @@ test.describe("system status", () => {
     await shot(page, "system-status-no-helper");
   });
 });
+
+// The web install's plain page (docs/ui/INSTALL_SCREENS.md §2 and §7), in
+// both colour schemes and at phone width.
+for (const [label, opts] of [["light", { colorScheme: "light" }], ["dark", { colorScheme: "dark" }],
+  ["phone", { colorScheme: "light", viewport: { width: 390, height: 844 } }]] as const) {
+  test.describe(`install ${label}`, () => {
+    test.use(opts);
+
+    test("rented server, start to finish", async ({ page }) => {
+      await fakeInstall(page, "rented");
+      await page.goto("/install");
+      await expect(page.getByRole("heading", { name: "Let's set up Linx" })).toBeVisible();
+      await expect(page.getByText("This page isn't encrypted yet. Nothing secret is asked here.")).toBeVisible();
+      await shot(page, `install-claim-${label}`);
+      await page.getByRole("button", { name: "Start" }).click();
+
+      await expect(page.getByRole("heading", { name: "Where is this server?" })).toBeVisible();
+      await expect(page.getByRole("radio", { name: /Rented server/ })).toBeChecked();
+      await shot(page, `install-where-${label}`);
+      await page.getByRole("button", { name: "Next" }).click();
+
+      await expect(page.getByRole("heading", { name: "How do people reach this server from the internet?" })).toBeVisible();
+      await page.getByRole("radio", { name: /Directly/ }).click();
+      await page.getByRole("button", { name: "Something else already uses port 443 here" }).click();
+      await expect(page.getByRole("radio", { name: /Caddy/ })).toBeDisabled();
+      await shot(page, `install-front-door-rented-${label}`);
+      await page.getByRole("button", { name: "Next" }).click();
+
+      await expect(page.getByRole("heading", { name: "What's your domain?" })).toBeVisible();
+      await page.getByLabel("Domain").fill("203.0.113.5");
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByRole("alert")).toHaveText("That's an address, not a domain. It should look like example.com.");
+      await page.getByLabel("Domain").fill("co.uk");
+      await shot(page, `install-domain-${label}`);
+      await page.getByRole("button", { name: "Next" }).click();
+
+      await expect(page.getByRole("heading", { name: "Who's setting this up?" })).toBeVisible();
+      await page.getByLabel("Your name").fill("Mohammed AlMudharreb");
+      await page.getByLabel("Your email").fill("mohammed@example.com");
+      await page.getByRole("button", { name: "Check and get a certificate" }).click();
+      await expect(page.getByRole("alert")).toContainText("Tick the box to agree");
+      await page.getByRole("checkbox").click();
+      await shot(page, `install-you-${label}`);
+      await page.getByRole("button", { name: "Check and get a certificate" }).click();
+
+      // The host refuses co.uk: back to the domain step, with its words.
+      await expect(page.getByRole("heading", { name: "What's your domain?" })).toBeVisible();
+      await expect(page.getByRole("alert")).toHaveText("co.uk is shared by everyone. Use your own domain.");
+      await page.getByLabel("Domain").fill("example.com");
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Check and get a certificate" }).click();
+      await expect(page.getByRole("heading", { name: "Your answers are saved" })).toBeVisible();
+      await expect(page.getByText("203.0.113.5")).toBeVisible();
+      await shot(page, `install-checked-${label}`);
+    });
+
+    test("at home, behind Pangolin", async ({ page }) => {
+      await fakeInstall(page, "home");
+      await page.goto("/install");
+      await page.getByRole("button", { name: "Start" }).click();
+      await expect(page.getByRole("radio", { name: /At home or at the office/ })).toBeChecked();
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByRole("heading", { name: "What's in front of Linx on the internet?" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
+      await page.getByRole("radio", { name: /Pangolin/ }).click();
+      await page.getByLabel("Address of the machine Pangolin runs on").fill("8.8.8.8");
+      await page.getByRole("button", { name: /Call audio port: 443/ }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByRole("alert")).toHaveText("8.8.8.8 isn't a home-network address.");
+      await page.getByLabel("Address of the machine Pangolin runs on").fill("192.168.1.20");
+      await shot(page, `install-front-door-home-${label}`);
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByLabel("Domain").fill("pbx.example.com");
+      await expect(page.getByText("sip.pbx.example.com")).toBeVisible();
+      // A reload comes back to the same step (the draft kept on the server).
+      await page.waitForTimeout(600);
+      await page.reload();
+      await expect(page.getByRole("heading", { name: "What's your domain?" })).toBeVisible();
+      await expect(page.getByLabel("Domain")).toHaveValue("pbx.example.com");
+    });
+
+    test("link can't be used", async ({ page }) => {
+      await fakeInstall(page, "rented", { closed: true });
+      await page.goto("/install");
+      await expect(page.getByRole("heading", { name: "This link can't be used" })).toBeVisible();
+      await shot(page, `install-link-unusable-${label}`);
+    });
+  });
+}

@@ -1,4 +1,4 @@
-// Package compose embeds the base Compose stack so linx setup can install it.
+// Package compose embeds the Compose stacks so linx setup can install them.
 package compose
 
 import _ "embed"
@@ -7,3 +7,8 @@ import _ "embed"
 //
 //go:embed compose.yaml
 var File []byte
+
+// InstallFile is install.yaml, the web install's first stack.
+//
+//go:embed install.yaml
+var InstallFile []byte

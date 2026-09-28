@@ -538,3 +538,32 @@ export class FakeSIP {
 }
 
 export type { Json };
+
+// The web install's plain page (docs/ui/INSTALL_SCREENS.md §2): its own
+// small API on port 6464, answered here. "rented" or "home" is what setup
+// detected; the check refuses co.uk like the host does.
+export async function fakeInstall(page: Page, where: "rented" | "home", opts: { closed?: boolean } = {}) {
+  const facts = where === "home"
+    ? { where, public_address: "5.36.12.4", lan_address: "192.168.1.212", lan_network: "192.168.1.0/24", hardware: "4 processor cores, 8 GB memory, 62 GB free" }
+    : { where, public_address: "203.0.113.5", hardware: "4 processor cores, 8 GB memory, 62 GB free" };
+  let draft: unknown;
+  await page.route("**/install/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (opts.closed) return route.fulfill({ status: 404, body: "" });
+    if (url.pathname === "/install/api/state") {
+      return route.fulfill({ json: { facts, draft, expires_at: new Date(Date.now() + 3_600_000).toISOString(), connected: true } });
+    }
+    if (url.pathname === "/install/api/draft") {
+      draft = route.request().postDataJSON();
+      return route.fulfill({ status: 204 });
+    }
+    if (url.pathname === "/install/api/check") {
+      const a = route.request().postDataJSON() as { domain: string };
+      if (a.domain === "co.uk") {
+        return route.fulfill({ status: 422, json: { errors: [{ step: "domain", field: "domain", message: "co.uk is shared by everyone. Use your own domain." }] } });
+      }
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ status: 404, body: "" });
+  });
+}

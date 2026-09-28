@@ -96,19 +96,29 @@ func existingOrNewPassword(path string) string {
 // isn't private (e.g. a cloud server with a public IP), it returns 127.0.0.1 so
 // management UIs never face the internet.
 func LANAddress() netip.Addr {
-	loopback := netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	a, ok := DefaultRouteAddress()
+	if !ok {
+		return netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	}
+	return lanOrLoopback(a)
+}
+
+// DefaultRouteAddress is the source address of the default route: the
+// address this server is reached at, on its own network (public on a
+// server that has one, private at home or behind a provider's NAT).
+func DefaultRouteAddress() (netip.Addr, bool) {
 	// UDP "dial" sends no packets; it only asks the kernel which source
 	// address it would use.
 	c, err := net.Dial("udp4", "192.0.2.1:9") // TEST-NET-1, never routed
 	if err != nil {
-		return loopback
+		return netip.Addr{}, false
 	}
 	defer c.Close()
 	ap, err := netip.ParseAddrPort(c.LocalAddr().String())
-	if err != nil {
-		return loopback
+	if err != nil || ap.Addr().Unmap().IsLoopback() || ap.Addr().Unmap().IsUnspecified() {
+		return netip.Addr{}, false
 	}
-	return lanOrLoopback(ap.Addr())
+	return ap.Addr().Unmap(), true
 }
 
 func lanOrLoopback(a netip.Addr) netip.Addr {

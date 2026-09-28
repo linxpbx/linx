@@ -90,7 +90,19 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "ops-bridge" {
 		os.Exit(runOpsBridge(opsSocket(os.Getenv), os.Stdin, os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "install-server" {
+		os.Exit(runInstallServer(os.Getenv))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "install-bridge" {
+		// linx setup's side of the web install (docs/INSTALL.md §3): the
+		// same joining of docker exec's input and output to a socket as
+		// ops-bridge, to install mode's socket.
+		os.Exit(runOpsBridge(installSocket(os.Getenv), os.Stdin, os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		if len(os.Args) > 2 && os.Args[2] == "--install" {
+			os.Exit(runInstallHealthcheck(os.Getenv, nil))
+		}
 		os.Exit(runHealthcheck(os.Getenv, nil))
 	}
 

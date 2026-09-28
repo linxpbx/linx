@@ -32,6 +32,8 @@ type Config struct {
 	Domain          DomainConfig      `yaml:"domain"`
 	Certificates    CertificateConfig `yaml:"certificates"`
 	FrontDoor       FrontDoorConfig   `yaml:"front_door"`
+	// Install is set by the web-first install (docs/INSTALL.md).
+	Install InstallConfig `yaml:"install,omitempty"`
 }
 
 // DomainConfig is the base domain and where its DNS is managed. The DNS
@@ -124,6 +126,9 @@ func (c Config) Validate() error {
 	if err := c.FrontDoor.Validate(); err != nil {
 		errs = append(errs, fmt.Errorf("front_door.%w", err))
 	}
+	if err := c.Install.validate(); err != nil {
+		errs = append(errs, fmt.Errorf("install.%w", err))
+	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("setup.yaml: %w", err)
 	}
@@ -192,5 +197,19 @@ front_door:
 `, c.Version, c.Docker.Install, c.ContainerUI, c.ResourceProfile,
 		c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Staging, c.Certificates.Wildcard, c.Certificates.Email,
 		c.FrontDoor.Kind, c.FrontDoor.ProxyAddress)
+	if c.FrontDoor.TURNUDPPort != 0 {
+		fmt.Fprintf(&b, `  # The UDP port the router forwards to Linx for call audio (443 if not set).
+  turn_udp_port: %d
+`, c.FrontDoor.TURNUDPPort)
+	}
+	if c.Install != (InstallConfig{}) {
+		fmt.Fprintf(&b, `# The web install (docs/INSTALL.md): where this server is (home or rented),
+# when Let's Encrypt's Subscriber Agreement was accepted, and when it finished.
+install:
+  where: %s
+  terms_agreed_at: %q
+  finished_at: %q
+`, c.Install.Where, c.Install.TermsAgreedAt, c.Install.FinishedAt)
+	}
 	return b.Bytes()
 }

@@ -20,6 +20,25 @@ const defaultHealthAddr = "127.0.0.1:8080"
 // (so a renewal it missed shows up in docker ps and linx doctor). It
 // returns the process exit code: 0 healthy, 1 not.
 func runHealthcheck(getenv func(string) string, client *http.Client) int {
+	if runInstallHealthcheck(getenv, client) != 0 {
+		return 1
+	}
+	host, port, err := net.SplitHostPort(envOr(getenv, "LINX_LISTEN_ADDR", ":8443"))
+	if err != nil {
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	name := "meet." + strings.TrimSpace(getenv("LINX_DOMAIN"))
+	if certs.ServesCurrent(ctx, net.JoinHostPort(loopback(host), port), name, envOr(getenv, "LINX_CERTS_DIR", defaultCertsDir)) != nil {
+		return 1
+	}
+	return 0
+}
+
+// runInstallHealthcheck is install mode's health check (install.yaml), and
+// the first half of the full one: /healthz answers.
+func runInstallHealthcheck(getenv func(string) string, client *http.Client) int {
 	host, port, err := net.SplitHostPort(envOr(getenv, "LINX_HEALTH_ADDR", defaultHealthAddr))
 	if err != nil {
 		return 1
@@ -33,17 +52,6 @@ func runHealthcheck(getenv func(string) string, client *http.Client) int {
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 1
-	}
-
-	host, port, err = net.SplitHostPort(envOr(getenv, "LINX_LISTEN_ADDR", ":8443"))
-	if err != nil {
-		return 1
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	name := "meet." + strings.TrimSpace(getenv("LINX_DOMAIN"))
-	if certs.ServesCurrent(ctx, net.JoinHostPort(loopback(host), port), name, envOr(getenv, "LINX_CERTS_DIR", defaultCertsDir)) != nil {
 		return 1
 	}
 	return 0

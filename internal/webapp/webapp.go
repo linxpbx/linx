@@ -28,10 +28,18 @@ const PermissionsPolicy = "microphone=(self), speaker-selection=(self), camera=(
 	"payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=(), display-capture=()"
 
 // Headers adds the security headers to every response.
-func Headers(next http.Handler) http.Handler {
+func Headers(next http.Handler) http.Handler { return headers(next, true) }
+
+// PlainHeaders is Headers for the install's plain-HTTP page (ADR-057):
+// the same policies, without HSTS, which means nothing over HTTP.
+func PlainHeaders(next http.Handler) http.Handler { return headers(next, false) }
+
+func headers(next http.Handler, hsts bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Strict-Transport-Security", "max-age=63072000")
+		if hsts {
+			h.Set("Strict-Transport-Security", "max-age=63072000")
+		}
 		h.Set("Content-Security-Policy", ContentSecurityPolicy)
 		h.Set("Permissions-Policy", PermissionsPolicy)
 		h.Set("X-Content-Type-Options", "nosniff")

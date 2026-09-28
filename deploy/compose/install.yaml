@@ -1,0 +1,41 @@
+# The web install's first stack (docs/INSTALL.md §3, ADR-057). linx setup
+# installs it as /etc/linx/install.yaml and starts it before anything else
+# is set up: the control plane in install mode, answering on plain HTTP
+# port 6464 with the one-time setup link's pages and nothing else. It holds
+# no secrets and needs no database. linx setup, on the host, talks to it
+# through docker exec (service install-bridge) and decides everything.
+name: linx
+
+services:
+  control-plane:
+    image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-control-plane:${LINX_VERSION:?set by linx setup}
+    # The same name as the full stack's, so docker exec reaches it the same
+    # way, and the full stack's control plane replaces it.
+    container_name: linx-control-plane
+    command: [install-server]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # The bridge's socket: in memory, only this image's user can open it.
+    tmpfs:
+      - /run/linx:uid=65532,gid=65532,mode=0700
+    # The address the server is reached at on its own network (public on a
+    # rented server, the home network's at home).
+    ports:
+      - ${LINX_INSTALL_ADDRESS:?set by linx setup}:6464:6464/tcp
+    healthcheck:
+      test: [CMD, /usr/local/bin/service, healthcheck, --install]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks: [linx-install]
+    mem_limit: 128m
+    pids_limit: 64
+
+networks:
+  # Only for publishing port 6464 (Docker publishes no port from an
+  # internal network); the installer connects to nothing.
+  linx-install:
+    name: linx-install

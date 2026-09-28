@@ -30,7 +30,14 @@ func RunCommand(ctx context.Context, name string, args ...string) ([]byte, []byt
 // the link. Its errors (the control plane not running yet, say) go to this
 // process's standard error.
 func DialControlPlane(ctx context.Context) (io.ReadWriteCloser, error) {
-	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", ControlPlaneContainer, ControlPlaneBinary, "ops-bridge")
+	return DialBridge(ctx, "ops-bridge")
+}
+
+// DialBridge starts one of the control plane's bridge subcommands
+// (ops-bridge, install-bridge) through docker exec -i, whose input and
+// output are the link.
+func DialBridge(ctx context.Context, subcommand string) (io.ReadWriteCloser, error) {
+	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", ControlPlaneContainer, ControlPlaneBinary, subcommand)
 	cmd.Stderr = os.Stderr
 	in, err := cmd.StdinPipe()
 	if err != nil {

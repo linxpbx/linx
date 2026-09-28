@@ -1,7 +1,6 @@
 package certs
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"linxpbx.com/linx/internal/publicip"
 )
 
 // Public DNS records for the front door (docs/WEB.md §3): meet., api. and
@@ -57,31 +58,10 @@ type RecordResult struct {
 
 // PublicIPv4 is the address this machine reaches the internet from.
 func (c *RecordsClient) PublicIPv4(ctx context.Context) (netip.Addr, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.TraceURL, nil)
-	if err != nil {
-		return netip.Addr{}, err
-	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return netip.Addr{}, fmt.Errorf("finding this network's public address: %w", err)
-	}
-	defer resp.Body.Close()
-	sc := bufio.NewScanner(io.LimitReader(resp.Body, 8<<10))
-	for sc.Scan() {
-		if v, ok := strings.CutPrefix(sc.Text(), "ip="); ok {
-			a, err := netip.ParseAddr(strings.TrimSpace(v))
-			if err != nil || !a.Is4() || !isPublic(a) {
-				return netip.Addr{}, fmt.Errorf("finding this network's public address: got %q", v)
-			}
-			return a, nil
-		}
-	}
-	return netip.Addr{}, errors.New("finding this network's public address: no answer")
+	return publicip.Lookup(ctx, c.HTTP, c.TraceURL)
 }
 
-func isPublic(a netip.Addr) bool {
-	return a.IsGlobalUnicast() && !a.IsPrivate() && !a.IsLoopback()
-}
+func isPublic(a netip.Addr) bool { return publicip.IsPublic(a) }
 
 // PointRecords points each of hosts (e.g. "meet") under cfg.Domain at ip:
 // an A record on Cloudflare (created, or changed if it points elsewhere;
