@@ -210,13 +210,16 @@ func (w *webApply) firstAdmin(ctx context.Context, a install.Answers, token stri
 	}
 	out, code, err := w.exec(ctx, []byte(token+"\n"), "docker", "exec", "-i", controlPlaneContainer, controlPlaneBinary,
 		"user", "create", "--first-admin", "--setup-token-stdin", "--role", "system_admin", "--email", a.Email, "--name", name)
-	switch {
-	case err == nil:
-		return nil
-	case code == exitFirstAdminExists:
-		return nil
+	if err != nil && code != exitFirstAdminExists {
+		return errors.New(lastLines(string(out), err))
 	}
-	return errors.New(lastLines(string(out), err))
+	// The setup wizard's Place step starts from "at home" (a rented server
+	// gets no pre-pick: home or business is the owner's call). Only a hint:
+	// if it doesn't take, the wizard just asks.
+	if a.Where == install.WhereHome {
+		_, _, _ = w.exec(ctx, nil, "docker", "exec", controlPlaneContainer, controlPlaneBinary, "suggest-site", "home")
+	}
+	return nil
 }
 
 func (w *webApply) Steps(ctx context.Context, in install.ApplyInput) ([]string, error) {

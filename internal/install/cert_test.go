@@ -364,3 +364,36 @@ func TestChallengeTLS(t *testing.T) {
 		t.Error("the challenge-only port answered a non-challenge")
 	}
 }
+
+// The owner's other way on the port 443 page (docs/INSTALL.md §14 item 1):
+// the token instead of the records by hand.
+func TestTokenFirstOnThePort443Page(t *testing.T) {
+	fake := &fakeCert{mode: CertPort443, dns: []string{"198.51.100.7"}} // records not added yet
+	r, cookie := certRig(t, fake)
+	waitFor(t, func() bool { return r.cert().DNS.State == DNSWrong })
+	token := strings.Repeat("t", 40)
+	if rec := r.do("POST", "/install/api/token", cookie, `{"token":"`+token+`"}`, jsonFromPage...); rec.Code != http.StatusNoContent {
+		t.Fatalf("token: %d %s", rec.Code, rec.Body.String())
+	}
+	waitFor(t, func() bool { c := r.cert(); return c.Ready() })
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	c := r.cert()
+	if c.Mode != CertToken || len(c.AddRecords) != 0 || c.Records.State != StageOK || fake.records != 1 || fake.tokenCerts != 1 || fake.staging != 0 {
+		t.Errorf("after the token: %+v, fake %+v", c, fake)
+	}
+}
+
+// Not while Let's Encrypt is being asked.
+func TestTokenRefusedWhileChecking(t *testing.T) {
+	fake := &fakeCert{mode: CertPort443, dns: []string{"203.0.113.5"}}
+	r, cookie := certRig(t, fake)
+	waitFor(t, func() bool { c := r.cert(); return c.Ready() })
+	if rec := r.do("POST", "/install/api/token", cookie, `{"token":"`+strings.Repeat("t", 40)+`"}`, jsonFromPage...); rec.Code != http.StatusConflict {
+		t.Errorf("token once the certificate is ready: %d", rec.Code)
+	}
+	r.host.updateCert(func(c *CertView) { c.Certificate = Stage{}; c.Reach = Stage{State: StageRunning} })
+	if rec := r.do("POST", "/install/api/token", cookie, `{"token":"`+strings.Repeat("t", 40)+`"}`, jsonFromPage...); rec.Code != http.StatusConflict {
+		t.Errorf("token during the check: %d", rec.Code)
+	}
+}

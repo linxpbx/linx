@@ -72,6 +72,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "user" {
 		os.Exit(runUserCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "suggest-site" {
+		os.Exit(runSuggestSiteCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "admin-access" {
 		os.Exit(runAdminAccessCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
 	}

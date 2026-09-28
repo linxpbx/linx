@@ -222,6 +222,29 @@ func InstallStackPlan(imageTag string, address netip.Addr) Plan {
 	}
 }
 
+// FirstPageTLSPlan keeps the first page's certificate (docs/INSTALL.md §14
+// item 1) in install.FirstPageTLSDir: the one already there while it still
+// does for addrs, so the browser's exception keeps working, else a new one.
+func FirstPageTLSPlan(addrs []netip.Addr, readFile func(string) ([]byte, error), now time.Time) (Plan, error) {
+	certPath := install.FirstPageTLSDir + "/" + install.FirstPageCertFile
+	keyPath := install.FirstPageTLSDir + "/" + install.FirstPageKeyFile
+	c, cerr := readFile(certPath)
+	k, kerr := readFile(keyPath)
+	if cerr == nil && kerr == nil && install.FirstPageCertUsable(c, k, addrs, now) {
+		return nil, nil
+	}
+	certPEM, keyPEM, err := install.NewFirstPageCert(addrs, now)
+	if err != nil {
+		return nil, err
+	}
+	key := fileStep("Save the installer's temporary certificate key (readable by root and the Linx services only)", keyPath, keyPEM, 0o440, 0o755)
+	key.File.Gid = nonrootGID
+	return Plan{
+		key,
+		fileStep("Save the installer's temporary certificate", certPath, certPEM, 0o644, 0o755),
+	}, nil
+}
+
 // InstallStackDown stops the install's first stack.
 func InstallStackDown(ctx context.Context, r Runner) error {
 	out, err := r.Run(ctx, nil, "docker", append(installCompose(), "down")...)

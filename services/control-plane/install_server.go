@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -22,8 +24,9 @@ import (
 // runInstallServer is `install-server`, the control plane in install mode
 // (docs/INSTALL.md §3, ADR-057): deploy/compose/install.yaml runs it before
 // anything else on the server is set up, so it needs no database, domain,
-// certificate or secret. It serves the one-time setup link's pages on plain
-// HTTP port 6464, and listens for linx setup's bridge on its own socket
+// certificate or secret. It serves the one-time setup link's pages on port
+// 6464, over HTTPS with the temporary self-signed certificate linx setup
+// made for this server's addresses (docs/INSTALL.md §14 item 1), and listens for linx setup's bridge on its own socket
 // (install-bridge); linx setup, on the host, decides everything. Once the
 // answers are saved it's also what the front door sends port 443 to: 8443
 // answers Let's Encrypt's acme-tls/1 check with certd's challenge
@@ -65,10 +68,18 @@ func runInstallServer(getenv func(string) string) int {
 	}
 	go install.ServeChallenges(ctx, turnLn, install.ChallengeTLSConfig(challenges))
 
+	tlsDir := envOr(getenv, "LINX_INSTALL_TLS_DIR", install.FirstPageTLSMount)
+	first, err := tls.LoadX509KeyPair(filepath.Join(tlsDir, install.FirstPageCertFile), filepath.Join(tlsDir, install.FirstPageKeyFile))
+	if err != nil {
+		log.Error("the installer's certificate (linx setup makes it)", "err", err)
+		return 1
+	}
+
 	health := http.NewServeMux()
 	health.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	servers := []*http.Server{
 		{Addr: envOr(getenv, "LINX_INSTALL_ADDR", ":6464"), Handler: srv.Handler(),
+			TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{first}},
 			ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second,
 			IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 16 << 10},
 		{Addr: envOr(getenv, "LINX_HEALTH_ADDR", defaultHealthAddr), Handler: health, ReadHeaderTimeout: 5 * time.Second},
@@ -84,7 +95,10 @@ func runInstallServer(getenv func(string) string) int {
 			return 1
 		}
 		if s.TLSConfig != nil {
-			l = proxyListener(ips, useProxyProtocol)(l)
+			if s != servers[0] {
+				// 8443: what the front door sends, with the visitor's address.
+				l = proxyListener(ips, useProxyProtocol)(l)
+			}
 			go func() { errc <- s.ServeTLS(l, "", "") }()
 			continue
 		}

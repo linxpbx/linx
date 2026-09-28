@@ -25,9 +25,9 @@ import (
 	"linxpbx.com/linx/internal/webapp"
 )
 
-// CookieName is the claimed browser's session cookie. Plain HTTP, so it
-// can't be __Host- or Secure; HttpOnly and SameSite=Strict, bound to the
-// address the link was opened at.
+// CookieName is the claimed browser's session cookie: HttpOnly,
+// SameSite=Strict and Secure (port 6464 is HTTPS, docs/INSTALL.md §14
+// item 1), bound to the address the link was opened at.
 const CookieName = "linx_install"
 
 // SecureCookieName is the session's cookie on https://<domain>, once
@@ -394,7 +394,7 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request, secret string) {
 	expires := s.view.ExpiresAt
 	s.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{
-		Name: CookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		Name: CookieName, Value: token, Path: "/", Secure: r.TLS != nil, HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		Expires: expires, MaxAge: int(time.Until(expires).Seconds()),
 	})
 	w.Header().Set("Cache-Control", "no-store")

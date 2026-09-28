@@ -600,7 +600,8 @@ export async function fakeInstall(page: Page, where: "rented" | "home", opts: {
     if (url.pathname === "/install/api/token") {
       const { token } = route.request().postDataJSON() as { token: string };
       if (token.length < 20) return route.fulfill({ status: 422, json: { errors: [{ step: "token", field: "token", message: "That doesn't look like a DNS provider token (5 characters)." }] } });
-      cert = { ...cert, token_saved: true, records: { state: "running" } };
+      // On the port 443 page too: the page moves to token mode.
+      cert = { ...cert, mode: "token", add_records: undefined, token_saved: true, records: { state: "running" } };
       return route.fulfill({ status: 204 });
     }
     return route.fulfill({ status: 404, body: "" });

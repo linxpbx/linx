@@ -445,13 +445,17 @@ func (h *Host) retry() error {
 	return nil
 }
 
-// token keeps the DNS company's token (CertToken only).
+// token keeps the DNS company's token. On the port 443 page it's the
+// owner's other way (docs/INSTALL.md §14 item 1): the page moves to token
+// mode, where Linx adds every record itself and gets the full certificate
+// at once, unless Let's Encrypt is being asked right now.
 func (h *Host) token(ctx context.Context, token string) ([]FieldError, error) {
 	c := h.cert()
 	h.mu.Lock()
 	ok := h.plainOpenLocked()
 	h.mu.Unlock()
-	if !ok || c == nil || c.Mode != CertToken || c.Ready() {
+	busy := c != nil && (c.Reach.State == StageRunning || c.Certificate.State == StageRunning || c.Records.State == StageRunning)
+	if !ok || c == nil || c.Ready() || busy {
 		return nil, errNotYet
 	}
 	refusal, err := h.Cert.SaveToken(ctx, *c, token)
@@ -462,6 +466,10 @@ func (h *Host) token(ctx context.Context, token string) ([]FieldError, error) {
 		return []FieldError{{Step: StepToken, Field: "token", Message: refusal}}, nil
 	}
 	h.updateCert(func(c *CertView) {
+		if c.Mode != CertToken {
+			// No records by hand and no check on port 443 any more.
+			c.Mode, c.AddRecords, c.DNS, c.Reach = CertToken, nil, DNSCheck{}, Stage{}
+		}
 		c.TokenSaved = true
 		// A new token tries again whatever failed with the old one.
 		for _, s := range []*Stage{&c.Records, &c.Certificate} {

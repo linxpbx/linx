@@ -2,7 +2,7 @@
 // in the middle, the whole install's progress line above it, the plain
 // page's strip, and the pieces every install step uses.
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Check, ChevronDown, CircleAlert, CircleX, Clock, Copy, LoaderCircle, LockOpen, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, CircleX, Clock, Copy, LoaderCircle, ShieldAlert, TriangleAlert } from "lucide-react";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { RadioGroupItem } from "@/components/ui/radio-group";
@@ -65,7 +65,8 @@ export function Countdown({ left, secure = false }: { left: number; secure?: boo
 /**
  * The card. at: where the progress line is (none on the welcome and
  * "can't be used" pages); back: the finished steps that can still be
- * clicked. strip: the plain page's "not encrypted" line.
+ * clicked. strip: the first page's "temporary certificate" line (port
+ * 6464, docs/INSTALL.md §14 item 1).
  */
 export function Frame({ at, back, strip = true, footer, children }: {
   at?: number; back?: (i: number) => void; strip?: boolean; footer?: ReactNode; children: ReactNode;
@@ -80,8 +81,8 @@ export function Frame({ at, back, strip = true, footer, children }: {
         <section className="rounded-lg border bg-card shadow-xs">
           {strip && (
             <p className="flex items-start gap-2 border-b px-6 py-3 text-sm text-muted-foreground">
-              <LockOpen aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              <span>This page isn't encrypted yet. Nothing secret is asked here.</span>
+              <ShieldAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              <span>This page uses a temporary certificate, so your browser can't tell it's really your server. The fingerprint setup printed on the server can.</span>
             </p>
           )}
           <div className="p-6">{children}</div>

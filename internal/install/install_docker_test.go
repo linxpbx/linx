@@ -2,8 +2,11 @@ package install
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,7 +50,8 @@ func TestInstallModeDocker(t *testing.T) {
 	// install.yaml names images <prefix>/linx-control-plane:<version>.
 	run("tag", image, "linxinstalltest/linx-control-plane:dev")
 	compose := []string{"compose", "--project-name", "linxinstalltest", "--file", "../../deploy/compose/install.yaml"}
-	env := append(os.Environ(), "LINX_IMAGE_PREFIX=linxinstalltest", "LINX_VERSION=dev", "LINX_INSTALL_ADDRESS=127.0.0.1")
+	tlsDir, pool := firstPageTLS(t, "127.0.0.1")
+	env := append(os.Environ(), "LINX_IMAGE_PREFIX=linxinstalltest", "LINX_VERSION=dev", "LINX_INSTALL_ADDRESS=127.0.0.1", "LINX_INSTALL_TLS_DIR="+tlsDir)
 	up := exec.CommandContext(ctx, "docker", append(compose, "up", "--detach", "--wait")...)
 	up.Env = env
 	t.Cleanup(func() {
@@ -76,8 +80,9 @@ func TestInstallModeDocker(t *testing.T) {
 	}
 	go h.Run(ctx)
 
-	const base = "http://127.0.0.1:6464"
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }, Timeout: 10 * time.Second}
+	const base = "https://127.0.0.1:6464"
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }, Timeout: 10 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
 	get := func(path, cookie string) *http.Response {
 		t.Helper()
 		req, _ := http.NewRequestWithContext(ctx, "GET", base+path, nil)
@@ -142,4 +147,27 @@ func TestInstallModeDocker(t *testing.T) {
 	if accepted.Domain != "example.com" || h.State().View.Accepted == nil {
 		t.Errorf("answers didn't reach the host: %+v", accepted)
 	}
+}
+
+// firstPageTLS makes the first page's certificate as linx setup does, in a
+// folder the container's user can read, and a client pool trusting exactly
+// it (what the owner does by checking the fingerprint).
+func firstPageTLS(t *testing.T, addr string) (dir string, pool *x509.CertPool) {
+	t.Helper()
+	dir = t.TempDir()
+	certPEM, keyPEM, err := NewFirstPageCert([]netip.Addr{netip.MustParseAddr(addr)}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, b := range map[string][]byte{"cert.pem": certPEM, "key.pem": keyPEM} {
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pool = x509.NewCertPool()
+	pool.AppendCertsFromPEM(certPEM)
+	return dir, pool
 }

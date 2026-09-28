@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io/fs"
 	"net/netip"
 	"path/filepath"
 	"strings"
@@ -92,11 +93,25 @@ func TestFollowInstall(t *testing.T) {
 		if err := st.Save(env.web.statePath); err != nil {
 			t.Fatal(err)
 		}
+		// The first page's certificate, as setup keeps it: its fingerprint
+		// is printed to check in the browser.
+		certPEM, _, err := install.NewFirstPageCert([]netip.Addr{netip.MustParseAddr("192.168.1.20")}, env.web.now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		fp, _ := install.Fingerprint(certPEM)
+		env.readFile = func(p string) ([]byte, error) {
+			if p == install.FirstPageTLSDir+"/"+install.FirstPageCertFile {
+				return certPEM, nil
+			}
+			return nil, fs.ErrNotExist
+		}
 		var out bytes.Buffer
 		followInstall(context.Background(), &out, env, false)
 		for _, want := range []string{
-			"http://192.168.1.20:6464/install/" + st.Secret + "\n  (on a computer on the same network as this server)",
-			"http://203.0.113.5:6464/install/" + st.Secret,
+			"check its SHA-256 fingerprint is:\n\n  " + fp + "\n",
+			"https://192.168.1.20:6464/install/" + st.Secret + "\n  (on a computer on the same network as this server)",
+			"https://203.0.113.5:6464/install/" + st.Secret,
 			"It works once, for four hours",
 			"Waiting for you in the browser",
 		} {

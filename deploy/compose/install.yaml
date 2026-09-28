@@ -1,7 +1,8 @@
 # The web install's first stack (docs/INSTALL.md §3, ADR-057). linx setup
 # installs it as /etc/linx/install.yaml and starts it before anything else
-# is set up: the control plane in install mode, answering on plain HTTP
-# port 6464 with the one-time setup link's pages and nothing else. It holds
+# is set up: the control plane in install mode, answering on port 6464
+# (HTTPS with a temporary self-signed certificate) with the one-time setup
+# link's pages and nothing else. It holds
 # no secrets and needs no database. linx setup, on the host, talks to it
 # through docker exec (service install-bridge) and decides everything.
 #
@@ -37,6 +38,9 @@ services:
       # for Let's Encrypt's check meanwhile.
       - certs:/var/lib/linx/certs:ro
       - acme-challenge:/var/lib/linx/acme-challenge:ro
+      # Port 6464's own temporary certificate, made by linx setup for this
+      # server's addresses (docs/INSTALL.md §14 item 1).
+      - ${LINX_INSTALL_TLS_DIR:-/etc/linx/install-tls}:/run/linx-install-tls:ro
     # The address the server is reached at on its own network (public on a
     # rented server, the home network's at home); then 8443 and 5349 where
     # the front door reaches them (127.0.0.1: nowhere; Linx's own port 443

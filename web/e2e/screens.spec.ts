@@ -520,7 +520,7 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await fakeInstall(page, "rented");
       await page.goto("/install");
       await expect(page.getByRole("heading", { name: "Let's set up Linx" })).toBeVisible();
-      await expect(page.getByText("This page isn't encrypted yet. Nothing secret is asked here.")).toBeVisible();
+      await expect(page.getByText("This page uses a temporary certificate, so your browser can't tell it's really your server.", { exact: false })).toBeVisible();
       await expect(page.getByRole("timer")).toContainText(/This link closes in 3:4[67]:\d\d\./);
       await expect(page.getByRole("timer")).toContainText("sudo linx setup --new-link");
       await shot(page, `install-claim-${label}`);
@@ -572,7 +572,18 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await expect(page.getByText("Still points at 198.51.100.7.")).toBeVisible();
       await expect(page.getByText("Not found yet.")).toBeVisible();
       await expect(page.getByText("Set up")).toHaveCount(0);
+      await expect(page.getByRole("radio", { name: /Not now: I'll add 2 records/ })).toBeChecked();
       await shot(page, `install-waiting-dns-${label}`);
+
+      // The other way: the token now, and Linx adds the records itself.
+      await page.getByRole("radio", { name: /With my DNS company's token/ }).click();
+      await expect(page.getByText("Add these 2 records at your DNS company")).toHaveCount(0);
+      await page.getByLabel("I checked the fingerprint, or I trust this network").click();
+      await page.getByLabel("Token", { exact: true }).fill("t".repeat(40));
+      await shot(page, `install-token-first-${label}`);
+      await page.getByRole("button", { name: "Get the certificate" }).click();
+      await expect(page.getByText("Linx points your names at this server")).toBeVisible();
+      await expect(page.getByText("Saved on the server.")).toBeVisible();
     });
 
     test("certificate: Pangolin's block first", async ({ page }) => {
@@ -616,9 +627,10 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
     test("certificate: token instead (home only)", async ({ page }) => {
       await fakeInstall(page, "home", { accepted: { front_door: "home-only" }, cert: fakeCert({ mode: "token", front_door: "home-only", add_records: undefined, dns: {} }) });
       await page.goto("/install");
-      await expect(page.getByText("This page isn't encrypted", { exact: true })).toBeVisible();
+      await expect(page.getByText("This page's certificate is temporary", { exact: true })).toBeVisible();
+      await expect(page.getByRole("radio", { name: /With my DNS company's token/ })).toHaveCount(0);
       await expect(page.getByLabel("Token")).toBeDisabled();
-      await page.getByLabel("I understand, this network is one I trust").click();
+      await page.getByLabel("I checked the fingerprint, or I trust this network").click();
       await page.getByLabel("Token").fill("short");
       await shot(page, `install-token-fallback-${label}`);
       await page.getByRole("button", { name: "Get the certificate" }).click();
@@ -648,7 +660,7 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.goto("/install");
       await expect(page.getByRole("heading", { name: "You're on the secure page now" })).toBeVisible();
       expect(page.url()).toBe("https://example.com/install");
-      await expect(page.getByText("This page isn't encrypted yet")).toHaveCount(0);
+      await expect(page.getByText("This page uses a temporary certificate", { exact: false })).toHaveCount(0);
       await expect(page.getByRole("timer")).toContainText(/This setup page closes in (4:00:00|3:59:5\d)\./);
       await shot(page, `install-secure-arrive-${label}`);
     });

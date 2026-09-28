@@ -10,8 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup } from "@/components/ui/radio-group";
 import {
-  CopyButton, Countdown, Detail, Disclosure, FieldMessage, Frame, LinkUnusable, Row, submit, Title, useSecondsLeft, type Mark,
+  Choice, CopyButton, Countdown, Detail, Disclosure, FieldMessage, Frame, LinkUnusable, Row, submit, Title, useSecondsLeft, type Mark,
 } from "@/components/InstallFrame";
 import { SecureFinish } from "@/screens/InstallFinish";
 import {
@@ -53,6 +54,7 @@ export function CertificateStep({ initial, answers, facts, onClosed }: {
   };
 
   const domain = answers.domain.trim().toLowerCase();
+  const [tokenFirst, setTokenFirst] = useState(false);
   if (!cert) {
     return (
       <div>
@@ -76,9 +78,14 @@ export function CertificateStep({ initial, answers, facts, onClosed }: {
           <Detail text={cert.prepare.detail} />
         </Failure>
       )}
+      {cert.mode === "port443" && cert.reach.state !== "running" && cert.reach.state !== "ok" && !cert.certificate.state && (
+        <WayChooser tokenFirst={tokenFirst} onChange={setTokenFirst} />
+      )}
       {cert.mode === "token"
         ? <TokenRows cert={cert} answers={answers} facts={facts} act={act} />
-        : <Port443Rows cert={cert} answers={answers} facts={facts} act={act} />}
+        : tokenFirst
+          ? <TokenForm domain={domain} act={act} chosen />
+          : <Port443Rows cert={cert} answers={answers} facts={facts} act={act} />}
       {problem && <div className="mt-4"><FieldMessage message={problem} /></div>}
       {ready && cert.secure_url && <MoveToSecure url={cert.secure_url} />}
       <Details cert={cert} />
@@ -294,7 +301,7 @@ function Details({ cert }: { cert: CertView }) {
  * The token, on this unencrypted page (§2.6): only after the warning is
  * ticked, never remembered by the browser.
  */
-function TokenForm({ domain, act }: { domain: string; act: RowsProps["act"] }) {
+function TokenForm({ domain, act, chosen = false }: { domain: string; act: RowsProps["act"]; chosen?: boolean }) {
   const [trusted, setTrusted] = useState(false);
   const [token, setToken] = useState("");
   const [show, setShow] = useState(false);
@@ -307,16 +314,19 @@ function TokenForm({ domain, act }: { domain: string; act: RowsProps["act"] }) {
     })}>
       <div className="rounded-md border border-status-away p-4 text-sm">
         <p className="flex items-center gap-2 font-medium">
-          <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-status-away" />This page isn't encrypted
+          <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-status-away" />This page's certificate is temporary
         </p>
         <p className="mt-2">
-          With your choice, Linx can't get its certificate through port 443, so it needs your DNS company's token here, before there's a
-          secure page. Anyone on the network between you and this server could see the token. Continue only on a network you trust, or go
-          back and choose a front door that passes 443 through (Pangolin, nginx, or Linx takes 443).
+          {chosen
+            ? "The token goes to this server encrypted. "
+            : "With what's in front of this server, Linx can't get its certificate through port 443, so it needs your DNS company's token here, before there's a secure page. It goes to this server encrypted. "}
+          But your browser couldn't check this page's certificate: if you compared its fingerprint with the one setup printed on the server,
+          only this server can read the token. If you didn't, someone in the middle of your connection could. Make a token that can only
+          change {domain}'s DNS.
         </p>
         <div className="mt-3 flex items-start gap-3">
           <Checkbox id="trusted" checked={trusted} onCheckedChange={(c) => setTrusted(c === true)} className="mt-0.5" />
-          <Label htmlFor="trusted" className="font-normal leading-snug">I understand, this network is one I trust</Label>
+          <Label htmlFor="trusted" className="font-normal leading-snug">I checked the fingerprint, or I trust this network</Label>
         </div>
       </div>
       <p className="text-sm">DNS company: <span className="font-medium">{duck ? "DuckDNS" : "Cloudflare"}</span></p>
@@ -342,6 +352,26 @@ function TokenForm({ domain, act }: { domain: string; act: RowsProps["act"] }) {
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * The two ways to the certificate on the port 443 page (docs/INSTALL.md §14
+ * item 1): add the two records by hand (the token comes later, on the
+ * secure page), or give the token now and Linx does the rest.
+ */
+function WayChooser({ tokenFirst, onChange }: { tokenFirst: boolean; onChange: (b: boolean) => void }) {
+  return (
+    <fieldset className="mb-6">
+      <legend className="mb-3 text-sm font-medium">How should Linx get it?</legend>
+      <RadioGroup value={tokenFirst ? "token" : "records"} onValueChange={(v) => onChange(v === "token")}
+        aria-label="How should Linx get the certificate" className="gap-3">
+        <Choice id="way-token" value="token" title="With my DNS company's token" badge="Fastest"
+          hint="Linx adds every DNS record itself and gets the full certificate at once. Nothing to add by hand." />
+        <Choice id="way-records" value="records" title="Not now: I'll add 2 records"
+          hint="Let's Encrypt checks this server on port 443. You can give the token later, on the secure page." />
+      </RadioGroup>
+    </fieldset>
   );
 }
 

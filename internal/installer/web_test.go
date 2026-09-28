@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -137,5 +138,30 @@ func TestInstallStackPlan(t *testing.T) {
 	}
 	if !strings.Contains(p[3].Cmd.String(), "--env-file /etc/linx/install.env up --detach --wait") {
 		t.Errorf("up: %s", p[3].Cmd)
+	}
+}
+
+func TestFirstPageTLSPlan(t *testing.T) {
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	addrs := []netip.Addr{netip.MustParseAddr("203.0.113.5")}
+	none := func(string) ([]byte, error) { return nil, os.ErrNotExist }
+	p, err := FirstPageTLSPlan(addrs, none, now)
+	if err != nil || len(p) != 2 || p[0].File.Gid != nonrootGID || p[0].File.Mode != 0o440 || p[1].File.Mode != 0o644 {
+		t.Fatalf("new: %v %+v", err, p)
+	}
+	kept := map[string][]byte{p[0].File.Path: p[0].File.Data, p[1].File.Path: p[1].File.Data}
+	read := func(path string) ([]byte, error) {
+		if b, ok := kept[path]; ok {
+			return b, nil
+		}
+		return nil, os.ErrNotExist
+	}
+	// Still good: kept, so the browser's exception keeps working.
+	if p, err := FirstPageTLSPlan(addrs, read, now.Add(24*time.Hour)); err != nil || len(p) != 0 {
+		t.Errorf("kept: %v %d steps", err, len(p))
+	}
+	// A new address: a new one.
+	if p, _ := FirstPageTLSPlan(append(addrs, netip.MustParseAddr("192.168.1.20")), read, now); len(p) != 2 {
+		t.Errorf("new address: %d steps", len(p))
 	}
 }

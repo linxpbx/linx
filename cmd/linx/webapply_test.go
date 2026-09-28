@@ -22,6 +22,7 @@ type applyRig struct {
 	plans   []installer.Plan
 	fail    func(p installer.Plan) error
 	stdin   string
+	execs   []string
 	adminRC int
 	saved   map[string]string
 }
@@ -52,7 +53,10 @@ func newApplyRig(t *testing.T, a install.Answers, lan installer.LAN) *applyRig {
 		return nil
 	}
 	w.exec = func(_ context.Context, stdin []byte, name string, args ...string) ([]byte, int, error) {
-		r.stdin = string(stdin)
+		r.execs = append(r.execs, name+" "+strings.Join(args, " "))
+		if stdin != nil {
+			r.stdin = string(stdin)
+		}
 		if r.adminRC != 0 {
 			return []byte("no"), r.adminRC, &exec.ExitError{}
 		}
@@ -123,6 +127,9 @@ func TestWebApplyHome(t *testing.T) {
 	if r.stdin != strings.Repeat("k", 43)+"\n" {
 		t.Errorf("first admin's token on stdin: %q", r.stdin)
 	}
+	if len(r.execs) != 2 || !strings.HasSuffix(r.execs[1], "service suggest-site home") {
+		t.Errorf("commands: %q", r.execs)
+	}
 	first := planText(r.plans[0])
 	last := planText(r.plans[len(r.plans)-1])
 	for _, s := range []string{"resource_profile: standard", "container_ui: portainer"} {
@@ -162,6 +169,9 @@ func TestWebApplyRentedSkip(t *testing.T) {
 	}
 	if err := r.w.Run(context.Background(), in, func(int, string, string) {}, func(install.KeepItem) {}, func() {}); err != nil {
 		t.Fatal(err)
+	}
+	if len(r.execs) != 1 {
+		t.Errorf("a rented server got a place suggested: %q", r.execs)
 	}
 	if s := planText(r.plans[0]); !strings.Contains(s, "no_dns_token: true") || !strings.Contains(s, "container_ui: none") {
 		t.Errorf("settings:\n%s", s)

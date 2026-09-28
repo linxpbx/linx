@@ -107,7 +107,8 @@ func TestWebCertificateInstall(t *testing.T) {
 	env := string(InstallCertEnv(c, LAN{}, "dev", netip.MustParseAddr("127.0.0.1")))
 	// Linx's own 443 router on this machine's loopback only.
 	env = strings.Replace(env, "LINX_SNI_ADDRESS=0.0.0.0", "LINX_SNI_ADDRESS=127.0.0.1", 1)
-	write("install.env", "LINX_IMAGE_PREFIX="+certTestProject+"\n"+env)
+	tlsDir, firstPool := firstPageTLS(t, "127.0.0.1")
+	write("install.env", "LINX_IMAGE_PREFIX="+certTestProject+"\nLINX_INSTALL_TLS_DIR="+tlsDir+"\n"+env)
 	for svc, img := range images {
 		docker("tag", img, certTestProject+"/linx-"+svc+":dev")
 	}
@@ -187,8 +188,9 @@ func TestWebCertificateInstall(t *testing.T) {
 
 	// The plain page: claim the link, save the answers.
 	jar, _ := cookiejar.New(nil)
-	plain := &http.Client{Jar: jar, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	const base = "http://127.0.0.1:6464"
+	plain := &http.Client{Jar: jar, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: firstPool, MinVersion: tls.VersionTLS12}}}
+	const base = "https://127.0.0.1:6464"
 	var resp *http.Response
 	for range 60 {
 		r, err := plain.Get(base + "/install/" + h.State().Secret)
@@ -363,3 +365,26 @@ func (d *dockerCertifier) SaveToken(context.Context, install.CertView, string) (
 }
 func (d *dockerCertifier) Records(context.Context) error         { return nil }
 func (d *dockerCertifier) ObtainWithToken(context.Context) error { return nil }
+
+// firstPageTLS makes the first page's certificate as linx setup does, in a
+// folder the container's user can read, and a client pool trusting exactly
+// it (what the owner does by checking the fingerprint).
+func firstPageTLS(t *testing.T, addr string) (dir string, pool *x509.CertPool) {
+	t.Helper()
+	dir = t.TempDir()
+	certPEM, keyPEM, err := install.NewFirstPageCert([]netip.Addr{netip.MustParseAddr(addr)}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, b := range map[string][]byte{"cert.pem": certPEM, "key.pem": keyPEM} {
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pool = x509.NewCertPool()
+	pool.AppendCertsFromPEM(certPEM)
+	return dir, pool
+}

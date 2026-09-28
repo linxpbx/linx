@@ -157,12 +157,30 @@ func runWebSetup(ctx context.Context, o webOptions, stdout, stderr io.Writer, en
 		fmt.Fprintln(stderr, "\nCan't set up the Linx services:", err)
 		return 1
 	}
+	// The first page's own certificate names every address the link is
+	// printed at: this server's, and its public one when that differs.
+	addrs := []netip.Addr{address}
+	if w.publicAddress != nil {
+		if pub, err := w.publicAddress(ctx); err == nil && pub != address {
+			addrs = append(addrs, pub)
+		}
+	}
+	now := time.Now()
+	if w.now != nil {
+		now = w.now()
+	}
+	tlsPlan, err := installer.FirstPageTLSPlan(addrs, env.readFile, now)
+	if err != nil {
+		fmt.Fprintln(stderr, "\nCan't make the installer's certificate:", err)
+		return 1
+	}
 	phases := []struct {
 		title string
 		plan  installer.Plan
 	}{
 		{"Installing Docker", dockerPlan},
 		{"Installing the linx command", installer.CLIPlan(env.executable, env.resolve)},
+		{"Making the installer's temporary certificate", tlsPlan},
 		{"Downloading Linx and starting the installer", installer.InstallStackPlan(imageTag, address)},
 	}
 	if o.dryRun {
@@ -322,7 +340,7 @@ func clock(t time.Time) string { return t.Local().Format("15:04") }
 // (docs/ui/INSTALL_SCREENS.md §1).
 func printLink(w io.Writer, env setupEnv, st install.HostState) {
 	link := func(a string) string {
-		return fmt.Sprintf("http://%s/install/%s", netip.AddrPortFrom(netip.MustParseAddr(a), install.Port), st.Secret)
+		return fmt.Sprintf("https://%s/install/%s", netip.AddrPortFrom(netip.MustParseAddr(a), install.Port), st.Secret)
 	}
 	fmt.Fprintln(w, "\nOpen this link in a browser to finish setting up Linx:")
 	local, _ := env.web.routeAddress()
@@ -338,6 +356,13 @@ func printLink(w io.Writer, env setupEnv, st install.HostState) {
 		}
 	}
 	fmt.Fprintln(w, "\nIt works once, for four hours, in the first browser that opens it.")
+	if b, err := env.readFile(install.FirstPageTLSDir + "/" + install.FirstPageCertFile); err == nil {
+		if fp, err := install.Fingerprint(b); err == nil {
+			fmt.Fprintf(w, "\nYour browser will warn that it doesn't know this page's certificate. That's expected:\n"+
+				"Linx makes its own until it has a real one. To be sure it's really this server, open the\n"+
+				"certificate's details in the browser and check its SHA-256 fingerprint is:\n\n  %s\n", fp)
+		}
+	}
 	if local.IsValid() && publicip.IsPublic(local) {
 		fmt.Fprintf(w, "If it doesn't open, allow TCP port %d in your server provider's firewall\n"+
 			"(this server's own firewall is already open for it).\n", install.Port)
