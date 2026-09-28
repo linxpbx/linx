@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -297,6 +298,12 @@ func (s *Server) Handler() http.Handler {
 			notFound(w)
 			return
 		}
+		// Once the certificate is ready, the page checks it can reach the
+		// secure page before moving there (a request to that one other
+		// address, nothing else).
+		if v, _ := s.Snapshot(); v.Cert != nil && v.Cert.SecureURL != "" {
+			w.Header().Set("Content-Security-Policy", secureProbeCSP(v.Cert.SecureURL))
+		}
 		switch p := r.URL.Path; {
 		case p == "/install/api/state" && r.Method == http.MethodGet:
 			s.getState(w, false)
@@ -324,6 +331,16 @@ func (s *Server) Handler() http.Handler {
 			notFound(w)
 		}
 	}))
+}
+
+// secureProbeCSP is the web app's policy with one more address it may
+// connect to: the secure page's own origin, for the reachability check.
+func secureProbeCSP(secureURL string) string {
+	u, err := url.Parse(secureURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || strings.ContainsAny(u.Host, " ;'\"") {
+		return webapp.ContentSecurityPolicy
+	}
+	return strings.Replace(webapp.ContentSecurityPolicy, "connect-src 'self'", "connect-src 'self' https://"+u.Host, 1)
 }
 
 // session reports whether r carries the claimed browser's cookie for a

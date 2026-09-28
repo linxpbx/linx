@@ -232,3 +232,27 @@ func TestCancelWipesWhatToWriteDown(t *testing.T) {
 		t.Error("the passphrase is still in the install state after --new-link")
 	}
 }
+
+// Once the certificate is ready, the first page's policy lets it check the
+// secure page is reachable (and nothing else): the browser used to block
+// that check, so "Open it" never moved on (found in the install demo).
+func TestFirstPageMayProbeTheSecurePage(t *testing.T) {
+	fake := &fakeCert{mode: CertPort443, dns: []string{"203.0.113.5"}}
+	r, cookie := certRig(t, fake)
+	waitFor(t, func() bool { v, _ := r.srv.Snapshot(); return v.Cert.Ready() })
+	csp := r.do("GET", "/install", cookie, "").Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "connect-src 'self' https://example.com;") {
+		t.Errorf("CSP %q", csp)
+	}
+	if strings.Count(csp, "https://") != 1 {
+		t.Errorf("CSP allows more than the secure page: %q", csp)
+	}
+}
+
+func TestSecureProbeCSPRefusesOddAddresses(t *testing.T) {
+	for _, u := range []string{"http://example.com", "https://a b", "https://x'y", "https://user@example.com", "not a url"} {
+		if got := secureProbeCSP(u); strings.Contains(got, "https://") {
+			t.Errorf("%q: %q", u, got)
+		}
+	}
+}
