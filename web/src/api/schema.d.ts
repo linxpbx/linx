@@ -256,6 +256,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/moved-checklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * "Moved to a new place?"
+         * @description After a restore onto another server, what in the backup may still point at the old place (docs/INSTALL.md §8): only the rows that apply, each with why and where to fix it. `checklist` is left out when there's none, or when every item is done.
+         */
+        get: operations["getMovedChecklist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Tick items, or hide the checklist for now
+         * @description `ticks` sets items done (true) or not (false); items that tick themselves can't be. `hide` folds the card to one line for 7 days (false opens it again). 404 `no_checklist` when there's none. Audited as `settings.moved_checklist`.
+         */
+        patch: operations["updateMovedChecklist"];
+        trace?: never;
+    };
     "/api/v1/backup-settings": {
         parameters: {
             query?: never;
@@ -3256,6 +3280,8 @@ export interface components {
             /** @description Passwords are off for everyone but system admins. */
             company_sign_in_required: boolean;
             passkeys_available: boolean;
+            /** @description This server was restored from a backup made at another domain: passkeys from the old address don't work here (docs/INSTALL.md §8). */
+            passkeys_moved?: boolean;
         };
         CompanyStart: {
             /** Format: uuid */
@@ -3673,6 +3699,43 @@ export interface components {
             steps: string[];
             /** @description The web address after the change. */
             address: string;
+        };
+        MovedChecklistState: {
+            checklist?: components["schemas"]["MovedChecklist"];
+        };
+        MovedChecklist: {
+            /** Format: date-time */
+            detected_at: string;
+            before: components["schemas"]["InstallPlace"];
+            after: components["schemas"]["InstallPlace"];
+            items: {
+                id: string;
+                title: string;
+                why: string;
+                /** @enum {string} */
+                link?: "phone_lines" | "extensions" | "settings" | "account" | "backups";
+                done: boolean;
+                /** @description It ticks itself. */
+                auto?: boolean;
+            }[];
+            /**
+             * Format: date-time
+             * @description Folded to one line until then.
+             */
+            hidden_until?: string;
+        };
+        InstallPlace: {
+            domain: string;
+            lan_networks: string[];
+            lan_address: string;
+            public_address: string;
+            front_door: string;
+        };
+        MovedChecklistChange: {
+            ticks?: {
+                [key: string]: boolean;
+            };
+            hide?: boolean;
         };
         ServerSettingsFieldError: {
             field: string;
@@ -4195,6 +4258,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServerSettingsPreview"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getMovedChecklist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The checklist, if any. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovedChecklistState"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateMovedChecklist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MovedChecklistChange"];
+            };
+        };
+        responses: {
+            /** @description The checklist after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovedChecklistState"];
                 };
             };
             default: components["responses"]["Problem"];

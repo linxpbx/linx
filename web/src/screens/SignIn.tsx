@@ -188,6 +188,8 @@ function usePasskeySignIn(onDone: (b: StatusBody) => void, setError: (m: string)
 function useSignInOptions() {
   const [company, setCompany] = useState<CompanyButton[]>([]);
   const [required, setRequired] = useState(false);
+  // Restored from a backup made at another domain (docs/INSTALL.md §8).
+  const [passkeysMoved, setPasskeysMoved] = useState(false);
   useEffect(() => {
     // Company sign-in comes back to the domain: not on the repair page.
     if (onRepairPage()) return;
@@ -195,9 +197,10 @@ function useSignInOptions() {
       if (!data) return;
       setCompany(data.company);
       setRequired(data.company_sign_in_required);
+      setPasskeysMoved(!!data.passkeys_moved);
     });
   }, []);
-  return { company, required };
+  return { company, required, passkeysMoved };
 }
 
 function CompanyButtons({ buttons, disabled, onError }:
@@ -269,7 +272,9 @@ function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: StatusBo
   };
 
   return (
-    <Card title="Sign in" lead={notice ? <span role="status">{notice}</span> : undefined}>
+    <Card title="Sign in" lead={notice ? <span role="status">{notice}</span> : options.passkeysMoved
+      ? <span role="status">Linx moved to this address. Passkeys from the old address don't work here: sign in with your password and authenticator app.</span>
+      : undefined}>
       {offerPasskey && (
         <Button type="button" className="h-11 w-full text-base" disabled={passkey.busy || busy} aria-busy={passkey.busy}
           onClick={() => void passkey.signIn()}>

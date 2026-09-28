@@ -393,7 +393,7 @@ test.describe("phone width", () => {
     ["/repair", "repair", "Fix this server's address"],
   ] as const) {
     test(`no sideways scrolling: ${name}`, async ({ page }) => {
-      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 5, backups: true, download: "ready", serverSettings: "home", repair: "sign-in" });
+      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 5, backups: true, download: "ready", serverSettings: "home", repair: "sign-in", moved: true });
       await page.goto(path);
       await expect(page.getByRole("heading", { name: ready, exact: true }).first()).toBeVisible();
       await shot(page, `phone-${name}`);
@@ -555,6 +555,32 @@ test.describe("system: server settings", () => {
     await expect(page.getByText("DNS records to add")).toBeVisible();
     await expect(page.getByText("turn.pbx.example.org", { exact: true })).toBeVisible();
     await shot(page, "system-server-move-records");
+  });
+});
+
+test.describe("moved to a new place", () => {
+  test("after a restore elsewhere: tick, hide, show", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 5, moved: true });
+    await page.goto("/admin");
+    const card = page.getByRole("region", { name: "Moved to a new place?" });
+    await expect(card).toContainText("before:");
+    await expect(card).toContainText("home 192.168.1.0/24, pbx.old.com");
+    await expect(card).toContainText("0 of 7 done");
+    await expect(card.getByLabel("Add your backup places again")).toBeDisabled();
+    await shot(page, "admin-home-moved");
+    await card.getByLabel("Turn the old server off").click();
+    await expect(card).toContainText("1 of 7 done");
+    await card.getByRole("button", { name: "Hide for now" }).click();
+    await expect(page.getByText("Moved to a new place? 6 left")).toBeVisible();
+    await page.getByRole("button", { name: "Show", exact: true }).click();
+    await expect(card).toContainText("1 of 7 done");
+  });
+
+  test("the sign-in page says passkeys stay behind", async ({ page }) => {
+    await fakeServer(page, { moved: true });
+    await page.goto("/");
+    await expect(page.getByText("Passkeys from the old address don't work here")).toBeVisible();
+    await shot(page, "sign-in-moved");
   });
 });
 

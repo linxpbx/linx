@@ -411,6 +411,8 @@ The §2 frame, but §2.1's welcome is replaced by the system-admin sign-in (emai
 
 ## 6. "Moved to a new place?" (admin home, after a restore)
 
+*As built (install step 5): `components/MovedChecklist.tsx`; rows linking to pages not built yet (Phone lines, Settings) have no button. Screenshots `admin-home-moved`, `sign-in-moved`.*
+
 A card at the top of Admin home (above "Getting started"), shown to admins and system admins only when the backup's place differs from this server's.
 
 ```

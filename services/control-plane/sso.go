@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -19,7 +20,10 @@ import (
 // "confirm it's you") and the provider's callback. Hand-written like the
 // rest of the sign-in flow: they set and clear cookies, and the callback
 // answers with a redirect, not JSON.
-func registerCompanyHandlers(mux *http.ServeMux, authn *auth.Authenticator, accounts *auth.Accounts, providers *sso.Service, tenant uuid.UUID, log *slog.Logger) {
+// passkeysMoved (may be nil) says whether this server was restored from a
+// backup made at another domain (docs/INSTALL.md §8).
+func registerCompanyHandlers(mux *http.ServeMux, authn *auth.Authenticator, accounts *auth.Accounts, providers *sso.Service, tenant uuid.UUID,
+	passkeysMoved func(context.Context) bool, log *slog.Logger) {
 	mux.Handle("GET /api/v1/sign-in-options", apihttp.NoStore(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buttons, err := providers.Buttons(r.Context(), tenant)
 		if err != nil {
@@ -31,8 +35,13 @@ func registerCompanyHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 			writeAccountError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, controlplaneapi.SignInOptions{Company: controlplaneapi.ToCompanyButtons(buttons),
-			CompanySignInRequired: required, PasskeysAvailable: accounts.WebAuthn != nil})
+		out := controlplaneapi.SignInOptions{Company: controlplaneapi.ToCompanyButtons(buttons),
+			CompanySignInRequired: required, PasskeysAvailable: accounts.WebAuthn != nil}
+		if passkeysMoved != nil && passkeysMoved(r.Context()) {
+			yes := true
+			out.PasskeysMoved = &yes
+		}
+		writeJSON(w, http.StatusOK, out)
 	})))
 
 	start := func(purpose string) http.HandlerFunc {

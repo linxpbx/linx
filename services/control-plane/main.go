@@ -37,6 +37,7 @@ import (
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/health"
 	"linxpbx.com/linx/internal/install"
+	"linxpbx.com/linx/internal/moved"
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/ops"
 	"linxpbx.com/linx/internal/pbx"
@@ -405,11 +406,16 @@ func main() {
 		bg.Wait()
 	}()
 
+	// "Moved to a new place?" (docs/INSTALL.md §8): where this server is,
+	// written at every start (the public address takes a moment to find).
+	movedSvc := &moved.Service{Store: st, Now: time.Now}
+	runBackground(func(ctx context.Context) { recordPlace(ctx, movedSvc, os.Getenv, phoneNetworks, log) })
 	var apiServer *controlplaneapi.Server
 	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, backups,
 		func(s *controlplaneapi.Server) {
 			apiServer = s
 			s.SetServerSettings(serverSettings)
+			s.SetMoved(movedSvc)
 			s.SetOps(opsHub, st.Audit, func() time.Time {
 				if sec := certExpiry.Load(); sec > 0 {
 					return time.Unix(sec, 0)
@@ -427,7 +433,7 @@ func main() {
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	registerSessionHandlers(mux, authn, accounts, tenant)
-	registerCompanyHandlers(mux, authn, accounts, ssoSvc, tenant, log)
+	registerCompanyHandlers(mux, authn, accounts, ssoSvc, tenant, movedSvc.PasskeysMoved, log)
 	registerBackupFileHandlers(mux, authn, backups)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))

@@ -168,7 +168,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	mux.Handle("/api/v1/", handler)
 	mux.Handle(auth.TokenPath, authn.TokenHandler())
 	registerSessionHandlers(mux, authn, accounts, st.tenant)
-	registerCompanyHandlers(mux, authn, accounts, ssoSvc, st.tenant, log)
+	registerCompanyHandlers(mux, authn, accounts, ssoSvc, st.tenant, nil, log)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, sst, env.relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
 	env.srv = httptest.NewServer(mux)

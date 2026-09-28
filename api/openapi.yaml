@@ -408,6 +408,54 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/moved-checklist:
+    get:
+      operationId: getMovedChecklist
+      summary: '"Moved to a new place?"'
+      description: >-
+        After a restore onto another server, what in the backup may still
+        point at the old place (docs/INSTALL.md §8): only the rows that
+        apply, each with why and where to fix it. `checklist` is left out
+        when there's none, or when every item is done.
+      tags: [settings]
+      security:
+        - bearer: [settings:read]
+      responses:
+        "200":
+          description: The checklist, if any.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MovedChecklistState"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateMovedChecklist
+      summary: Tick items, or hide the checklist for now
+      description: >-
+        `ticks` sets items done (true) or not (false); items that tick
+        themselves can't be. `hide` folds the card to one line for 7 days
+        (false opens it again). 404 `no_checklist` when there's none. Audited
+        as `settings.moved_checklist`.
+      tags: [settings]
+      security:
+        - bearer: [settings:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MovedChecklistChange"
+      responses:
+        "200":
+          description: The checklist after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MovedChecklistState"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/backup-settings:
     get:
       operationId: getBackupSettings
@@ -5385,6 +5433,11 @@ components:
           description: Passwords are off for everyone but system admins.
         passkeys_available:
           type: boolean
+        passkeys_moved:
+          type: boolean
+          description: >-
+            This server was restored from a backup made at another domain:
+            passkeys from the old address don't work here (docs/INSTALL.md §8).
 
     CompanyStart:
       type: object
@@ -6219,6 +6272,77 @@ components:
         address:
           type: string
           description: The web address after the change.
+
+    MovedChecklistState:
+      type: object
+      properties:
+        checklist:
+          $ref: "#/components/schemas/MovedChecklist"
+
+    MovedChecklist:
+      type: object
+      required: [detected_at, before, after, items]
+      properties:
+        detected_at:
+          type: string
+          format: date-time
+        before:
+          $ref: "#/components/schemas/InstallPlace"
+        after:
+          $ref: "#/components/schemas/InstallPlace"
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, title, why, done]
+            properties:
+              id:
+                type: string
+              title:
+                type: string
+              why:
+                type: string
+              link:
+                type: string
+                enum: [phone_lines, extensions, settings, account, backups]
+              done:
+                type: boolean
+              auto:
+                type: boolean
+                description: It ticks itself.
+        hidden_until:
+          type: string
+          format: date-time
+          description: Folded to one line until then.
+
+    InstallPlace:
+      type: object
+      required: [domain, lan_networks, lan_address, public_address, front_door]
+      properties:
+        domain:
+          type: string
+        lan_networks:
+          type: array
+          items:
+            type: string
+        lan_address:
+          type: string
+        public_address:
+          type: string
+        front_door:
+          type: string
+
+    MovedChecklistChange:
+      type: object
+      additionalProperties: false
+      properties:
+        ticks:
+          type: object
+          maxProperties: 50
+          additionalProperties:
+            type: boolean
+        hide:
+          type: boolean
 
     ServerSettingsFieldError:
       type: object

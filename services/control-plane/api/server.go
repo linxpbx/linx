@@ -19,6 +19,7 @@ import (
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/backupschedule"
+	"linxpbx.com/linx/internal/moved"
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/settings"
@@ -51,6 +52,7 @@ type Server struct {
 	ops OpsSource
 	// System → Server settings (SetServerSettings).
 	serverSettings ServerSettingsSource
+	moved          *moved.Service
 	writeAudit     func(context.Context, auth.AuditEntry) error
 	certExpiry     func() time.Time
 }

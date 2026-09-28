@@ -6,6 +6,7 @@ import { CircleCheck, Phone, TriangleAlert } from "lucide-react";
 import { api, type Me, type TeamMember } from "@/api/client";
 import type { components } from "@/api/schema";
 import { Button } from "@/components/ui/button";
+import { MovedChecklist } from "@/components/MovedChecklist";
 import { Dot, StatusDot, statusLabel } from "@/components/presence";
 import { navigate } from "@/hooks/useRoute";
 import { trunkDot, trunkWords } from "@/lib/lines";
@@ -201,6 +202,7 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
       <h1 className="font-display text-3xl font-semibold tracking-tight">Good day, {me.name ?? "there"}</h1>
 
       <div className="mt-6 flex flex-col gap-6">
+        {canSettings && <MovedChecklist canWrite={hasScope(me, "settings:write")} />}
         {items.length > 0 && <Checklist items={items} />}
 
         <div className="grid gap-6 sm:grid-cols-2">

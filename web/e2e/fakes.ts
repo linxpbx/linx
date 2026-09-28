@@ -54,6 +54,9 @@ export interface FakeOptions {
   // The repair page on port 6464 (docs/INSTALL.md §7): its link claimed,
   // with a system admin's sign-in or without.
   repair?: "sign-in" | "no-sign-in";
+  // "Moved to a new place?" (docs/INSTALL.md §8): restored from a backup
+  // made at home under another domain, now on a rented server.
+  moved?: boolean;
 }
 
 const GOOGLE = { id: "0199c1", kind: "google", name: "Google" };
@@ -188,6 +191,33 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         ? [{ title: "Portainer password", value: "Qx7-m2Pd-9vRk", note: "Open https://192.168.1.212:9443 from your home network and sign in as admin." }] : [],
     };
     return { status: 202, body: "" };
+  };
+  const movedTicks: Record<string, boolean> = {};
+  let movedHidden = false;
+  const movedChecklist = () => {
+    if (!opts.moved) return {};
+    const items = [
+      { id: "old_server", title: "Turn the old server off", why: "Both servers would point the same names at themselves, and phones and phone lines could reach the wrong one." },
+      { id: "lan_peer:0199", title: "Phone line \"UCM landlines\" is tied to the old network", link: "phone_lines",
+        why: "It connects to a phone system on your home network: check its address, and that it knows this server's." },
+      { id: "provider:0198", title: "Tell the provider of \"Telnyx\" your new address: 203.0.113.5", link: "phone_lines",
+        why: "It lets calls in only from the address it knows, and that was the old server's." },
+      { id: "desk_phones", title: "3 desk phones and phone apps were set up on the old network", link: "extensions",
+        why: "Give each one this server's address, sip.example.com, and check it connects." },
+      { id: "admin_networks", title: "Admins only from 192.168.1.0/24 (the old network)", link: "settings",
+        why: "Admins can sign in from this server's own network, but not from other places the old list allowed." },
+      { id: "passkeys", title: "New domain: add new passkeys", link: "account",
+        why: "Passkeys belong to pbx.old.com, so they don't work here. Sign in with your password and authenticator app, then add new ones." },
+      { id: "backups", title: "Add your backup places again", link: "backups", auto: true,
+        why: "Where backups go, and their keys, stay on the old server. This ticks itself after the first backup here." },
+    ].map((it) => ({ ...it, done: !!movedTicks[it.id] }));
+    if (items.every((it) => it.done || it.auto) && items.some((it) => it.done) && items.filter((it) => !it.done).length === 0) return {};
+    return { checklist: {
+      detected_at: new Date(Date.now() - 3600_000).toISOString(),
+      before: { domain: "pbx.old.com", lan_networks: ["192.168.1.0/24"], lan_address: "192.168.1.212", public_address: "198.51.100.4", front_door: "pangolin" },
+      after: { domain: "example.com", lan_networks: [], lan_address: "", public_address: "203.0.113.5", front_door: "linx-443" },
+      items, ...(movedHidden ? { hidden_until: new Date(Date.now() + 7 * 86_400_000).toISOString() } : {}),
+    } };
   };
   const json = (body: unknown, status = 200) => ({
     status, contentType: status >= 400 ? "application/problem+json" : "application/json", body: JSON.stringify(body),
@@ -370,6 +400,13 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     if (p === "/api/v1/server-settings" && method === "GET") {
       return route.fulfill(json(serverSettings ? { open: true, settings: serverSettings } : { open: false }));
     }
+    if (p === "/api/v1/moved-checklist" && method === "GET") return route.fulfill(json(movedChecklist()));
+    if (p === "/api/v1/moved-checklist" && method === "PATCH") {
+      const body = route.request().postDataJSON() as { ticks?: Record<string, boolean>; hide?: boolean };
+      Object.assign(movedTicks, body.ticks ?? {});
+      if (body.hide !== undefined) movedHidden = body.hide;
+      return route.fulfill(json(movedChecklist()));
+    }
     if (p === "/api/v1/server-settings/preview" && method === "POST" && serverSettings) {
       return route.fulfill(json(settingsPreview(route.request().postDataJSON() as Change)));
     }
@@ -428,7 +465,8 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     if (p === "/api/v1/numbering/next" && method === "GET") return route.fulfill(json({ number: "1111" }));
     if (p === "/api/v1/call-permission-levels" && method === "GET") return route.fulfill(json({ items: [] }));
     if (p === "/api/v1/sign-in-options") {
-      return route.fulfill(json({ company: opts.company ? [GOOGLE] : [], company_sign_in_required: !!opts.companyRequired, passkeys_available: true }));
+      return route.fulfill(json({ company: opts.company ? [GOOGLE] : [], company_sign_in_required: !!opts.companyRequired, passkeys_available: true,
+        ...(opts.moved ? { passkeys_moved: true } : {}) }));
     }
     if (p === "/api/v1/session/company" && method === "POST") {
       // The provider refused: straight back to the sign-in page with why.

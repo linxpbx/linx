@@ -6,7 +6,10 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"linxpbx.com/linx/deploy/compose"
 	"linxpbx.com/linx/internal/asteriskconf"
@@ -112,6 +115,7 @@ func StackPlan(c Config, dnsToken, imageTag string, lan LAN) StackSetup {
 			ariPasswordStep,
 			turnSecretStep,
 			fileStep("Write the Linx services configuration", stackFile, compose.File, 0o644, 0o755),
+			fileStep("Remember this server's id (for \"Moved to a new place?\" after a restore)", ServerIDPath, []byte(ServerID()+"\n"), 0o644, 0o755),
 			fileStep("Write the Linx settings for "+c.Domain.Name, stackEnv, stackDotEnv(c, imageTag, lan), 0o644, 0o755),
 			cmdStep("Download the Linx service images", "docker", append(dc, "pull", "--quiet")...),
 			cmdStep("Get a "+kind+" for "+certNames(c)+" (can take a few minutes)",
@@ -167,6 +171,11 @@ COMPOSE_PROFILES=%s
 # (or at LINX_DNS_ADDRESS, when set), following it when it changes.
 LINX_DNS_RECORDS=%s
 LINX_DNS_ADDRESS=%s
+# Where this server is, for "Moved to a new place?" after a restore
+# (docs/INSTALL.md §8): setup's own id for it, kept in %s, and its front
+# door.
+LINX_SERVER_ID=%s
+LINX_FRONT_DOOR=%s
 # The time zone schedules use, so "03:00" in the backup schedule means 03:00
 # there (the services otherwise run on UTC): setup.yaml's time_zone, or this
 # server's own when that's empty.
@@ -174,7 +183,7 @@ LINX_TZ=%s
 `, ConfigPath, imageTag, c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Email, c.Certificates.Staging, c.Certificates.Wildcard, certChallenge(c),
 		lan.BindAddress(), asteriskconf.FormatSIPNetworks(lan.Networks()),
 		c.FrontDoor.Kind, fd.TrustedProxies, fd.ProxyProtocol, fd.WebAddress, fd.TURNUDPAddress, fd.TURNUDPPort, fd.TURNURLs,
-		fd.SNIAddress, fd.ComposeProfiles, DNSRecords(c, lan), fd.DNSAddress, c.Zone())
+		fd.SNIAddress, fd.ComposeProfiles, DNSRecords(c, lan), fd.DNSAddress, ServerIDPath, ServerID(), c.FrontDoor.Kind, c.Zone())
 }
 
 // certChallenge is LINX_CERT_CHALLENGE.
@@ -300,3 +309,19 @@ func DNSRecords(c Config, lan LAN) string {
 
 // SIPHost is desk phones' name under the domain.
 const SIPHost = "sip"
+
+// ServerIDPath keeps this server's id: made once by setup, never in a
+// backup, so a restore onto another server can tell (docs/INSTALL.md §8).
+const ServerIDPath = StackDir + "/server-id"
+
+var serverID = sync.OnceValue(func() string {
+	if b, err := os.ReadFile(ServerIDPath); err == nil {
+		if id, err := uuid.Parse(strings.TrimSpace(string(b))); err == nil {
+			return id.String()
+		}
+	}
+	return uuid.New().String()
+})
+
+// ServerID is this server's id: the kept one, or a new one setup writes.
+func ServerID() string { return serverID() }
