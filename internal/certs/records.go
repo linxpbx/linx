@@ -12,11 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/publicip"
 )
 
-// Public DNS records for the front door (docs/WEB.md §3): meet., api. and
-// turn.<domain> point at the address the internet reaches Linx on (the home
+// Public DNS records for the front door (docs/WEB.md §3): the base domain
+// itself (the web app and the API) and turn.<domain> point at the address the internet reaches Linx on (the home
 // router, or a VPS). linx-certd does it because it already holds the DNS
 // token; `linx setup` runs it once (`certd -records ...`), and step 7's
 // updater will follow a changing home address the same way.
@@ -63,7 +64,7 @@ func (c *RecordsClient) PublicIPv4(ctx context.Context) (netip.Addr, error) {
 
 func isPublic(a netip.Addr) bool { return publicip.IsPublic(a) }
 
-// PointRecords points each of hosts (e.g. "meet") under cfg.Domain at ip:
+// PointRecords points each of hosts (e.g. dnsname.Apex, "turn") under cfg.Domain at ip:
 // an A record on Cloudflare (created, or changed if it points elsewhere;
 // never proxied, since calls can't go through Cloudflare's proxy; a name
 // that's a CNAME is left alone), or the DuckDNS name's address (DuckDNS
@@ -103,7 +104,7 @@ func (c *RecordsClient) duckdns(ctx context.Context, token, domain string, hosts
 	}
 	out := make([]RecordResult, 0, len(hosts))
 	for _, h := range hosts {
-		out = append(out, RecordResult{h + "." + domain, "points at " + ip.String() + " (DuckDNS)"})
+		out = append(out, RecordResult{dnsname.Host(h, domain), "points at " + ip.String() + " (DuckDNS)"})
 	}
 	return out, nil
 }
@@ -124,7 +125,10 @@ func (c *RecordsClient) cloudflare(ctx context.Context, token, domain string, ho
 	}
 	var out []RecordResult
 	for _, h := range hosts {
-		name := h + "." + domain
+		name := dnsname.Host(h, domain)
+		// The base domain may already be someone's website: an address
+		// Linx didn't set there is never replaced, not even by setup.
+		ownOnly := c.OwnOnly || h == dnsname.Apex
 		var found []cfRecord
 		if err := c.cf(ctx, token, http.MethodGet, "/zones/"+zone+"/dns_records?"+url.Values{"name": {name}}.Encode(), nil, &found); err != nil {
 			return out, err
@@ -146,7 +150,7 @@ func (c *RecordsClient) cloudflare(ctx context.Context, token, domain string, ho
 			out = append(out, RecordResult{name, "left as is: it's an alias (CNAME) for " + cname})
 		case a != nil && a.Content == ip.String() && !a.Proxied:
 			out = append(out, RecordResult{name, "already points at " + ip.String()})
-		case a != nil && c.OwnOnly && !strings.HasPrefix(a.Comment, recordComment):
+		case a != nil && ownOnly && !strings.HasPrefix(a.Comment, recordComment):
 			out = append(out, RecordResult{name, "left as is: someone else made it (it points at " + a.Content + ")"})
 		case a != nil:
 			if err := c.cf(ctx, token, http.MethodPut, "/zones/"+zone+"/dns_records/"+a.ID, body, nil); err != nil {

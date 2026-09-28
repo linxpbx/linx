@@ -43,7 +43,7 @@ func passkeyStep(t *testing.T, env *testEnv, path string, cookies []*http.Cookie
 func TestPasskeyEndpoints(t *testing.T) {
 	env := newTestEnv(t)
 	_, token := createTestUser(t, env, "passkey@example.com", auth.RoleAdmin)
-	dev := webauthntest.New("https://meet.linx.example.com")
+	dev := webauthntest.New("https://linx.example.com")
 
 	// The link says who it's for and that passkeys can be offered.
 	infoResp, err := http.Get(env.srv.URL + "/api/v1/setup-links/" + token)
@@ -124,7 +124,7 @@ func TestPasskeyEndpoints(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("confirm with a passkey: %d", resp.StatusCode)
 	}
-	second := webauthntest.New("https://meet.linx.example.com")
+	second := webauthntest.New("https://linx.example.com")
 	resp = passkeyStep(t, env, "/api/v1/me/passkeys", cookies, csrf, second.Create, "Phone")
 	added, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()

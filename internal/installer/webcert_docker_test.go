@@ -22,6 +22,7 @@ import (
 	"linxpbx.com/linx/deploy/compose"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/dnscheck"
+	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/install"
 	"linxpbx.com/linx/internal/ops"
 )
@@ -41,7 +42,7 @@ const (
 // image SERVICE=control-plane and SERVICE=certd), the real linx-sni in
 // front, the host side (install.Host) driving it over docker exec, and
 // Pebble checking the names over acme-tls/1 on port 443. Then the handoff
-// moves the session to https://meet.linx.test, verified against Pebble's
+// moves the session to https://linx.test, verified against Pebble's
 // root. Needs Docker and host ports 443 and 6464 free: make test-install
 // (not make test-docker, which runs its packages at once: this and
 // TestInstallModeDocker both need the container name linx-control-plane).
@@ -226,21 +227,21 @@ func TestWebCertificateInstall(t *testing.T) {
 	}
 	addA := func(host string) {
 		t.Helper()
-		b, _ := json.Marshal(map[string]any{"host": host + "." + certTestDomain + ".", "addresses": []string{sniIP}})
+		b, _ := json.Marshal(map[string]any{"host": dnsname.Host(host, certTestDomain) + ".", "addresses": []string{sniIP}})
 		r, err := http.Post(mgmt+"/add-a", "application/json", bytes.NewReader(b))
 		if err != nil || r.StatusCode != http.StatusOK {
 			t.Fatalf("add-a: %v %v", err, r)
 		}
 	}
-	// meet. alone isn't enough: Let's Encrypt checks turn. too.
-	addA("meet")
+	// The domain alone isn't enough: Let's Encrypt checks turn. too.
+	addA(dnsname.Apex)
 	waitUntil(t, ctx, func() bool {
 		c := h.State().View.Cert
 		return len(c.DNS.Names) == 2 && c.DNS.Names[0].State == install.DNSOK
 	})
 	time.Sleep(2 * time.Second)
 	if c := h.State().View.Cert; c.DNS.State != install.DNSMissing || c.Reach.State != "" {
-		t.Fatalf("with meet. only: %+v", c)
+		t.Fatalf("with the domain only: %+v", c)
 	}
 	// The owner adds the second record: the rest happens by itself.
 	addA("turn")
@@ -255,7 +256,7 @@ func TestWebCertificateInstall(t *testing.T) {
 	for _, p := range h.State().Progress {
 		lines = append(lines, p.Text)
 	}
-	for _, want := range []string{"meet.linx.test and turn.linx.test point at this server", "Let's Encrypt reached this server on port 443", "Certificate ready: https://meet.linx.test"} {
+	for _, want := range []string{"linx.test and turn.linx.test point at this server", "Let's Encrypt reached this server on port 443", "Certificate ready: https://linx.test"} {
 		if !strings.Contains(strings.Join(lines, "\n"), want) {
 			t.Errorf("progress lacks %q: %q", want, lines)
 		}
@@ -294,7 +295,7 @@ func TestWebCertificateInstall(t *testing.T) {
 			return (&net.Dialer{}).DialContext(ctx, network, "127.0.0.1:443")
 		},
 	}}
-	const meet = "https://meet." + certTestDomain
+	const meet = "https://" + certTestDomain
 	if r := post(secure, meet+"/install/api/redeem", meet, `{"handoff":"`+ho.Handoff+`"}`); r.StatusCode != http.StatusNoContent {
 		t.Fatalf("redeem: %d", r.StatusCode)
 	}

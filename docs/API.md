@@ -4,7 +4,7 @@ Status: **approved by the owner 2026-09-23** (ADR-025 to ADR-030).
 The admin portal, the web client, `linx` CLI and every integration use this API. Nothing gets a private back door.
 
 ## 1. In plain words
-- **API**: other programs talk to Linx over HTTPS at `https://api.<domain>/api/v1/`. What it offers is written down in one file, `api/openapi.yaml` (the "menu"). Server code and the web app's client are generated from it, so they can't disagree.
+- **API**: other programs talk to Linx over HTTPS at `https://<domain>/api/v1/` (the base domain itself, ADR-059; `api.<domain>` until 2026-09-28). What it offers is written down in one file, `api/openapi.yaml` (the "menu"). Server code and the web app's client are generated from it, so they can't disagree.
 - **API keys**: long random passwords for programs. Each key only opens the doors (scopes) it was given, can be revoked instantly, and is shown once. Linx stores only a fingerprint of it.
 - **Webhooks**: Linx calls *your* URL when something happens (a missed call, a trunk going down). Each message is signed so the receiver can prove it came from Linx. Failed deliveries are retried for about a day and can be re-sent from a log.
 - **Admin alerts**: short messages to you on ntfy, Gotify, Slack, Teams, Telegram or a webhook (email later in Phase 1) when something needs attention. The same problem is not repeated every minute, and quiet hours are respected except for critical problems.

@@ -25,7 +25,7 @@ func addRelay(f *fixture) {
 }
 
 func TestRelay(t *testing.T) {
-	f := newFixture(t, false, now.Add(80*day), "*.lab.example.com")
+	f := newFixture(t, false, now.Add(80*day), "lab.example.com", "*.lab.example.com")
 	addRelay(f)
 	rs := Relay(context.Background(), f.env)
 	if worst(rs) != installer.OK {
@@ -48,7 +48,7 @@ func TestRelay(t *testing.T) {
 		{"a stranger", mediaNetCmd, "true linx-coturn linx-asterisk linx-other\n", "linx-other"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t, false, now.Add(80*day), "*.lab.example.com")
+			f := newFixture(t, false, now.Add(80*day), "lab.example.com", "*.lab.example.com")
 			addRelay(f)
 			f.runner[tc.key] = tc.value
 			want(t, Relay(context.Background(), f.env), installer.Fail, tc.msg)

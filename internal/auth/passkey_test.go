@@ -13,7 +13,7 @@ import (
 	"linxpbx.com/linx/internal/webauthntest"
 )
 
-const testOrigin = "https://meet.linx.test"
+const testOrigin = "https://linx.test"
 
 func newPasskeyAccounts(t *testing.T) (*Accounts, *fakeAccountStore, *fakeAlerts) {
 	t.Helper()

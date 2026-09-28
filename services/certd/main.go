@@ -1,6 +1,6 @@
 // Command certd issues, renews and deploys Linx's public certificate (lego,
 // ADR-010). With -once it checks and renews once, then exits (tests, doctor).
-// With -records meet,api,turn it points those names at this network's
+// With -records @,turn it points those names at this network's
 // public address in DNS, then exits (linx setup, docs/WEB.md §3). With
 // -bootstrap staging|real it gets the web install's first certificate by
 // TLS-ALPN-01, with no DNS token (docs/INSTALL.md §4), prints one result
@@ -35,7 +35,7 @@ const service = "linx-certd"
 
 func main() {
 	once := flag.Bool("once", false, "check and renew once, then exit")
-	records := flag.String("records", "", "point these host names (comma-separated, e.g. meet,api,turn) at this network's public address, then exit")
+	records := flag.String("records", "", "point these host names (comma-separated, e.g. @,turn; @ is the domain itself) at this network's public address, then exit")
 	address := flag.String("address", "", "with -records: point them at this address instead (home only)")
 	bootstrap := flag.String("bootstrap", "", "staging or real: get the install's first certificate through port 443, print the result, then exit")
 	flag.Parse()
@@ -103,10 +103,11 @@ func main() {
 	}
 }
 
-// checkHosts accepts only Linx's own host names.
+// checkHosts accepts only Linx's own host names (and the web app's names
+// from before it moved to the base domain, until setup runs again).
 func checkHosts(hosts []string) error {
 	for _, h := range hosts {
-		if !slices.Contains(certs.Hostnames, h) {
+		if !slices.Contains(certs.Hostnames, h) && !slices.Contains(certs.LegacyHosts, h) {
 			return fmt.Errorf("%q isn't one of Linx's host names %v", h, certs.Hostnames)
 		}
 	}

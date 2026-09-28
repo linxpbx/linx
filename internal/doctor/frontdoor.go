@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/installer"
 	"linxpbx.com/linx/internal/turn"
 )
@@ -66,9 +67,9 @@ func FrontDoor(ctx context.Context, env Env, cfg installer.Config) []Result {
 	if fd.Kind == installer.FrontDoorHTTPProxy {
 		// The proxy decrypts the web names with its own certificate: ask
 		// Linx's health through it instead. The relay has its own port.
-		web = []string{"meet", "api"}
+		web = []string{dnsname.Apex}
 		for _, h := range web {
-			name := h + "." + cfg.Domain.Name
+			name := dnsname.Host(h, cfg.Domain.Name)
 			status, body, err := env.HTTPSGet(ctx, addr, name, "/healthz", nil)
 			switch {
 			case err != nil:
@@ -83,7 +84,7 @@ func FrontDoor(ctx context.Context, env Env, cfg installer.Config) []Result {
 		turnAddr = netip.AddrPortFrom(settings.WebAddress, installer.TURNTLSPort).String()
 	}
 	for _, h := range web {
-		name := h + "." + cfg.Domain.Name
+		name := dnsname.Host(h, cfg.Domain.Name)
 		a := addr
 		if h == "turn" {
 			a = turnAddr
@@ -187,7 +188,7 @@ func publicDNS(ctx context.Context, env Env, rs *results, cfg installer.Config, 
 	var addrs []netip.Addr
 	var missing []string
 	for _, h := range installer.PublicHosts {
-		name := h + "." + cfg.Domain.Name
+		name := dnsname.Host(h, cfg.Domain.Name)
 		as, err := env.LookupIP(ctx, name)
 		if err != nil || len(as) == 0 {
 			missing = append(missing, name)
@@ -210,13 +211,13 @@ func publicDNS(ctx context.Context, env Env, rs *results, cfg installer.Config, 
 	case len(addrs) > 1:
 		rs.warn(fmt.Sprintf("The public names point at different addresses (%v).", addrs), records)
 	case home != "" && addrs[0].String() != home:
-		rs.fail(fmt.Sprintf("meet., api. and turn.%s point at %s, not this server (%s).", cfg.Domain.Name, addrs[0], home), records)
+		rs.fail(fmt.Sprintf("%s point at %s, not this server (%s).", installer.PublicNames(cfg.Domain.Name), addrs[0], home), records)
 	case home != "":
-		rs.ok(fmt.Sprintf("meet., api. and turn.%s point at this server (%s), for use at home.", cfg.Domain.Name, home))
+		rs.ok(fmt.Sprintf("%s point at this server (%s), for use at home.", installer.PublicNames(cfg.Domain.Name), home))
 	case addrs[0].IsPrivate() || addrs[0].IsLoopback():
 		rs.warn(fmt.Sprintf("The public names point at %s, a home-network address: they work at home only.", addrs[0]), records)
 	default:
-		rs.ok(fmt.Sprintf("meet., api. and turn.%s point at %s.", cfg.Domain.Name, addrs[0]))
+		rs.ok(fmt.Sprintf("%s point at %s.", installer.PublicNames(cfg.Domain.Name), addrs[0]))
 	}
 }
 

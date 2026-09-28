@@ -104,7 +104,7 @@ func (f *fixture) phones() []Result {
 
 func TestPhonesAllGreen(t *testing.T) {
 	for _, staging := range []bool{true, false} {
-		f := newFixture(t, staging, now.Add(80*day), "*.lab.example.com")
+		f := newFixture(t, staging, now.Add(80*day), "lab.example.com", "*.lab.example.com")
 		f.runner[inspect+"linx-postgres"] = "running healthy\n"
 		addPhones(t, f)
 		rs := f.phones()
@@ -157,7 +157,7 @@ func TestPhonesProblems(t *testing.T) {
 			}
 		}, installer.Fail, "local network address is 192.168.7.3"},
 		{"old certificate", func(f *fixture) {
-			other := newFixture(t, true, now.Add(80*day), "*.lab.example.com")
+			other := newFixture(t, true, now.Add(80*day), "lab.example.com", "*.lab.example.com")
 			f.env.TLSLeaf = func(context.Context, string, string, *x509.CertPool) (*x509.Certificate, error) {
 				b, _ := copyFromContainer(context.Background(), other.runner, certdContainer, fullchainPath)
 				cs, _ := parseCerts(b)

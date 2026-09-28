@@ -27,9 +27,16 @@ const (
 // licence allowlist rejects (owner decision, 2026-09-23).
 var Providers = []string{ProviderCloudflare, ProviderDuckDNS}
 
-// Hostnames are the Linx hostnames under the base domain (ARCHITECTURE §2).
-// They're used when the owner chooses a named certificate instead of a wildcard.
-var Hostnames = []string{"admin", "api", "meet", "provision", "sip", "turn"}
+// Hostnames are Linx's names: the base domain itself (dnsname.Apex: the web
+// app and the API), and the names under it (ARCHITECTURE §2). They're used
+// when the owner chooses a named certificate instead of a wildcard.
+var Hostnames = []string{dnsname.Apex, "admin", "provision", "sip", "turn"}
+
+// LegacyHosts were the web app's and API's own names before they moved to
+// the base domain (2026-09-28). A server set up before then may still list
+// them in LINX_DNS_RECORDS until setup runs again; the control plane
+// redirects them to the base domain.
+var LegacyHosts = []string{"meet", "api"}
 
 // RenewBefore is how long before expiry a certificate is renewed.
 const RenewBefore = 30 * 24 * time.Hour
@@ -117,16 +124,13 @@ func (c Config) Validate() error {
 	return errors.Join(errs...)
 }
 
-// Names are the DNS names the certificate covers.
+// Names are the DNS names the certificate covers: the base domain itself
+// (a wildcard doesn't cover it) and every name under it.
 func (c Config) Names() []string {
 	if c.Wildcard {
-		return []string{"*." + c.Domain}
+		return []string{c.Domain, "*." + c.Domain}
 	}
-	names := make([]string, len(Hostnames))
-	for i, h := range Hostnames {
-		names[i] = h + "." + c.Domain
-	}
-	return names
+	return dnsname.Hosts(Hostnames, c.Domain)
 }
 
 func envOr(getenv func(string) string, key, def string) string {

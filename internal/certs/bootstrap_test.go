@@ -18,7 +18,7 @@ func TestBootstrapFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprint(b.Names()); got != "[meet.example.com turn.example.com]" {
+	if got := fmt.Sprint(b.Names()); got != "[example.com turn.example.com]" {
 		t.Errorf("names: %s", got)
 	}
 	if b.ChallengeDir == "" || b.Directory != "" {

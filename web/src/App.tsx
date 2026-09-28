@@ -10,7 +10,7 @@ import { reportCompanyDone } from "@/lib/company";
 // separately, so the sign-in page stays small (docs/WEB.md §6).
 const SignedIn = lazy(() => import("@/screens/SignedIn"));
 // The web install's pages (docs/INSTALL.md): the plain page on port 6464,
-// then the secure one on https://meet.<domain>, before the rest of Linx
+// then the secure one on https://<domain>, before the rest of Linx
 // exists.
 const Install = lazy(() => import("@/screens/Install"));
 

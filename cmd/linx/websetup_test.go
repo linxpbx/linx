@@ -54,7 +54,7 @@ func TestWebSetupAlreadyInstalled(t *testing.T) {
 	env := webTestEnv(t, hostRunner{}, "192.168.1.20")
 	env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
 	var out, errOut bytes.Buffer
-	if code := runSetup(context.Background(), nil, &out, &errOut, env); code != 0 || !strings.Contains(out.String(), "already installed here, at https://meet.lab.linxpbx.com") {
+	if code := runSetup(context.Background(), nil, &out, &errOut, env); code != 0 || !strings.Contains(out.String(), "already installed here, at https://lab.linxpbx.com") {
 		t.Errorf("exit %d:\n%s%s", code, out.String(), errOut.String())
 	}
 }

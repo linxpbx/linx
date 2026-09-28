@@ -275,5 +275,5 @@ func printSetupLink(stdout io.Writer, u auth.User, token string) {
 	if domain == "" {
 		domain = "<your domain>"
 	}
-	fmt.Fprintf(stdout, "%s (%s, %s) can now set their password. Send them this link yourself — it works once, for 24 hours:\n\n  https://meet.%s/setup/%s\n\n", u.Name, u.Email, u.Role, domain, token)
+	fmt.Fprintf(stdout, "%s (%s, %s) can now set their password. Send them this link yourself — it works once, for 24 hours:\n\n  https://%s/setup/%s\n\n", u.Name, u.Email, u.Role, domain, token)
 }

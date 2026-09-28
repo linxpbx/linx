@@ -32,7 +32,7 @@ func TestAdminAccessCommand(t *testing.T) {
 
 	// No "confirm it's you" and no admin network: root on the server is the check.
 	code, out, errOut := runAdminAccessCmd(t, st, "open")
-	if code != 0 || !strings.Contains(out, "from anywhere again") || !strings.Contains(out, "https://meet.example.com/") {
+	if code != 0 || !strings.Contains(out, "from anywhere again") || !strings.Contains(out, "https://example.com/") {
 		t.Fatalf("open: code %d, %q, %q", code, out, errOut)
 	}
 	if st.settings.AdminNetworkRestricted || len(st.settings.AdminNetworks) != 1 {

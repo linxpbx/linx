@@ -566,7 +566,7 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.getByRole("button", { name: "Check and get a certificate" }).click();
 
       // The certificate page: the record to add, and what DNS says now.
-      await expect(page.getByRole("heading", { name: "Getting a certificate for meet.example.com" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Getting a certificate for example.com" })).toBeVisible();
       await expect(page.getByText("Add these 2 records at your DNS company")).toBeVisible();
       await expect(page.getByText("turn.example.com")).toBeVisible();
       await expect(page.getByText("Still points at 198.51.100.7.")).toBeVisible();
@@ -579,17 +579,17 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await fakeInstall(page, "home", {
         accepted: { front_door: "pangolin", proxy_address: "192.168.1.20" },
         cert: fakeCert({
-          front_door: "pangolin", dns: { state: "missing", names: [{ name: "meet.example.com", state: "missing" }, { name: "turn.example.com", state: "missing" }] },
-          add_records: [{ type: "A", name: "meet.example.com", value: "5.36.12.4" }, { type: "A", name: "turn.example.com", value: "5.36.12.4" }],
+          front_door: "pangolin", dns: { state: "missing", names: [{ name: "example.com", state: "missing" }, { name: "turn.example.com", state: "missing" }] },
+          add_records: [{ type: "A", name: "example.com", value: "5.36.12.4" }, { type: "A", name: "turn.example.com", value: "5.36.12.4" }],
           setup: {
             steps: ["On the Pangolin machine (192.168.1.20), add the block below to the end of config/traefik/dynamic_config.yml.",
               "On your router, keep TCP port 443 going to Pangolin (192.168.1.20), and send UDP port 443 to this server (192.168.1.212)."],
-            files: [{ title: "the block for Pangolin", path: "config/traefik/dynamic_config.yml", text: "tcp:\n  routers:\n    linx-web:\n      entryPoints: [websecure]\n      rule: \"HostSNI(`meet.example.com`) || HostSNI(`api.example.com`)\"\n" }],
+            files: [{ title: "the block for Pangolin", path: "config/traefik/dynamic_config.yml", text: "tcp:\n  routers:\n    linx-web:\n      entryPoints: [websecure]\n      rule: \"HostSNI(`example.com`) || HostSNI(`api.example.com`)\"\n" }],
           },
         }),
       });
       await page.goto("/install");
-      await expect(page.getByRole("heading", { name: "Getting a certificate for meet.example.com" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Getting a certificate for example.com" })).toBeVisible();
       await expect(page.getByText("Not found yet.")).toHaveCount(2);
       await expect(page.getByText("once you've added your token on the next page")).toBeVisible();
       await page.getByRole("button", { name: "Show the block for Pangolin" }).click();
@@ -602,7 +602,7 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
     test("certificate: Let's Encrypt couldn't reach port 443", async ({ page }) => {
       await fakeInstall(page, "rented", {
         cert: fakeCert({
-          dns: { state: "ok", names: [{ name: "meet.example.com", state: "ok", seen: ["203.0.113.5"] }, { name: "turn.example.com", state: "ok", seen: ["203.0.113.5"] }] },
+          dns: { state: "ok", names: [{ name: "example.com", state: "ok", seen: ["203.0.113.5"] }, { name: "turn.example.com", state: "ok", seen: ["203.0.113.5"] }] },
           reach: { state: "failed", kind: "connection", detail: "203.0.113.5: Timeout during connect (likely firewall problem)" },
         }),
       });
@@ -631,9 +631,9 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
 
     test("certificate ready, browser can't open it yet", async ({ page }) => {
       await fakeInstall(page, "rented", {
-        cert: fakeCert({ dns: { state: "ok" }, reach: { state: "ok" }, certificate: { state: "ok" }, secure_url: "https://meet.example.com" }),
+        cert: fakeCert({ dns: { state: "ok" }, reach: { state: "ok" }, certificate: { state: "ok" }, secure_url: "https://example.com" }),
       });
-      await page.route("https://meet.example.com/**", (route) => route.abort("namenotresolved"));
+      await page.route("https://example.com/**", (route) => route.abort("namenotresolved"));
       await page.goto("/install");
       await expect(page.getByText("Your browser can't open")).toBeVisible();
       await expect(page.getByRole("button", { name: "Open it" })).toBeVisible();
@@ -642,22 +642,22 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
 
     test("moves to the secure page", async ({ page, baseURL }) => {
       await fakeInstall(page, "rented", {
-        cert: fakeCert({ dns: { state: "ok" }, reach: { state: "ok" }, certificate: { state: "ok" }, secure_url: "https://meet.example.com" }),
+        cert: fakeCert({ dns: { state: "ok" }, reach: { state: "ok" }, certificate: { state: "ok" }, secure_url: "https://example.com" }),
       });
       await fakeSecureInstall(page, baseURL!);
       await page.goto("/install");
       await expect(page.getByRole("heading", { name: "You're on the secure page now" })).toBeVisible();
-      expect(page.url()).toBe("https://meet.example.com/install");
+      expect(page.url()).toBe("https://example.com/install");
       await expect(page.getByText("This page isn't encrypted yet")).toHaveCount(0);
       await shot(page, `install-secure-arrive-${label}`);
     });
 
     test("a used handoff", async ({ page, baseURL }) => {
       await fakeSecureInstall(page, baseURL!, { usedHandoff: true });
-      await page.goto("https://meet.example.com/install/continue#" + "h".repeat(43));
+      await page.goto("https://example.com/install/continue#" + "h".repeat(43));
       await expect(page.getByRole("heading", { name: "This link can't be used" })).toBeVisible();
       await expect(page.getByText("work once, for two minutes")).toBeVisible();
-      expect(page.url()).toBe("https://meet.example.com/install/continue");
+      expect(page.url()).toBe("https://example.com/install/continue");
     });
 
     test("at home, behind Pangolin", async ({ page }) => {

@@ -238,7 +238,7 @@ func main() {
 	// Company sign-in (ADR-052): providers are reached through the same
 	// guarded client as webhooks, so one on the home network needs its
 	// address on the outbound allowlist. It needs the domain too: the
-	// provider sends people back to meet.<domain>.
+	// provider sends people back to https://<domain>.
 	ssoSvc := &sso.Service{Store: st, Sealer: sealer, Policy: policy, Now: time.Now}
 	accounts.Company = st
 	if d := os.Getenv("LINX_DOMAIN"); d != "" {
@@ -426,7 +426,7 @@ func main() {
 	if _, err := cert.Current(); err != nil {
 		log.Warn("no TLS certificate yet; HTTPS connections fail until linx-certd deploys one", "err", err)
 	}
-	https := server.New(envOr(os.Getenv, "LINX_LISTEN_ADDR", ":8443"), webapp.Headers(mux))
+	https := server.New(envOr(os.Getenv, "LINX_LISTEN_ADDR", ":8443"), webapp.Headers(legacyHosts(os.Getenv("LINX_DOMAIN"), mux)))
 	https.TLSConfig = server.TLSConfig(cert.GetCertificate)
 	// Plain HTTP only on the container's own loopback, only for the Docker
 	// health check (healthcheck.go): nothing else can reach it.

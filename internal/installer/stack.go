@@ -213,9 +213,9 @@ func HostTimezone() string {
 // certNames describes internal/certs.Config.Names for the plan and summary.
 func certNames(c Config) string {
 	if c.Certificates.Wildcard {
-		return "*." + c.Domain.Name
+		return c.Domain.Name + " and *." + c.Domain.Name
 	}
-	return "admin., api., meet., provision., sip. and turn." + c.Domain.Name
+	return c.Domain.Name + " and admin., provision., sip. and turn." + c.Domain.Name
 }
 
 // ValidateDNSToken does a basic sanity check; the provider checks the rest

@@ -72,13 +72,12 @@ flowchart LR
 
 ## 2. Hostnames and exposure
 
-Default hostnames sit under one base domain chosen in the setup wizard.
+Default hostnames sit under one base domain chosen in the setup wizard. Since 2026-09-28 (ADR-059) the web app and the API answer at the **base domain itself** (`https://pbx.example.com`); `meet.` and `api.` redirect there on servers set up before then.
 
 | Host | Carries | Proxy mode | Public at proxy? |
 |---|---|---|---|
-| (none: `meet.`) | Admin console | HTTP (terminated) | Same address as the web client, admin bundle for admin roles only; admins sign in from anywhere with a second step, or only the home networks (setting). ADR-049 replaced the planned `admin.` host |
-| `meet.` | Guest join, meeting UI, click-to-call | HTTP | **Public** (the platform does its own auth) |
-| `api.` | REST, WSS events, SIP-over-WSS (routed to Asterisk), LiveKit signalling | HTTP/WSS | **Public** |
+| (the base domain) | Admin console | HTTP (terminated) | Same address as the web client, admin bundle for admin roles only; admins sign in from anywhere with a second step, or only the home networks (setting). ADR-049 replaced the planned `admin.` host |
+| (the base domain) | Web app, guest join, meeting UI, click-to-call; REST, WSS events, SIP-over-WSS (routed to Asterisk), LiveKit signalling | HTTP/WSS | **Public** (the platform does its own auth) |
 | `provision.` | Enrollment API, desk-phone configs (Phase 4) | HTTP | Public (token/MAC auth) |
 | `sip.` | SIP/TLS 5061-equivalent for trunks and desk phones | **TLS passthrough** | Allowlisted source IPs |
 | `turn.` | TURN/TLS | **TLS passthrough** (+ UDP 443 direct) | Public (credentials + quotas) |
@@ -98,8 +97,8 @@ Public UDP 5060/TCP 5060 is never exposed. Plaintext SIP is allowed only for exp
 
 The same renderer runs on re-setup and shows a diff before applying, with an automatic config backup first.
 
-- **A** (Pangolin/Traefik, dynamic IP, NAT): a generated block for Pangolin's Traefik file provider adds `HostSNI` TCP routers with `tls.passthrough: true` on `websecure` for `meet.`, `api.` (with PROXY protocol v2 to Linx) and `turn.`; Pangolin's HTTP resources aren't used, because Pangolin never checks a backend's certificate (docs/WEB.md §3 "As built"). UDP 443 is port-forwarded straight to coturn. HTTP/3 should be off on the Traefik entrypoint.
-- **B** (existing nginx/HAProxy): generates an nginx `stream` `ssl_preread` map (or HAProxy backends) that passes `meet.`, `api.` and `turn.` through with PROXY v2; the owner's own sites move behind it. Caddy and other HTTP-only proxies are profile G(a) (docs/WEB.md §3).
+- **A** (Pangolin/Traefik, dynamic IP, NAT): a generated block for Pangolin's Traefik file provider adds `HostSNI` TCP routers with `tls.passthrough: true` on `websecure` for the base domain (with PROXY protocol v2 to Linx) and `turn.`; Pangolin's HTTP resources aren't used, because Pangolin never checks a backend's certificate (docs/WEB.md §3 "As built"). UDP 443 is port-forwarded straight to coturn. HTTP/3 should be off on the Traefik entrypoint.
+- **B** (existing nginx/HAProxy): generates an nginx `stream` `ssl_preread` map (or HAProxy backends) that passes the base domain and `turn.` through with PROXY v2; the owner's own sites move behind it. Caddy and other HTTP-only proxies are profile G(a) (docs/WEB.md §3).
 - **C** (standalone 443): the `linx-sni` HAProxy owns 443 and sends PROXY v2 to services that support it.
 - **D/E** (standard ports, VPS): native ports, no SNI router, no DDNS on E.
 - **F** (LAN only): records point to the LAN IP. DNS-01 still issues trusted certificates. Push-wake still works.
@@ -145,7 +144,7 @@ Metrics: push send → CallKit report → register → ring latency, and deliver
 
 ### 4.3 Meeting with guests (E2EE default)
 1. The host creates a meeting (API). The control plane creates a room record with an E2EE flag and a per-meeting key-set.
-2. The invite is a signed guest JWT link (`meet.<domain>/j/<code>`), a QR code and an email with `.ics`. The E2EE key is **never** placed in email content.
+2. The invite is a signed guest JWT link (`<domain>/j/<code>`), a QR code and an email with `.ics`. The E2EE key is **never** placed in email content.
 3. The guest opens the link, enters a name (and PIN), and waits in the lobby if enabled. The host clicks Admit.
 4. The control plane mints a short-lived LiveKit token and delivers the E2EE key over the authenticated WSS session. Keys rotate when participants leave.
 5. When E2EE is on, recording, dial-in and AI are disabled automatically. Browsers without insertable streams are blocked, and the host is told why.

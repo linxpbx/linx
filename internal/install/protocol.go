@@ -104,7 +104,7 @@ type View struct {
 	Ended string `json:"ended,omitempty"`
 	// Cert is the certificate page, once the answers are saved.
 	Cert *CertView `json:"cert,omitempty"`
-	// Secure: the session moved to https://meet.<domain> (the handoff was
+	// Secure: the session moved to https://<domain> (the handoff was
 	// used); SessionHash is then the secure page's cookie's, and the plain
 	// page's no longer works.
 	Secure bool `json:"secure,omitempty"`

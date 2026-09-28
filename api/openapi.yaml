@@ -6043,7 +6043,7 @@ components:
           $ref: "#/components/schemas/User"
         setup_link_token:
           type: string
-          description: Shown once; build the link as https://meet.<domain>/setup/<token>.
+          description: Shown once; build the link as https://<domain>/setup/<token>.
 
     UserList:
       type: object
@@ -6062,7 +6062,7 @@ components:
       properties:
         setup_link_token:
           type: string
-          description: Shown once; build the link as https://meet.<domain>/setup/<token>.
+          description: Shown once; build the link as https://<domain>/setup/<token>.
 
     PasswordChange:
       type: object

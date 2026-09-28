@@ -41,7 +41,7 @@ func TestCertViewPerFrontDoor(t *testing.T) {
 		}
 		if (v.Mode == install.CertPort443) != (len(v.AddRecords) == 2) {
 			t.Errorf("%s: records %+v", tc.kind, v.AddRecords)
-		} else if len(v.AddRecords) == 2 && (v.AddRecords[0].Name != "meet.example.com" || v.AddRecords[1].Name != "turn.example.com" || v.AddRecords[1].Value != "203.0.113.5") {
+		} else if len(v.AddRecords) == 2 && (v.AddRecords[0].Name != "example.com" || v.AddRecords[1].Name != "turn.example.com" || v.AddRecords[1].Value != "203.0.113.5") {
 			t.Errorf("%s: records %+v", tc.kind, v.AddRecords)
 		}
 		if tc.steps == "" && tc.files == 0 {
@@ -114,10 +114,10 @@ func TestCertdRun(t *testing.T) {
 	if !strings.Contains(got, "--volume "+DNSTokenPath+":/run/secrets/linx_dns_token:ro certd -once") {
 		t.Errorf("with the token: %s", got)
 	}
-	if got := strings.Join(RecordsArgs(webCertConfig(FrontDoorHomeOnly, ""), homeLAN), " "); got != "-records meet,api,turn -address 192.168.1.212" {
+	if got := strings.Join(RecordsArgs(webCertConfig(FrontDoorHomeOnly, ""), homeLAN), " "); got != "-records @,turn -address 192.168.1.212" {
 		t.Errorf("home only records: %s", got)
 	}
-	if got := strings.Join(RecordsArgs(webCertConfig(FrontDoorHTTPProxy, "192.168.1.20"), homeLAN), " "); got != "-records meet,api,turn" {
+	if got := strings.Join(RecordsArgs(webCertConfig(FrontDoorHTTPProxy, "192.168.1.20"), homeLAN), " "); got != "-records @,turn" {
 		t.Errorf("proxy records: %s", got)
 	}
 	s := SaveDNSTokenPlan(" tok \n")[0]

@@ -17,7 +17,7 @@ import (
 // (CertPort443: the DNS record to add, then a test certificate, then the
 // real one); with one that can't (Caddy or Nginx Proxy Manager, or home
 // only), the DNS company's token is asked on the plain page instead
-// (CertToken). Then the page moves to https://meet.<domain> with a
+// (CertToken). Then the page moves to https://<domain> with a
 // one-time handoff.
 
 // Certificate page modes.
@@ -33,7 +33,7 @@ const (
 	StageFailed  = "failed"
 )
 
-// DNS states: what meet.<domain> points at right now.
+// DNS states: what a name points at right now.
 const (
 	DNSMissing = "missing" // no record yet
 	DNSWrong   = "wrong"   // it points somewhere else
@@ -67,7 +67,7 @@ type CertView struct {
 	Certificate Stage `json:"certificate"`
 	// TokenSaved: the token is on the server (CertToken).
 	TokenSaved bool `json:"token_saved,omitempty"`
-	// SecureURL is https://meet.<domain>, once the certificate is ready.
+	// SecureURL is https://<domain>, once the certificate is ready.
 	SecureURL string `json:"secure_url,omitempty"`
 }
 
@@ -320,7 +320,7 @@ func (h *Host) tokenStep(ctx context.Context, c *CertView) {
 	}
 	if c.Records.State == "" {
 		h.updateCert(func(c *CertView) { c.Records = Stage{State: StageRunning, At: h.now().UTC()} },
-			h.line("Pointing meet., api. and turn."+c.Domain+" at this server (DNS)", true, false))
+			h.line("Pointing "+c.Domain+" and turn."+c.Domain+" at this server (DNS)", true, false))
 		if err := h.Cert.Records(ctx); err != nil {
 			if ctx.Err() != nil {
 				return
@@ -352,8 +352,8 @@ func (h *Host) realCert(ctx context.Context, obtain func(context.Context) error)
 	}
 	h.updateCert(func(c *CertView) {
 		c.Certificate = Stage{State: StageOK, At: h.now().UTC()}
-		c.SecureURL = "https://meet." + c.Domain
-	}, h.line("Certificate ready: https://meet."+h.cert().Domain, false, false))
+		c.SecureURL = "https://" + c.Domain
+	}, h.line("Certificate ready: https://"+h.cert().Domain, false, false))
 }
 
 func dnsState(seen []string, err error, want string) string {

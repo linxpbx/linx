@@ -105,5 +105,5 @@ func signInURL() string {
 	if domain == "" {
 		domain = "<your domain>"
 	}
-	return "https://meet." + domain + "/"
+	return "https://" + domain + "/"
 }

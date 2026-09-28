@@ -1,5 +1,7 @@
 # Linx — Web client and front door (Phase 1C)
 
+> **Since 2026-09-28 (ADR-059):** the web app and the API answer at the base domain itself (`https://<domain>`), not `meet.<domain>`/`api.<domain>`, which redirect there on older servers. This document keeps the names as they were when it was written.
+
 Status: **approved by the owner 2026-09-24** (ADR-036 to ADR-041). Owner decisions so far: simple accounts now (ADR-036), every front door designed and NAT-friendly with Pangolin built first (ADR-040), open-source Opus add-on (ADR-041).
 Third slice of Phase 1 (`docs/ROADMAP.md`). People sign in at a web address and make and take calls in the browser, from home or from anywhere, including networks that block everything except web traffic. Trunks (1D) and the admin portal (1E) come later.
 

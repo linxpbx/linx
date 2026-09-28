@@ -83,14 +83,14 @@ type PasskeyStore interface {
 
 // NewWebAuthn is Linx's relying party for domain (ADR-051): the ID is the
 // base domain, so one passkey works on every Linx hostname under it; the
-// web client is served at meet.<domain>. Attestation none (any maker's
+// web client is served at the domain itself. Attestation none (any maker's
 // device), discoverable credentials and user verification required.
 func NewWebAuthn(domain string) (*webauthn.WebAuthn, error) {
 	timeout := webauthn.TimeoutConfig{Enforce: true, Timeout: PasskeyCeremonyTTL, TimeoutUVD: PasskeyCeremonyTTL}
 	return webauthn.New(&webauthn.Config{
 		RPID:                  domain,
 		RPDisplayName:         "Linx",
-		RPOrigins:             []string{"https://meet." + domain},
+		RPOrigins:             []string{"https://" + domain},
 		AttestationPreference: protocol.PreferNoAttestation,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			ResidentKey:        protocol.ResidentKeyRequirementRequired,

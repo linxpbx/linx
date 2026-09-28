@@ -32,13 +32,12 @@ import (
 // of failed tries.
 
 // BootstrapHosts are the names the first certificate covers, each a DNS
-// record the owner adds by hand: meet. (the web app) and turn. (calls
-// through firewalls, which front doors tell apart from the web app by
-// name on the same port 443). api. is the same server as meet. and isn't
-// needed to finish setting up; sip. points at the home network, where Let's
-// Encrypt can't reach it. Both come with the wildcard, once there's a DNS
-// token (and Linx makes their records itself).
-var BootstrapHosts = []string{"meet", "turn"}
+// record the owner adds by hand: the base domain itself (the web app and
+// the API) and turn. (calls through firewalls, which front doors tell
+// apart from the web app by name on the same port 443). sip. points at the
+// home network, where Let's Encrypt can't reach it: it comes with the
+// wildcard, once there's a DNS token (and Linx makes its record itself).
+var BootstrapHosts = []string{dnsname.Apex, "turn"}
 
 // ACMETLS1 is the protocol Let's Encrypt's check asks for.
 const ACMETLS1 = tlsalpn01.ACMETLS1Protocol
@@ -85,11 +84,7 @@ func BootstrapFromEnv(getenv func(string) string) (Bootstrap, error) {
 
 // Names are the first certificate's names.
 func (b Bootstrap) Names() []string {
-	names := make([]string, len(BootstrapHosts))
-	for i, h := range BootstrapHosts {
-		names[i] = h + "." + b.Domain
-	}
-	return names
+	return dnsname.Hosts(BootstrapHosts, b.Domain)
 }
 
 // BootstrapResult is certd -bootstrap's one line on stdout, under

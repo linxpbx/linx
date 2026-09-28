@@ -548,9 +548,9 @@ export type FakeCert = Record<string, unknown>;
 export function fakeCert(over: FakeCert = {}): FakeCert {
   return {
     mode: "port443", domain: "example.com", front_door: "linx-443",
-    add_records: [{ type: "A", name: "meet.example.com", value: "203.0.113.5" }, { type: "A", name: "turn.example.com", value: "203.0.113.5" }],
+    add_records: [{ type: "A", name: "example.com", value: "203.0.113.5" }, { type: "A", name: "turn.example.com", value: "203.0.113.5" }],
     dns: { state: "wrong", checked_at: "2026-09-28T08:07:15Z", names: [
-      { name: "meet.example.com", state: "wrong", seen: ["198.51.100.7"] }, { name: "turn.example.com", state: "missing" }] },
+      { name: "example.com", state: "wrong", seen: ["198.51.100.7"] }, { name: "turn.example.com", state: "missing" }] },
     prepare: { state: "ok" }, reach: {}, records: {}, certificate: {},
     ...over,
   };
@@ -587,7 +587,7 @@ export async function fakeInstall(page: Page, where: "rented" | "home", opts: {
         return route.fulfill({ status: 422, json: { errors: [{ step: "domain", field: "domain", message: "co.uk is shared by everyone. Use your own domain." }] } });
       }
       accepted = a;
-      cert = fakeCert({ domain: a.domain, add_records: ["meet", "turn"].map((h) => ({ type: "A", name: `${h}.${a.domain}`, value: facts.public_address })) });
+      cert = fakeCert({ domain: a.domain, add_records: [a.domain, `turn.${a.domain}`].map((name) => ({ type: "A", name, value: facts.public_address })) });
       return route.fulfill({ json: { ok: true } });
     }
     if (url.pathname === "/install/api/door-ready" && cert) {
@@ -608,11 +608,11 @@ export async function fakeInstall(page: Page, where: "rented" | "home", opts: {
 }
 
 /**
- * The secure page at https://meet.example.com, served from the test's own
+ * The secure page at https://example.com, served from the test's own
  * build (the requests never leave the browser).
  */
 export async function fakeSecureInstall(page: Page, base: string, opts: { usedHandoff?: boolean } = {}) {
-  await page.route("https://meet.example.com/**", async (route) => {
+  await page.route("https://example.com/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/install/api/redeem") {
       return opts.usedHandoff

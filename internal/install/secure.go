@@ -17,7 +17,7 @@ import (
 )
 
 // Install mode's HTTPS side (docs/INSTALL.md §4.1 and §5.1): the port every
-// front door sends meet., api. and turn.<domain> to. Before there's a
+// front door sends <domain> and turn.<domain> to. Before there's a
 // certificate it answers only Let's Encrypt's acme-tls/1 check, with the
 // challenge certificate certd left for that name; once the certificate is
 // deployed it also serves the secure page, reached through the one-time
@@ -78,7 +78,7 @@ func ServeChallenges(ctx context.Context, ln net.Listener, conf *tls.Config) {
 	}
 }
 
-// SecureHandler serves the HTTPS port: only on meet.<domain>, and only
+// SecureHandler serves the HTTPS port: only on <domain> itself, and only
 // once the host has a certificate page. Without the secure page's session
 // it answers the handoff page (which has no secrets: the handoff is in the
 // address's fragment, which never reaches a server), its files, the
@@ -91,7 +91,7 @@ func (s *Server) SecureHandler() http.Handler {
 		if h, _, err := net.SplitHostPort(host); err == nil {
 			host = h
 		}
-		if v.Cert == nil || !strings.EqualFold(host, "meet."+v.Cert.Domain) {
+		if v.Cert == nil || !strings.EqualFold(host, v.Cert.Domain) {
 			notFound(w)
 			return
 		}

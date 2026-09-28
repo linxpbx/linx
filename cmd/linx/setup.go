@@ -417,8 +417,9 @@ func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (stri
 		return saved, nil
 	}
 
-	fmt.Fprint(p.out, "\nLinx needs a domain name. It creates addresses under it, like admin.<domain> and meet.<domain>,\n"+
-		"and gets a certificate for them so browsers and apps connect securely.\n")
+	fmt.Fprint(p.out, "\nLinx needs a domain name. People open Linx at the domain itself (https://<domain>), and it\n"+
+		"creates a few names under it (turn.<domain>, sip.<domain>). Use a name just for Linx, like pbx.example.com.\n"+
+		"Linx gets a certificate for them so browsers and apps connect securely.\n")
 	oldDomain, oldProvider := cfg.Domain.Name, cfg.Domain.DNSProvider
 	for {
 		d, err := p.text("Domain (e.g. pbx.example.com or yourname.duckdns.org)", cfg.Domain.Name)
@@ -689,7 +690,7 @@ func chooseSetupMode(ctx context.Context, p *prompter, env setupEnv, webFlags bo
 		return true, nil
 	}
 	if cfg, err := loadSetupConfig("", env); err == nil && cfg.Installed() {
-		fmt.Fprintf(p.out, "Linx is already installed here (https://meet.%s). Setup asks its questions again,\n"+
+		fmt.Fprintf(p.out, "Linx is already installed here (https://%s). Setup asks its questions again,\n"+
 			"with your saved answers as the defaults: press Enter to keep one.\n\n", cfg.Domain.Name)
 		return false, nil
 	}
@@ -713,7 +714,7 @@ var errSetupRefused = errors.New("setup refused")
 // askFrontDoor asks what sits in front of Linx on the internet.
 func askFrontDoor(p *prompter, cfg *installer.Config, ask bool, lan installer.LAN) error {
 	if ask {
-		fmt.Fprint(p.out, "\nPeople reach Linx in a browser at https://meet.<domain>. From outside your home that goes through port 443.\n")
+		fmt.Fprint(p.out, "\nPeople reach Linx in a browser at https://<domain>. From outside your home that goes through port 443.\n")
 		k, err := p.choose("What sits in front of Linx on the internet?", installer.FrontDoors, installer.FrontDoorDescription, cfg.FrontDoor.Kind)
 		if err != nil {
 			return err
@@ -788,7 +789,7 @@ func printFrontDoor(w io.Writer, cfg installer.Config, lan installer.LAN) {
 		fmt.Fprintf(w, "\nLinx now answers on port 443 itself. If a router is in front, forward TCP and UDP port 443 to %s.\n"+
 			"Then check with: sudo linx doctor\n", where)
 	case installer.FrontDoorHomeOnly:
-		fmt.Fprintf(w, "\nLinx answers at https://meet.%s on this home network only (%s). Calls from outside aren't set up.\n",
+		fmt.Fprintf(w, "\nLinx answers at https://%s on this home network only (%s). Calls from outside aren't set up.\n",
 			cfg.Domain.Name, lan.Address)
 	default:
 		fmt.Fprintln(w, "\nLinx has no web address yet, and calls from outside aren't set up. Run setup again and pick a front door when you want them.")

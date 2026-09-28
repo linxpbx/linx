@@ -29,7 +29,7 @@ func runHealthcheck(getenv func(string) string, client *http.Client) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	name := "meet." + strings.TrimSpace(getenv("LINX_DOMAIN"))
+	name := strings.TrimSpace(getenv("LINX_DOMAIN"))
 	if certs.ServesCurrent(ctx, net.JoinHostPort(loopback(host), port), name, envOr(getenv, "LINX_CERTS_DIR", defaultCertsDir)) != nil {
 		return 1
 	}

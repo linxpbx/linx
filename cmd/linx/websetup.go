@@ -75,7 +75,7 @@ func runWebSetup(ctx context.Context, o webOptions, stdout, stderr io.Writer, en
 		return 1
 	}
 	if cfg, err := loadSetupConfig("", env); err == nil && cfg.Installed() {
-		fmt.Fprintf(stdout, "Linx is already installed here, at https://meet.%s.\n"+
+		fmt.Fprintf(stdout, "Linx is already installed here, at https://%s.\n"+
 			"To change its settings, run  sudo linx setup  in a terminal, or edit %s and run:\n\n"+
 			"  sudo linx setup --config %s\n\nNothing was changed.\n",
 			cfg.Domain.Name, installer.ConfigPath, installer.ConfigPath)

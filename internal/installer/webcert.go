@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"linxpbx.com/linx/internal/certs"
+	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/install"
 )
 
@@ -29,7 +30,7 @@ func CertView(c Config, lan LAN, facts install.Facts) install.CertView {
 	v := install.CertView{Mode: CertMode(c.FrontDoor.Kind), Domain: c.Domain.Name, FrontDoor: c.FrontDoor.Kind, Setup: DoorSetup(c, lan)}
 	if v.Mode == install.CertPort443 {
 		for _, h := range certs.BootstrapHosts {
-			v.AddRecords = append(v.AddRecords, install.Record{Type: "A", Name: h + "." + c.Domain.Name, Value: facts.PublicAddress})
+			v.AddRecords = append(v.AddRecords, install.Record{Type: "A", Name: dnsname.Host(h, c.Domain.Name), Value: facts.PublicAddress})
 		}
 	}
 	return v

@@ -152,3 +152,41 @@ func TestPublicIPv4(t *testing.T) {
 		t.Error("a private address accepted as public")
 	}
 }
+
+// The base domain may be someone's website: setup creates its record when
+// there's none, and keeps it up to date once it's Linx's, but never
+// replaces an address someone else set there.
+func TestPointRecordsApex(t *testing.T) {
+	cf := &fakeCloudflare{records: map[string]cfRecord{
+		"example.com": {ID: "w1", Type: "A", Name: "example.com", Content: "198.51.100.80"},
+	}}
+	srv := httptest.NewServer(cf)
+	defer srv.Close()
+	c := &RecordsClient{HTTP: srv.Client(), CloudflareAPI: srv.URL} // setup: not OwnOnly
+	ip := netip.MustParseAddr("203.0.113.9")
+
+	cfg := Config{Domain: "example.com", Provider: ProviderCloudflare, TokenFile: tokenFile(t)}
+	res, err := c.PointRecords(context.Background(), cfg, []string{"@", "turn"}, ip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res[0].Name != "example.com" || !strings.HasPrefix(res[0].Outcome, "left as is: someone else") || !strings.HasPrefix(res[1].Outcome, "created") {
+		t.Errorf("website at the apex: %+v", res)
+	}
+	if got := strings.Join(cf.writes, ","); got != "POST turn.example.com" {
+		t.Errorf("writes = %s", got)
+	}
+
+	cf.writes = nil
+	cfg.Domain = "pbx.example.com"
+	if _, err := c.PointRecords(context.Background(), cfg, []string{"@"}, ip); err != nil {
+		t.Fatal(err)
+	}
+	res, err = c.PointRecords(context.Background(), cfg, []string{"@"}, netip.MustParseAddr("203.0.113.10"))
+	if err != nil || !strings.HasPrefix(res[0].Outcome, "changed") {
+		t.Errorf("Linx's own apex record: %+v %v", res, err)
+	}
+	if got := strings.Join(cf.writes, ","); got != "POST pbx.example.com,PUT pbx.example.com" {
+		t.Errorf("writes = %s", got)
+	}
+}

@@ -110,7 +110,7 @@ func override(door string) string {
     networks:
       linx-public:
         ipv4_address: ` + pangolinAddress + `
-        aliases: [meet.linx.test, api.linx.test, turn.linx.test]
+        aliases: [linx.test, turn.linx.test]
 `
 	case installer.FrontDoorNginx:
 		s += `  owners-nginx:
@@ -121,7 +121,7 @@ func override(door string) string {
     networks:
       linx-public:
         ipv4_address: ` + nginxAddress + `
-        aliases: [meet.linx.test, api.linx.test, turn.linx.test]
+        aliases: [linx.test, turn.linx.test]
 `
 	case installer.FrontDoorHTTPProxy:
 		s += `  owners-caddy:
@@ -132,7 +132,7 @@ func override(door string) string {
     networks:
       linx-public:
         ipv4_address: ` + caddyAddress + `
-        aliases: [meet.linx.test, api.linx.test]
+        aliases: [linx.test]
   coturn:
     networks:
       linx-public:
@@ -142,7 +142,7 @@ func override(door string) string {
 		s += `  sni:
     networks:
       linx-public:
-        aliases: [linx-sni, meet.linx.test, api.linx.test, turn.linx.test]
+        aliases: [linx-sni, linx.test, turn.linx.test]
 `
 	}
 	return s + `volumes:
@@ -409,8 +409,8 @@ func (h *harness) start() {
 		// one), and serving the browsers the test certificate.
 		block := string(installer.CaddyConfig(domain, linx))
 		block = strings.NewReplacer("https://192.0.2.1:8443", "https://control-plane:8443",
-			"tls_server_name meet.linx.test\n", "tls_server_name meet.linx.test\n\t\t\ttls_trust_pool file /tls/root_ca.crt\n",
-			"meet.linx.test, api.linx.test {\n", "meet.linx.test, api.linx.test {\n\ttls /tls/client.pem /tls/client.key\n").Replace(block)
+			"tls_server_name linx.test\n", "tls_server_name linx.test\n\t\t\ttls_trust_pool file /tls/root_ca.crt\n",
+			"\nlinx.test {\n", "\nlinx.test {\n\ttls /tls/client.pem /tls/client.key\n").Replace(block)
 		must(t, os.WriteFile(filepath.Join(h.dir, "Caddyfile"), []byte("{\n\tauto_https disable_redirects\n}\n"+block), 0o644))
 		env += "LINX_TRUSTED_PROXIES=" + caddyAddress + "\nLINX_PROXY_PROTOCOL=false\n"
 		services = append(services, "owners-caddy")
@@ -507,7 +507,7 @@ func (h *harness) deployCertificate() {
 	roots := x509.NewCertPool()
 	roots.AddCert(ca)
 	h.client = &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: "meet." + domain, MinVersion: tls.VersionTLS12}}}
+		TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: domain, MinVersion: tls.VersionTLS12}}}
 	// Chromium trusts exactly this certificate's key (pinned, not "ignore
 	// errors"): the browsers' only way to accept the test CA without
 	// installing it system-wide.
@@ -542,7 +542,7 @@ func (h *harness) call(method, path string, body any, out any) {
 
 var (
 	keyRe  = regexp.MustCompile(`linx_[A-Za-z0-9_-]{20,}`)
-	linkRe = regexp.MustCompile(`https://meet\.` + regexp.QuoteMeta(domain) + `/setup/([A-Za-z0-9_-]+)`)
+	linkRe = regexp.MustCompile(`https://` + regexp.QuoteMeta(domain) + `/setup/([A-Za-z0-9_-]+)`)
 )
 
 func (h *harness) provision(t *testing.T) {
@@ -623,13 +623,13 @@ func (h *harness) provision(t *testing.T) {
 	}
 
 	// The browsers: Playwright's own image on linx-public, running
-	// web/e2e/calls.spec.ts against https://meet.linx.test, through the
+	// web/e2e/calls.spec.ts against https://linx.test, through the
 	// front door on 443.
 	web, _ := filepath.Abs("../../web")
 	cmd := exec.CommandContext(h.ctx, "docker", "run", "--rm", "--name", "linx-browser-test-playwright",
 		"--network", netPrefix+"public", "--ipc", "host", "--init",
 		"--volume", web+":/web", "--workdir", "/web",
-		"--env", "LINX_BASE_URL=https://meet."+domain,
+		"--env", "LINX_BASE_URL=https://"+domain,
 		"--env", "LINX_TEST_SPKI="+os.Getenv("LINX_TEST_SPKI"),
 		"--env", "LINX_SETUP_A="+aisha, "--env", "LINX_SETUP_B="+omar, "--env", "LINX_SETUP_ADMIN="+owner,
 		"--env", "CI=1",

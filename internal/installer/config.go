@@ -181,7 +181,8 @@ container_ui: %s
 # Resource profile: auto (chosen from the hardware), lite, standard or performance.
 resource_profile: %s
 domain:
-  # Base domain. Linx uses admin., api., meet., provision., sip. and turn. under it.
+  # Base domain. The web app answers at the domain itself (https://pbx.example.com);
+  # Linx also uses admin., provision., sip. and turn. under it.
   name: %s
   # Where the domain's DNS is managed: cloudflare or duckdns. The API token is
   # kept in `+DNSTokenPath+`, not here.

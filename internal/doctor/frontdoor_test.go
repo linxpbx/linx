@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/installer"
 )
 
@@ -39,7 +40,7 @@ func addFrontDoor(f *fixture) {
 	}
 	f.env.LookupIP = func(ctx context.Context, host string) ([]netip.Addr, error) {
 		for _, h := range installer.PublicHosts {
-			if host == h+".lab.example.com" && host != fk.notInDNS {
+			if host == dnsname.Host(h, "lab.example.com") && host != fk.notInDNS {
 				if fk.dnsAddr != "" {
 					return []netip.Addr{netip.MustParseAddr(fk.dnsAddr)}, nil
 				}
@@ -104,7 +105,7 @@ func TestFrontDoorPangolin(t *testing.T) {
 		break_ func(f *fixture, fk *frontDoorFakes)
 		want   string
 	}{
-		{"not passed through", func(_ *fixture, fk *frontDoorFakes) { fk.notPassedThrough = "api.lab.example.com" }, "api.lab.example.com through Pangolin (192.168.1.30) answers with another certificate"},
+		{"not passed through", func(_ *fixture, fk *frontDoorFakes) { fk.notPassedThrough = "lab.example.com" }, "lab.example.com through Pangolin (192.168.1.30) answers with another certificate"},
 		// Traefik didn't load the block (two tcp: sections in its file):
 		// it answers every name with its own placeholder certificate.
 		{"Traefik didn't load Linx's block", func(_ *fixture, fk *frontDoorFakes) { fk.traefikDefault = true }, "Pangolin's Traefik has no route for this name: it didn't load Linx's settings"},
@@ -143,7 +144,7 @@ func TestFrontDoorHTTPProxy(t *testing.T) {
 	f := platformFixture(t, healthyState)
 	f.cfg.FrontDoor = installer.FrontDoorConfig{Kind: installer.FrontDoorHTTPProxy, ProxyAddress: "192.168.1.30"}
 	rs := FrontDoor(context.Background(), f.env, f.cfg)
-	if worst(rs) != installer.OK || !strings.Contains(dump(rs), "meet.lab.example.com reaches Linx through your proxy (192.168.1.30).") {
+	if worst(rs) != installer.OK || !strings.Contains(dump(rs), "lab.example.com reaches Linx through your proxy (192.168.1.30).") {
 		t.Fatalf("healthy HTTP-only proxy:\n%s", dump(rs))
 	}
 	if f.frontDoor.turnAddr != "192.168.1.20:5349" {

@@ -14,9 +14,13 @@ func TestFollowerFromEnv(t *testing.T) {
 	if f, err := followerFromEnv(certs.Config{}, env(nil), log); f != nil || err != nil {
 		t.Errorf("no records: %v, %v", f, err)
 	}
-	f, err := followerFromEnv(certs.Config{}, env(map[string]string{"LINX_DNS_RECORDS": "meet,api,turn", "LINX_DNS_ADDRESS": "192.168.1.20"}), log)
-	if err != nil || len(f.Hosts) != 3 || f.Fixed.String() != "192.168.1.20" {
+	f, err := followerFromEnv(certs.Config{}, env(map[string]string{"LINX_DNS_RECORDS": "@,turn", "LINX_DNS_ADDRESS": "192.168.1.20"}), log)
+	if err != nil || len(f.Hosts) != 2 || f.Fixed.String() != "192.168.1.20" {
 		t.Errorf("home only: %+v, %v", f, err)
+	}
+	// A server set up before the web app moved to the base domain.
+	if _, err := followerFromEnv(certs.Config{}, env(map[string]string{"LINX_DNS_RECORDS": "meet,api,turn"}), log); err != nil {
+		t.Errorf("old names refused: %v", err)
 	}
 	for _, bad := range []map[string]string{
 		{"LINX_DNS_RECORDS": "meet,www"},

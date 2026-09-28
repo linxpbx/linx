@@ -105,7 +105,7 @@ func TestFrontDoorFiles(t *testing.T) {
 	linx := netip.MustParseAddr("192.168.1.20")
 	tr := string(PangolinTraefik("lab.example.com", linx))
 	for _, want := range []string{
-		"rule: \"HostSNI(`meet.lab.example.com`) || HostSNI(`api.lab.example.com`)\"",
+		"rule: \"HostSNI(`lab.example.com`)\"",
 		"rule: \"HostSNI(`turn.lab.example.com`)\"",
 		"passthrough: true",
 		"entryPoints: [websecure]",
@@ -149,13 +149,13 @@ func TestFrontDoorFiles(t *testing.T) {
 	}
 	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30"}
 	files, dns := FrontDoorPlan(cfg, lan)
-	if len(files) != 2 || len(dns) != 1 || !strings.Contains(dns[0].Cmd.String(), "certd -records meet,api,turn") {
+	if len(files) != 2 || len(dns) != 1 || !strings.Contains(dns[0].Cmd.String(), "certd -records @,turn") {
 		t.Errorf("pangolin plan: %+v %+v", files, dns)
 	}
 	env := string(stackDotEnv(cfg, "abc", lan))
 	for _, want := range []string{"LINX_TRUSTED_PROXIES=192.168.1.30\n", "LINX_WEB_ADDRESS=192.168.1.20\n",
 		"LINX_TURN_UDP_ADDRESS=192.168.1.20\n", "LINX_TURN_UDP_PORT=443\n", "COMPOSE_PROFILES=\n",
-		"LINX_PROXY_PROTOCOL=true\n", "LINX_DNS_RECORDS=meet,api,turn\n", "LINX_DNS_ADDRESS=\n"} {
+		"LINX_PROXY_PROTOCOL=true\n", "LINX_DNS_RECORDS=@,turn\n", "LINX_DNS_ADDRESS=\n"} {
 		if !strings.Contains(env, want) {
 			t.Errorf(".env missing %q:\n%s", want, env)
 		}
@@ -165,7 +165,7 @@ func TestFrontDoorFiles(t *testing.T) {
 func TestFrontDoorFilesMore(t *testing.T) {
 	linx := netip.MustParseAddr("192.168.1.20")
 	ng := string(NginxStream("lab.example.com", linx))
-	for _, want := range []string{"stream {", "map $ssl_preread_server_name $linx_route", "meet.lab.example.com  192.168.1.20:8443;",
+	for _, want := range []string{"stream {", "map $ssl_preread_server_name $linx_route", "lab.example.com       192.168.1.20:8443;",
 		"turn.lab.example.com  127.0.0.1:4445;", "listen 443;", "proxy_protocol on;", "listen 127.0.0.1:4445 proxy_protocol;",
 		"proxy_pass 192.168.1.20:5349;"} {
 		if !strings.Contains(ng, want) {
@@ -177,7 +177,7 @@ func TestFrontDoorFilesMore(t *testing.T) {
 		t.Errorf("HAProxy snippet:\n%s", hs)
 	}
 	cd := string(CaddyConfig("lab.example.com", linx))
-	for _, want := range []string{"meet.lab.example.com, api.lab.example.com {", "reverse_proxy https://192.168.1.20:8443", "tls_server_name meet.lab.example.com", "header_up Host {host}"} {
+	for _, want := range []string{"\nlab.example.com {", "reverse_proxy https://192.168.1.20:8443", "tls_server_name lab.example.com", "header_up Host {host}"} {
 		if !strings.Contains(cd, want) {
 			t.Errorf("Caddyfile missing %q:\n%s", want, cd)
 		}
@@ -194,7 +194,7 @@ func TestFrontDoorFilesMore(t *testing.T) {
 	lan := LAN{Address: linx, Network: netip.MustParsePrefix("192.168.1.0/24")}
 	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorHomeOnly}
 	files, dns := FrontDoorPlan(cfg, lan)
-	if len(files) != 1 || files[0].File.Path != HAProxyConfigFile || !strings.HasSuffix(dns[0].Cmd.String(), "-records meet,api,turn -address 192.168.1.20") {
+	if len(files) != 1 || files[0].File.Path != HAProxyConfigFile || !strings.HasSuffix(dns[0].Cmd.String(), "-records @,turn -address 192.168.1.20") {
 		t.Errorf("home-only plan: %+v / %s", files, dns[0].Cmd)
 	}
 	for _, k := range []string{FrontDoorNginx, FrontDoorHTTPProxy} {

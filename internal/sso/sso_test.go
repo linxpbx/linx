@@ -139,7 +139,7 @@ func wantCode(t *testing.T, err error, code string) {
 }
 
 func TestRedirectURI(t *testing.T) {
-	if got := RedirectURI("example.org"); got != "https://meet.example.org/api/v1/sso/callback" {
+	if got := RedirectURI("example.org"); got != "https://example.org/api/v1/sso/callback" {
 		t.Fatal(got)
 	}
 }
@@ -289,7 +289,7 @@ func TestButtonsAndClientRefuseDisabledProviders(t *testing.T) {
 		t.Fatalf("Start = %v %v", prov, err)
 	}
 	for _, want := range []string{"https://example.com/auth?", "state=st", "nonce=nn", "code_challenge_method=S256", "scope=openid+email+profile",
-		"redirect_uri=https%3A%2F%2Fmeet.linx.test%2Fapi%2Fv1%2Fsso%2Fcallback"} {
+		"redirect_uri=https%3A%2F%2Flinx.test%2Fapi%2Fv1%2Fsso%2Fcallback"} {
 		if !strings.Contains(url, want) {
 			t.Errorf("auth URL %s lacks %s", url, want)
 		}

@@ -100,12 +100,12 @@ func TestSettle(t *testing.T) {
 
 func TestNames(t *testing.T) {
 	c := Config{Domain: "pbx.example.com", Wildcard: true}
-	if got := c.Names(); len(got) != 1 || got[0] != "*.pbx.example.com" {
+	if got := c.Names(); len(got) != 2 || got[0] != "pbx.example.com" || got[1] != "*.pbx.example.com" {
 		t.Errorf("wildcard names = %v", got)
 	}
 	c.Wildcard = false
 	got := c.Names()
-	if len(got) != len(Hostnames) || got[0] != "admin.pbx.example.com" {
+	if len(got) != len(Hostnames) || got[0] != "pbx.example.com" || got[1] != "admin.pbx.example.com" || slices.Contains(got, "meet.pbx.example.com") {
 		t.Errorf("named = %v", got)
 	}
 	for _, n := range got {
@@ -278,7 +278,7 @@ func TestRenewReason(t *testing.T) {
 	now := time.Date(2026, 9, 23, 0, 0, 0, 0, time.UTC)
 	m := testManager(t, true, now)
 	fresh := &Deployed{
-		Meta: Meta{Names: []string{"*.pbx.example.com"}, Staging: true},
+		Meta: Meta{Names: []string{"pbx.example.com", "*.pbx.example.com"}, Staging: true},
 		Leaf: &x509.Certificate{NotAfter: now.AddDate(0, 0, 60)},
 	}
 	if r := m.renewReason(fresh); r != "" {
@@ -374,7 +374,7 @@ func TestMetrics(t *testing.T) {
 	MetricsHandler(m, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := rec.Body.String()
 	for _, want := range []string{
-		`linx_cert_expiry_timestamp_seconds{names="*.pbx.example.com",issuer="letsencrypt-staging"} 1790000000`,
+		`linx_cert_expiry_timestamp_seconds{names="pbx.example.com,*.pbx.example.com",issuer="letsencrypt-staging"} 1790000000`,
 		"linx_cert_renewal_failures_total 2",
 	} {
 		if !strings.Contains(body, want) {

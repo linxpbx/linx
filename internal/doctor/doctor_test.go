@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"linxpbx.com/linx/internal/certs"
+	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/installer"
 )
 
@@ -194,12 +195,12 @@ func dump(rs []Result) string {
 
 func TestAllGreen(t *testing.T) {
 	for _, staging := range []bool{true, false} {
-		f := newFixture(t, staging, now.Add(80*day), "*.lab.example.com")
+		f := newFixture(t, staging, now.Add(80*day), "lab.example.com", "*.lab.example.com")
 		rs := f.run()
 		if worst(rs) != installer.OK {
 			t.Errorf("staging=%v: want all ok, got:\n%s", staging, dump(rs))
 		}
-		want(t, rs, installer.OK, "covers admin., api., meet., provision., sip. and turn.lab.example.com")
+		want(t, rs, installer.OK, "covers lab.example.com, admin.lab.example.com, provision.lab.example.com, sip.lab.example.com and turn.lab.example.com")
 		want(t, rs, installer.OK, "80 days left")
 		if staging {
 			want(t, rs, installer.OK, "Let's Encrypt's test authority")
@@ -210,10 +211,7 @@ func TestAllGreen(t *testing.T) {
 }
 
 func TestNamedCertificate(t *testing.T) {
-	var names []string
-	for _, h := range Hostnames {
-		names = append(names, h+".lab.example.com")
-	}
+	names := dnsname.Hosts(Hostnames, "lab.example.com")
 	if rs := newFixture(t, true, now.Add(80*day), names...).run(); worst(rs) != installer.OK {
 		t.Errorf("want all ok, got:\n%s", dump(rs))
 	}
@@ -237,7 +235,7 @@ func TestProblems(t *testing.T) {
 		{name: "no certificate", setup: func(f *fixture) { delete(f.runner, "docker cp --follow-link linx-certd:"+fullchainPath+" -") },
 			level: installer.Fail, text: "no certificate yet"},
 		{name: "other domain", setup: func(f *fixture) { f.cfg.Domain.Name = "new.example.com" },
-			level: installer.Fail, text: "doesn't cover admin.new.example.com"},
+			level: installer.Fail, text: "doesn't cover new.example.com, admin.new.example.com"},
 		{name: "still staging", setup: func(f *fixture) { f.cfg.Certificates.Staging = false },
 			level: installer.Fail, text: "still a test certificate"},
 		{name: "untrusted chain", setup: func(f *fixture) { f.env.StagingRoots = x509.NewCertPool() },
@@ -274,7 +272,7 @@ func TestProblems(t *testing.T) {
 			if !tt.notAfter.IsZero() {
 				notAfter = tt.notAfter
 			}
-			f := newFixture(t, true, notAfter, "*.lab.example.com")
+			f := newFixture(t, true, notAfter, "lab.example.com", "*.lab.example.com")
 			if tt.setup != nil {
 				tt.setup(f)
 			}

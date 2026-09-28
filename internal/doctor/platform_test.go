@@ -15,7 +15,7 @@ const psqlCmd = "docker exec linx-postgres psql --username linx --dbname linx --
 // platformFixture is a healthy Phase 1 install on top of the certificate
 // fixture.
 func platformFixture(t *testing.T, state string) *fixture {
-	f := newFixture(t, true, now.Add(80*day), "*.lab.example.com")
+	f := newFixture(t, true, now.Add(80*day), "lab.example.com", "*.lab.example.com")
 	f.runner[inspect+"linx-postgres"] = "running healthy\n"
 	f.runner[inspect+"linx-control-plane"] = "running healthy\n"
 	f.runner["systemctl is-enabled linx-ops-agent.service"] = "enabled\n"

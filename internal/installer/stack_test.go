@@ -87,7 +87,7 @@ func TestStackPlan(t *testing.T) {
 	if strings.Join(cmds, "\n") != strings.Join(want, "\n") {
 		t.Errorf("commands:\n%s\nwant:\n%s", strings.Join(cmds, "\n"), strings.Join(want, "\n"))
 	}
-	if !strings.Contains(strings.Join(titles, "\n"), "Get a test certificate for *.lab.linxpbx.com") {
+	if !strings.Contains(strings.Join(titles, "\n"), "Get a test certificate for lab.linxpbx.com and *.lab.linxpbx.com") {
 		t.Errorf("titles: %q", titles)
 	}
 }

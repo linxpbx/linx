@@ -65,7 +65,7 @@ export function CertificateStep({ initial, answers, facts, onClosed }: {
   return (
     <div>
       <Title lead="A certificate is what makes the padlock appear in your browser.">
-        <span className="break-words">Getting a certificate for meet.{domain}</span>
+        <span className="break-words">Getting a certificate for {domain}</span>
       </Title>
       {cert.prepare.state === "failed" && (
         <Failure onRetry={() => void act(retryCertificate)}>
@@ -289,7 +289,7 @@ function dnsWords(seen?: { state: DNSState; seen?: string[] }): string {
 
 /** What went wrong, in words tied to the front door (§2.7 row 3). */
 function problemWords(s: Stage, cert: CertView, facts: Facts): string {
-  const name = `meet.${cert.domain}`;
+  const name = cert.domain;
   const route = (() => {
     switch (cert.front_door) {
       case "pangolin": return "Check that your router sends TCP port 443 to Pangolin, and that Pangolin has the block from step 1.";
@@ -336,7 +336,7 @@ function Details({ cert }: { cert: CertView }) {
           {[cert.prepare, cert.reach, cert.records, cert.certificate].filter((s) => s.detail).map((s, i) => (
             <li key={i} className="break-words font-mono text-xs">{s.detail}</li>
           ))}
-          <li>Check it yourself: <code className="font-mono">dig meet.{cert.domain}</code> and <code className="font-mono">dig turn.{cert.domain}</code></li>
+          <li>Check it yourself: <code className="font-mono">dig {cert.domain}</code> and <code className="font-mono">dig turn.{cert.domain}</code></li>
         </ul>
       </Disclosure>
     </div>
@@ -445,7 +445,7 @@ function MoveToSecure({ url }: { url: string }) {
   );
 }
 
-/** https://meet.<domain>: /install/continue#<handoff>, then /install. */
+/** https://<domain>: /install/continue#<handoff>, then /install. */
 export function SecureInstall() {
   const [state, setState] = useState<InstallState | "loading" | "closed" | "bad-handoff">("loading");
   useEffect(() => {

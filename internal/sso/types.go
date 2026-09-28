@@ -35,7 +35,7 @@ const GoogleIssuer = "https://accounts.google.com"
 const CallbackPath = "/api/v1/sso/callback"
 
 // RedirectURI is the address to register at the provider for domain.
-func RedirectURI(domain string) string { return "https://meet." + domain + CallbackPath }
+func RedirectURI(domain string) string { return "https://" + domain + CallbackPath }
 
 // Provider is one company sign-in provider. ClientSecretEnc is sealed with
 // ADR-030's key, row id SealID(ID); nil when the provider has no secret (a

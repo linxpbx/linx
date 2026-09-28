@@ -3584,7 +3584,7 @@ export interface components {
         };
         UserCreated: {
             user: components["schemas"]["User"];
-            /** @description Shown once; build the link as https://meet.<domain>/setup/<token>. */
+            /** @description Shown once; build the link as https://<domain>/setup/<token>. */
             setup_link_token: string;
         };
         UserList: {
@@ -3592,7 +3592,7 @@ export interface components {
             next_cursor?: string;
         };
         SetupLinkIssued: {
-            /** @description Shown once; build the link as https://meet.<domain>/setup/<token>. */
+            /** @description Shown once; build the link as https://<domain>/setup/<token>. */
             setup_link_token: string;
         };
         PasswordChange: {

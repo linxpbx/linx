@@ -4,7 +4,7 @@
 // nothing changes on the server until "Check and get a certificate": then
 // linx setup, on the host, checks the answers with setup.yaml's own rules,
 // and the certificate page follows (InstallCertificate.tsx). On
-// https://meet.<domain> the same address is the secure page.
+// https://<domain> the same address is the secure page.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Building2, ChevronDown, House } from "lucide-react";
 import { Countdown, FieldMessage, Frame, LinkUnusable, Nav, submit, Title, useSecondsLeft } from "@/components/InstallFrame";
@@ -266,23 +266,25 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
 function DomainStep({ answers, set, errorFor, onBack, onNext }: StepProps & { onBack: () => void; onNext: () => void }) {
   const [touched, setTouched] = useState(false);
   const problem = domainProblem(answers.domain);
-  const d = answers.domain.trim().toLowerCase() || "example.com";
+  const d = answers.domain.trim().toLowerCase() || "pbx.example.com";
   const names: [string, string][] = [
-    [`meet.${d}`, "the web app and calls from outside"],
-    [`api.${d}`, "for other apps"],
+    [d, "the web app, where people open Linx"],
     [`turn.${d}`, "call audio through firewalls"],
   ];
   if (answers.where === "home") names.push([`sip.${d}`, "desk phones at home"]);
   return (
     <form onSubmit={submit(() => { setTouched(true); if (!problem) onNext(); })}>
-      <Title lead="You need access to this domain's DNS settings, where you'll add one record in a minute.">What's your domain?</Title>
+      <Title lead="You need access to this domain's DNS settings, where you'll add two records in a minute.">What's your domain?</Title>
       <div className="flex flex-col gap-2">
         <Label htmlFor="domain">Domain</Label>
-        <Input id="domain" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="example.com"
+        <Input id="domain" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="pbx.example.com"
           value={answers.domain} onChange={(e) => set({ domain: e.target.value })} aria-invalid={touched && !!problem} />
+        <p className="text-sm text-muted-foreground">
+          People open Linx at this address, so use a name just for Linx (like pbx.example.com) if your domain already has a website.
+        </p>
         <FieldMessage message={(touched && problem) || errorFor("domain")} />
       </div>
-      <p className="mt-6 text-sm text-muted-foreground">Linx will use these names under it:</p>
+      <p className="mt-6 text-sm text-muted-foreground">Linx will use:</p>
       <dl className="mt-2 grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
         {names.map(([n, what]) => (
           <div key={n} className="contents">

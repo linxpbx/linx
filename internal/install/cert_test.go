@@ -30,8 +30,8 @@ type fakeCert struct {
 func (f *fakeCert) Plan(_ context.Context, a Answers, fa Facts) (CertView, error) {
 	c := CertView{Mode: f.mode, Domain: a.Domain, FrontDoor: a.FrontDoor}
 	if f.mode == CertPort443 {
-		for _, h := range []string{"meet", "turn"} {
-			c.AddRecords = append(c.AddRecords, Record{Type: "A", Name: h + "." + a.Domain, Value: fa.PublicAddress})
+		for _, name := range []string{a.Domain, "turn." + a.Domain} {
+			c.AddRecords = append(c.AddRecords, Record{Type: "A", Name: name, Value: fa.PublicAddress})
 		}
 	}
 	if f.setup {
@@ -160,15 +160,15 @@ func TestCertificateThroughPort443(t *testing.T) {
 	fake.mu.Lock()
 	real := fake.real
 	fake.mu.Unlock()
-	if c.Reach.State != StageOK || c.SecureURL != "https://meet.example.com" || real != 1 {
+	if c.Reach.State != StageOK || c.SecureURL != "https://example.com" || real != 1 {
 		t.Errorf("ready: %+v", c)
 	}
 	texts := ""
 	for _, p := range r.host.State().Progress {
 		texts += p.Text + "\n"
 	}
-	for _, want := range []string{"Waiting for meet.example.com and turn.example.com to point at 203.0.113.5", "meet.example.com and turn.example.com point at this server",
-		"Let's Encrypt reached this server on port 443", "Certificate ready: https://meet.example.com"} {
+	for _, want := range []string{"Waiting for example.com and turn.example.com to point at 203.0.113.5", "example.com and turn.example.com point at this server",
+		"Let's Encrypt reached this server on port 443", "Certificate ready: https://example.com"} {
 		if !strings.Contains(texts, want) {
 			t.Errorf("progress lacks %q:\n%s", want, texts)
 		}
@@ -253,7 +253,7 @@ func (r *rig) secureDo(method, host, path, cookie, body string, headers ...strin
 func TestHandoffToTheSecurePage(t *testing.T) {
 	fake := &fakeCert{mode: CertPort443, dns: []string{"203.0.113.5"}}
 	r, cookie := certRig(t, fake)
-	const meet = "meet.example.com"
+	const meet = "example.com"
 	secureJSON := []string{"Content-Type", "application/json", "Origin", "https://" + meet}
 
 	// Before it's ready, the secure side serves nothing but the handoff page.
@@ -261,7 +261,7 @@ func TestHandoffToTheSecurePage(t *testing.T) {
 	if rec := r.secureDo("GET", meet, "/install/api/state", "", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("state without a session: %d", rec.Code)
 	}
-	if rec := r.secureDo("GET", "api.example.com", "/install/continue", "", ""); rec.Code != http.StatusNotFound {
+	if rec := r.secureDo("GET", "turn.example.com", "/install/continue", "", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("another name: %d", rec.Code)
 	}
 	if rec := r.secureDo("GET", meet, "/install/continue", "", ""); rec.Code != http.StatusOK || rec.Header().Get("Strict-Transport-Security") == "" {

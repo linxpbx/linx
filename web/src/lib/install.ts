@@ -67,7 +67,7 @@ export interface CertView {
   mode: "port443" | "token";
   domain: string;
   front_door: FrontDoor;
-  /** The DNS records to add by hand: meet. and turn. */
+  /** The DNS records to add by hand: the domain itself and turn. */
   add_records?: DNSRecord[];
   setup?: { files?: SetupFile[]; steps?: string[]; done?: boolean };
   dns: { state?: DNSState; names?: { name: string; state: DNSState; seen?: string[] }[]; checked_at?: string };
@@ -88,7 +88,7 @@ export interface InstallState {
   expires_in: number;
   connected: boolean;
   cert?: CertView;
-  /** This is the secure page (https://meet.<domain>). */
+  /** This is the secure page (https://<domain>). */
   secure?: boolean;
 }
 

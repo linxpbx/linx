@@ -41,7 +41,7 @@ func deployTestCert(t *testing.T, dir, name string) {
 
 func TestRunHealthcheck(t *testing.T) {
 	dir := t.TempDir()
-	deployTestCert(t, dir, "*.example.com")
+	deployTestCert(t, dir, "example.com")
 	serving := &certs.ServingCert{Dir: dir}
 
 	status := http.StatusOK
@@ -68,7 +68,7 @@ func TestRunHealthcheck(t *testing.T) {
 	}
 
 	// certd renews: the server picks it up on the next handshake by itself.
-	deployTestCert(t, dir, "*.example.com")
+	deployTestCert(t, dir, "example.com")
 	if code := runHealthcheck(env, nil); code != 0 {
 		t.Errorf("after a renewal: exit %d", code)
 	}
@@ -78,7 +78,7 @@ func TestRunHealthcheck(t *testing.T) {
 	stale.TLS = &tls.Config{Certificates: []tls.Certificate{*old}}
 	stale.StartTLS()
 	defer stale.Close()
-	deployTestCert(t, dir, "*.example.com")
+	deployTestCert(t, dir, "example.com")
 	_, stalePort, _ := net.SplitHostPort(stale.Listener.Addr().String())
 	staleEnv := func(k string) string {
 		if k == "LINX_LISTEN_ADDR" {

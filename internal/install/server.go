@@ -30,7 +30,7 @@ import (
 // address the link was opened at.
 const CookieName = "linx_install"
 
-// SecureCookieName is the session's cookie on https://meet.<domain>, once
+// SecureCookieName is the session's cookie on https://<domain>, once
 // the handoff is used.
 const SecureCookieName = "__Host-linx_install"
 
@@ -413,7 +413,7 @@ type pageState struct {
 	ExpiresIn int       `json:"expires_in"`
 	Connected bool      `json:"connected"`
 	Cert      *CertView `json:"cert,omitempty"`
-	// Secure: this is the secure page (https://meet.<domain>).
+	// Secure: this is the secure page (https://<domain>).
 	Secure bool `json:"secure,omitempty"`
 }
 

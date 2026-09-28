@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/installer"
 )
 
@@ -74,7 +75,7 @@ func LEStagingRoots() *x509.CertPool {
 
 // Hostnames must match internal/certs.Hostnames (a test checks). It's copied
 // so the CLI doesn't link the ACME client.
-var Hostnames = []string{"admin", "api", "meet", "provision", "sip", "turn"}
+var Hostnames = []string{dnsname.Apex, "admin", "provision", "sip", "turn"}
 
 // Container names and paths from deploy/compose/compose.yaml.
 const (
@@ -152,9 +153,9 @@ func publicCertificate(ctx context.Context, env Env, cfg installer.Config) []Res
 	}
 
 	var missing []string
-	for _, h := range Hostnames {
-		if leaf.VerifyHostname(h+"."+cfg.Domain.Name) != nil {
-			missing = append(missing, h+"."+cfg.Domain.Name)
+	for _, name := range dnsname.Hosts(Hostnames, cfg.Domain.Name) {
+		if leaf.VerifyHostname(name) != nil {
+			missing = append(missing, name)
 		}
 	}
 	if len(missing) > 0 {
@@ -360,8 +361,7 @@ func orgName(c *x509.Certificate) string {
 }
 
 func coverage(domain string) string {
-	n := len(Hostnames)
-	return strings.Join(Hostnames[:n-1], "., ") + ". and " + Hostnames[n-1] + "." + domain
+	return dnsname.And(dnsname.Hosts(Hostnames, domain))
 }
 
 func days(d time.Duration) string {

@@ -1,5 +1,7 @@
 # Linx — Admin portal and sign-in (Phase 1E)
 
+> **Since 2026-09-28 (ADR-059):** the web app and the API answer at the base domain itself (`https://<domain>`), not `meet.<domain>`/`api.<domain>`, which redirect there on older servers. This document keeps the names as they were when it was written.
+
 *Status: approved by the owner 2026-09-26 (ADR-049 to ADR-054 accepted, every item in §11 as recommended; items 10–12 changed by the owner 2026-09-27 after the screen specs).*
 
 Fifth slice of Phase 1 (`docs/ROADMAP.md`). Until now, everything an admin does goes through `sudo linx …` commands or the API. This slice gives admins web screens for all of it, a first-run setup wizard in the browser, and two better ways to sign in: company accounts (Google, Microsoft, Authentik/Keycloak) and passkeys.
