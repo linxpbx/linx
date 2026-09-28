@@ -34,6 +34,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
   - Plain words, a recommended choice at each step, and no screen that needs telecom knowledge to finish.
 - Web client audio calls over WSS/TURN-TLS; CDR; voicemail with email delivery.
 - Slices so far: 1A API/webhooks/alerts, 1B phone engine, 1C web client, 1D phone lines (all approved). **1E** (approved 2026-09-26, `docs/ADMIN.md`): admin portal, web setup wizard with the numbering plan, passkeys, company sign-in. **1F** (owner-approved split): ring groups, office hours, the full inbound wizard, voicemail, email sending, call history, routing undo, Domain & DNS page.
+- **Web-first install** (owner direction 2026-09-27, `docs/INSTALL.md`, ADR-057/058, design awaiting approval): the terminal prints one link, everything else in the browser; replaces most setup questions and the 1F Domain & DNS page.
 - **Exit:** a web-to-web and web-to-trunk call on profile A with UDP blocked, and the SIPp suite green.
 
 ## Phase 2 — Provisioning + first native client
