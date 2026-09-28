@@ -231,7 +231,7 @@ func (b Bootstrap) obtain(ctx context.Context, dir string, acct *account) (*cert
 	lc := lego.NewConfig(acct)
 	lc.CADirURL = dir
 	lc.UserAgent = "linx-certd"
-	lc.Certificate.KeyType = certcrypto.EC256
+	lc.Certificate.KeyType = certcrypto.EC256 // gitleaks:allow (a key type, not a key)
 	client, err := lego.NewClient(lc)
 	if err != nil {
 		return nil, err
