@@ -290,6 +290,19 @@ func TestWebSettings(t *testing.T) {
 	if p, _ := s.Preview(ctx, install.ServerChange{Profile: "lite", Token: strings.Repeat("n", 40)}); len(p.Errors) != 1 || p.Errors[0].Field != "token" {
 		t.Errorf("refused token accepted: %+v", p)
 	}
+
+	// Rented, but its own address is private (a cloud provider's network):
+	// Portainer isn't offered, as on the install page (security review).
+	r = newApplyRig(t, rentedAnswers, homeLAN)
+	s = newWebSettings(r.w, false)
+	if v, _ := s.View(ctx); v.Where != install.WhereRented || v.PortainerAllowed {
+		t.Errorf("rented on a private network: %+v", v)
+	}
+	if _, errs, err := s.plan(ctx, install.ServerChange{Profile: "lite", Portainer: true}); err != nil || len(errs) > 0 {
+		t.Fatalf("plan: %v %v", errs, err)
+	} else if x, _, _ := s.plan(ctx, install.ServerChange{Profile: "lite", Portainer: true}); x.next.ContainerUI != installer.ContainerUINone {
+		t.Errorf("Portainer turned on on a rented server: %q", x.next.ContainerUI)
+	}
 }
 
 // A new domain at home, with the saved token: the token must see it, the

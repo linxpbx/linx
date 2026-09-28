@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -104,13 +105,21 @@ func (h *SettingsHost) claim(m Message) bool {
 		return false
 	}
 	rs.Secret, rs.SessionHash = "", m.SessionHash
-	rs.Browser, rs.Address = m.Browser, m.Address
+	// Only names and addresses this side recognises, as for the install's
+	// link: the control plane's word isn't printed or kept as it came.
+	rs.Browser, rs.Address = "a browser", ""
+	if slices.Contains(browserNames, m.Browser) {
+		rs.Browser = m.Browser
+	}
+	if a, err := netip.ParseAddr(m.Address); err == nil {
+		rs.Address = a.String()
+	}
 	if err := rs.Save(h.RepairPath); err != nil {
 		h.log().Error("saving the repair link", "err", err)
 		return false
 	}
 	h.repair = rs
-	h.log().Info("repair link opened", "browser", m.Browser, "address", m.Address)
+	h.log().Info("repair link opened", "browser", rs.Browser, "address", rs.Address)
 	return true
 }
 

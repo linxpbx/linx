@@ -85,6 +85,22 @@ func TestRepairLink(t *testing.T) {
 	}
 }
 
+// The host keeps only a browser name and an address it recognises, as the
+// install's claim does (security review): not whatever the control plane
+// sends.
+func TestRepairClaimKeepsOnlyKnownNames(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "repair-state.json")
+	rs := NewRepairState(time.Now(), false, "")
+	h := &SettingsHost{RepairPath: p, repair: rs}
+	if !h.claim(Message{Secret: rs.Secret, SessionHash: Hash(NewSecret()), Browser: "\x1b]0;owned\x07Chrome", Address: "not an address\x1b[2J"}) {
+		t.Fatal("claim refused")
+	}
+	saved, err := LoadRepairState(p)
+	if err != nil || saved.Browser != "a browser" || saved.Address != "" {
+		t.Errorf("saved %+v %v", saved, err)
+	}
+}
+
 func TestRepairNoSignIn(t *testing.T) {
 	_, h, rs, _ := repairRig(t, true)
 	w := repairGet(h, "GET", "/repair/"+rs.Secret, "")

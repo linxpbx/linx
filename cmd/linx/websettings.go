@@ -61,6 +61,15 @@ func (w webSettings) where(c installer.Config) string {
 	return install.WhereRented
 }
 
+// portainerAllowed: Portainer is offered only on a server at home, as on
+// the install page. A rented server's own network address can be private
+// too (a cloud provider's), and Portainer there would be root on this
+// server for whoever shares that network. One that setup already turned on
+// can be kept (or turned off).
+func (w webSettings) portainerAllowed(c installer.Config) bool {
+	return w.lan.OK() && (w.where(c) == install.WhereHome || c.ContainerUI == installer.ContainerUIPortainer)
+}
+
 // publicAddress is this network's public address ("" when it can't tell).
 func (w webSettings) publicAddress(ctx context.Context) string {
 	if w.env.web.publicAddress == nil {
@@ -84,7 +93,7 @@ func (w webSettings) View(ctx context.Context) (install.ServerView, error) {
 		Domain: c.Domain.Name, Provider: c.Domain.DNSProvider,
 		Profile: c.ResourceProfile, Profiles: opts, ProfilePick: pick, ProfileReason: reason,
 		Portainer:        c.ContainerUI == installer.ContainerUIPortainer,
-		PortainerAllowed: w.lan.OK(),
+		PortainerAllowed: w.portainerAllowed(c),
 		PublicAddress:    w.publicAddress(ctx),
 	}
 	v.FrontDoors = installer.FrontDoorsFor(v.Where)
@@ -130,7 +139,7 @@ func (w webSettings) plan(ctx context.Context, ch install.ServerChange) (change,
 		next.ResourceProfile = installer.ProfileAuto
 	}
 	next.ContainerUI = installer.ContainerUINone
-	if ch.Portainer && w.lan.OK() {
+	if ch.Portainer && w.portainerAllowed(c) {
 		next.ContainerUI = installer.ContainerUIPortainer
 	}
 	newToken := strings.TrimSpace(ch.Token)

@@ -118,7 +118,18 @@ func Cancel(path string) error {
 	if st.View.Ended == "" {
 		st.View.Ended = EndedCancelled
 	}
+	wipeKeep(&st.View)
 	return st.Save(path)
+}
+
+// wipeKeep removes what the page asked the owner to write down: it's kept
+// in the state file only while a page can still show it.
+func wipeKeep(v *View) {
+	if v.Finish != nil && v.Finish.Keep != nil {
+		f := *v.Finish
+		f.Keep = nil
+		v.Finish = &f
+	}
 }
 
 // Host is linx setup's side of the bridge, running as the linx-setup
@@ -209,6 +220,7 @@ func (h *Host) Start(ctx context.Context) error {
 	}
 	if st.Switched && st.View.Ended == "" {
 		st.View.Ended = EndedStopped
+		wipeKeep(&st.View)
 		st.Progress = append(st.Progress, Progress{At: h.now().UTC(), Text: "The install was interrupted after Linx started. Run sudo linx setup again to finish.", Failed: true})
 	}
 	// What was running when the service last stopped runs again.
@@ -294,6 +306,9 @@ func (h *Host) End(ctx context.Context, reason string) {
 		return
 	}
 	h.st.Secret, h.st.View.LinkHash, h.st.View.Ended = "", "", reason
+	// What to write down (the CA's backup passphrase) was on the page, which
+	// is gone now however it ended: never left on the server.
+	wipeKeep(&h.st.View)
 	text, failed := "The link expired. Run sudo linx setup again for a new one.", true
 	switch reason {
 	case EndedCancelled:
@@ -302,12 +317,6 @@ func (h *Host) End(ctx context.Context, reason string) {
 		text = "The install pages are closed. Run sudo linx setup again to finish."
 	case EndedFinished:
 		text, failed = "The installer is closed for good.", false
-		// Written down on the page by now; never kept on the server.
-		if h.st.View.Finish != nil {
-			f := *h.st.View.Finish
-			f.Keep = nil
-			h.st.View.Finish = &f
-		}
 	}
 	h.st.Progress = append(h.st.Progress, Progress{At: h.now().UTC(), Text: text, Failed: failed})
 	h.saveLocked()

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -206,5 +208,27 @@ func TestInstallStoppedAfterSwitch(t *testing.T) {
 	st := r.host.State()
 	if !st.Switched || st.View.Finish.Install.State != StageFailed {
 		t.Errorf("stopped: switched %v, %+v", st.Switched, st.View.Finish.Install)
+	}
+	// The page is gone, so what it showed to write down is too (security
+	// review): the CA's backup passphrase is never left on the server.
+	b, _ := os.ReadFile(r.host.Path)
+	if strings.Contains(string(b), "ABCD-EFGH") {
+		t.Error("the passphrase is still in the install state after the install stopped")
+	}
+}
+
+func TestCancelWipesWhatToWriteDown(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "state.json")
+	st := NewHostState(time.Now(), Facts{})
+	st.View.Finish = &FinishView{Keep: []KeepItem{{Title: "Certificate authority backup passphrase", Value: "ABCD-EFGH"}}}
+	if err := st.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := Cancel(p); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	if strings.Contains(string(b), "ABCD-EFGH") {
+		t.Error("the passphrase is still in the install state after --new-link")
 	}
 }

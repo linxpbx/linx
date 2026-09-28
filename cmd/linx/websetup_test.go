@@ -250,3 +250,13 @@ func TestInstallFacts(t *testing.T) {
 		t.Errorf("no LAN: %+v", f)
 	}
 }
+
+// Words from outside in a progress line can't send escape sequences to the
+// terminal (security review).
+func TestPrintProgressDropsControlCharacters(t *testing.T) {
+	var b strings.Builder
+	printProgress(&b, install.Progress{Text: "Let's Encrypt said: \x1b]0;owned\x07no\x1b[2J", Failed: true})
+	if strings.ContainsAny(b.String(), "\x1b\x07") {
+		t.Errorf("printed %q", b.String())
+	}
+}

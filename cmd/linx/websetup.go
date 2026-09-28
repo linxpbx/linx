@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"linxpbx.com/linx/internal/hostinfo"
 	"linxpbx.com/linx/internal/install"
@@ -335,7 +336,14 @@ func printProgress(w io.Writer, p install.Progress) {
 	case p.Waiting:
 		mark = "…"
 	}
-	text := p.Text
+	// A line can carry words from outside (Let's Encrypt's, the DNS
+	// company's): never escape sequences for this terminal.
+	text := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, p.Text)
 	if n := 58 - len([]rune(text)); n > 0 {
 		text += strings.Repeat(" ", n)
 	}
