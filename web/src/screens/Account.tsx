@@ -1,13 +1,15 @@
 // My account (ADMIN_SCREENS_PHASE1E.md §11), the parts built with passkeys
 // and company sign-in (Phase 1E steps 3-4): passkeys (add, rename, remove),
+// the authenticator app (set up or replace, with new recovery codes),
 // adding a password to a passkey-only account, and linking company
 // accounts. The rest of the page comes with step 8.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Building2, KeyRound, TriangleAlert } from "lucide-react";
+import { Building2, KeyRound, Smartphone, TriangleAlert } from "lucide-react";
 import { api, problemCode, problemMessage, type Me } from "@/api/client";
 import { needsConfirm, useConfirmIdentity, type Outcome } from "@/components/ConfirmIdentity";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { CODE_LENGTH, CodeBoxes } from "@/components/CodeBoxes";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,7 +38,21 @@ export function AccountScreen() {
   const [removing, setRemoving] = useState<Passkey | null>(null);
   const [addingPassword, setAddingPassword] = useState(false);
   const [company, setCompany] = useState<CompanyAccounts | null>(null);
+  const [enrolling, setEnrolling] = useState<Enrollment | null>(null);
+  const [enrollError, setEnrollError] = useState("");
   const confirm = useConfirmIdentity(me);
+
+  // A new authenticator is a new way in: the server asks "confirm it's
+  // you" first (docs/ADMIN.md §7). The old one keeps working until the new
+  // one's first code is accepted.
+  const startEnroll = async (): Promise<Outcome> => {
+    setEnrollError("");
+    const { data, error: err } = await api.POST("/api/v1/me/mfa");
+    if (needsConfirm(err)) return { confirm: true };
+    if (data) setEnrolling(data);
+    else setEnrollError(problemMessage(err));
+    return { confirm: false };
+  };
 
   const load = useCallback(async () => {
     const [m, list, links] = await Promise.all([
@@ -98,6 +114,25 @@ export function AccountScreen() {
         )}
       </section>
 
+      {me && (
+        <section aria-labelledby="authenticator-title" className="mt-6 flex flex-wrap items-start justify-between gap-4 rounded-lg border bg-card p-5 md:p-6">
+          <div className="min-w-0 flex-1">
+            <h2 id="authenticator-title" className="font-display text-lg font-semibold">Authenticator app</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {me.mfa_enabled
+                ? `On. ${me.recovery_codes_left ?? 0} recovery ${me.recovery_codes_left === 1 ? "code" : "codes"} left. `
+                  + "Got a new phone, or used up or lost your recovery codes? Replace it: you get new codes too."
+                : "Off. A 6-digit code from an app like Google Authenticator, 1Password or Authy, for when you sign in with your password."}
+            </p>
+            {enrollError && <p role="alert" className="mt-2 text-sm font-medium text-destructive">{enrollError}</p>}
+          </div>
+          <Button variant="outline" onClick={() => void confirm.run(startEnroll)}>
+            <Smartphone aria-hidden="true" className="size-4" />
+            {me.mfa_enabled ? "Replace" : "Set up"}
+          </Button>
+        </section>
+      )}
+
       {me && me.has_password === false && (
         <section aria-labelledby="password-title" className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-card p-5 md:p-6">
           <div>
@@ -136,8 +171,116 @@ export function AccountScreen() {
         <AddPasswordDialog run={confirm.run} onClose={() => setAddingPassword(false)}
           onDone={() => { setAddingPassword(false); void load(); }} />
       )}
+      {enrolling && (
+        <AuthenticatorDialog enrollment={enrolling} replacing={!!me?.mfa_enabled}
+          onClose={() => { setEnrolling(null); void load(); }} />
+      )}
       {confirm.dialog}
     </div>
+  );
+}
+
+type Enrollment = components["schemas"]["MfaEnrollment"];
+
+/** Scan, type the first code, then save the new recovery codes. */
+function AuthenticatorDialog({ enrollment, replacing, onClose }: { enrollment: Enrollment; replacing: boolean; onClose: () => void }) {
+  const [qr, setQr] = useState("");
+  const [code, setCode] = useState("");
+  const [retry, setRetry] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const QRCode = (await import("qrcode")).default;
+      const url = await QRCode.toDataURL(enrollment.otpauth_url, { margin: 1, width: 192 });
+      if (!cancelled) setQr(url);
+    })();
+    return () => { cancelled = true; };
+  }, [enrollment.otpauth_url]);
+
+  const send = async (value: string) => {
+    setBusy(true);
+    setError("");
+    const { data, error: err } = await api.POST("/api/v1/me/mfa/confirm", { body: { code: value.trim() } });
+    setBusy(false);
+    if (data) { setCodes(data.recovery_codes); return; }
+    setError(problemCode(err) === "mfa_code_invalid" ? "That code isn't right. Check the time on your phone and try the next code." : problemMessage(err));
+    setCode("");
+    setRetry((n) => n + 1);
+  };
+  const submit = (e: FormEvent) => { e.preventDefault(); void send(code); };
+  const text = codes?.join("\n") ?? "";
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([`Linx recovery codes\n\n${text}\n`], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "linx-recovery-codes.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && (!codes || saved)) onClose(); }}>
+      <DialogContent>
+        {codes ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Save your new recovery codes</DialogTitle>
+              <DialogDescription>
+                {replacing ? "Your old authenticator and old recovery codes no longer work. " : ""}
+                If you lose your phone, each of these lets you sign in once instead of a code. They won't be shown again.
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="grid grid-cols-2 gap-2 rounded-md border bg-background p-4 font-mono text-sm" aria-label="Recovery codes">
+              {codes.map((c) => <li key={c}>{c}</li>)}
+            </ul>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={() => void navigator.clipboard?.writeText(text)}>Copy</Button>
+              <Button type="button" variant="outline" className="flex-1" onClick={download}>Download</Button>
+            </div>
+            <label className="flex items-center gap-3 text-sm">
+              <Checkbox checked={saved} onCheckedChange={(v) => setSaved(v === true)} />
+              I've saved these codes
+            </label>
+            <DialogFooter>
+              <Button disabled={!saved} onClick={onClose}>Done</Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>{replacing ? "Replace your authenticator app" : "Set up an authenticator app"}</DialogTitle>
+              <DialogDescription>
+                Scan this with an app like Google Authenticator, 1Password or Authy.
+                {replacing && " Your current one keeps working until this one's first code is accepted."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col items-center gap-3">
+              {qr ? <img src={qr} alt="QR code for your authenticator app" width={192} height={192} className="rounded-md border" />
+                : <div className="size-48 animate-pulse rounded-md bg-background" aria-label="Loading" />}
+              <p className="text-center text-sm text-muted-foreground">
+                Can't scan? Type this key instead:
+                <span className="mt-1 block font-mono text-foreground break-all select-all">{enrollment.secret}</span>
+              </p>
+            </div>
+            <form onSubmit={submit} className="flex flex-col gap-3" noValidate>
+              <Label htmlFor="replace-code">6-digit code from the app</Label>
+              <CodeBoxes id="replace-code" value={code} onChange={setCode} onComplete={(v) => void send(v)}
+                disabled={busy} retry={retry} invalid={!!error} />
+              {error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+                <Button type="submit" disabled={busy || code.length !== CODE_LENGTH}>{replacing ? "Replace" : "Turn on"}</Button>
+              </DialogFooter>
+            </form>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

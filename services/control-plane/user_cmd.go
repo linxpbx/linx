@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/google/uuid"
 
+	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/db"
@@ -25,6 +27,7 @@ const userUsage = `Usage:
   linx user list
   linx user setup-link EMAIL
   linx user unlock EMAIL
+  linx user reset-2fa EMAIL
 
 create      Add a person and print a one-time set-password link (24
             hours), valid once. Hand it to them yourself (there's no email
@@ -37,6 +40,14 @@ setup-link  Issue a fresh one-time set-password link for an existing
 unlock      Let someone sign in again at once after too many wrong
             passwords or codes, instead of waiting (list shows who's
             locked). Their password stays the same.
+reset-2fa   For someone who lost both their second sign-in step (their
+            authenticator app or passkeys) and their recovery codes,
+            including the last system admin, whom nobody can reset from the
+            browser. Turns off their authenticator app and passkeys and
+            signs them out everywhere; they sign in with their password and
+            set up a new one (admins must, before anything else). Their
+            password stays the same. Recorded in the activity log, and your
+            alert channels are told.
 `
 
 // userAdmin is the database access the user command needs.
@@ -64,10 +75,19 @@ func runUserCommand(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	defer pool.Close()
 	st := store.New(pool)
-	return userCommand(ctx, st, &auth.Accounts{Store: st, Now: time.Now}, args, stdout, stderr)
+	// A one-off alert, sent by the running control plane's alert engine
+	// at its next tick (this process only records it).
+	engine := &alert.Engine{Store: st, Sender: &alert.Sender{Now: time.Now}}
+	return userCommand(ctx, st, &auth.Accounts{Store: st, Now: time.Now}, engine, args, stdout, stderr)
 }
 
-func userCommand(ctx context.Context, st userAdmin, accounts *auth.Accounts, args []string, stdout, stderr io.Writer) int {
+// announcer tells the alert channels about something that happened once
+// (alert.Engine.Announce).
+type announcer interface {
+	Announce(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string) error
+}
+
+func userCommand(ctx context.Context, st userAdmin, accounts *auth.Accounts, alerts announcer, args []string, stdout, stderr io.Writer) int {
 	tenant, err := st.DefaultTenant(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "Can't read the Linx database: %v\n", err)
@@ -83,6 +103,8 @@ func userCommand(ctx context.Context, st userAdmin, accounts *auth.Accounts, arg
 		return userSetupLink(ctx, st, accounts, tenant, args[1:], stdout, stderr)
 	case "unlock":
 		return userUnlock(ctx, st, accounts, tenant, args[1:], stdout, stderr)
+	case "reset-2fa":
+		return userReset2FA(ctx, st, accounts, alerts, tenant, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown user command %q.\n\n%s", args[0], userUsage)
 		return 2
@@ -203,6 +225,48 @@ func userUnlock(ctx context.Context, st userAdmin, accounts *auth.Accounts, tena
 	} else {
 		fmt.Fprintf(stdout, "%s (%s) wasn't locked. Their wrong-try count is reset.\n", u.Name, u.Email)
 	}
+	return 0
+}
+
+// userReset2FA is the way back in for someone who lost every second step
+// and every recovery code (docs/ADMIN.md §7): the same reset as People →
+// "Reset authenticator", from the server, where it's allowed for anyone —
+// the last system admin included — because only someone who controls the
+// server can run it.
+func userReset2FA(ctx context.Context, st userAdmin, accounts *auth.Accounts, alerts announcer, tenant uuid.UUID, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "Say whose: linx user reset-2fa EMAIL (see linx user list).")
+		return 2
+	}
+	u, err := st.UserByEmail(ctx, tenant, strings.ToLower(strings.TrimSpace(args[0])))
+	if err != nil {
+		fmt.Fprintln(stderr, "There is no person with that email.")
+		return 1
+	}
+	if !u.HasSecondStep() {
+		fmt.Fprintf(stdout, "%s (%s) has no authenticator app or passkey to reset. They can sign in with their password.\n", u.Name, u.Email)
+		fmt.Fprintln(stdout, "If they've forgotten it: sudo linx user setup-link "+u.Email)
+		return 0
+	}
+	if _, err := accounts.ResetMFA(ctx, u.ID); err != nil {
+		fmt.Fprintf(stderr, "Couldn't reset it: %v\n", err)
+		return 1
+	}
+	if alerts != nil {
+		msg := fmt.Sprintf("Someone on the server turned off the authenticator app and passkeys of %s (%s, %s) with sudo linx user reset-2fa. "+
+			"If nobody you know did this, someone may have control of your server.", u.Name, u.Email, u.Role)
+		if err := alerts.Announce(ctx, tenant, "user.mfa_reset_cli:"+uuid.Must(uuid.NewV7()).String(), alert.SeverityWarning,
+			"A second sign-in step was reset on the server", msg, ""); err != nil {
+			fmt.Fprintf(stderr, "Reset, but couldn't tell your alert channels: %v\n", err)
+		}
+	}
+	fmt.Fprintf(stdout, "Done. %s (%s) is signed out everywhere and has no authenticator app or passkey now.\n", u.Name, u.Email)
+	if slices.Contains([]string{auth.RoleSystemAdmin, auth.RoleAdmin}, u.Role) {
+		fmt.Fprintln(stdout, "They sign in with their password, then must set up a new passkey or authenticator app before anything else.")
+	} else {
+		fmt.Fprintln(stdout, "They sign in with their password, then can add a new passkey or authenticator app in My account.")
+	}
+	fmt.Fprintln(stdout, "If they've forgotten the password too: sudo linx user setup-link "+u.Email)
 	return 0
 }
 

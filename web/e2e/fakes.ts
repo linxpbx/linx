@@ -391,6 +391,13 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     if (p === "/api/v1/me/mfa" && method === "POST") {
       return route.fulfill(json({ secret: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", otpauth_url: "otpauth://totp/Linx:mohammed@example.com?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Linx" }));
     }
+    if (p === "/api/v1/me/mfa/confirm" && method === "POST") {
+      const { code } = route.request().postDataJSON() as { code: string };
+      if (code !== "123456") {
+        return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "mfa_code_invalid", detail: "That code isn't right." }, 401));
+      }
+      return route.fulfill(json({ recovery_codes: ["k7qm-2xpd", "9fwr-t3vh", "c4zn-8bqe", "mh6s-w2ya", "p3dx-r9kf", "v8tl-5jgn", "b2ec-q7mw", "x5hy-4nsd", "f9ua-6czt", "e3kp-h8rv"] }));
+    }
     if (p === "/api/v1/me/web-phone") {
       return route.fulfill(json({
         device_id: "0199", sip_username: ME.username, password: "not-a-real-password", sip_uri: `sip:${ME.username}@${DOMAIN}`,

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"regexp"
 	"slices"
 	"strings"
@@ -19,7 +20,7 @@ var setupLinkRE = regexp.MustCompile(`/setup/([A-Za-z0-9_-]+)`)
 func runUserCmd(t *testing.T, st *fakeStore, accounts *auth.Accounts, args ...string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
-	code := userCommand(t.Context(), st, accounts, args, &out, &errb)
+	code := userCommand(t.Context(), st, accounts, &fakeAnnouncer{}, args, &out, &errb)
 	return code, out.String(), errb.String()
 }
 
@@ -99,4 +100,73 @@ func mustLookupLink(t *testing.T, st *fakeStore, token string) auth.SetupLink {
 		t.Fatalf("looking up setup link: %v", err)
 	}
 	return l
+}
+
+type fakeAnnouncer struct{ titles, messages []string }
+
+func (f *fakeAnnouncer) Announce(_ context.Context, _ uuid.UUID, _, _, title, message, _ string) error {
+	f.titles, f.messages = append(f.titles, title), append(f.messages, message)
+	return nil
+}
+
+// The last system admin lost their authenticator and recovery codes:
+// nobody can reset them in the browser, so the server does.
+func TestUserReset2FA(t *testing.T) {
+	st := newFakeStore()
+	accounts := &auth.Accounts{Store: st, Now: time.Now}
+	alerts := &fakeAnnouncer{}
+	run := func(args ...string) (int, string, string) {
+		var out, errb bytes.Buffer
+		code := userCommand(t.Context(), st, accounts, alerts, args, &out, &errb)
+		return code, out.String(), errb.String()
+	}
+	if code, _, errOut := run("create", "--email", "owner@example.com", "--name", "Owner", "--role", "system_admin"); code != 0 {
+		t.Fatalf("create: %q", errOut)
+	}
+	u, _ := st.UserByEmail(t.Context(), st.tenant, "owner@example.com")
+
+	// No second step yet: nothing to reset, and it says what to do instead.
+	code, out, _ := run("reset-2fa", "owner@example.com")
+	if code != 0 || !strings.Contains(out, "no authenticator app or passkey to reset") {
+		t.Fatalf("nothing to reset: code %d, %q", code, out)
+	}
+	if len(alerts.titles) != 0 {
+		t.Fatal("alerted about nothing")
+	}
+
+	st.mu.Lock()
+	withMFA := st.users[u.ID]
+	withMFA.MFAEnabled, withMFA.MFASecretEnc, withMFA.RecoveryCodeHashes = true, []byte("sealed"), [][]byte{[]byte("h")}
+	st.users[u.ID] = withMFA
+	st.mu.Unlock()
+	session := auth.UserSession{ID: uuid.Must(uuid.NewV7()), UserID: u.ID, TenantID: st.tenant, TokenHash: []byte("t"),
+		CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour), IdleExpiresAt: time.Now().Add(time.Hour)}
+	if err := st.CreateSession(t.Context(), session); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, errOut := run("reset-2fa", " Owner@Example.com ")
+	if code != 0 || !strings.Contains(out, "signed out everywhere") || !strings.Contains(out, "must set up a new passkey") {
+		t.Fatalf("reset: code %d, %q %q", code, out, errOut)
+	}
+	got, _ := st.User(t.Context(), st.tenant, u.ID)
+	if got.MFAEnabled || got.MFASecretEnc != nil || len(got.RecoveryCodeHashes) != 0 || got.PasswordHash != u.PasswordHash {
+		t.Errorf("after reset: %+v", got)
+	}
+	if s, _ := st.SessionByTokenHash(t.Context(), []byte("t")); s.RevokedAt == nil {
+		t.Error("their session wasn't ended")
+	}
+	if !slices.Contains(st.auditActions(), "user.mfa_reset") {
+		t.Error("not audited")
+	}
+	if len(alerts.titles) != 1 || !strings.Contains(alerts.messages[0], "owner@example.com") {
+		t.Errorf("alerts = %+v", alerts)
+	}
+
+	if code, _, errOut := run("reset-2fa", "nobody@example.com"); code != 1 || !strings.Contains(errOut, "no person") {
+		t.Errorf("unknown person: code %d, %q", code, errOut)
+	}
+	if code, _, _ := run("reset-2fa"); code != 2 {
+		t.Errorf("no email: code %d", code)
+	}
 }

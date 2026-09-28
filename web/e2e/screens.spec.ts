@@ -458,6 +458,29 @@ test.describe("system backups", () => {
   });
 });
 
+test.describe("my account: authenticator app", () => {
+  test("replace it, with new recovery codes", async ({ page }) => {
+    await fakeServer(page, { signedIn: true });
+    await page.goto("/account");
+    await expect(page.getByRole("heading", { name: "Authenticator app" })).toBeVisible();
+    await expect(page.getByText(/8 recovery codes left/)).toBeVisible();
+    await page.getByRole("button", { name: "Replace" }).click();
+    await expect(page.getByAltText("QR code for your authenticator app")).toBeVisible();
+    await expect(page.getByText("Your current one keeps working")).toBeVisible();
+    await shot(page, "account-replace-authenticator");
+    await page.getByLabel("6-digit code from the app").pressSequentially("000000");
+    await expect(page.getByText("That code isn't right")).toBeVisible();
+    await page.getByLabel("6-digit code from the app").pressSequentially("123456");
+    await expect(page.getByRole("list", { name: "Recovery codes" })).toContainText("k7qm-2xpd");
+    await expect(page.getByText("Your old authenticator and old recovery codes no longer work")).toBeVisible();
+    await shot(page, "account-replace-authenticator-codes");
+    await expect(page.getByRole("button", { name: "Done" })).toBeDisabled();
+    await page.getByText("I've saved these codes").click();
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+  });
+});
+
 test.describe("system status", () => {
   test("restart asks first and says what it does", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, phoneSystemDown: true });

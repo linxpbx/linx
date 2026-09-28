@@ -348,7 +348,7 @@ func (f *fakeStore) ConfirmSession(_ context.Context, id uuid.UUID, at time.Time
 	return nil
 }
 
-func (f *fakeStore) ResetMFA(_ context.Context, tenant, user uuid.UUID, at time.Time, _ auth.AuditEntry) (auth.User, error) {
+func (f *fakeStore) ResetMFA(_ context.Context, tenant, user uuid.UUID, at time.Time, audit auth.AuditEntry) (auth.User, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	u, ok := f.users[user]
@@ -359,6 +359,7 @@ func (f *fakeStore) ResetMFA(_ context.Context, tenant, user uuid.UUID, at time.
 	u.Version++
 	u.UpdatedAt = at
 	f.users[user] = u
+	f.audits = append(f.audits, audit)
 	return u, nil
 }
 

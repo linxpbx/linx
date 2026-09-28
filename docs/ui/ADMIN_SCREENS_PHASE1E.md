@@ -636,6 +636,8 @@ From the account menu. Its own page (not admin), tabs on phone width become stac
 - **Link company account**: only for enabled providers; goes through the provider and back with "Linked" or the plain reason (email doesn't match, email not verified).
 - Signed-in browsers: from the person's sessions (device + rough place from the address where known, last active).
 
+*As built (2026-09-28, authenticator part):* an **Authenticator app** section: "On. N recovery codes left." with **Replace**, or "Off." with **Set up**. Either needs confirm it's you, then a dialog: QR + key, six code boxes ("Your current one keeps working until this one's first code is accepted"), then the 10 new recovery codes (Copy, Download, "I've saved these codes" before Done; "Your old authenticator and old recovery codes no longer work"). Replacing is also how to get **new recovery codes** (no separate button). Losing both the authenticator and the codes: an admin's People → Reset authenticator, or for anyone including the last system admin, `sudo linx user reset-2fa EMAIL` on the server (docs/ADMIN.md §7). A password reset (1F) will never turn off the second step: that would let a password alone take over the account. Screenshots: `account-replace-authenticator{,-codes}`.
+
 ## 12. Sign-in additions and "Confirm it's you"
 
 ### 12.1 Sign-in page
