@@ -171,6 +171,11 @@ type UserInput struct {
 	Email, Name string
 	Role        string
 	ExtensionID *uuid.UUID
+	// SetupToken, if set, is the set-password link's token instead of a
+	// new one: the web install makes it on the host before the full stack
+	// exists, so the install page can already hold it (docs/INSTALL.md §5).
+	// It must look like NewSecret's output.
+	SetupToken string
 }
 
 // CreateUser registers a person and returns a one-time set-password link
@@ -191,6 +196,9 @@ func (a *Accounts) CreateUser(ctx context.Context, in UserInput) (User, string, 
 	role := in.Role
 	if role == "" {
 		return User{}, "", badRequest("role_required", "Choose a role.")
+	}
+	if in.SetupToken != "" && !ValidSetupToken(in.SetupToken) {
+		return User{}, "", badRequest("setup_token_invalid", "That set-password token isn't one Linx makes.")
 	}
 	if !ValidRole(role) {
 		return User{}, "", badRequest("role_invalid", fmt.Sprintf("%q is not a role. Roles: %s.", role, strings.Join(Roles, ", ")))
@@ -231,7 +239,7 @@ func (a *Accounts) CreateUser(ctx context.Context, in UserInput) (User, string, 
 		}
 		return User{}, "", err
 	}
-	token, err := a.createSetupLink(ctx, u)
+	token, err := a.createSetupLinkWith(ctx, u, in.SetupToken)
 	if err != nil {
 		return User{}, "", err
 	}
@@ -239,11 +247,17 @@ func (a *Accounts) CreateUser(ctx context.Context, in UserInput) (User, string, 
 }
 
 func (a *Accounts) createSetupLink(ctx context.Context, u User) (string, error) {
+	return a.createSetupLinkWith(ctx, u, "")
+}
+
+func (a *Accounts) createSetupLinkWith(ctx context.Context, u User, token string) (string, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return "", err
 	}
-	token := NewSecret()
+	if token == "" {
+		token = NewSecret()
+	}
 	now := a.Now().UTC()
 	l := SetupLink{ID: id, TenantID: u.TenantID, UserID: u.ID, TokenHash: HashSecret(token), CreatedAt: now, ExpiresAt: now.Add(SetupLinkTTL)}
 	if err := a.Store.CreateSetupLink(ctx, l); err != nil {

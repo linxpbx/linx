@@ -125,3 +125,33 @@ func TestCertdRun(t *testing.T) {
 		t.Errorf("token file: %+v", s.File)
 	}
 }
+
+// A rented server where the owner skipped the DNS token (docs/INSTALL.md
+// §5): saved, read back, and certd renews through port 443 with no records.
+func TestNoDNSToken(t *testing.T) {
+	c := webCertConfig(FrontDoorLinx443, "")
+	c.Version = 1
+	c.Certificates.Staging = false
+	c.Certificates.NoDNSToken = true
+	back, err := ParseConfig(strings.NewReader(string(c.Marshal())))
+	if err != nil || !back.Certificates.NoDNSToken {
+		t.Fatalf("read back: %+v %v\n%s", back.Certificates, err, c.Marshal())
+	}
+	env := string(stackDotEnv(c, "abc", LAN{}))
+	for _, want := range []string{"LINX_CERT_CHALLENGE=tls-alpn-01\n", "LINX_DNS_RECORDS=\n"} {
+		if !strings.Contains(env, want) {
+			t.Errorf(".env lacks %q:\n%s", want, env)
+		}
+	}
+	c.Certificates.NoDNSToken = false
+	if env := string(stackDotEnv(c, "abc", LAN{})); !strings.Contains(env, "LINX_CERT_CHALLENGE=dns-01\n") {
+		t.Errorf("with a token:\n%s", env)
+	}
+	bad := webCertConfig(FrontDoorPangolin, "192.168.1.20")
+	bad.Version = 1
+	bad.Certificates.Staging = false
+	bad.Certificates.NoDNSToken = true
+	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "no_dns_token") {
+		t.Errorf("no token behind Pangolin: %v", err)
+	}
+}

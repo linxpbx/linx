@@ -254,6 +254,29 @@ func (b Bootstrap) obtain(ctx context.Context, dir string, acct *account) (*cert
 	return client.Certificate.Obtain(certificate.ObtainRequest{Domains: b.Names(), Bundle: true})
 }
 
+// ALPNIssuer renews certificates the way the first one was got, through
+// port 443 with no DNS token (Config.Challenge = ChallengeALPN): Let's
+// Encrypt only (it's the one the first certificate checked against).
+func ALPNIssuer(c Config) Issuer {
+	return alpnIssuer{b: Bootstrap{Domain: c.Domain, Email: c.Email, CertsDir: c.CertsDir, StateDir: c.StateDir, ChallengeDir: c.ChallengeDir}}
+}
+
+type alpnIssuer struct{ b Bootstrap }
+
+func (a alpnIssuer) ID() string { return IssuerLE }
+
+func (a alpnIssuer) Obtain(ctx context.Context, _ []string) (*Issued, error) {
+	acct, err := loadAccount(filepath.Join(a.b.StateDir, "accounts", IssuerLE), a.b.Email)
+	if err != nil {
+		return nil, err
+	}
+	res, err := a.b.obtain(ctx, lego.LEDirectoryProduction, acct)
+	if err != nil {
+		return nil, err
+	}
+	return &Issued{Chain: res.Certificate, Key: res.PrivateKey}, nil
+}
+
 // ChallengeWriter is lego's TLS-ALPN-01 provider: it leaves each name's
 // challenge certificate in Dir for the control plane to hand out.
 type ChallengeWriter struct{ Dir string }
@@ -283,6 +306,22 @@ func (c ChallengeWriter) CleanUp(domain, _, _ string) error {
 		return nil
 	}
 	return err
+}
+
+// ServerTLSConfig is an HTTPS port's TLS settings: the challenge
+// certificate for Let's Encrypt's acme-tls/1 check (only while certd has
+// one for that name), else the deployed certificate.
+func ServerTLSConfig(ch Challenges, serving *ServingCert) *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		NextProtos: []string{"h2", "http/1.1", ACMETLS1},
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			if IsChallenge(hello) {
+				return ch.Certificate(hello.ServerName)
+			}
+			return serving.GetCertificate(hello)
+		},
+	}
 }
 
 // Challenges hands out the challenge certificates certd leaves in Dir.

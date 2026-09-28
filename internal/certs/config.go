@@ -63,7 +63,21 @@ type Config struct {
 	CertsDir string
 	// StateDir holds ACME account keys. Private to linx-certd.
 	StateDir string
+	// Challenge is ChallengeDNS (the default: the DNS token, a wildcard)
+	// or ChallengeALPN: no token, the names checked on port 443 like the
+	// web install's first certificate (a rented server where Linx takes
+	// 443 and the owner skipped the token, docs/INSTALL.md §5).
+	Challenge string
+	// ChallengeDir is where ChallengeALPN leaves challenge certificates
+	// for the control plane.
+	ChallengeDir string
 }
+
+// Challenge types.
+const (
+	ChallengeDNS  = "dns-01"
+	ChallengeALPN = "tls-alpn-01"
+)
 
 // ConfigFromEnv reads the configuration from the environment.
 func ConfigFromEnv(getenv func(string) string) (Config, error) {
@@ -75,6 +89,8 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		ZoneTokenFile: getenv("LINX_DNS_ZONE_TOKEN_FILE"),
 		CertsDir:      envOr(getenv, "LINX_CERTS_DIR", "/var/lib/linx/certs"),
 		StateDir:      envOr(getenv, "LINX_STATE_DIR", "/var/lib/linx/state"),
+		Challenge:     envOr(getenv, "LINX_CERT_CHALLENGE", ChallengeDNS),
+		ChallengeDir:  envOr(getenv, "LINX_CHALLENGE_DIR", "/var/lib/linx/acme-challenge"),
 	}
 	var errs []error
 	var err error
@@ -100,6 +116,15 @@ func (c Config) Validate() error {
 	if err := dnsname.ValidDomain(c.Domain); err != nil {
 		errs = append(errs, fmt.Errorf("LINX_DOMAIN: %w", err))
 	}
+	switch c.Challenge {
+	case ChallengeDNS, "":
+	case ChallengeALPN:
+		if c.Staging {
+			errs = append(errs, errors.New("LINX_CERT_CHALLENGE: tls-alpn-01 gets real certificates only (staging is its own reachability test)"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("LINX_CERT_CHALLENGE: must be %s or %s, got %q", ChallengeDNS, ChallengeALPN, c.Challenge))
+	}
 	if !slices.Contains(Providers, c.Provider) {
 		errs = append(errs, fmt.Errorf("LINX_DNS_PROVIDER: must be one of %v, got %q", Providers, c.Provider))
 	}
@@ -115,7 +140,7 @@ func (c Config) Validate() error {
 	if !c.Staging && c.Email == "" {
 		errs = append(errs, errors.New("LINX_ACME_EMAIL: required for production certificates (the ZeroSSL fallback needs it)"))
 	}
-	if c.TokenFile == "" {
+	if c.TokenFile == "" && c.Challenge != ChallengeALPN {
 		errs = append(errs, errors.New("LINX_DNS_TOKEN_FILE: required"))
 	}
 	if c.CertsDir == "" || c.StateDir == "" {
@@ -127,6 +152,10 @@ func (c Config) Validate() error {
 // Names are the DNS names the certificate covers: the base domain itself
 // (a wildcard doesn't cover it) and every name under it.
 func (c Config) Names() []string {
+	if c.Challenge == ChallengeALPN {
+		// Only names Let's Encrypt can reach on port 443 (no wildcards).
+		return dnsname.Hosts(BootstrapHosts, c.Domain)
+	}
 	if c.Wildcard {
 		return []string{c.Domain, "*." + c.Domain}
 	}

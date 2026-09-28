@@ -22,9 +22,15 @@ services:
       # Empty: certd leaves DNS records alone.
       LINX_DNS_RECORDS: ${LINX_DNS_RECORDS:-}
       LINX_DNS_ADDRESS: ${LINX_DNS_ADDRESS:-}
+      # dns-01 (the DNS token, a wildcard) or tls-alpn-01: no token, the
+      # names checked through port 443 (a rented server where the owner
+      # skipped the token in the web install, docs/INSTALL.md §5).
+      LINX_CERT_CHALLENGE: ${LINX_CERT_CHALLENGE:-dns-01}
     secrets: [linx_dns_token]
     volumes:
       - certd-state:/var/lib/linx/state
+      # tls-alpn-01's challenge certificates, for the control plane.
+      - acme-challenge:/var/lib/linx/acme-challenge
       # Consumers mount this read-only at the same path and add
       # group_add: ["65532"] to read privkey.pem (see docs/ops/CERT_RELOAD.md).
       - certs:/var/lib/linx/certs
@@ -136,6 +142,8 @@ services:
       # client, the API and /sip. Picked up again on renewal by itself. This
       # image's user (65532) is certd's, so it can read privkey.pem.
       - certs:/var/lib/linx/certs:ro
+      # certd's challenge certificates, when it renews through port 443.
+      - acme-challenge:/var/lib/linx/acme-challenge:ro
       # Backup files on their way to or from the browser (docs/BACKUP.md
       # §8 step 5): made and unpacked by linx-backup-agent on the host,
       # passed through here unopened. On disk (up to about 2 GB each), owned
@@ -421,6 +429,15 @@ secrets:
 
 volumes:
   certd-state:
+  # Challenge certificates (tls-alpn-01): in memory only, written by certd
+  # and read by the control plane, the same user. Defined exactly as in
+  # install.yaml, whose volume this is.
+  acme-challenge:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=65532,gid=65532,mode=0700,size=256k
   # Backup files passing through the control plane (see its mount).
   backup-transfer:
   certs:

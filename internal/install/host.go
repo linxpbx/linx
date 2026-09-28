@@ -142,6 +142,12 @@ type Host struct {
 	Cert Certifier
 	// Poll is how often the certificate page looks at DNS (default 5 s).
 	Poll time.Duration
+	// Apply runs the full install from the secure page (nil: the install
+	// stops at the secure page).
+	Apply Applier
+	// SwitchPause is how long the page gets to hear the switch to the full
+	// stack before it happens (default 2 s).
+	SwitchPause time.Duration
 
 	mu     sync.Mutex
 	st     HostState
@@ -237,7 +243,10 @@ func (h *Host) watchExpiry(ctx context.Context, done context.CancelFunc) {
 	defer t.Stop()
 	for {
 		h.mu.Lock()
-		expired := h.st.View.Ended == "" && !h.now().Before(h.st.View.ExpiresAt)
+		// A running install isn't cut off by the hour: it closes the page
+		// itself when it's done.
+		installing := h.st.View.Finish != nil && h.st.View.Finish.Install.State == StageRunning
+		expired := h.st.View.Ended == "" && !installing && !h.now().Before(h.st.View.ExpiresAt)
 		ended := h.st.View.Ended
 		h.mu.Unlock()
 		if expired {
@@ -269,11 +278,20 @@ func (h *Host) End(ctx context.Context, reason string) {
 		return
 	}
 	h.st.Secret, h.st.View.LinkHash, h.st.View.Ended = "", "", reason
-	text := "The link expired. Run sudo linx setup again for a new one."
-	if reason == EndedCancelled {
+	text, failed := "The link expired. Run sudo linx setup again for a new one.", true
+	switch reason {
+	case EndedCancelled:
 		text = "This link was cancelled."
+	case EndedFinished:
+		text, failed = "The installer is closed for good.", false
+		// Written down on the page by now; never kept on the server.
+		if h.st.View.Finish != nil {
+			f := *h.st.View.Finish
+			f.Keep = nil
+			h.st.View.Finish = &f
+		}
 	}
-	h.st.Progress = append(h.st.Progress, Progress{At: h.now().UTC(), Text: text, Failed: true})
+	h.st.Progress = append(h.st.Progress, Progress{At: h.now().UTC(), Text: text, Failed: failed})
 	h.saveLocked()
 	h.changedLocked()
 	h.mu.Unlock()
@@ -368,7 +386,7 @@ func (h *Host) Serve(ctx context.Context, rw io.ReadWriter) error {
 			_ = send(res)
 		case TypeDraft:
 			h.draft(m.Draft)
-		case TypeDoorReady, TypeRetry, TypeToken, TypeHandoff, TypeRedeem:
+		case TypeDoorReady, TypeRetry, TypeToken, TypeHandoff, TypeRedeem, TypeSkipToken, TypeExtras, TypeInstall:
 			if m.ID == "" || len(m.ID) > 64 {
 				continue
 			}
@@ -427,9 +445,30 @@ func (h *Host) certRequest(ctx context.Context, m Message) Message {
 	case TypeRetry:
 		err = h.retry()
 	case TypeToken:
+		h.mu.Lock()
+		secure := h.st.View.Secure
+		h.mu.Unlock()
 		var errs []FieldError
-		if errs, err = h.token(ctx, m.Token); err == nil && len(errs) > 0 {
+		if secure && h.Apply != nil {
+			errs, err = h.secureToken(ctx, m.Token)
+		} else {
+			errs, err = h.token(ctx, m.Token)
+		}
+		if err == nil && len(errs) > 0 {
 			return Message{Errors: errs}
+		}
+	case TypeSkipToken, TypeExtras, TypeInstall:
+		if h.Apply == nil {
+			err = errNotYet
+			break
+		}
+		switch m.Type {
+		case TypeSkipToken:
+			err = h.skipToken()
+		case TypeExtras:
+			err = h.extras(ctx, m.Extras)
+		default:
+			err = h.beginInstall(ctx)
 		}
 	case TypeHandoff:
 		var secret string

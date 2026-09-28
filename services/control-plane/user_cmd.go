@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -24,6 +25,7 @@ import (
 
 const userUsage = `Usage:
   linx user create --email EMAIL --name NAME --role ROLE [--extension NUMBER]
+                   [--first-admin] [--setup-token-stdin]
   linx user list
   linx user setup-link EMAIL
   linx user unlock EMAIL
@@ -34,6 +36,9 @@ create      Add a person and print a one-time set-password link (24
             sending yet).
               --role       system_admin, admin, user or reporter
               --extension  the extension number they answer on the web client
+              --first-admin        only if there's no system admin yet
+                                   (the web install; never a second one)
+              --setup-token-stdin  use the link token given on stdin
 list        Show every person (never passwords).
 setup-link  Issue a fresh one-time set-password link for an existing
             person, e.g. after their old one expired.
@@ -118,6 +123,8 @@ func userCreate(ctx context.Context, st userAdmin, accounts *auth.Accounts, tena
 	name := fs.String("name", "", "their name")
 	role := fs.String("role", "", "system_admin, admin, user or reporter")
 	extension := fs.String("extension", "", "the extension number they answer on the web client")
+	firstAdmin := fs.Bool("first-admin", false, "only if there's no system admin yet")
+	tokenStdin := fs.Bool("setup-token-stdin", false, "read the set-password link's token from stdin")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -126,6 +133,33 @@ func userCreate(ctx context.Context, st userAdmin, accounts *auth.Accounts, tena
 		return 2
 	}
 	in := auth.UserInput{Email: *email, Name: *name, Role: *role}
+	if *tokenStdin {
+		line, err := bufio.NewReader(io.LimitReader(userStdin, 256)).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			fmt.Fprintf(stderr, "Can't read the token: %v\n", err)
+			return 2
+		}
+		in.SetupToken = strings.TrimSpace(line)
+		if in.SetupToken == "" {
+			fmt.Fprintln(stderr, "No token was given on stdin.")
+			return 2
+		}
+	}
+	if *firstAdmin {
+		if *role != auth.RoleSystemAdmin {
+			fmt.Fprintln(stderr, "--first-admin is for --role system_admin.")
+			return 2
+		}
+		has, err := hasSystemAdmin(ctx, accounts)
+		if err != nil {
+			fmt.Fprintf(stderr, "Can't read the Linx database: %v\n", err)
+			return 1
+		}
+		if has {
+			fmt.Fprintln(stderr, "Linx already has a system admin, so no first admin was created.")
+			return exitFirstAdminExists
+		}
+	}
 	if *extension != "" {
 		e, err := st.ExtensionByNumber(ctx, tenant, *extension)
 		if err != nil {
@@ -146,6 +180,32 @@ func userCreate(ctx context.Context, st userAdmin, accounts *auth.Accounts, tena
 	}
 	printSetupLink(stdout, u, token)
 	return 0
+}
+
+// exitFirstAdminExists is create --first-admin's exit code when there's
+// already a system admin (the web install tells it apart from a failure).
+const exitFirstAdminExists = 3
+
+// userStdin is where --setup-token-stdin reads from (tests replace it).
+var userStdin io.Reader = os.Stdin
+
+func hasSystemAdmin(ctx context.Context, accounts *auth.Accounts) (bool, error) {
+	var before *uuid.UUID
+	for {
+		page, err := accounts.ListUsers(ctx, before, 200)
+		if err != nil {
+			return false, err
+		}
+		for _, u := range page {
+			if u.Role == auth.RoleSystemAdmin {
+				return true, nil
+			}
+		}
+		if len(page) < 200 {
+			return false, nil
+		}
+		before = &page[len(page)-1].ID
+	}
 }
 
 func userList(ctx context.Context, accounts *auth.Accounts, stdout, stderr io.Writer) int {

@@ -504,6 +504,23 @@ func (h *Host) redeem(m Message) error {
 	st.HandoffHash, st.HandoffExpires = "", time.Time{}
 	st.View.SessionHash, st.View.Secure = m.SessionHash, true
 	st.View.ExpiresAt = h.now().Add(LinkLifetime).UTC()
+	if st.View.Finish == nil {
+		f := &FinishView{Provider: "cloudflare"}
+		if c := st.View.Cert; c != nil {
+			if c.TokenSaved {
+				f.Token = TokenSaved
+			}
+			if len(c.Domain) > len(".duckdns.org") && c.Domain[len(c.Domain)-len(".duckdns.org"):] == ".duckdns.org" {
+				f.Provider = "duckdns"
+			}
+		}
+		// Skip only where the certificate can renew through port 443 by
+		// itself: a rented server where Linx takes 443 (§10 item 1).
+		if a := st.View.Accepted; a != nil && a.Where == WhereRented && a.FrontDoor == "linx-443" {
+			f.SkipAllowed = true
+		}
+		st.View.Finish = f
+	}
 	st.Progress = append(st.Progress, h.line("Moved to the secure page", false, false))
 	h.saveLocked()
 	h.changedLocked()

@@ -665,6 +665,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Amended by the owner 2026-09-28** (`docs/INSTALL.md` §11): in a terminal, setup asks one question first, browser (recommended) or terminal; the terminal choice keeps the question-by-question setup, with the DNS token typed over SSH.
 
+**Amended by the owner 2026-09-28 (during install step 4, `docs/INSTALL.md` §14):** the first page is **HTTPS on 6464 with a temporary self-signed certificate** (one browser warning) and offers the DNS token up front as the fastest way (Linx then makes every record and the wildcard at once), next to the token-free port 443 path. Protects against passive listening only; an active man in the middle during the install could capture the token (threat model). Not built yet.
+
 **Consequences.** A written exception to "never fall back to plaintext": a first page, for a few minutes, with nothing secret on it except the one-time link. Someone actively tampering between the owner's browser and the server during that time could redirect the install (threat model). The DNS token is asked over HTTP only when the secure page can't exist yet (home-only, or a proxy that decrypts TLS), after a plain warning. Setup no longer creates a first admin from the terminal, so re-runs can't create a second one.
 
 ## ADR-058 — First certificate by TLS-ALPN-01 on 443 (owner decision, approved 2026-09-28)

@@ -77,6 +77,10 @@ func LEStagingRoots() *x509.CertPool {
 // so the CLI doesn't link the ACME client.
 var Hostnames = []string{dnsname.Apex, "admin", "provision", "sip", "turn"}
 
+// alpnHostnames must match internal/certs.BootstrapHosts: a certificate
+// renewed without a DNS token (setup.yaml certificates.no_dns_token).
+var alpnHostnames = []string{dnsname.Apex, "turn"}
+
 // Container names and paths from deploy/compose/compose.yaml.
 const (
 	certdContainer  = "linx-certd"
@@ -153,7 +157,12 @@ func publicCertificate(ctx context.Context, env Env, cfg installer.Config) []Res
 	}
 
 	var missing []string
-	for _, name := range dnsname.Hosts(Hostnames, cfg.Domain.Name) {
+	want := Hostnames
+	if cfg.Certificates.NoDNSToken {
+		// Renewed through port 443: only the names that reach it.
+		want = alpnHostnames
+	}
+	for _, name := range dnsname.Hosts(want, cfg.Domain.Name) {
 		if leaf.VerifyHostname(name) != nil {
 			missing = append(missing, name)
 		}
@@ -162,7 +171,11 @@ func publicCertificate(ctx context.Context, env Env, cfg installer.Config) []Res
 		rs.fail(fmt.Sprintf("The certificate doesn't cover %s. It may be from before the domain was changed.", strings.Join(missing, ", ")),
 			"Get one for the current domain: "+rerunSetup)
 	} else {
-		rs.ok(fmt.Sprintf("%s covers %s.", kind, coverage(cfg.Domain.Name)))
+		covered := coverage(cfg.Domain.Name)
+		if cfg.Certificates.NoDNSToken {
+			covered = dnsname.And(dnsname.Hosts(alpnHostnames, cfg.Domain.Name)) + " (no DNS token: renewed through port 443)"
+		}
+		rs.ok(fmt.Sprintf("%s covers %s.", kind, covered))
 	}
 
 	if staging && !cfg.Certificates.Staging {

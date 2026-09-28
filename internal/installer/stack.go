@@ -133,6 +133,8 @@ LINX_DNS_PROVIDER=%s
 LINX_ACME_EMAIL=%s
 LINX_ACME_STAGING=%t
 LINX_CERT_WILDCARD=%t
+# dns-01 (the DNS token) or tls-alpn-01 (no token: renewed through port 443).
+LINX_CERT_CHALLENGE=%s
 # Phones: where the phone ports are published, and the networks they may
 # connect from (detected by setup: the local network, or none).
 LINX_SIP_ADDRESS=%s
@@ -157,10 +159,18 @@ LINX_DNS_ADDRESS=%s
 # there (the services otherwise run on UTC): setup.yaml's time_zone, or this
 # server's own when that's empty.
 LINX_TZ=%s
-`, ConfigPath, imageTag, c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Email, c.Certificates.Staging, c.Certificates.Wildcard,
+`, ConfigPath, imageTag, c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Email, c.Certificates.Staging, c.Certificates.Wildcard, certChallenge(c),
 		lan.BindAddress(), asteriskconf.FormatSIPNetworks(lan.Networks()),
 		c.FrontDoor.Kind, fd.TrustedProxies, fd.ProxyProtocol, fd.WebAddress, fd.TURNUDPAddress, fd.TURNUDPPort, fd.TURNURLs,
 		fd.SNIAddress, fd.ComposeProfiles, dnsRecords(c), fd.DNSAddress, c.Zone())
+}
+
+// certChallenge is LINX_CERT_CHALLENGE.
+func certChallenge(c Config) string {
+	if c.Certificates.NoDNSToken {
+		return "tls-alpn-01"
+	}
+	return "dns-01"
 }
 
 // localtimePath is where the host's time zone is set (timedatectl
@@ -260,7 +270,7 @@ func existingOrNewKeyBytes(path string, n int) []byte {
 // dnsRecords is LINX_DNS_RECORDS: the public names, once there's a front
 // door ("" otherwise: certd leaves DNS alone).
 func dnsRecords(c Config) string {
-	if c.FrontDoor.Kind == FrontDoorNone || c.FrontDoor.Kind == "" {
+	if c.FrontDoor.Kind == FrontDoorNone || c.FrontDoor.Kind == "" || c.Certificates.NoDNSToken {
 		return ""
 	}
 	return strings.Join(PublicHosts, ",")

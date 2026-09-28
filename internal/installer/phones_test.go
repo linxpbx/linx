@@ -135,6 +135,8 @@ func TestFirewallRuleset(t *testing.T) {
 		"set trunk_addresses {\n\t\ttype ipv4_addr\n\t}",
 		"set trunk_plain_addresses {\n\t\ttype ipv4_addr\n\t}",
 		"fib daddr type local tcp dport { 5060, 5061, 5062 } counter drop",
+		// The web install's first page, closed for good (docs/INSTALL.md §6).
+		"fib daddr type local tcp dport 6464 counter drop",
 		"fib daddr type local udp dport { 5060, 10000-10199, 5062 } counter drop",
 		// The front door (Pangolin at 192.168.1.30) alone reaches the web
 		// port and the relay's TLS port.

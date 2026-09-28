@@ -170,3 +170,42 @@ func TestUserReset2FA(t *testing.T) {
 		t.Errorf("no email: code %d", code)
 	}
 }
+
+// The web install's first admin (docs/INSTALL.md §5): the link's token is
+// the one the install page already holds, and a second first admin is
+// never made.
+func TestUserCreateFirstAdmin(t *testing.T) {
+	st := newFakeStore()
+	accounts := &auth.Accounts{Store: st, Now: time.Now}
+	token := auth.NewSecret()
+	userStdin = strings.NewReader(token + "\n")
+	t.Cleanup(func() { userStdin = nil })
+
+	code, out, errOut := runUserCmd(t, st, accounts, "create", "--email", "owner@example.com", "--name", "Owner",
+		"--role", "system_admin", "--first-admin", "--setup-token-stdin")
+	if code != 0 || !strings.Contains(out, "/setup/"+token) {
+		t.Fatalf("first admin: %d %q %q", code, out, errOut)
+	}
+	if link := mustLookupLink(t, st, token); link.UserID == uuid.Nil {
+		t.Fatal("the given token isn't the stored link")
+	}
+
+	userStdin = strings.NewReader(auth.NewSecret() + "\n")
+	code, _, errOut = runUserCmd(t, st, accounts, "create", "--email", "second@example.com", "--name", "Second",
+		"--role", "system_admin", "--first-admin", "--setup-token-stdin")
+	if code != exitFirstAdminExists || !strings.Contains(errOut, "already has a system admin") {
+		t.Errorf("second first admin: %d %q", code, errOut)
+	}
+	if _, err := st.UserByEmail(t.Context(), st.tenant, "second@example.com"); err == nil {
+		t.Error("a second first admin was created")
+	}
+
+	userStdin = strings.NewReader("not-a-token\n")
+	code, _, errOut = runUserCmd(t, st, accounts, "create", "--email", "x@example.com", "--name", "X", "--role", "user", "--setup-token-stdin")
+	if code == 0 || !strings.Contains(errOut, "isn't one Linx makes") {
+		t.Errorf("bad token: %d %q", code, errOut)
+	}
+	if code, _, _ := runUserCmd(t, st, accounts, "create", "--email", "y@example.com", "--name", "Y", "--role", "admin", "--first-admin"); code != 2 {
+		t.Errorf("--first-admin for another role: %d", code)
+	}
+}

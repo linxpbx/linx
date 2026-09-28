@@ -47,6 +47,9 @@ const (
 	TypeToken     = "token"
 	TypeHandoff   = "handoff"
 	TypeRedeem    = "redeem"
+	TypeSkipToken = "skip_token"
+	TypeExtras    = "extras"
+	TypeInstall   = "install"
 )
 
 // Message is one line on the bridge.
@@ -74,6 +77,9 @@ type Message struct {
 
 	// token: the DNS company's token (docs/INSTALL.md §4.3).
 	Token string `json:"token,omitempty"`
+
+	// extras
+	Extras *Extras `json:"extras,omitempty"`
 
 	// result
 	OK     bool         `json:"ok,omitempty"`
@@ -108,6 +114,8 @@ type View struct {
 	// used); SessionHash is then the secure page's cookie's, and the plain
 	// page's no longer works.
 	Secure bool `json:"secure,omitempty"`
+	// Finish is the secure page's steps (FinishView), once there.
+	Finish *FinishView `json:"finish,omitempty"`
 }
 
 // Why a link or session ended.

@@ -26,6 +26,12 @@ import (
 
 var now = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 
+func TestALPNHostnamesMatchCerts(t *testing.T) {
+	if !slices.Equal(alpnHostnames, certs.BootstrapHosts) {
+		t.Errorf("doctor.alpnHostnames = %v, certs.BootstrapHosts = %v", alpnHostnames, certs.BootstrapHosts)
+	}
+}
+
 func TestHostnamesMatchCerts(t *testing.T) {
 	if !slices.Equal(Hostnames, certs.Hostnames) {
 		t.Errorf("doctor.Hostnames = %v, certs.Hostnames = %v", Hostnames, certs.Hostnames)

@@ -264,7 +264,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		switch p := r.URL.Path; {
 		case p == "/install/api/state" && r.Method == http.MethodGet:
-			s.getState(w)
+			s.getState(w, false)
 		case p == "/install/api/draft" && r.Method == http.MethodPut:
 			s.putDraft(w, r)
 		case p == "/install/api/check" && r.Method == http.MethodPost:
@@ -415,13 +415,35 @@ type pageState struct {
 	Cert      *CertView `json:"cert,omitempty"`
 	// Secure: this is the secure page (https://<domain>).
 	Secure bool `json:"secure,omitempty"`
+	// Finish is the secure page's steps: only ever sent there.
+	Finish *FinishView `json:"finish,omitempty"`
 }
 
-func (s *Server) getState(w http.ResponseWriter) {
+func (s *Server) getState(w http.ResponseWriter, secure bool) {
 	v, connected := s.Snapshot()
 	left := max(0, int(v.ExpiresAt.Sub(s.now()).Seconds()))
-	writeJSON(w, http.StatusOK, pageState{Facts: v.Facts, Draft: v.Draft, Accepted: v.Accepted, ExpiresAt: v.ExpiresAt,
-		ExpiresIn: left, Connected: connected, Cert: v.Cert, Secure: v.Secure})
+	ps := pageState{Facts: v.Facts, Draft: v.Draft, Accepted: v.Accepted, ExpiresAt: v.ExpiresAt,
+		ExpiresIn: left, Connected: connected, Cert: v.Cert, Secure: v.Secure}
+	if secure {
+		ps.Finish = v.Finish
+	}
+	writeJSON(w, http.StatusOK, ps)
+}
+
+// extras is the secure page's §3.4 choices.
+func (s *Server) extras(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "This change didn't come from the install page.")
+		return
+	}
+	var e Extras
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&e); err != nil {
+		writeProblem(w, http.StatusBadRequest, "The choices couldn't be read.")
+		return
+	}
+	s.relay(w, r, Message{Type: TypeExtras, Extras: &e}, claimTimeout)
 }
 
 // sameOrigin is the check every change makes on top of the SameSite

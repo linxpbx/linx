@@ -391,6 +391,12 @@ func runInstallService(ctx context.Context, stderr io.Writer, env setupEnv) int 
 		},
 		Cert: &webCert{env: env, lan: lan, imageTag: imageTag, address: address},
 		OnEnd: func(ctx context.Context, reason string) {
+			if reason == install.EndedFinished {
+				// The full stack replaced the installer's containers (same
+				// project): "down" on install.yaml would stop them.
+				_, _ = env.runner.Run(ctx, nil, "docker", "network", "rm", "linx-install")
+				return
+			}
 			log.Info("the install page closed; stopping the installer", "reason", reason)
 			if err := installer.InstallStackDown(ctx, env.runner); err != nil {
 				log.Error("stopping the installer", "err", err)

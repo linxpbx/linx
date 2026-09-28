@@ -41,6 +41,16 @@ func NewSecret() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// ValidSetupToken reports whether t looks like NewSecret's output (a
+// set-password link token made elsewhere, UserInput.SetupToken).
+func ValidSetupToken(t string) bool {
+	if len(t) != base64.RawURLEncoding.EncodedLen(secretBytes) {
+		return false
+	}
+	b, err := base64.RawURLEncoding.DecodeString(t)
+	return err == nil && len(b) == secretBytes
+}
+
 // NewAPIKey returns a new key's public id, its secret, and the full key the
 // caller is shown once: linx_<id>_<secret>.
 func NewAPIKey() (publicID, secret, key string) {

@@ -415,6 +415,9 @@ frontend https
     bind :443
     tcp-request inspect-delay 5s
     tcp-request content accept if { req_ssl_hello_type 1 }
+    # Let's Encrypt's port 443 check (acme-tls/1) is answered by the control
+    # plane for every name, turn. included (docs/INSTALL.md §5).
+    use_backend web if { req.ssl_alpn -m str acme-tls/1 }
     use_backend turn if { req_ssl_sni -i turn.%[1]s }
     default_backend web
 

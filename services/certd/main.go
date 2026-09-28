@@ -61,15 +61,22 @@ func main() {
 		log.Error("invalid configuration", "err", err)
 		os.Exit(2)
 	}
-	dns, err := certs.DNSProvider(cfg)
-	if err != nil {
-		log.Error("DNS provider", "err", err)
-		os.Exit(2)
+	var issuers []certs.Issuer
+	if cfg.Challenge == certs.ChallengeALPN {
+		// No DNS token: renewed through port 443 (docs/INSTALL.md §5).
+		issuers = []certs.Issuer{certs.ALPNIssuer(cfg)}
+	} else {
+		dns, err := certs.DNSProvider(cfg)
+		if err != nil {
+			log.Error("DNS provider", "err", err)
+			os.Exit(2)
+		}
+		issuers = certs.Issuers(cfg, dns)
 	}
 	m := &certs.Manager{
 		Config:  cfg,
 		Store:   certs.Store{Dir: cfg.CertsDir},
-		Issuers: certs.Issuers(cfg, dns),
+		Issuers: issuers,
 		Log:     log,
 	}
 

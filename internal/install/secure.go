@@ -26,16 +26,7 @@ import (
 // TLSConfig is the HTTPS port's: the challenge certificate for Let's
 // Encrypt's check, else the deployed one (none yet: the handshake fails).
 func TLSConfig(ch certs.Challenges, serving *certs.ServingCert) *tls.Config {
-	return &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		NextProtos: []string{"h2", "http/1.1", certs.ACMETLS1},
-		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			if certs.IsChallenge(hello) {
-				return ch.Certificate(hello.ServerName)
-			}
-			return serving.GetCertificate(hello)
-		},
-	}
+	return certs.ServerTLSConfig(ch, serving)
 }
 
 // ChallengeTLSConfig answers only Let's Encrypt's check: the TURN-over-TLS
@@ -116,7 +107,21 @@ func (s *Server) SecureHandler() http.Handler {
 		}
 		switch {
 		case p == "/install/api/state" && r.Method == http.MethodGet:
-			s.getState(w)
+			s.getState(w, true)
+		case p == "/install/api/token" && r.Method == http.MethodPost:
+			s.token(w, r)
+		case p == "/install/api/skip-token" && r.Method == http.MethodPost:
+			s.simple(w, r, TypeSkipToken)
+		case p == "/install/api/extras" && r.Method == http.MethodPost:
+			s.extras(w, r)
+		case p == "/install/api/install" && r.Method == http.MethodPost:
+			// Working out the steps can take a moment (the host looks at
+			// Docker and the network).
+			if !sameOrigin(r) {
+				writeProblem(w, http.StatusForbidden, "This change didn't come from the install page.")
+				return
+			}
+			s.relay(w, r, Message{Type: TypeInstall}, checkTimeout)
 		case strings.HasPrefix(p, "/install/api/"):
 			notFound(w)
 		case p == "/":

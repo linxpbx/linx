@@ -132,3 +132,29 @@ func TestClassify(t *testing.T) {
 		t.Errorf("detail from text: %q", got.Detail)
 	}
 }
+
+// Renewing without a DNS token (docs/INSTALL.md §5): the names Let's
+// Encrypt can reach on port 443, real certificates only, no token needed.
+func TestALPNConfig(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	c, err := ConfigFromEnv(env(map[string]string{"LINX_DOMAIN": "pbx.example.com", "LINX_DNS_PROVIDER": "cloudflare",
+		"LINX_ACME_EMAIL": "o@example.com", "LINX_ACME_STAGING": "false", "LINX_CERT_CHALLENGE": "tls-alpn-01", "LINX_DNS_TOKEN_FILE": " "}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(c.Names()); got != "[pbx.example.com turn.pbx.example.com]" {
+		t.Errorf("names: %s", got)
+	}
+	if ALPNIssuer(c).ID() != IssuerLE {
+		t.Error("issuer")
+	}
+	for _, bad := range []map[string]string{
+		{"LINX_CERT_CHALLENGE": "tls-alpn-01", "LINX_ACME_STAGING": "true"},
+		{"LINX_CERT_CHALLENGE": "http-01", "LINX_ACME_STAGING": "false"},
+	} {
+		bad["LINX_DOMAIN"], bad["LINX_DNS_PROVIDER"], bad["LINX_ACME_EMAIL"] = "pbx.example.com", "cloudflare", "o@example.com"
+		if _, err := ConfigFromEnv(env(bad)); err == nil {
+			t.Errorf("%v accepted", bad)
+		}
+	}
+}

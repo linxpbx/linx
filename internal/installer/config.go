@@ -57,6 +57,10 @@ type CertificateConfig struct {
 	Wildcard bool `yaml:"wildcard"`
 	// Email is the certificate authority's contact. Required when not staging.
 	Email string `yaml:"email"`
+	// NoDNSToken: there's no DNS token, so the certificate names only the
+	// domain and turn. and renews through port 443 (the web install's Skip,
+	// docs/INSTALL.md §5): only where Linx takes 443 itself.
+	NoDNSToken bool `yaml:"no_dns_token,omitempty"`
 }
 
 // DNS providers setup offers. They must match internal/certs.Providers.
@@ -130,6 +134,9 @@ func (c Config) Validate() error {
 	if err := c.FrontDoor.Validate(); err != nil {
 		errs = append(errs, fmt.Errorf("front_door.%w", err))
 	}
+	if c.Certificates.NoDNSToken && (c.FrontDoor.Kind != FrontDoorLinx443 || c.Certificates.Staging) {
+		errs = append(errs, errors.New("certificates.no_dns_token: only with front_door.kind linx-443 and trusted (not staging) certificates"))
+	}
 	if c.TimeZone != "" {
 		if err := ValidateTimeZone(c.TimeZone); err != nil {
 			errs = append(errs, fmt.Errorf("time_zone: %w", err))
@@ -195,7 +202,7 @@ certificates:
   wildcard: %t
   # Contact for certificate expiry notices. Required when staging is false.
   email: %q
-# What sits in front of Linx on the internet (docs/WEB.md §3): pangolin,
+%s# What sits in front of Linx on the internet (docs/WEB.md §3): pangolin,
 # nginx (nginx or HAProxy on port 443), http-proxy (Caddy, Nginx Proxy
 # Manager, ...), linx-443 (nothing: Linx takes port 443 itself), home-only
 # (Linx answers on this home network only) or none.
@@ -206,7 +213,7 @@ front_door:
   proxy_address: %q
 `, c.Version, c.Docker.Install, c.ContainerUI, c.ResourceProfile,
 		c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Staging, c.Certificates.Wildcard, c.Certificates.Email,
-		c.FrontDoor.Kind, c.FrontDoor.ProxyAddress)
+		noDNSTokenYAML(c.Certificates.NoDNSToken), c.FrontDoor.Kind, c.FrontDoor.ProxyAddress)
 	if c.FrontDoor.TURNUDPPort != 0 {
 		fmt.Fprintf(&b, `  # The UDP port the router forwards to Linx for call audio (443 if not set).
   turn_udp_port: %d
@@ -228,4 +235,14 @@ install:
 `, c.Install.Where, c.Install.TermsAgreedAt, c.Install.FinishedAt)
 	}
 	return b.Bytes()
+}
+
+func noDNSTokenYAML(on bool) string {
+	if !on {
+		return ""
+	}
+	return `  # No DNS token (the web install's Skip): the certificate names the domain
+  # and turn. only and renews through port 443. Run setup again to add one.
+  no_dns_token: true
+`
 }

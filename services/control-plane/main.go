@@ -427,7 +427,10 @@ func main() {
 		log.Warn("no TLS certificate yet; HTTPS connections fail until linx-certd deploys one", "err", err)
 	}
 	https := server.New(envOr(os.Getenv, "LINX_LISTEN_ADDR", ":8443"), webapp.Headers(legacyHosts(os.Getenv("LINX_DOMAIN"), mux)))
-	https.TLSConfig = server.TLSConfig(cert.GetCertificate)
+	// Let's Encrypt's port 443 check is answered here too, for a server
+	// that renews without a DNS token (docs/INSTALL.md §5): only while
+	// certd has left a challenge for that name.
+	https.TLSConfig = certs.ServerTLSConfig(certs.Challenges{Dir: envOr(os.Getenv, "LINX_CHALLENGE_DIR", defaultChallengeDir)}, cert)
 	// Plain HTTP only on the container's own loopback, only for the Docker
 	// health check (healthcheck.go): nothing else can reach it.
 	healthMux := http.NewServeMux()
