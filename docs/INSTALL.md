@@ -85,7 +85,7 @@ For the first two, the HTTP page asks for the DNS token instead and issues the w
 ## 7. Running setup again
 
 - **Setup already finished and the secure address works:** nothing reopens. The link printed is `https://meet.<domain>/install/…`. It needs a sign-in as a **system admin** and shows the host settings (front door, domain, extras). **No new first admin is created, ever.** Someone who has lost every system admin uses `sudo linx user create --role system_admin` or `sudo linx user reset-2fa`, as today.
-- **The secure address is broken** (domain lost, certificate gone): the HTTP page on 6464 opens again for one hour, again with a new link. Once a system admin exists, it also needs that admin's sign-in, so a stolen link alone can't take over an installed server.
+- **The secure address is broken** (domain lost, certificate gone): the HTTP page on 6464 opens again for one hour, again with a new link. Once a system admin exists, it also needs that admin's sign-in, so a stolen link alone can't take over an installed server. Passkeys can't work on 6464, so a passkey-only system admin uses `sudo linx setup --new-link --no-sign-in` (root only) for a link that skips the sign-in.
 
 ## 8. After a restore: "Moved to a new place?"
 
@@ -102,7 +102,7 @@ Each item links to its page and can be ticked off. The list goes away when every
 
 ## 9. Build order (one step per session)
 
-1. **Screen specs** `docs/ui/INSTALL_SCREENS.md` (low fidelity): claim, where/front door, domain + DNS record, name/email, waiting for the certificate, token fallback + warning, secure-page steps, progress, moved-server checklist. Owner approval.
+1. **Screen specs** `docs/ui/INSTALL_SCREENS.md` (low fidelity): claim, where/front door, domain + DNS record, name/email, waiting for the certificate, token fallback + warning, secure-page steps, progress, moved-server checklist. **Approved by the owner 2026-09-28**, with three additions (its §8): a system admin who signs in with a passkey only gets back in through `sudo linx setup --new-link --no-sign-in` (root on the server, so no extra risk); the "You" step asks for the Let's Encrypt Subscriber Agreement tick; a rented server shows only "Linx takes 443", other front doors behind "Something else already uses port 443 here".
 2. **Install mode + bridge.** `linx setup` terminal flow (checks, Docker, minimal stack, `linx-setup.service`, one link), control plane install mode on 6464, `install-bridge`, answers → `installer.Config` validated on the host, HTTP pages.
 3. **TLS-ALPN-01.** certd presenter + challenge tmpfs, the control plane's `acme-tls/1` answer, staging-then-real, DNS polling, handoff to HTTPS, token fallback. Browser suite: a fresh stack behind each front door with Pebble (Let's Encrypt's test ACME server) doing TLS-ALPN-01.
 4. **Secure page + close.** Token → wildcard + records including `sip.` (per-record addresses in the follower), first admin via the existing first-run flow, extras, full apply, 6464 dropped for good, doctor checks, re-run behaviour (§7).

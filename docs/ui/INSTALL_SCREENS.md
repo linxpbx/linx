@@ -1,5 +1,7 @@
 # Web-first install — low-fidelity screen specs (install step 1)
 
+*Approved by the owner 2026-09-28, with §8's three decisions as recommended.*
+
 Layout only: no colour, type or icon decisions (those come from `linx-tokens.json` / `DESIGN_TOKENS.md` when the screens are built in install steps 2–5). This is for the owner to sign off on **what's on each screen and where** before any code is written. The design these screens follow is `docs/INSTALL.md` (ADR-057, ADR-058).
 
 Boxes are wireframes (element placement), not pixel layouts. Addresses and names are examples: `203.0.113.5` (a rented server's public address), `192.168.1.212` (a home server), `example.com`.
@@ -397,7 +399,7 @@ You'll need to sign in as a system admin there.
 
 The §2 frame, but §2.1's welcome is replaced by the system-admin sign-in (email, password or passkey, second step) before anything else. A passkey can't be used on port 6464 (passkeys belong to `meet.example.com`); the sign-in says so: "Passkeys only work on the secure page. Use your password and authenticator app, or a recovery code." Then the progress line starts at the step that's broken (usually Certificate).
 
-- A system admin with **passkey only** can't sign in here. The page says: "Passkey-only? Run this on the server instead: sudo linx setup --new-link --no-sign-in". That link skips the sign-in; it needs root on the server, and the threat model records it. *(Decision for the owner, §8 item 1.)*
+- A system admin with **passkey only** can't sign in here. The page says: "Passkey-only? Run this on the server instead: sudo linx setup --new-link --no-sign-in". That link skips the sign-in; it needs root on the server, and the threat model records it. *(Owner decision, §8 item 1.)*
 
 ## 6. "Moved to a new place?" (admin home, after a restore)
 
@@ -430,7 +432,7 @@ A card at the top of Admin home (above "Getting started"), shown to admins and s
 
 `install-terminal` (text), `install-claim`, `install-link-unusable`, `install-where`, `install-front-door-{rented,home}`, `install-domain`, `install-you`, `install-token-fallback`, `install-waiting-{dns,pangolin,failed,ready}`, `install-secure-arrive`, `install-dns-token`, `install-extras`, `install-progress{,-failed}`, `install-server-settings`, `admin-home-moved` — light and dark, desktop and phone width (the phone sweep includes every one).
 
-## 8. Decisions for the owner
+## 8. Owner decisions (approved 2026-09-28, all as recommended)
 
 1. **Passkey-only system admin with a broken secure address (§5.3).** Passkeys can't work on port 6464, so that admin can't sign in to fix it. *Recommend* `sudo linx setup --new-link --no-sign-in`: root on the server already owns everything, so skipping the sign-in adds no real risk, and it's the only way back.
 2. **Let's Encrypt agreement tick (§2.5).** *Recommend asking*, as above: it's their rule, and today's terminal skips it.
