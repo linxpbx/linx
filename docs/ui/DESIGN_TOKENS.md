@@ -56,6 +56,7 @@ The X mark and the "linx" wordmark come from `A · Meeting point@1x.png`. It's a
 |---|---|---|
 | `WEB_SCREENS_PHASE1C.md` | Low-fidelity specs: sign-in, app shell, dialer, incoming call, active call panel, Team list, settings | 1C |
 | `ADMIN_SCREENS_PHASE1E.md` | Low-fidelity specs: admin shell, home + checklist, first-run setup wizard, People, Extensions + devices, Phone lines, Incoming, Outgoing, Simulator, System, My account, sign-in additions, "Confirm it's you" | 1E |
+| `INSTALL_SCREENS.md` | Low-fidelity specs: web-first install (terminal link, plain page on 6464, certificate wait, token fallback, secure page, progress, re-run server settings, moved-server checklist) | install |
 | `iOS · Keypad@1x.png` | iOS dialer: status pill, network pill, 5-tab bar | 2 |
 | `iOS · Team & presence@1x.png` | iOS Team: search, filter chips, favourites, department sections | 2/4 |
 | `iOS · Active call@1x.png` | iOS in-call (dark): quality pill, low-data toggle, 3×3 controls | 2 |
