@@ -24,10 +24,10 @@
   "radius": { "sm": 8, "md": 12, "lg": 16, "xl": 20, "pill": 999 },
   "logo": {
     "markPaths": ["M28 14 Q72 50 28 86", "M72 14 Q28 50 72 86"],
-    "viewBox": "0 0 100 100",
-    "strokeWidth": 12,
+    "viewBox": "19.5 5.5 61 89",
+    "strokeWidth": 17,
     "lineCap": "round",
-    "wordmark": "lin + mark as the x, Instrument Sans Bold, tight spacing",
+    "wordmark": "lin + mark as the x, Instrument Sans Bold, tight spacing; the mark sits on the baseline at the x-height (1ex), viewBox cropped to the ink",
     "arabicName": "لِنكس"
   }
 }

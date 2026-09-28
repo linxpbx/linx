@@ -87,11 +87,17 @@ for (const scheme of ["light", "dark"] as const) {
     test("authenticator code: used, timed out, start over", async ({ page }) => {
       await fakeServer(page, { pending: "code" });
       await page.goto("/");
+      // The sixth digit sends the code by itself; a refused code clears the
+      // boxes and puts the cursor back in them.
       await page.getByLabel("6-digit code").fill("111111");
-      await page.getByRole("button", { name: "Continue" }).click();
       await expect(page.getByRole("alert")).toHaveText("That code was already used. Wait for the next one in your app.");
-      await page.getByLabel("6-digit code").fill("222222");
-      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByLabel("6-digit code")).toHaveValue("");
+      await expect(page.getByLabel("6-digit code")).toBeFocused();
+      await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+      await shot(page, `${scheme}-signin-code-refused`);
+      await page.keyboard.type("22222");
+      await expect(page.getByRole("heading", { name: "Enter your code" })).toBeVisible();
+      await page.keyboard.type("2");
       await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
       await expect(page.getByRole("status")).toHaveText("Your sign-in timed out. Enter your password again.");
       await shot(page, `${scheme}-signin-timed-out`);

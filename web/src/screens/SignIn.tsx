@@ -13,6 +13,7 @@ import {
 import { navigate } from "@/hooks/useRoute";
 import { companyErrorMessage, goToCompany, takeCompanyResult, type CompanyButton } from "@/lib/company";
 import { Wordmark } from "@/components/brand";
+import { CODE_LENGTH, CodeBoxes } from "@/components/CodeBoxes";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -298,6 +299,7 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
   const hasRecovery = methods.includes("recovery_code");
   const [recovery, setRecovery] = useState(!hasApp && !hasPasskey);
   const [code, setCode] = useState("");
+  const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [keyBusy, setKeyBusy] = useState(false);
@@ -336,18 +338,19 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
     );
   }
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const send = async (value: string) => {
     setBusy(true);
     setError("");
-    const { data, error: err } = await api.POST("/api/v1/session/mfa", { body: { code: code.trim() } });
+    const { data, error: err } = await api.POST("/api/v1/session/mfa", { body: { code: value.trim() } });
     setBusy(false);
-    if (data) onDone();
-    else if (expired(err)) onTimedOut();
-    else if (problemCode(err) === "mfa_code_invalid") setError("That code isn't right.");
+    if (data) return onDone();
+    if (expired(err)) return onTimedOut();
+    if (problemCode(err) === "mfa_code_invalid") setError("That code isn't right.");
     else if (problemCode(err) === "mfa_code_used") setError("That code was already used. Wait for the next one in your app.");
     else setError(problemMessage(err));
+    if (!recovery) { setCode(""); setRetry((n) => n + 1); }
   };
+  const submit = (e: FormEvent) => { e.preventDefault(); void send(code); };
 
   return (
     <Card title="Enter your code"
@@ -355,12 +358,14 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <div className="flex flex-col gap-2">
           <Label htmlFor="code">{recovery ? "Recovery code" : "6-digit code"}</Label>
-          <Input id="code" value={code} onChange={(e) => setCode(e.target.value)} autoFocus disabled={busy}
-            className="h-11 font-mono text-lg tracking-widest"
-            {...(recovery ? { autoComplete: "off" } : { inputMode: "numeric", autoComplete: "one-time-code", maxLength: 6, pattern: "[0-9]*" })} />
+          {recovery
+            ? <Input id="code" value={code} onChange={(e) => setCode(e.target.value)} autoFocus disabled={busy}
+                className="h-11 font-mono text-lg tracking-widest" autoComplete="off" />
+            : <CodeBoxes id="code" value={code} onChange={setCode} onComplete={(v) => void send(v)} autoFocus
+                disabled={busy} retry={retry} invalid={!!error} />}
         </div>
         <FormError message={error} />
-        <Submit busy={busy} disabled={!code.trim()}>Continue</Submit>
+        <Submit busy={busy} disabled={recovery ? !code.trim() : code.length !== CODE_LENGTH}>Continue</Submit>
         {hasPasskey && (
           <Button type="button" variant="outline" className="h-11 w-full text-base" disabled={keyBusy} aria-busy={keyBusy}
             onClick={() => void withPasskey()}>
@@ -740,6 +745,7 @@ function EnrollStep({ onDone, onTimedOut, onStartOver }: { onDone: () => void; o
   const [secret, setSecret] = useState("");
   const [qr, setQr] = useState("");
   const [code, setCode] = useState("");
+  const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [codes, setCodes] = useState<string[] | null>(null);
@@ -762,16 +768,18 @@ function EnrollStep({ onDone, onTimedOut, onStartOver }: { onDone: () => void; o
     // Runs once: a new enrollment secret on every render would be wrong.
   }, []);
 
-  const confirm = async (e: FormEvent) => {
-    e.preventDefault();
+  const send = async (value: string) => {
     setBusy(true);
     setError("");
-    const { data, error: err } = await api.POST("/api/v1/me/mfa/confirm", { body: { code: code.trim() } });
+    const { data, error: err } = await api.POST("/api/v1/me/mfa/confirm", { body: { code: value.trim() } });
     setBusy(false);
-    if (data) setCodes(data.recovery_codes);
-    else if (expired(err)) onTimedOut();
-    else setError(problemCode(err) === "mfa_code_invalid" ? "That code isn't right. Check the time on your phone and try the next code." : problemMessage(err));
+    if (data) return setCodes(data.recovery_codes);
+    if (expired(err)) return onTimedOut();
+    setError(problemCode(err) === "mfa_code_invalid" ? "That code isn't right. Check the time on your phone and try the next code." : problemMessage(err));
+    setCode("");
+    setRetry((n) => n + 1);
   };
+  const confirm = (e: FormEvent) => { e.preventDefault(); void send(code); };
 
   if (codes) {
     return <RecoveryCodes codes={codes} onDone={onDone}
@@ -794,11 +802,11 @@ function EnrollStep({ onDone, onTimedOut, onStartOver }: { onDone: () => void; o
       <form onSubmit={confirm} className="mt-6 flex flex-col gap-4" noValidate>
         <div className="flex flex-col gap-2">
           <Label htmlFor="enroll-code">6-digit code from the app</Label>
-          <Input id="enroll-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
-            onChange={(e) => setCode(e.target.value)} className="h-11 font-mono text-lg tracking-widest" disabled={busy || !secret} />
+          <CodeBoxes id="enroll-code" value={code} onChange={setCode} onComplete={(v) => void send(v)}
+            disabled={busy || !secret} retry={retry} invalid={!!error} />
         </div>
         <FormError message={error} />
-        <Submit busy={busy} disabled={code.trim().length !== 6}>Turn on</Submit>
+        <Submit busy={busy} disabled={code.length !== CODE_LENGTH}>Turn on</Submit>
         {onStartOver && <StartOver onStartOver={onStartOver} />}
       </form>
     </Card>

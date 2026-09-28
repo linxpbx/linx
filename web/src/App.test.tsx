@@ -5,6 +5,10 @@ import { App } from "./App";
 // the app starts as it unmounts must not reach the real network.
 afterEach(() => cleanup());
 
+// jsdom has no layout; the code boxes (input-otp) ask what's under a point to
+// make room for a password manager's badge.
+beforeAll(() => { document.elementFromPoint ??= () => null; });
+
 test("shows sign-in when nobody is signed in", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ type: "about:blank", title: "Unauthorized", status: 401, code: "unauthenticated", detail: "Sign in." }),

@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Building2, CircleAlert, KeyRound } from "lucide-react";
 import { api, problemCode, problemMessage, type Me } from "@/api/client";
+import { CODE_LENGTH, CodeBoxes } from "@/components/CodeBoxes";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -59,6 +60,9 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
   const needsCode = !!me?.mfa_enabled || (me?.passkeys ?? 0) > 0;
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [retry, setRetry] = useState(0);
+  // An authenticator code gets the six boxes; a recovery code stays a text field.
+  const appCode = !!me?.mfa_enabled;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // Linked company accounts, and whether one just came back asking for the
@@ -74,7 +78,7 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
 
   const reset = () => {
     waiting.current?.abort();
-    setPassword(""); setCode(""); setError(""); setCompanyCode(false);
+    setPassword(""); setCode(""); setError(""); setCompanyCode(false); setRetry(0);
   };
   const withCompany = async (providerId: string) => {
     setBusy(true);
@@ -110,23 +114,28 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
       setBusy(false);
     }
   };
-  const withPassword = async (e: FormEvent) => {
-    e.preventDefault();
+  const send = async (value: string) => {
     setBusy(true);
     setError("");
     const { response, error: err } = await api.POST("/api/v1/session/confirm", {
-      body: { ...(companyCode ? {} : { password }), ...(code.trim() ? { code: code.trim() } : {}) },
+      body: { ...(companyCode ? {} : { password }), ...(value.trim() ? { code: value.trim() } : {}) },
     });
     setBusy(false);
     if (response.ok) {
       reset();
-      onConfirmed();
-    } else if (["password_invalid", "mfa_code_invalid", "mfa_code_used"].includes(problemCode(err))) {
-      setError("That password or code isn't right.");
+      return onConfirmed();
+    }
+    if (["password_invalid", "mfa_code_invalid", "mfa_code_used"].includes(problemCode(err))) {
+      setError(companyCode ? "That code isn't right." : "That password or code isn't right.");
     } else {
       setError(problemMessage(err));
     }
+    if (appCode) { setCode(""); setRetry((n) => n + 1); }
   };
+  const withPassword = (e: FormEvent) => { e.preventDefault(); void send(code); };
+  // The sixth digit sends the form once there's everything else it needs.
+  const codeDone = (value: string) => { if (companyCode || password) void send(value); };
+  const codeReady = appCode ? code.length === CODE_LENGTH : !!code.trim();
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) { reset(); onCancel(); } }}>
@@ -139,9 +148,12 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
           <form id="confirm-password" onSubmit={withPassword} className="flex flex-col gap-4" noValidate>
             <p className="text-sm">Your company account checked out. Now enter your second step.</p>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="confirm-code">{me?.mfa_enabled ? "Code from your authenticator app" : "Recovery code"}</Label>
-              <Input id="confirm-code" value={code} onChange={(e) => setCode(e.target.value)} disabled={busy}
-                autoComplete="one-time-code" className="font-mono" autoFocus />
+              <Label htmlFor="confirm-code">{appCode ? "Code from your authenticator app" : "Recovery code"}</Label>
+              {appCode
+                ? <CodeBoxes id="confirm-code" value={code} onChange={setCode} onComplete={codeDone} disabled={busy}
+                    autoFocus retry={retry} invalid={!!error} />
+                : <Input id="confirm-code" value={code} onChange={(e) => setCode(e.target.value)} disabled={busy}
+                    autoComplete="off" className="font-mono" autoFocus />}
             </div>
           </form>
         )}
@@ -165,9 +177,12 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
             </div>
             {needsCode && (
               <div className="flex flex-col gap-2">
-                <Label htmlFor="confirm-code">{me?.mfa_enabled ? "Code from your authenticator app" : "Recovery code"}</Label>
-                <Input id="confirm-code" value={code} onChange={(e) => setCode(e.target.value)} disabled={busy}
-                  autoComplete="one-time-code" className="font-mono" />
+                <Label htmlFor="confirm-code">{appCode ? "Code from your authenticator app" : "Recovery code"}</Label>
+                {appCode
+                  ? <CodeBoxes id="confirm-code" value={code} onChange={setCode} onComplete={codeDone} disabled={busy}
+                      retry={retry} invalid={!!error} />
+                  : <Input id="confirm-code" value={code} onChange={(e) => setCode(e.target.value)} disabled={busy}
+                      autoComplete="off" className="font-mono" />}
               </div>
             )}
           </form>
@@ -192,10 +207,10 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
         <DialogFooter>
           <Button variant="outline" onClick={() => { reset(); onCancel(); }} disabled={busy}>Cancel</Button>
           {companyCode && (
-            <Button type="submit" form="confirm-password" disabled={busy || !code.trim()}>Confirm</Button>
+            <Button type="submit" form="confirm-password" disabled={busy || !codeReady}>Confirm</Button>
           )}
           {!companyCode && hasPassword && (
-            <Button type="submit" form="confirm-password" disabled={busy || !password || (needsCode && !code.trim())}>
+            <Button type="submit" form="confirm-password" disabled={busy || !password || (needsCode && !codeReady)}>
               Confirm
             </Button>
           )}

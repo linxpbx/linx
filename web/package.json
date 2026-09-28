@@ -19,6 +19,7 @@
     "@tanstack/react-table": "8.21.3",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
+    "input-otp": "1.5.0",
     "jssip": "3.13.8",
     "lucide-react": "1.48.0",
     "openapi-fetch": "0.17.0",
