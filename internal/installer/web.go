@@ -98,32 +98,11 @@ func WebConfig(base Config, a install.Answers, lan LAN, now time.Time) (Config, 
 		add(install.StepWhere, "where", "Choose where this server is.")
 	}
 
-	fd := FrontDoorConfig{Kind: a.FrontDoor}
-	switch {
-	case !slices.Contains(FrontDoorsFor(a.Where), a.FrontDoor):
-		add(install.StepFrontDoor, "front_door", "Choose what's in front of this server.")
-	case (NeedsProxyAddress(a.FrontDoor) || a.FrontDoor == FrontDoorHomeOnly) && !lan.OK():
-		add(install.StepFrontDoor, "front_door", "That needs this server on a home network, and it isn't on one. "+
-			"Choose “Directly — Linx answers on port 443 itself”, or run setup on the home server.")
-	case NeedsProxyAddress(a.FrontDoor):
-		fd.ProxyAddress = strings.TrimSpace(a.ProxyAddress)
-		if err := ValidateProxyAddress(fd.ProxyAddress); err != nil {
-			add(install.StepFrontDoor, "proxy_address", upperFirst(err.Error())+".")
-		}
-		if a.TURNUDPPort != 0 && a.TURNUDPPort != PublicPort {
-			if err := ValidateTURNUDPPort(a.TURNUDPPort); err != nil {
-				add(install.StepFrontDoor, "turn_udp_port", upperFirst(err.Error())+".")
-			}
-			fd.TURNUDPPort = a.TURNUDPPort
-		}
-	}
+	fd, fdErrs := FrontDoorChoice(a.Where, a.FrontDoor, a.ProxyAddress, a.TURNUDPPort, lan)
+	errs = append(errs, fdErrs...)
 
-	domain := strings.ToLower(strings.TrimSpace(a.Domain))
-	provider := DNSCloudflare
-	if strings.HasSuffix(domain, ".duckdns.org") {
-		provider = DNSDuckDNS
-	}
-	if msg := domainProblem(domain, provider); msg != "" {
+	domain, provider, msg := DomainFor(a.Domain)
+	if msg != "" {
 		add(install.StepDomain, "domain", msg)
 	}
 
@@ -171,6 +150,47 @@ func WebConfig(base Config, a install.Answers, lan LAN, now time.Time) (Config, 
 		return base, []install.FieldError{{Step: install.StepDomain, Field: "", Message: err.Error()}}
 	}
 	return c, nil
+}
+
+// FrontDoorChoice checks a front door chosen on a page (the install's, or
+// Server settings') for where the server is. Refusals are plain words,
+// tied to the front-door step.
+func FrontDoorChoice(where, kind, proxyAddress string, turnUDPPort int, lan LAN) (FrontDoorConfig, []install.FieldError) {
+	var errs []install.FieldError
+	add := func(field, msg string) {
+		errs = append(errs, install.FieldError{Step: install.StepFrontDoor, Field: field, Message: msg})
+	}
+	fd := FrontDoorConfig{Kind: kind}
+	switch {
+	case !slices.Contains(FrontDoorsFor(where), kind):
+		add("front_door", "Choose what's in front of this server.")
+	case (NeedsProxyAddress(kind) || kind == FrontDoorHomeOnly) && !lan.OK():
+		add("front_door", "That needs this server on a home network, and it isn't on one. "+
+			"Choose “Directly — Linx answers on port 443 itself”, or run setup on the home server.")
+	case NeedsProxyAddress(kind):
+		fd.ProxyAddress = strings.TrimSpace(proxyAddress)
+		if err := ValidateProxyAddress(fd.ProxyAddress); err != nil {
+			add("proxy_address", upperFirst(err.Error())+".")
+		}
+		if turnUDPPort != 0 && turnUDPPort != PublicPort {
+			if err := ValidateTURNUDPPort(turnUDPPort); err != nil {
+				add("turn_udp_port", upperFirst(err.Error())+".")
+			}
+			fd.TURNUDPPort = turnUDPPort
+		}
+	}
+	return fd, errs
+}
+
+// DomainFor tidies a domain typed on a page and says which DNS company it
+// belongs to, or what's wrong with it in plain words.
+func DomainFor(raw string) (domain, provider, problem string) {
+	domain = strings.ToLower(strings.TrimSpace(raw))
+	provider = DNSCloudflare
+	if strings.HasSuffix(domain, ".duckdns.org") {
+		provider = DNSDuckDNS
+	}
+	return domain, provider, domainProblem(domain, provider)
 }
 
 // WebProgress is the terminal's line once the answers are saved.

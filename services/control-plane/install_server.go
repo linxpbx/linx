@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/install"
+	"linxpbx.com/linx/internal/server"
 	"linxpbx.com/linx/internal/version"
 	"linxpbx.com/linx/internal/webapp"
 )
@@ -128,3 +130,21 @@ func installSocket(getenv func(string) string) string {
 // defaultChallengeDir is where compose mounts certd's challenge
 // certificates (install.yaml's acme-challenge volume).
 const defaultChallengeDir = "/var/lib/linx/acme-challenge"
+
+// repairServer is port 6464 on the full control plane while setup has the
+// repair page open (docs/INSTALL.md §7): HTTPS with the install's
+// temporary certificate, answering only the repair link and, once a
+// browser holds it, the few pages and API operations the repair page uses
+// (install.Server.RepairHandler). It's reached directly, not through the
+// front door, so there's no PROXY header.
+func repairServer(addr string, getenv func(string) string, relay *install.Server, api, settings http.Handler) (*http.Server, error) {
+	tlsDir := envOr(getenv, "LINX_INSTALL_TLS_DIR", install.FirstPageTLSMount)
+	first, err := tls.LoadX509KeyPair(filepath.Join(tlsDir, install.FirstPageCertFile), filepath.Join(tlsDir, install.FirstPageKeyFile))
+	if err != nil {
+		return nil, fmt.Errorf("its certificate (linx setup makes it): %w", err)
+	}
+	relay.Web = os.DirFS(envOr(getenv, "LINX_WEB_DIR", webapp.DefaultDir))
+	srv := server.New(addr, relay.RepairHandler(api, settings))
+	srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{first}}
+	return srv, nil
+}

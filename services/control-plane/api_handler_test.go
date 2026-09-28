@@ -58,6 +58,8 @@ type testEnv struct {
 	ops *fakeOps
 	// serverSettings is setup on the server in settings mode (serversettings_test.go).
 	serverSettings *fakeServerSettings
+	// apiServer is the API server itself, for handlers made from it.
+	apiServer *controlplaneapi.Server
 	// asterisk is where the /sip relay connects (a websocket URL); tests
 	// that use the relay set it.
 	asterisk string
@@ -132,8 +134,10 @@ func newTestEnv(t *testing.T) *testEnv {
 	ssoSvc := &sso.Service{Store: company, Client: &sso.Client{Store: company}, Now: time.Now}
 	fops := &fakeOps{}
 	fss := &fakeServerSettings{}
+	var apiServer *controlplaneapi.Server
 	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, nil,
 		func(s *controlplaneapi.Server) {
+			apiServer = s
 			s.SetOps(fops, st.Audit, func() time.Time { return time.Time{} })
 			s.SetServerSettings(fss)
 		})
@@ -141,7 +145,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("newAPIHandler: %v", err)
 	}
 	env := &testEnv{t: t, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al,
-		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts, team: teamStore, hub: hub, company: company, ops: fops, serverSettings: fss}
+		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts, team: teamStore, hub: hub, company: company, ops: fops, serverSettings: fss, apiServer: apiServer}
 	sst := testSIPStore{fakeStore: st, fakePbxStore: pb}
 	pb.sessionLive = st.sessionLive
 	env.relay = &siprelay.Relay{

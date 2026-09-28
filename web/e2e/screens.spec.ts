@@ -390,9 +390,10 @@ test.describe("phone width", () => {
     ["/admin", "admin-home", "Getting started"], ["/admin/people", "people", "People"],
     ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/status", "system-status", "Linx services"],
     ["/admin/system/backups", "system-backups", "Backups"], ["/admin/system/server", "system-server", "Server settings"],
+    ["/repair", "repair", "Fix this server's address"],
   ] as const) {
     test(`no sideways scrolling: ${name}`, async ({ page }) => {
-      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 5, backups: true, download: "ready", serverSettings: "home" });
+      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 5, backups: true, download: "ready", serverSettings: "home", repair: "sign-in" });
       await page.goto(path);
       await expect(page.getByRole("heading", { name: ready, exact: true }).first()).toBeVisible();
       await shot(page, `phone-${name}`);
@@ -514,8 +515,77 @@ test.describe("system: server settings", () => {
     await page.getByRole("button", { name: "Add a token" }).click();
     await page.getByLabel("New Cloudflare token").fill("short");
     await page.getByRole("button", { name: "Apply" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
+    // Checked before anything is asked.
     await expect(page.getByRole("alert")).toContainText("can't see example.com at Cloudflare");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
+  test("at home: a new domain shows what it needs first", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
+    await page.goto("/admin/system/server");
+    await page.getByRole("button", { name: "Change" }).nth(1).click();
+    await page.getByLabel("New domain").fill("203.0.113.9");
+    await page.getByRole("button", { name: "Check" }).click();
+    await expect(page.getByRole("alert")).toContainText("That's an address, not a domain");
+    await page.getByLabel("New domain").fill("pbx.example.org");
+    await page.getByRole("button", { name: "Check" }).click();
+    await expect(page.getByRole("heading", { name: "Before you apply" })).toBeVisible();
+    await expect(page.getByText("Passkeys only work at the address")).toBeVisible();
+    await page.getByRole("button", { name: "Show the block for Pangolin" }).click();
+    await expect(page.getByRole("button", { name: "Apply" })).toBeDisabled();
+    await page.getByLabel("I've done these steps").click();
+    await shot(page, "system-server-move");
+    await page.getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("dialog", { name: "Move Linx to https://pbx.example.org?" })).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("list", { name: "Change steps" }).getByRole("listitem").first()).toContainText("Save your settings");
+  });
+
+  test("rented, no token: a new domain's DNS records to add first", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
+    await page.goto("/admin/system/server");
+    await page.getByRole("button", { name: "Change" }).first().click();
+    await expect(page.getByRole("radio", { name: "Pangolin" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Change" }).first().click();
+    await page.getByLabel("New domain").fill("pbx.example.org");
+    await page.getByRole("button", { name: "Check" }).click();
+    await expect(page.getByText("DNS records to add")).toBeVisible();
+    await expect(page.getByText("turn.pbx.example.org", { exact: true })).toBeVisible();
+    await shot(page, "system-server-move-records");
+  });
+});
+
+test.describe("repair page (port 6464)", () => {
+  test("sign in with a password and authenticator, never a passkey", async ({ page }) => {
+    await fakeServer(page, { repair: "sign-in", serverSettings: "home" });
+    await page.goto("/repair");
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign in with a passkey" })).toHaveCount(0);
+    await expect(page.getByText("sudo linx setup --new-link --no-sign-in")).toBeVisible();
+    await expect(page.getByText("didn't answer from the server")).toBeVisible();
+    await shot(page, "repair-sign-in");
+  });
+
+  test("signed in as a system admin: the Server settings", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, repair: "sign-in", serverSettings: "home" });
+    await page.goto("/repair");
+    await expect(page.getByRole("heading", { name: "Fix this server's address" })).toBeVisible();
+    await expect(page.getByText("Cloudflare token added ✓")).toBeVisible();
+    await shot(page, "repair-settings");
+  });
+
+  test("a link that skips the sign-in", async ({ page }) => {
+    await fakeServer(page, { repair: "no-sign-in", serverSettings: "rented" });
+    await page.goto("/repair");
+    await expect(page.getByRole("heading", { name: "Fix this server's address" })).toBeVisible();
+    await page.getByRole("button", { name: "Change" }).nth(1).click();
+    await page.getByLabel("New domain").fill("pbx.example.org");
+    await page.getByRole("button", { name: "Check" }).click();
+    await expect(page.getByText("DNS records to add")).toBeVisible();
+    await page.getByRole("button", { name: "Apply" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("list", { name: "Change steps" }).getByRole("listitem").first()).toContainText("Check the DNS records");
+    await shot(page, "repair-no-sign-in");
   });
 
   test("only a system admin sees the tab", async ({ page }) => {

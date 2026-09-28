@@ -226,10 +226,30 @@ export interface paths {
         get: operations["getServerSettings"];
         put?: never;
         /**
-         * Change this server's size, Portainer or DNS token
-         * @description Setup on the server makes the change with its own plans (Linx restarts the services whose settings changed, about a minute; calls in progress may drop) and reports each step in GET's `settings`. System admins signed in with a browser, after "confirm it's you". 409 `server_settings_closed` when the page isn't open, 409 `server_settings_refused` with setup's own words, 422 with a `token` field error when the DNS company refuses the token. Audited as `system.server_settings`.
+         * Change this server's domain, front door, size, Portainer or DNS token
+         * @description Setup on the server makes the change with its own plans (Linx restarts the services whose settings changed, about a minute; calls in progress may drop) and reports each step in GET's `settings`. System admins signed in with a browser, after "confirm it's you". 409 `server_settings_closed` when the page isn't open, 409 `server_settings_refused` with setup's own words, 422 `token_refused` when the DNS company refuses the token and `server_settings_invalid` for any other refusal (the preview gives them per field, and `door_done` when the front door's steps aren't ticked off). Audited as `system.server_settings`.
          */
         post: operations["changeServerSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server-settings/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What a change to this server's settings needs and does
+         * @description Changes nothing (a new DNS token is checked at the DNS company, read-only): the DNS records to add first, the front door's steps, what else the change means, and the steps Apply will show. Refusals come back in `errors`. Same callers and 409s as the change itself; no "confirm it's you".
+         */
+        post: operations["previewServerSettings"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3569,6 +3589,20 @@ export interface components {
             /** @enum {string} */
             where: "home" | "rented";
             front_door: string;
+            /** @description The front door's address, for Pangolin, nginx and Caddy. */
+            proxy_address?: string;
+            /** @description The call relay's UDP port on the router, when it isn't 443. */
+            turn_udp_port?: number;
+            /** @description The front doors this server may use. */
+            front_doors: string[];
+            public_address?: string;
+            lan_address?: string;
+            /** @description Why the web address didn't answer when setup checked it. */
+            problem?: string;
+            /** @description The page is also open on port 6464 (the web address is broken, docs/INSTALL.md §7). */
+            repair: boolean;
+            /** @description The repair link skips the sign-in. */
+            no_sign_in: boolean;
             domain: string;
             provider: string;
             token_saved: boolean;
@@ -3606,6 +3640,43 @@ export interface components {
             portainer: boolean;
             /** @description A new DNS token (left out keeps the one there is, or none). */
             token?: string;
+            /** @description A new domain (left out keeps it). */
+            domain?: string;
+            /**
+             * @description A new front door (left out keeps it).
+             * @enum {string}
+             */
+            front_door?: "pangolin" | "nginx" | "http-proxy" | "linx-443" | "home-only";
+            proxy_address?: string;
+            turn_udp_port?: number;
+            /** @description The front door's steps (the preview's `setup`) are done. */
+            door_done?: boolean;
+        };
+        ServerSettingsPreview: {
+            errors: components["schemas"]["ServerSettingsFieldError"][];
+            /** @description DNS records to add by hand first (no DNS token). */
+            add_records: {
+                type: string;
+                name: string;
+                value: string;
+            }[];
+            /** @description The front door's own steps, to do first. */
+            setup?: {
+                files: {
+                    title: string;
+                    path?: string;
+                    text: string;
+                }[];
+                steps: string[];
+            };
+            warnings: string[];
+            steps: string[];
+            /** @description The web address after the change. */
+            address: string;
+        };
+        ServerSettingsFieldError: {
+            field: string;
+            message: string;
         };
         ServiceRestart: {
             service: string;
@@ -4100,6 +4171,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    previewServerSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServerSettingsChange"];
+            };
+        };
+        responses: {
+            /** @description What the change needs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerSettingsPreview"];
+                };
             };
             default: components["responses"]["Problem"];
         };

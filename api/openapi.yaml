@@ -352,16 +352,18 @@ paths:
           $ref: "#/components/responses/Problem"
     post:
       operationId: changeServerSettings
-      summary: Change this server's size, Portainer or DNS token
+      summary: Change this server's domain, front door, size, Portainer or DNS token
       description: >-
         Setup on the server makes the change with its own plans (Linx
         restarts the services whose settings changed, about a minute; calls
         in progress may drop) and reports each step in GET's `settings`.
         System admins signed in with a browser, after "confirm it's you".
         409 `server_settings_closed` when the page isn't open, 409
-        `server_settings_refused` with setup's own words, 422 with a
-        `token` field error when the DNS company refuses the token. Audited
-        as `system.server_settings`.
+        `server_settings_refused` with setup's own words, 422
+        `token_refused` when the DNS company refuses the token and
+        `server_settings_invalid` for any other refusal (the preview gives
+        them per field, and `door_done` when the front door's steps aren't
+        ticked off). Audited as `system.server_settings`.
       tags: [settings]
       security:
         - bearer: [system:write]
@@ -374,6 +376,35 @@ paths:
       responses:
         "202":
           description: Setup on the server is making the change.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/server-settings/preview:
+    post:
+      operationId: previewServerSettings
+      summary: What a change to this server's settings needs and does
+      description: >-
+        Changes nothing (a new DNS token is checked at the DNS company,
+        read-only): the DNS records to add first, the front door's steps,
+        what else the change means, and the steps Apply will show. Refusals
+        come back in `errors`. Same callers and 409s as the change itself;
+        no "confirm it's you".
+      tags: [settings]
+      security:
+        - bearer: [system:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServerSettingsChange"
+      responses:
+        "200":
+          description: What the change needs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerSettingsPreview"
         default:
           $ref: "#/components/responses/Problem"
 
@@ -6007,13 +6038,37 @@ components:
 
     ServerSettingsView:
       type: object
-      required: [where, front_door, domain, provider, token_saved, profile, profiles, portainer, portainer_allowed, apply, steps, keep, expires_at]
+      required: [where, front_door, front_doors, domain, provider, token_saved, profile, profiles, portainer, portainer_allowed, apply, steps, keep, expires_at, repair, no_sign_in]
       properties:
         where:
           type: string
           enum: [home, rented]
         front_door:
           type: string
+        proxy_address:
+          type: string
+          description: The front door's address, for Pangolin, nginx and Caddy.
+        turn_udp_port:
+          type: integer
+          description: The call relay's UDP port on the router, when it isn't 443.
+        front_doors:
+          type: array
+          description: The front doors this server may use.
+          items:
+            type: string
+        public_address:
+          type: string
+        lan_address:
+          type: string
+        problem:
+          type: string
+          description: Why the web address didn't answer when setup checked it.
+        repair:
+          type: boolean
+          description: The page is also open on port 6464 (the web address is broken, docs/INSTALL.md §7).
+        no_sign_in:
+          type: boolean
+          description: The repair link skips the sign-in.
         domain:
           type: string
         provider:
@@ -6092,6 +6147,87 @@ components:
           type: string
           maxLength: 1000
           description: A new DNS token (left out keeps the one there is, or none).
+        domain:
+          type: string
+          maxLength: 253
+          description: A new domain (left out keeps it).
+        front_door:
+          type: string
+          enum: [pangolin, nginx, http-proxy, linx-443, home-only]
+          description: A new front door (left out keeps it).
+        proxy_address:
+          type: string
+          maxLength: 253
+        turn_udp_port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+        door_done:
+          type: boolean
+          description: The front door's steps (the preview's `setup`) are done.
+
+    ServerSettingsPreview:
+      type: object
+      required: [errors, add_records, warnings, steps, address]
+      properties:
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServerSettingsFieldError"
+        add_records:
+          type: array
+          description: DNS records to add by hand first (no DNS token).
+          items:
+            type: object
+            required: [type, name, value]
+            properties:
+              type:
+                type: string
+              name:
+                type: string
+              value:
+                type: string
+        setup:
+          type: object
+          description: The front door's own steps, to do first.
+          required: [files, steps]
+          properties:
+            files:
+              type: array
+              items:
+                type: object
+                required: [title, text]
+                properties:
+                  title:
+                    type: string
+                  path:
+                    type: string
+                  text:
+                    type: string
+            steps:
+              type: array
+              items:
+                type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        steps:
+          type: array
+          items:
+            type: string
+        address:
+          type: string
+          description: The web address after the change.
+
+    ServerSettingsFieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+        message:
+          type: string
 
     ServiceRestart:
       type: object

@@ -243,17 +243,27 @@ func TestWebApplyToken(t *testing.T) {
 	}
 }
 
+func previewSteps(t *testing.T, s webSettings, ch install.ServerChange) []string {
+	t.Helper()
+	p, err := s.Preview(context.Background(), ch)
+	if err != nil || len(p.Errors) > 0 {
+		t.Fatalf("preview %+v: %v %v", ch, p.Errors, err)
+	}
+	return p.Steps
+}
+
 func TestWebSettings(t *testing.T) {
 	ctx := context.Background()
 	r := newApplyRig(t, homeAnswers, homeLAN)
-	s := webSettings{r.w}
+	s := newWebSettings(r.w, false)
 	v, err := s.View(ctx)
-	if err != nil || v.Where != install.WhereHome || v.Token != "saved" || v.Profile != "lite" || v.Portainer || !v.PortainerAllowed {
+	if err != nil || v.Where != install.WhereHome || v.Token != "saved" || v.Profile != "lite" || v.Portainer || !v.PortainerAllowed ||
+		v.ProxyAddress != "192.168.1.30" || !slices.Contains(v.FrontDoors, installer.FrontDoorLinx443) {
 		t.Fatalf("view %+v %v", v, err)
 	}
-	titles, err := s.Steps(ctx, install.ServerChange{Profile: "standard", Portainer: true})
-	if err != nil || !slices.Equal(titles, []string{"Save your settings", "Portainer (home network only)", "Restart Linx with the new settings"}) {
-		t.Fatalf("rows %v %v", titles, err)
+	titles := previewSteps(t, s, install.ServerChange{Profile: "standard", Portainer: true})
+	if !slices.Equal(titles, []string{"Save your settings", "Portainer (home network only)", "Restart Linx with the new settings"}) {
+		t.Fatalf("rows %v", titles)
 	}
 	var kept []install.KeepItem
 	if err := s.Run(ctx, install.ServerChange{Profile: "standard", Portainer: true}, func(int, string, string) {}, func(k install.KeepItem) { kept = append(kept, k) }); err != nil {
@@ -268,16 +278,162 @@ func TestWebSettings(t *testing.T) {
 	// Rented, set up without a token: adding one brings the DNS records.
 	r = newApplyRig(t, rentedAnswers, installer.LAN{})
 	delete(r.saved, installer.DNSTokenPath)
-	s = webSettings{r.w}
-	if v, _ := s.View(ctx); v.Token != "" || v.PortainerAllowed {
+	s = newWebSettings(r.w, false)
+	if v, _ := s.View(ctx); v.Token != "" || v.PortainerAllowed || slices.Contains(v.FrontDoors, installer.FrontDoorPangolin) {
 		t.Errorf("rented view %+v", v)
 	}
 	token := strings.Repeat("y", 40)
-	titles, _ = s.Steps(ctx, install.ServerChange{Profile: "lite", Token: token})
+	titles = previewSteps(t, s, install.ServerChange{Profile: "lite", Token: token})
 	if !slices.Contains(titles, "Your DNS company's token") || !strings.HasPrefix(titles[len(titles)-1], "pbx.example.com, turn.pbx.example.com at") {
 		t.Errorf("token rows %v", titles)
 	}
-	if refusal, _ := s.CheckToken(ctx, strings.Repeat("n", 40)); refusal == "" {
-		t.Error("refused token accepted")
+	if p, _ := s.Preview(ctx, install.ServerChange{Profile: "lite", Token: strings.Repeat("n", 40)}); len(p.Errors) != 1 || p.Errors[0].Field != "token" {
+		t.Errorf("refused token accepted: %+v", p)
 	}
+}
+
+// A new domain at home, with the saved token: the token must see it, the
+// front door's block is shown again, and the restart brings everything to
+// the new name.
+func TestWebSettingsNewDomainHome(t *testing.T) {
+	ctx := context.Background()
+	r := newApplyRig(t, homeAnswers, homeLAN)
+	s := newWebSettings(r.w, false)
+	var asked []string
+	r.w.checkToken = func(_ context.Context, provider, domain, token string) error {
+		asked = append(asked, provider+" "+domain)
+		return nil
+	}
+	ch := install.ServerChange{Profile: "lite", Domain: " PBX.Example.ORG "}
+	p, err := s.Preview(ctx, ch)
+	if err != nil || len(p.Errors) > 0 || p.Address != "https://pbx.example.org" || p.Setup == nil || len(p.Setup.Files) == 0 ||
+		!strings.Contains(p.Setup.Files[0].Text, "pbx.example.org") || len(p.AddRecords) != 0 || !slices.Equal(asked, []string{"cloudflare pbx.example.org"}) {
+		t.Fatalf("preview %+v %v, asked %v", p, err, asked)
+	}
+	for _, want := range []string{"Passkeys only work", "sip.pbx.example.org", "/api/v1/sso/callback"} {
+		if !strings.Contains(strings.Join(p.Warnings, "\n"), want) {
+			t.Errorf("warnings miss %q: %v", want, p.Warnings)
+		}
+	}
+	if err := s.Run(ctx, ch, func(int, string, string) {}, func(install.KeepItem) {}); err != nil {
+		t.Fatal(err)
+	}
+	all := ""
+	for _, pl := range r.plans {
+		all += planText(pl)
+	}
+	for _, want := range []string{"name: pbx.example.org", "LINX_DOMAIN=pbx.example.org", "certd -once", "up --detach --wait", "pbx.example.org"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("plans miss %q", want)
+		}
+	}
+
+	// A DuckDNS name needs a DuckDNS token.
+	p, _ = s.Preview(ctx, install.ServerChange{Profile: "lite", Domain: "mypbx.duckdns.org"})
+	if len(p.Errors) != 1 || p.Errors[0].Field != "token" || !strings.Contains(p.Errors[0].Message, "DuckDNS") {
+		t.Errorf("duckdns: %+v", p.Errors)
+	}
+	// Not a domain.
+	p, _ = s.Preview(ctx, install.ServerChange{Profile: "lite", Domain: "203.0.113.9"})
+	if len(p.Errors) != 1 || p.Errors[0].Field != "domain" {
+		t.Errorf("address: %+v", p.Errors)
+	}
+}
+
+// A rented server without a token: a new domain's records are checked,
+// then its certificate comes through port 443 before anything restarts.
+func TestWebSettingsNewDomainNoToken(t *testing.T) {
+	ctx := context.Background()
+	r := newApplyRig(t, rentedAnswers, installer.LAN{})
+	delete(r.saved, installer.DNSTokenPath)
+	cfg, _ := installer.ParseConfig(strings.NewReader(mustSaved(t, r)))
+	cfg.Certificates.NoDNSToken = true
+	r.w.env.savedConfig = func() ([]byte, error) { return cfg.Marshal(), nil }
+	var ran []string
+	r.w.env.runner = recordRunner{&ran}
+	r.w.env.web.publicAddress = func(context.Context) (netip.Addr, error) { return netip.MustParseAddr("203.0.113.5"), nil }
+	s := newWebSettings(r.w, true)
+	lookups := map[string][]string{"pbx.example.org": {"203.0.113.5"}}
+	s.lookup = func(_ context.Context, name string) ([]string, error) { return lookups[name], nil }
+
+	ch := install.ServerChange{Profile: "lite", Domain: "pbx.example.org"}
+	p, err := s.Preview(ctx, ch)
+	if err != nil || len(p.AddRecords) != 2 || p.AddRecords[1].Name != "turn.pbx.example.org" || p.AddRecords[1].Value != "203.0.113.5" ||
+		p.Steps[0] != "Check the DNS records for pbx.example.org" {
+		t.Fatalf("preview %+v %v", p, err)
+	}
+	err = s.Run(ctx, ch, func(int, string, string) {}, func(install.KeepItem) {})
+	if err == nil || !strings.Contains(err.Error(), "turn.pbx.example.org has no record yet") || len(r.plans) != 0 {
+		t.Fatalf("records missing: %v, plans %d", err, len(r.plans))
+	}
+	lookups["turn.pbx.example.org"] = []string{"203.0.113.5"}
+	if err := s.Run(ctx, ch, func(int, string, string) {}, func(install.KeepItem) {}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"docker compose --file /etc/linx/compose.yaml run --rm --no-TTY --env LINX_DOMAIN=pbx.example.org certd -bootstrap staging",
+		"docker compose --file /etc/linx/compose.yaml run --rm --no-TTY --env LINX_DOMAIN=pbx.example.org certd -bootstrap real",
+	}
+	if !slices.Equal(ran, want) {
+		t.Errorf("ran %q", ran)
+	}
+	// The repair page stays open through the restart.
+	restart := planText(r.plans[len(r.plans)-1])
+	if !strings.Contains(restart, "--file /etc/linx/compose.yaml --file /etc/linx/repair.yaml up --detach --wait") ||
+		!strings.Contains(restart, "--force-recreate sni") {
+		t.Errorf("restart:\n%s", restart)
+	}
+
+	// Without a token, only Linx's own port 443 works.
+	p, _ = s.Preview(ctx, install.ServerChange{Profile: "lite", FrontDoor: installer.FrontDoorNginx, ProxyAddress: "203.0.113.7"})
+	if len(p.Errors) == 0 {
+		t.Errorf("nginx without a token: %+v", p)
+	}
+}
+
+// A new front door from the repair page: the firewall is written again,
+// and port 6464 opened again right after, so the page stays.
+func TestWebSettingsNewDoorRepair(t *testing.T) {
+	ctx := context.Background()
+	r := newApplyRig(t, homeAnswers, homeLAN)
+	s := newWebSettings(r.w, true)
+	ch := install.ServerChange{Profile: "lite", FrontDoor: installer.FrontDoorLinx443}
+	p, err := s.Preview(ctx, ch)
+	if err != nil || len(p.Errors) > 0 || p.Setup == nil || !strings.Contains(strings.Join(p.Setup.Steps, " "), "send TCP and UDP port 443") {
+		t.Fatalf("preview %+v %v", p, err)
+	}
+	if err := s.Run(ctx, ch, func(int, string, string) {}, func(install.KeepItem) {}); err != nil {
+		t.Fatal(err)
+	}
+	var firewall string
+	for _, pl := range r.plans {
+		if txt := planText(pl); strings.Contains(txt, "Apply the firewall rules now") {
+			firewall = txt
+		}
+	}
+	load := strings.Index(firewall, "reload-or-restart linx-firewall.service")
+	open := strings.Index(firewall, "nft add element inet linx install_page { 0.0.0.0/0 }")
+	if load < 0 || open < load {
+		t.Errorf("firewall row:\n%s", firewall)
+	}
+	if !strings.Contains(planText(r.plans[len(r.plans)-2]), "--file /etc/linx/repair.yaml up --detach --wait --force-recreate sni") {
+		t.Errorf("restart:\n%s", planText(r.plans[len(r.plans)-2]))
+	}
+}
+
+func mustSaved(t *testing.T, r *applyRig) string {
+	t.Helper()
+	b, err := r.w.env.savedConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// recordRunner records commands and answers nothing.
+type recordRunner struct{ ran *[]string }
+
+func (r recordRunner) Run(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+	*r.ran = append(*r.ran, name+" "+strings.Join(args, " "))
+	return nil, nil
 }

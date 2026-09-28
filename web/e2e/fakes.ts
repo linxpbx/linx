@@ -51,6 +51,9 @@ export interface FakeOptions {
   // System → Server settings (docs/INSTALL.md §7): open (sudo linx setup
   // has it open) at home or on a rented server; closed by default.
   serverSettings?: "home" | "rented";
+  // The repair page on port 6464 (docs/INSTALL.md §7): its link claimed,
+  // with a system admin's sign-in or without.
+  repair?: "sign-in" | "no-sign-in";
 }
 
 const GOOGLE = { id: "0199c1", kind: "google", name: "Google" };
@@ -136,6 +139,55 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     ],
     portainer: false, portainer_allowed: opts.serverSettings === "home", apply: { state: "" }, steps: [], keep: [],
     expires_at: new Date(Date.now() + 4 * 3600_000).toISOString(),
+    proxy_address: opts.serverSettings === "home" ? "192.168.1.30" : undefined,
+    front_doors: opts.serverSettings === "home" ? ["pangolin", "nginx", "http-proxy", "linx-443", "home-only"] : ["linx-443", "nginx", "http-proxy"],
+    public_address: "203.0.113.5", lan_address: opts.serverSettings === "home" ? "192.168.1.212" : undefined,
+    repair: !!opts.repair, no_sign_in: opts.repair === "no-sign-in",
+    problem: opts.repair ? "x509: certificate has expired or is not yet valid" : undefined,
+  };
+  type Change = { profile: string; portainer: boolean; token?: string; domain?: string; front_door?: string; proxy_address?: string; door_done?: boolean };
+  // What setup on the server says a change needs (docs/INSTALL.md §7).
+  const settingsPreview = (body: Change) => {
+    const errors = body.token && body.token.length < 20
+      ? [{ field: "token", message: "That token can't see example.com at Cloudflare. It needs Zone → DNS → Edit on that zone." }] : [];
+    const home = serverSettings?.where === "home";
+    const domain = body.domain ?? "example.com";
+    const warnings = body.domain ? [
+      `Linx moves to https://${domain}. https://example.com stops working, and everyone signs in again at the new address.`,
+      "Passkeys only work at the address they were made for. Before you apply, check you can sign in with your password and authenticator app (or a recovery code), then add new passkeys at the new address. A system admin with only a passkey gets back in with  sudo linx user setup-link EMAIL  on the server.",
+      `If you use company sign-in, change its redirect address at Google or Microsoft to https://${domain}/api/v1/sso/callback.`,
+      ...(home ? [`Desk phones and phone apps set up with sip.example.com need sip.${domain} as their server: change it on each one.`] : []),
+    ] : [];
+    const addRecords = body.domain && !serverSettings?.token_saved
+      ? [{ type: "A", name: domain, value: "203.0.113.5" }, { type: "A", name: `turn.${domain}`, value: "203.0.113.5" }] : [];
+    if (addRecords.length) warnings.push("Add the DNS records below at your DNS company first: Linx checks them before it asks Let's Encrypt.");
+    const door = body.front_door ?? serverSettings?.front_door;
+    const setup = (body.domain || body.front_door) && door === "pangolin" ? {
+      files: [{ title: "the block for Pangolin", path: "config/traefik/dynamic_config.yml",
+        text: `tcp:\n  routers:\n    linx-web:\n      rule: "HostSNI(\`${domain}\`)"\n      service: linx-web\n      tls:\n        passthrough: true` }],
+      steps: [`On the Pangolin machine (${body.proxy_address ?? "192.168.1.30"}), add the block below to the end of config/traefik/dynamic_config.yml. Traefik picks it up by itself.`,
+        "On your router, keep TCP port 443 going to Pangolin, and send UDP port 443 to this server (192.168.1.212)."],
+    } : undefined;
+    if (setup) warnings.push("Until the steps below are done, Linx can't be reached from outside your network.");
+    const steps = [
+      ...(addRecords.length ? [`Check the DNS records for ${domain}`, `Test certificate for ${domain}, turn.${domain}`, `Certificate for ${domain}, turn.${domain}`] : []),
+      "Save your settings", ...(body.token ? ["Your DNS company's token"] : []),
+      ...(body.front_door ? [`Firewall for ${body.front_door}`] : []),
+      ...(body.portainer && !serverSettings?.portainer ? ["Portainer (home network only)"] : []), "Restart Linx with the new settings",
+      ...(serverSettings?.token_saved && (body.domain || body.front_door) ? [`${domain}, turn.${domain} at this network's public address`] : []),
+    ];
+    return { errors, add_records: addRecords, warnings, steps, address: `https://${domain}`, ...(setup ? { setup } : {}) };
+  };
+  const settingsChange = (body: Change) => {
+    const p = settingsPreview(body);
+    if (p.errors.length) return json({ status: 422, code: "token_refused", detail: p.errors[0]!.message }, 422);
+    serverSettings = {
+      ...serverSettings!, apply: { state: "running" },
+      steps: p.steps.map((title, i) => ({ title, state: i === 0 ? "ok" : i === 1 ? "running" : "" })),
+      keep: body.portainer && !serverSettings!.portainer
+        ? [{ title: "Portainer password", value: "Qx7-m2Pd-9vRk", note: "Open https://192.168.1.212:9443 from your home network and sign in as admin." }] : [],
+    };
+    return { status: 202, body: "" };
   };
   const json = (body: unknown, status = 200) => ({
     status, contentType: status >= 400 ? "application/problem+json" : "application/json", body: JSON.stringify(body),
@@ -318,20 +370,11 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     if (p === "/api/v1/server-settings" && method === "GET") {
       return route.fulfill(json(serverSettings ? { open: true, settings: serverSettings } : { open: false }));
     }
+    if (p === "/api/v1/server-settings/preview" && method === "POST" && serverSettings) {
+      return route.fulfill(json(settingsPreview(route.request().postDataJSON() as Change)));
+    }
     if (p === "/api/v1/server-settings" && method === "POST" && serverSettings) {
-      const body = route.request().postDataJSON() as { profile: string; portainer: boolean; token?: string };
-      if (body.token && body.token.length < 20) {
-        return route.fulfill(json({ status: 422, code: "token_refused", detail: "That token can't see example.com at Cloudflare. It needs Zone → DNS → Edit on that zone." }, 422));
-      }
-      const steps = ["Save your settings", ...(body.token ? ["Your DNS company's token"] : []),
-        ...(body.portainer && !serverSettings.portainer ? ["Portainer (home network only)"] : []), "Restart Linx with the new settings"];
-      serverSettings = {
-        ...serverSettings, apply: { state: "running" },
-        steps: steps.map((title, i) => ({ title, state: i === 0 ? "ok" : i === 1 ? "running" : "" })),
-        keep: body.portainer && !serverSettings.portainer
-          ? [{ title: "Portainer password", value: "Qx7-m2Pd-9vRk", note: "Open https://192.168.1.212:9443 from your home network and sign in as admin." }] : [],
-      };
-      return route.fulfill({ status: 202, body: "" });
+      return route.fulfill(settingsChange(route.request().postDataJSON() as Change));
     }
     if (p === "/api/v1/backup-settings" && method === "GET") return route.fulfill(json(backupSettings));
     if (p === "/api/v1/backup-settings" && method === "PATCH") {
@@ -439,6 +482,27 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     }
     if (p === "/api/v1/me/presence") return route.fulfill({ status: 204 });
     return route.fulfill(json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "No." }, 404));
+  });
+  // The repair page's own endpoints (docs/INSTALL.md §7).
+  await page.route("**/repair/api/**", async (route) => {
+    const p = new URL(route.request().url()).pathname;
+    const method = route.request().method();
+    if (!opts.repair) return route.fulfill({ status: 404, body: "" });
+    if (p === "/repair/api/state") {
+      return route.fulfill(json({ no_sign_in: opts.repair === "no-sign-in", domain: "example.com", problem: serverSettings?.problem,
+        expires_at: new Date(Date.now() + 4 * 3600_000).toISOString(), expires_in: 4 * 3600 - 83 }));
+    }
+    if (opts.repair !== "no-sign-in") return route.fulfill({ status: 404, body: "" });
+    if (p === "/repair/api/server-settings" && method === "GET") {
+      return route.fulfill(json(serverSettings ? { open: true, settings: serverSettings } : { open: false }));
+    }
+    if (p === "/repair/api/server-settings/preview" && method === "POST") {
+      return route.fulfill(json(settingsPreview(route.request().postDataJSON() as Change)));
+    }
+    if (p === "/repair/api/server-settings" && method === "POST") {
+      return route.fulfill(settingsChange(route.request().postDataJSON() as Change));
+    }
+    return route.fulfill({ status: 404, body: "" });
   });
   await page.routeWebSocket("**/api/v1/team/live", (ws) => {
     ws.send(JSON.stringify({ items: TEAM }));

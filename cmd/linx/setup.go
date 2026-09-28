@@ -73,7 +73,7 @@ func executablePath() string {
 	return p
 }
 
-const setupUsage = `Usage: sudo linx setup [--new-link] [--replace-docker] [--dry-run]
+const setupUsage = `Usage: sudo linx setup [--new-link [--no-sign-in]] [--replace-docker] [--dry-run]
        sudo linx setup --config FILE [--dry-run] [--owner-email EMAIL --owner-name NAME]
 
 Checks this server and installs Docker and Linx. Then it asks how you want to
@@ -82,7 +82,12 @@ docs/INSTALL.md) or here, with questions in the terminal. Without a terminal
 (a script), it uses the browser. Answers are saved to ` + installer.ConfigPath + `.
 
   --new-link          browser setup: cancel the link (or the browser using it)
-                      and print a new one; answers given so far are kept
+                      and print a new one; answers given so far are kept. On
+                      an installed server: open the repair page on port 6464
+                      even if https://<domain> works from here
+  --no-sign-in        an installed server: the repair link (port 6464) skips
+                      the system admin's sign-in, for one who signs in with a
+                      passkey only (passkeys can't work there)
   --replace-docker    browser setup: replace this server's own Docker package
                       with Docker's official one even though containers are
                       running (they restart)
@@ -105,6 +110,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	ownerName := fl.String("owner-name", "", "")
 	newLink := fl.Bool("new-link", false, "")
 	replaceDocker := fl.Bool("replace-docker", false, "")
+	noSignIn := fl.Bool("no-sign-in", false, "")
 	if err := fl.Parse(args); err != nil || fl.NArg() > 0 {
 		fmt.Fprint(stderr, setupUsage)
 		return 2
@@ -119,15 +125,15 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 			fmt.Fprintln(stderr, "linx setup changes system settings and must run as root. Try: sudo linx setup")
 			return 1
 		}
-		web, err := chooseSetupMode(ctx, p, env, *newLink || *replaceDocker)
+		web, err := chooseSetupMode(ctx, p, env, *newLink || *replaceDocker || *noSignIn)
 		if err != nil {
 			return inputError(stderr, err)
 		}
 		if web {
-			return runWebSetup(ctx, webOptions{dryRun: *dryRun, newLink: *newLink, replaceDocker: *replaceDocker}, stdout, stderr, env)
+			return runWebSetup(ctx, webOptions{dryRun: *dryRun, newLink: *newLink || *noSignIn, noSignIn: *noSignIn, replaceDocker: *replaceDocker}, stdout, stderr, env)
 		}
-	} else if *newLink {
-		fmt.Fprintln(stderr, "--new-link is for browser setup, not --config.")
+	} else if *newLink || *noSignIn {
+		fmt.Fprintln(stderr, "--new-link and --no-sign-in are for browser setup, not --config.")
 		return 2
 	}
 
@@ -696,7 +702,7 @@ func chooseSetupMode(ctx context.Context, p *prompter, env setupEnv, webFlags bo
 	}
 	if cfg, err := loadSetupConfig("", env); err == nil && cfg.Installed() {
 		labels := map[string]string{
-			setupInBrowser:  "the Server settings page, for a system admin (size, Portainer, DNS token)",
+			setupInBrowser:  "the Server settings page, for a system admin (domain, front door, size, Portainer, DNS token)",
 			setupInTerminal: "answer setup's questions again here, with your saved answers as the defaults",
 		}
 		fmt.Fprintf(p.out, "Linx is already installed here (https://%s).\n", cfg.Domain.Name)

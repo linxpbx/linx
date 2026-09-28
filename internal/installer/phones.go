@@ -234,8 +234,9 @@ func FirewallRuleset(lan LAN, fd FrontDoorSettings) []byte {
 # touches nothing else. The web port (%[6]d/tcp) and the call relay's TLS
 # port (%[7]d/tcp) only from the front door, if any (the relay's TLS port
 # from anywhere when the router forwards it). The web install's first page
-# (%[13]d/tcp, plain HTTP) from nobody, for good once setup has run
-# (docs/INSTALL.md §6); only a new web install link opens it again.
+# (%[13]d/tcp) from nobody, for good once setup has run (docs/INSTALL.md
+# §6), except while setup's repair page is open (§7): setup then puts
+# addresses in the %[14]s set, which is empty whenever this file loads.
 
 table inet %[4]s
 delete table inet %[4]s
@@ -258,6 +259,11 @@ table inet %[4]s {
 		type ipv4_addr
 	}
 
+	set %[14]s {
+		type ipv4_addr
+		flags interval
+	}
+
 	chain prerouting {
 		type filter hook prerouting priority mangle; policy accept;
 		iif lo accept
@@ -271,10 +277,11 @@ table inet %[4]s {
 		fib daddr type local udp dport { 5060, %[3]s, %[9]d } counter drop
 		fib daddr type local tcp dport %[12]s ip saddr @front_door accept
 		fib daddr type local tcp dport %[12]s counter drop
+		fib daddr type local tcp dport %[13]d ip saddr @%[14]s accept
 		fib daddr type local tcp dport %[13]d counter drop
 	}
 }
-`, FirewallUnit, sip, rtp, FirewallTable, elements, WebPort, TURNTLSPort, webElements, plain, TrunkAddressSet, TrunkPlainAddressSet, guarded, install.Port)
+`, FirewallUnit, sip, rtp, FirewallTable, elements, WebPort, TURNTLSPort, webElements, plain, TrunkAddressSet, TrunkPlainAddressSet, guarded, install.Port, RepairSet)
 }
 
 // firewallUnit loads the rules early at boot, like Debian's own

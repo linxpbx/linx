@@ -4,7 +4,7 @@
 // On first use (a set-password link) the person chooses how to sign in:
 // passkey (recommended), password + authenticator app, or password only
 // (a warning for admins). One step shown at a time.
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Building2, CircleAlert, KeyRound, TriangleAlert } from "lucide-react";
 import { api, problemCode, problemMessage } from "@/api/client";
 import {
@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { onRepairPage, signInHome } from "@/lib/repair";
 
 export type SignInStep = "password" | "code" | "enroll" | "choose-password";
 
@@ -54,7 +55,11 @@ function StartOver({ onStartOver }: { onStartOver: () => void }) {
   );
 }
 
+/** What the page puts under every sign-in card (the repair page's words). */
+const Aside = createContext<ReactNode>(null);
+
 function Card({ title, lead, children }: { title: string; lead?: ReactNode; children: ReactNode }) {
+  const aside = useContext(Aside);
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
@@ -66,6 +71,7 @@ function Card({ title, lead, children }: { title: string; lead?: ReactNode; chil
           {lead && <p className="mt-1 text-sm text-muted-foreground">{lead}</p>}
           <div className="mt-6">{children}</div>
         </section>
+        {aside}
       </div>
     </main>
   );
@@ -91,8 +97,15 @@ function Submit({ busy, children, disabled, variant = "default" }:
   );
 }
 
-export function SignInScreen({ initialStep = "password", initialMethods = [], setupToken, onSignedIn }:
-  { initialStep?: SignInStep; initialMethods?: SecondStepMethod[]; setupToken?: string; onSignedIn: () => void }) {
+export function SignInScreen({ aside, ...props }: Parameters<typeof SignInSteps>[0] & { aside?: ReactNode }) {
+  return <Aside.Provider value={aside}><SignInSteps {...props} /></Aside.Provider>;
+}
+
+function SignInSteps({ initialStep = "password", initialMethods = [], setupToken, onSignedIn, onSetupNeeded }: {
+  initialStep?: SignInStep; initialMethods?: SecondStepMethod[]; setupToken?: string; onSignedIn: () => void;
+  /** Instead of setting up a second sign-in step here (the repair page can't). */
+  onSetupNeeded?: () => void;
+}) {
   const [step, setStep] = useState<SignInStep>(
     setupToken ? "choose-password" : initialStep === "choose-password" ? "password" : initialStep);
   const [methods, setMethods] = useState<SecondStepMethod[]>(initialMethods);
@@ -102,10 +115,11 @@ export function SignInScreen({ initialStep = "password", initialMethods = [], se
     else if (body.status === "mfa_verify_required") {
       setMethods(body.methods ?? ["authenticator", "recovery_code"]);
       setStep("code");
-    } else setStep("enroll");
+    } else if (onSetupNeeded) onSetupNeeded();
+    else setStep("enroll");
   };
   const restart = (why = "") => {
-    window.history.replaceState(null, "", "/");
+    window.history.replaceState(null, "", signInHome());
     setNotice(why);
     setStep("password");
   };
@@ -175,6 +189,8 @@ function useSignInOptions() {
   const [company, setCompany] = useState<CompanyButton[]>([]);
   const [required, setRequired] = useState(false);
   useEffect(() => {
+    // Company sign-in comes back to the domain: not on the repair page.
+    if (onRepairPage()) return;
     void api.GET("/api/v1/sign-in-options").then(({ data }) => {
       if (!data) return;
       setCompany(data.company);
@@ -317,6 +333,19 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
       setKeyBusy(false);
     }
   };
+
+  if (!hasApp && !hasPasskey && !hasRecovery) {
+    // Only a passkey, on the repair page: nothing here can finish it.
+    return (
+      <Card title="Your passkey can't be used here" lead="Passkeys only work at your Linx's own address.">
+        <div className="flex flex-col gap-4 text-sm">
+          <p>Run this on the server instead, for a link that doesn't ask you to sign in:</p>
+          <code className="block w-fit max-w-full rounded-md bg-muted px-3 py-2 font-mono break-all">sudo linx setup --new-link --no-sign-in</code>
+          <StartOver onStartOver={onStartOver} />
+        </div>
+      </Card>
+    );
+  }
 
   if (!hasApp && hasPasskey && !recovery) {
     return (

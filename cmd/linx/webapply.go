@@ -299,9 +299,6 @@ func (w *webApply) SaveToken(ctx context.Context, token string) (string, error) 
 // tokenRefusal checks a DNS token, changing nothing: its form, then
 // whether the DNS company lets it see the domain. A refusal is plain words.
 func (w *webApply) tokenRefusal(ctx context.Context, token string) (string, error) {
-	if err := installer.ValidateDNSToken(token); err != nil {
-		return upper(err.Error()) + ".", nil
-	}
 	b, err := w.env.savedConfig()
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", installer.ConfigPath, err)
@@ -310,7 +307,15 @@ func (w *webApply) tokenRefusal(ctx context.Context, token string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	if err := w.checkToken(ctx, c.Domain.DNSProvider, c.Domain.Name, token); err != nil {
+	return w.tokenRefusalFor(ctx, c.Domain.DNSProvider, c.Domain.Name, token)
+}
+
+// tokenRefusalFor is tokenRefusal for a domain at a DNS company.
+func (w *webApply) tokenRefusalFor(ctx context.Context, provider, domain, token string) (string, error) {
+	if err := installer.ValidateDNSToken(token); err != nil {
+		return upper(err.Error()) + ".", nil
+	}
+	if err := w.checkToken(ctx, provider, domain, token); err != nil {
 		if errors.Is(err, certs.ErrTokenRefused) {
 			return upper(strings.TrimPrefix(err.Error(), certs.ErrTokenRefused.Error()+": ")) + ".", nil
 		}

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { companyErrorMessage, confirmWithCompany } from "@/lib/company";
 import { answerWithPasskey, cancelled, PasskeyError, passkeysSupported } from "@/lib/passkey";
+import { onRepairPage } from "@/lib/repair";
 import type { components } from "@/api/schema";
 
 type CompanyLink = components["schemas"]["CompanyLink"];
@@ -70,7 +71,8 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
   const [company, setCompany] = useState<CompanyLink[]>([]);
   const [companyCode, setCompanyCode] = useState(false);
   const waiting = useRef<AbortController | null>(null);
-  const hasCompany = (me?.company_sign_in?.length ?? 0) > 0;
+  // Company sign-in comes back to the domain: not on the repair page.
+  const hasCompany = (me?.company_sign_in?.length ?? 0) > 0 && !onRepairPage();
   useEffect(() => {
     if (!open || !hasCompany) return;
     void api.GET("/api/v1/me/sso-links").then(({ data }) => setCompany(data?.items ?? []));

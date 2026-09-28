@@ -26,14 +26,19 @@ func (f *fakeSettings) View(context.Context) (ServerView, error) {
 	defer f.mu.Unlock()
 	return f.view, nil
 }
-func (f *fakeSettings) CheckToken(_ context.Context, token string) (string, error) {
-	if len(token) < 20 {
-		return "That token can't see example.com at Cloudflare.", nil
+func (f *fakeSettings) Preview(_ context.Context, c ServerChange) (ServerPreview, error) {
+	p := ServerPreview{Steps: []string{"Save your settings", "Restart Linx with the new settings"}, Address: "https://example.com"}
+	if c.Token != "" && len(c.Token) < 20 {
+		p.Errors = []FieldError{{Step: StepToken, Field: "token", Message: "That token can't see example.com at Cloudflare."}}
 	}
-	return "", nil
-}
-func (f *fakeSettings) Steps(context.Context, ServerChange) ([]string, error) {
-	return []string{"Save your settings", "Restart Linx with the new settings"}, nil
+	if c.Domain != "" {
+		p.Address = "https://" + c.Domain
+		p.Warnings = []string{"Passkeys stop working."}
+	}
+	if c.FrontDoor == "pangolin" || (c.Moves() && f.view.FrontDoor == "pangolin") {
+		p.Setup = &DoorSetup{Steps: []string{"Paste the block."}}
+	}
+	return p, nil
 }
 func (f *fakeSettings) Run(_ context.Context, c ServerChange, report func(int, string, string), keep func(KeepItem)) error {
 	report(0, StageOK, "")
@@ -52,6 +57,9 @@ func (f *fakeSettings) Run(_ context.Context, c ServerChange, report func(int, s
 	f.mu.Lock()
 	f.ran = append(f.ran, c)
 	f.view.Profile, f.view.Portainer = c.Profile, c.Portainer
+	if c.Domain != "" {
+		f.view.Domain = c.Domain
+	}
 	if c.Token != "" {
 		f.view.Token = "saved"
 	}
@@ -61,7 +69,7 @@ func (f *fakeSettings) Run(_ context.Context, c ServerChange, report func(int, s
 
 // settingsRig is the full control plane's relay and a settings-mode host,
 // joined through a real socket, as docker exec joins them.
-func settingsRig(t *testing.T, fake *fakeSettings) (*Server, *SettingsHost) {
+func settingsRig(t *testing.T, fake *fakeSettings, opts ...func(*SettingsHost)) (*Server, *SettingsHost) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "linxset")
 	if err != nil {
@@ -82,12 +90,16 @@ func settingsRig(t *testing.T, fake *fakeSettings) (*Server, *SettingsHost) {
 			var d net.Dialer
 			return d.DialContext(ctx, "unix", sock)
 		}}
+	for _, o := range opts {
+		o(h)
+	}
 	go func() { _ = h.Run(ctx) }()
 	waitFor(t, func() bool { return srv.ServerSettings() != nil })
 	return srv, h
 }
 
-var homeSettings = ServerView{Where: WhereHome, FrontDoor: "pangolin", Domain: "example.com", Provider: "cloudflare", Token: "saved",
+var homeSettings = ServerView{Where: WhereHome, FrontDoor: "pangolin", FrontDoors: []string{"pangolin", "nginx", "linx-443"},
+	Domain: "example.com", Provider: "cloudflare", Token: "saved",
 	Profile: "lite", Profiles: []ProfileOption{{Name: "lite"}, {Name: "standard"}}, ProfilePick: "lite", PortainerAllowed: true}
 
 func TestServerSettingsChange(t *testing.T) {
@@ -124,6 +136,27 @@ func TestServerSettingsChange(t *testing.T) {
 	if v.Profile != "standard" || !v.Portainer || len(v.Keep) != 1 || v.Steps[1].State != StageOK {
 		t.Errorf("after: %+v", v)
 	}
+
+	// A new domain: the preview says what it needs, and the front door's
+	// steps must be ticked off first.
+	move := ServerChange{Profile: "standard", Portainer: true, Domain: "example.org"}
+	p, err := srv.PreviewServerSettings(ctx, move)
+	if err != nil || p.Address != "https://example.org" || p.Setup == nil || len(p.Warnings) != 1 {
+		t.Fatalf("preview %+v %v", p, err)
+	}
+	if errs, err := srv.ChangeServerSettings(ctx, move); err != nil || len(errs) != 1 || errs[0].Field != "door_done" {
+		t.Errorf("not ticked: %v %v", errs, err)
+	}
+	refused(ServerChange{Profile: "standard", Portainer: true, FrontDoor: "http-proxy"}, "isn't one of the front doors")
+	refused(ServerChange{Profile: "standard", Portainer: true, Domain: "example.com"}, "Nothing to change")
+	move.DoorDone = true
+	if errs, err := srv.ChangeServerSettings(ctx, move); err != nil || errs != nil {
+		t.Fatalf("move: %v %v", errs, err)
+	}
+	waitFor(t, func() bool {
+		v := srv.ServerSettings()
+		return v != nil && v.Apply.State == StageOK && v.Domain == "example.org"
+	})
 }
 
 func TestServerSettingsRules(t *testing.T) {

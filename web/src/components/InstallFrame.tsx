@@ -43,7 +43,7 @@ export function useSecondsLeft(initial: number): number {
  * The last five minutes are a warning. On the secure page there's no link
  * to renew: it says what happens when the time is up instead.
  */
-export function Countdown({ left, secure = false }: { left: number; secure?: boolean }) {
+export function Countdown({ left, secure = false, repair = false }: { left: number; secure?: boolean; repair?: boolean }) {
   const soon = left <= 300;
   return (
     <div role="timer" aria-live={soon ? "polite" : "off"}
@@ -54,7 +54,9 @@ export function Countdown({ left, secure = false }: { left: number; secure?: boo
       <span>
         {soon ? <strong className="font-medium text-foreground">This {secure ? "setup page" : "link"} closes in {mmss(left)}.</strong>
           : <>This {secure ? "setup page" : "link"} closes in {mmss(left)}.</>}{" "}
-        {secure
+        {repair
+          ? <>Need more time? Run <code className="font-mono text-foreground">sudo linx setup --new-link</code> on the server for a new link.</>
+          : secure
           ? <>If it does, run <code className="font-mono text-foreground">sudo linx setup</code> on the server for a new link. Your answers so far are kept.</>
           : <>Need more time? Run <code className="font-mono text-foreground">sudo linx setup --new-link</code> on the server for a new link. Your answers so far are kept.</>}
       </span>
@@ -228,5 +230,27 @@ export function Choice({ id, value, title, hint, badge, disabled, children }: {
       </label>
       {children && <div className="mt-3 ps-7">{children}</div>}
     </div>
+  );
+}
+
+export function CopyBlock({ text, label }: { text: string; label: string }) {
+  return (
+    <div className="relative rounded-md bg-muted">
+      <pre className="max-h-72 overflow-auto p-3 pe-12 font-mono text-xs whitespace-pre-wrap break-all">{text}</pre>
+      <div className="absolute end-1 top-1"><CopyButton text={text} label={label} /></div>
+    </div>
+  );
+}
+
+export function RecordBox({ record }: { record: { type: string; name: string; value?: string } }) {
+  return (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-md border p-3 text-sm">
+      <dt className="text-muted-foreground">Type</dt><dd className="font-mono">{record.type}</dd><span />
+      <dt className="text-muted-foreground">Name</dt><dd className="font-mono break-all">{record.name}</dd><CopyButton text={record.name} label="name" />
+      <dt className="text-muted-foreground">Value</dt>
+      <dd className="font-mono break-all">{record.value || "this server's public address"}</dd>
+      {record.value ? <CopyButton text={record.value} label="value" /> : <span />}
+      <dt className="text-muted-foreground">Proxy</dt><dd className="col-span-2">off (grey cloud, on Cloudflare)</dd>
+    </dl>
   );
 }

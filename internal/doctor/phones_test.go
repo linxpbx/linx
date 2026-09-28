@@ -3,12 +3,15 @@ package doctor
 import (
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
+	"linxpbx.com/linx/internal/install"
 	"linxpbx.com/linx/internal/installer"
 )
 
@@ -183,6 +186,20 @@ func TestPhonesProblems(t *testing.T) {
 			installer.Fail, "listens on port 6464"},
 		{"installer port not blocked", func(f *fixture) { delete(f.runner, "nft list chain inet linx prerouting") },
 			installer.Warn, "doesn't block port 6464"},
+		{"repair page open", func(f *fixture) {
+			f.runner["docker ps --format {{.Names}} {{.Ports}}"] = "linx-control-plane 203.0.113.5:6464->6464/tcp\n"
+			b, _ := json.Marshal(install.RepairState{SessionHash: install.Hash(install.NewSecret()), ExpiresAt: f.env.Now().Add(time.Hour)})
+			read := f.env.ReadFile
+			f.env.ReadFile = func(p string) ([]byte, error) {
+				if p == install.RepairPath {
+					return b, nil
+				}
+				return read(p)
+			}
+		}, installer.Warn, "repair page is open on port 6464"},
+		{"repair set left open", func(f *fixture) {
+			f.runner["nft list set inet linx install_page"] = "table inet linx {\n\tset install_page {\n\t\telements = { 0.0.0.0/0 }\n\t}\n}\n"
+		}, installer.Fail, "no repair page is open"},
 		{"firewall for another network", func(f *fixture) { f.runner[nftGet] = strings.Replace(nftSet, "192.168.1.0", "10.0.0.0", 1) },
 			installer.Fail, "connect from 10.0.0.0/24, but this server's local network is 192.168.1.0/24"},
 		{"firewall not at boot", func(f *fixture) { f.runner["systemctl is-enabled linx-firewall.service"] = "disabled\n" },

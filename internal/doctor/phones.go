@@ -335,12 +335,23 @@ func no5060(ctx context.Context, env Env, rs *results) {
 // installerClosed checks the web install's first page (port 6464) is shut
 // for good once setup has finished (docs/INSTALL.md §6): nothing publishes
 // or listens on it, and the firewall drops it. While a web install is
-// under way it's meant to be open, so nothing is said.
+// under way it's meant to be open, so nothing is said; while setup's
+// repair page is open (§7) it's open on purpose, until its time is up.
 func installerClosed(ctx context.Context, env Env, rs *results, cfg installer.Config) {
 	if !cfg.Installed() {
 		return
 	}
 	port := strconv.Itoa(install.Port)
+	if env.ReadFile != nil {
+		if b, err := env.ReadFile(install.RepairPath); err == nil {
+			var r install.RepairState
+			if json.Unmarshal(b, &r) == nil && r.Live(env.Now()) {
+				rs.warn("Setup's repair page is open on port "+port+" until "+r.ExpiresAt.Local().Format("15:04")+".",
+					"It closes by itself then. To close it sooner, once https://"+cfg.Domain.Name+" works again: sudo linx setup")
+				return
+			}
+		}
+	}
 	fix := "Linx's installer page should be closed now. Stop what uses port " + port + ": sudo ss -lntp 'sport = :" + port + "'; sudo docker ps"
 	if out, err := env.Runner.Run(ctx, nil, "docker", "ps", "--format", "{{.Names}} {{.Ports}}"); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
@@ -362,6 +373,13 @@ func installerClosed(ctx context.Context, env Env, rs *results, cfg installer.Co
 	out, err := env.Runner.Run(ctx, nil, "nft", "list", "chain", "inet", installer.FirewallTable, "prerouting")
 	if err != nil || !strings.Contains(string(out), "tcp dport "+port+" counter") {
 		rs.warn("The firewall doesn't block port "+port+" (the installer's first page) yet.", "Run setup again: "+rerunSetup)
+		return
+	}
+	// The repair page's way past that block must be empty when it's closed.
+	if set, err := env.Runner.Run(ctx, nil, "nft", "list", "set", "inet", installer.FirewallTable, installer.RepairSet); err == nil &&
+		strings.Contains(string(set), "elements") {
+		rs.fail("The firewall lets browsers reach port "+port+", but no repair page is open.",
+			"Close it: sudo nft flush set inet "+installer.FirewallTable+" "+installer.RepairSet)
 		return
 	}
 	rs.ok("The installer's first page (port " + port + ") is closed for good.")

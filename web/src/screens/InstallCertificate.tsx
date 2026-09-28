@@ -12,12 +12,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup } from "@/components/ui/radio-group";
 import {
-  Choice, CopyButton, Countdown, Detail, Disclosure, FieldMessage, Frame, LinkUnusable, Row, submit, Title, useSecondsLeft, type Mark,
+  Choice, CopyBlock, Countdown, Detail, Disclosure, FieldMessage, Frame, LinkUnusable, RecordBox, Row, submit, Title, useSecondsLeft, type Mark,
 } from "@/components/InstallFrame";
 import { SecureFinish } from "@/screens/InstallFinish";
 import {
   canOpen, frontDoorReady, getState, LinkClosed, newHandoff, Problem, redeemHandoff, retryCertificate, sendToken,
-  type Answers, type CertView, type DNSRecord, type DNSState, type Facts, type InstallState, type Stage,
+  type Answers, type CertView, type DNSState, type Facts, type InstallState, type Stage,
 } from "@/lib/install";
 
 const POLL_MS = 5000;
@@ -211,28 +211,6 @@ function SetupSteps({ cert, onDone }: { cert: CertView; onDone: () => void }) {
         <Label htmlFor="door-done" className="font-normal leading-snug">I've done this</Label>
       </div>
     </div>
-  );
-}
-
-function CopyBlock({ text, label }: { text: string; label: string }) {
-  return (
-    <div className="relative rounded-md bg-muted">
-      <pre className="max-h-72 overflow-auto p-3 pe-12 font-mono text-xs whitespace-pre-wrap break-all">{text}</pre>
-      <div className="absolute end-1 top-1"><CopyButton text={text} label={label} /></div>
-    </div>
-  );
-}
-
-function RecordBox({ record }: { record: DNSRecord }) {
-  return (
-    <dl className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-md border p-3 text-sm">
-      <dt className="text-muted-foreground">Type</dt><dd className="font-mono">{record.type}</dd><span />
-      <dt className="text-muted-foreground">Name</dt><dd className="font-mono break-all">{record.name}</dd><CopyButton text={record.name} label="name" />
-      <dt className="text-muted-foreground">Value</dt>
-      <dd className="font-mono break-all">{record.value || "this server's public address"}</dd>
-      {record.value ? <CopyButton text={record.value} label="value" /> : <span />}
-      <dt className="text-muted-foreground">Proxy</dt><dd className="col-span-2">off (grey cloud, on Cloudflare)</dd>
-    </dl>
   );
 }
 

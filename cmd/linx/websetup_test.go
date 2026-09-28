@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -66,23 +67,78 @@ func TestWebSetupAlreadyInstalled(t *testing.T) {
 			}
 		}
 	})
-	t.Run("address not answering", func(t *testing.T) {
-		env := webTestEnv(t, hostRunner{start: ""}, "192.168.1.20")
-		env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
+	repairStart := strings.Replace(start, "--settings", "--settings --repair", 1)
+	repairRig := func(t *testing.T, runner hostRunner) (setupEnv, *[]string) {
+		env := webTestEnv(t, runner, "192.168.1.20")
+		env.savedConfig = func() ([]byte, error) {
+			return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\nfront_door:\n  kind: linx-443\n"), nil
+		}
+		env.web.repairPath = filepath.Join(t.TempDir(), "repair-state.json")
+		var ran []string
+		env.web.execute = func(_ context.Context, p installer.Plan) error {
+			for _, st := range p {
+				if st.Cmd != nil {
+					ran = append(ran, st.Cmd.String())
+				}
+				if st.File != nil {
+					ran = append(ran, "> "+st.File.Path)
+				}
+			}
+			return nil
+		}
+		return env, &ran
+	}
+	t.Run("address not answering: the repair page", func(t *testing.T) {
+		env, ran := repairRig(t, hostRunner{repairStart: ""})
 		env.web.secureCheck = func(context.Context, string) error { return errors.New("x509: certificate has expired") }
 		var out, errOut bytes.Buffer
 		code := runSetup(context.Background(), nil, &out, &errOut, env)
-		if code != 0 || !strings.Contains(out.String(), "didn't answer from this server:\n  x509: certificate has expired") ||
-			!strings.Contains(out.String(), "choose\nthe terminal") {
-			t.Errorf("exit %d:\n%s%s", code, out.String(), errOut.String())
+		rs, err := install.LoadRepairState(env.web.repairPath)
+		if code != 0 || err != nil || rs.Problem != "x509: certificate has expired" || rs.NoSignIn {
+			t.Fatalf("exit %d, state %+v %v:\n%s%s", code, rs, err, out.String(), errOut.String())
+		}
+		for _, want := range []string{
+			"didn't answer from this server:\n  x509: certificate has expired",
+			"If https://lab.linxpbx.com opens in your browser anyway",
+			"https://192.168.1.20:6464/repair/" + rs.Secret + "\n",
+			"sign in there as a system admin",
+			"--new-link --no-sign-in",
+		} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("missing %q:\n%s", want, out.String())
+			}
+		}
+		all := strings.Join(*ran, "\n")
+		for _, want := range []string{"> /etc/linx/repair.yaml", "nft add element inet linx install_page { 0.0.0.0/0 }",
+			"docker compose --file /etc/linx/compose.yaml --file /etc/linx/repair.yaml up --detach --wait control-plane"} {
+			if !strings.Contains(all, want) {
+				t.Errorf("didn't run %q:\n%s", want, all)
+			}
 		}
 	})
-	t.Run("no new link", func(t *testing.T) {
-		env := webTestEnv(t, hostRunner{}, "192.168.1.20")
-		env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
+	t.Run("--no-sign-in", func(t *testing.T) {
+		env, _ := repairRig(t, hostRunner{repairStart: ""})
+		env.web.secureCheck = func(context.Context, string) error { return nil }
 		var out, errOut bytes.Buffer
-		if code := runSetup(context.Background(), []string{"--new-link"}, &out, &errOut, env); code != 2 {
-			t.Errorf("exit %d", code)
+		code := runSetup(context.Background(), []string{"--new-link", "--no-sign-in"}, &out, &errOut, env)
+		rs, _ := install.LoadRepairState(env.web.repairPath)
+		if code != 0 || !rs.NoSignIn || !strings.Contains(out.String(), "skips the sign-in") || strings.Contains(out.String(), "opens in your browser anyway") {
+			t.Errorf("exit %d %+v:\n%s%s", code, rs, out.String(), errOut.String())
+		}
+	})
+	t.Run("working again: the repair page closes", func(t *testing.T) {
+		env, ran := repairRig(t, hostRunner{start: "", "systemctl is-active --quiet linx-setup.service": "", "systemctl stop linx-setup.service": ""})
+		env.web.secureCheck = func(context.Context, string) error { return nil }
+		if err := install.NewRepairState(env.web.now(), false, "").Save(env.web.repairPath); err != nil {
+			t.Fatal(err)
+		}
+		// The stopped service closes it itself; here nothing did, so setup does.
+		var out, errOut bytes.Buffer
+		code := runSetup(context.Background(), nil, &out, &errOut, env)
+		all := strings.Join(*ran, "\n")
+		if _, err := os.Stat(env.web.repairPath); code != 0 || !errors.Is(err, fs.ErrNotExist) ||
+			!strings.Contains(all, "nft flush set inet linx install_page") || !strings.Contains(out.String(), "Nothing was reopened") {
+			t.Errorf("exit %d, %v:\n%s\n%s%s", code, err, all, out.String(), errOut.String())
 		}
 	})
 }

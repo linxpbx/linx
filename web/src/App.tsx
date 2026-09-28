@@ -5,6 +5,7 @@ import { api, type Me } from "@/api/client";
 import { navigate, usePath } from "@/hooks/useRoute";
 import { SignInScreen, type SecondStepMethod, type SignInStep } from "@/screens/SignIn";
 import { reportCompanyDone } from "@/lib/company";
+import { REPAIR_PATH } from "@/lib/repair";
 
 // Everything after sign-in (the phone line, JsSIP, the screens) loads
 // separately, so the sign-in page stays small (docs/WEB.md §6).
@@ -13,6 +14,8 @@ const SignedIn = lazy(() => import("@/screens/SignedIn"));
 // then the secure one on https://<domain>, before the rest of Linx
 // exists.
 const Install = lazy(() => import("@/screens/Install"));
+// The repair page on port 6464 (docs/INSTALL.md §7).
+const Repair = lazy(() => import("@/screens/Repair"));
 
 type Auth =
   | { state: "loading" }
@@ -48,6 +51,9 @@ export function App() {
   if (path === "/company-done") return <CompanyDonePage />;
   if (path === "/install" || path === "/install/continue") {
     return <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}><Install /></Suspense>;
+  }
+  if (path === REPAIR_PATH) {
+    return <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}><Repair /></Suspense>;
   }
   return <Main path={path} />;
 }

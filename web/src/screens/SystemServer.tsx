@@ -2,39 +2,59 @@
 // §5.2): this server's own settings, for a system admin. They can be
 // changed only while `sudo linx setup` has the page open (four hours): the
 // server's setup does the change with its own plans and reports each step,
-// and Linx restarts what changed. The domain and what's in front of the
-// server are shown here; changing them is still the terminal's.
+// and Linx restarts what changed. A new domain or front door is checked
+// first (the preview): the DNS records to add, the front door's block to
+// paste, and what else it means. The same panel is the repair page on port
+// 6464 (screens/Repair.tsx).
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Check, CircleX, LoaderCircle, TriangleAlert } from "lucide-react";
-import { api, problemMessage, type Me } from "@/api/client";
-import type { components } from "@/api/schema";
+import { problemCode, problemMessage, type Me } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
+import { CopyBlock, Disclosure, RecordBox } from "@/components/InstallFrame";
 import { SystemCard as Card, SystemHeader } from "@/components/SystemPage";
+import { domainProblem, portProblem, proxyAddressProblem } from "@/lib/install";
+import {
+  DOORS, PROXY_DOORS, sessionClient,
+  type FrontDoorKind, type ServerChange, type ServerPreview, type ServerSettings, type ServerSettingsClient,
+} from "@/lib/serverSettings";
 import { cn } from "@/lib/utils";
 
-type ServerSettings = components["schemas"]["ServerSettingsView"];
-
 const SIZE_NAMES: Record<string, string> = { lite: "Lite", standard: "Standard", performance: "Performance" };
-const DOORS: Record<string, string> = {
-  "linx-443": "Linx takes port 443 itself", pangolin: "Pangolin", nginx: "nginx or HAProxy", "http-proxy": "Caddy or Nginx Proxy Manager",
-  "home-only": "Nothing: home network only", none: "Nothing yet",
-};
+const SERVER_PATH = "/admin/system/server";
 
 export function SystemServerScreen({ me }: { me: Me }) {
+  return (
+    <div className="mx-auto max-w-5xl">
+      <SystemHeader current={SERVER_PATH} systemAdmin={me.role === "system_admin"} />
+      <div className="mt-6">
+        <ServerSettingsPanel me={me} client={sessionClient} afterMove={SERVER_PATH} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The settings, polled from the server while the page is open. afterMove:
+ * the path to open at the new address after a new domain.
+ */
+export function ServerSettingsPanel({ me, client, afterMove = "" }: { me: Me | null; client: ServerSettingsClient; afterMove?: string }) {
   const [open, setOpen] = useState<boolean | null>(null);
   const [s, setS] = useState<ServerSettings | null>(null);
   const [error, setError] = useState("");
   const [unreachable, setUnreachable] = useState(false);
+  // Where Linx answers after a change that moved it.
+  const [movedTo, setMovedTo] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const { data, error: err } = await api.GET("/api/v1/server-settings");
+      const { data, error: err } = await client.load();
       if (!data) {
         setError(problemMessage(err));
         return;
@@ -46,27 +66,36 @@ export function SystemServerScreen({ me }: { me: Me }) {
       // Linx restarting after a change: keep looking.
       setUnreachable(true);
     }
-  }, []);
+  }, [client]);
   const running = s?.apply.state === "running";
   useEffect(() => {
     void load();
     const t = setInterval(() => void load(), running || unreachable ? 3000 : 10000);
     return () => clearInterval(t);
   }, [load, running, unreachable]);
+  const here = s && movedTo === `https://${s.domain}`;
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <SystemHeader current="/admin/system/server" systemAdmin={me.role === "system_admin"} />
-      <div className="mt-6 flex flex-col gap-4">
-        {error && <p role="alert" className="text-sm font-medium">{error}</p>}
-        {unreachable && (
-          <p role="status" className="flex items-center gap-2 text-sm">
-            <LoaderCircle aria-hidden="true" className="size-4 animate-spin text-primary" />Linx is restarting with the new settings…
-          </p>
-        )}
-        {open === false && <Closed />}
-        {open && s && <Settings me={me} s={s} onChanged={() => void load()} />}
-      </div>
+    <div className="flex flex-col gap-4">
+      {error && <p role="alert" className="text-sm font-medium">{error}</p>}
+      {unreachable && (
+        <p role="status" className="flex items-start gap-2 text-sm">
+          <LoaderCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin text-primary" />
+          <span>
+            Linx is restarting with the new settings…
+            {movedTo && <> When it's done it answers at <a className="text-link underline-offset-4 hover:underline break-all" href={movedTo + afterMove}>{movedTo}</a>:
+              open it there and sign in again.</>}
+          </span>
+        </p>
+      )}
+      {movedTo && here && s?.apply.state === "ok" && !unreachable && (
+        <p role="status" className="flex items-start gap-2 rounded-md border px-4 py-3 text-sm">
+          <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-available" />
+          <span>Linx now answers at <a className="text-link underline-offset-4 hover:underline break-all" href={movedTo + afterMove}>{movedTo}</a>.</span>
+        </p>
+      )}
+      {open === false && <Closed />}
+      {open && s && <Settings me={me} s={s} client={client} onChanged={() => void load()} onMoved={setMovedTo} />}
     </div>
   );
 }
@@ -75,8 +104,8 @@ function Closed() {
   return (
     <Card title="Server settings">
       <p className="text-sm text-muted-foreground">
-        This server's size, Portainer and DNS token can be changed here only while setup on the server has this page open. On the server,
-        run this and choose the Server settings page. It stays open for four hours:
+        This server's domain, front door, size, Portainer and DNS token can be changed here only while setup on the server has this page
+        open. On the server, run this and choose the Server settings page. It stays open for four hours:
       </p>
       <code className="mt-3 block w-fit rounded-md bg-muted px-3 py-2 font-mono text-sm">sudo linx setup</code>
     </Card>
@@ -92,17 +121,44 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Settings({ me, s, onChanged }: { me: Me; s: ServerSettings; onChanged: () => void }) {
+function ChangeLink({ open, label, disabled, onClick }: { open: boolean; label: string; disabled: boolean; onClick: () => void }) {
+  if (open) return null;
+  return <Button variant="link" className="ms-2 h-auto p-0" disabled={disabled} onClick={onClick}>{label}</Button>;
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p role="alert" className="text-sm font-medium text-destructive">{message}</p>;
+}
+
+function Settings({ me, s, client, onChanged, onMoved }:
+  { me: Me | null; s: ServerSettings; client: ServerSettingsClient; onChanged: () => void; onMoved: (to: string) => void }) {
   const confirm = useConfirmIdentity(me);
   const [profile, setProfile] = useState(s.profile);
   const [portainer, setPortainer] = useState(s.portainer);
   const [token, setToken] = useState("");
   const [addToken, setAddToken] = useState(false);
+  const [editDomain, setEditDomain] = useState(false);
+  const [domain, setDomain] = useState("");
+  const [editDoor, setEditDoor] = useState(false);
+  const [door, setDoor] = useState<string>(s.front_door);
+  const [proxy, setProxy] = useState(s.proxy_address ?? "");
+  const [udp, setUdp] = useState(String(s.turn_udp_port || 443));
+  const [preview, setPreview] = useState<ServerPreview | null>(null);
+  const [doorDone, setDoorDone] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [checking, setChecking] = useState(false);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState("");
   const running = s.apply.state === "running";
-  const changed = profile !== s.profile || portainer !== s.portainer || (addToken && token.trim() !== "");
   const company = s.provider === "duckdns" ? "DuckDNS" : "Cloudflare";
+
+  const newDomain = editDomain ? domain.trim().toLowerCase() : "";
+  const proxyDoor = PROXY_DOORS.includes(door);
+  const doorChanged = editDoor && (door !== s.front_door || (proxyDoor && (proxy.trim() !== (s.proxy_address ?? "") ||
+    Number(udp) !== (s.turn_udp_port || 443))));
+  const moves = (newDomain !== "" && newDomain !== s.domain) || doorChanged;
+  const changed = profile !== s.profile || portainer !== s.portainer || (addToken && token.trim() !== "") || moves;
 
   // Back to what the server says once a change is done.
   useEffect(() => {
@@ -111,20 +167,82 @@ function Settings({ me, s, onChanged }: { me: Me; s: ServerSettings; onChanged: 
       setPortainer(s.portainer);
       setToken("");
       setAddToken(false);
+      setEditDomain(false);
+      setDomain("");
+      setEditDoor(false);
+      setDoor(s.front_door);
+      setProxy(s.proxy_address ?? "");
+      setUdp(String(s.turn_udp_port || 443));
+      setPreview(null);
+      setDoorDone(false);
     }
-  }, [s.apply.state, s.profile, s.portainer]);
+  }, [s.apply.state, s.profile, s.portainer, s.front_door, s.proxy_address, s.turn_udp_port]);
+  // Anything edited after a preview needs a new one.
+  useEffect(() => { setPreview(null); setDoorDone(false); }, [profile, portainer, token, domain, door, proxy, udp, editDomain, editDoor]);
+
+  const body = (): ServerChange => ({
+    profile: profile as ServerChange["profile"], portainer,
+    ...(addToken && token.trim() ? { token: token.trim() } : {}),
+    ...(newDomain && newDomain !== s.domain ? { domain: newDomain } : {}),
+    ...(doorChanged ? {
+      front_door: door as FrontDoorKind,
+      ...(proxyDoor ? { proxy_address: proxy.trim(), turn_udp_port: Number(udp) === 443 ? 0 : Number(udp) } : {}),
+    } : {}),
+    ...(doorDone ? { door_done: true } : {}),
+  });
+
+  // The page's own checks, before asking the server.
+  const localProblems = (): Record<string, string> => {
+    const p: Record<string, string> = {};
+    if (editDomain && newDomain && newDomain !== s.domain && domainProblem(newDomain)) p.domain = domainProblem(newDomain);
+    if (doorChanged && proxyDoor) {
+      if (proxyAddressProblem(proxy)) p.proxy_address = proxyAddressProblem(proxy);
+      if (portProblem(Number(udp))) p.turn_udp_port = portProblem(Number(udp));
+    }
+    return p;
+  };
+
+  const check = async () => {
+    setError("");
+    const local = localProblems();
+    setFieldErrors(local);
+    if (Object.keys(local).length > 0) return;
+    setChecking(true);
+    try {
+      const { data, error: err } = await client.preview(body());
+      if (!data) {
+        setError(problemMessage(err));
+        return;
+      }
+      if (data.errors.length > 0) {
+        setFieldErrors(Object.fromEntries(data.errors.map((e) => [e.field, e.message])));
+        return;
+      }
+      if (moves) setPreview(data);
+      else setAsking(true);
+    } catch {
+      setError("Linx didn't answer. Try again in a moment.");
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const apply = async () => {
     setError("");
-    const { error: err, response } = await api.POST("/api/v1/server-settings", {
-      body: { profile: profile as "lite" | "standard" | "performance", portainer, ...(addToken && token.trim() ? { token: token.trim() } : {}) },
-    });
+    const { error: err, status } = await client.change(body());
     if (needsConfirm(err)) return { confirm: true as const };
-    if (!response.ok) setError(problemMessage(err));
-    else onChanged();
+    if (status >= 400) {
+      if (problemCode(err) === "token_refused") setFieldErrors({ token: problemMessage(err) });
+      else setError(problemMessage(err));
+    } else {
+      if (preview && preview.address !== `https://${s.domain}`) onMoved(preview.address);
+      setPreview(null);
+      onChanged();
+    }
     return { confirm: false as const };
   };
 
+  const needsTick = !!preview?.setup;
   return (
     <>
       <Card title="Server settings">
@@ -133,22 +251,68 @@ function Settings({ me, s, onChanged }: { me: Me; s: ServerSettings; onChanged: 
         </p>
         <dl className="mt-2">
           <Row label="Where">{s.where === "home" ? "At home or at the office" : "Rented server"}</Row>
-          <Row label="In front">{DOORS[s.front_door] ?? s.front_door}</Row>
-          <Row label="Domain">{s.domain}</Row>
-          <Row label="DNS company">
-            {s.token_saved ? `${company} token added ✓` : "No token: the certificate renews through port 443, and DNS records are yours to keep."}
-            {!addToken ? (
-              <Button variant="link" className="ms-2 h-auto p-0" disabled={running} onClick={() => setAddToken(true)}>
-                {s.token_saved ? "Replace token" : "Add a token"}
-              </Button>
-            ) : (
-              <div className="mt-2 flex max-w-md flex-col gap-2">
-                <Label htmlFor="server-token">New {company} token</Label>
-                <Input id="server-token" type="password" autoComplete="off" spellCheck={false} value={token}
-                  onChange={(e) => setToken(e.target.value)} />
-                <p className="text-muted-foreground">Linx checks it can see {s.domain} before using it.</p>
+          <Row label="In front">
+            {DOORS[s.front_door] ?? s.front_door}
+            {s.proxy_address && PROXY_DOORS.includes(s.front_door) && <span className="text-muted-foreground"> at {s.proxy_address}</span>}
+            <ChangeLink open={editDoor} label="Change" disabled={running} onClick={() => setEditDoor(true)} />
+            {editDoor && (
+              <div className="mt-3 flex max-w-md flex-col gap-3">
+                <RadioGroup value={door} onValueChange={setDoor} aria-label="What's in front of this server" className="gap-2">
+                  {s.front_doors.map((d) => (
+                    <label key={d} htmlFor={`server-door-${d}`} className="flex items-center gap-2">
+                      <RadioGroupItem id={`server-door-${d}`} value={d} />
+                      <span>{DOORS[d] ?? d}</span>
+                    </label>
+                  ))}
+                </RadioGroup>
+                {proxyDoor && (
+                  <>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="server-proxy">Its address on your network</Label>
+                      <Input id="server-proxy" inputMode="decimal" placeholder="192.168.1.30" value={proxy} onChange={(e) => setProxy(e.target.value)}
+                        aria-invalid={fieldErrors.proxy_address ? true : undefined} />
+                      <FieldError message={fieldErrors.proxy_address} />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="server-udp">UDP port your router sends to Linx for calls</Label>
+                      <Input id="server-udp" inputMode="numeric" className="w-32" value={udp} onChange={(e) => setUdp(e.target.value)}
+                        aria-invalid={fieldErrors.turn_udp_port ? true : undefined} />
+                      <FieldError message={fieldErrors.turn_udp_port} />
+                    </div>
+                  </>
+                )}
+                <FieldError message={fieldErrors.front_door} />
+                <Button variant="link" className="h-auto w-fit p-0" onClick={() => { setEditDoor(false); setDoor(s.front_door); }}>Keep it as it is</Button>
               </div>
             )}
+          </Row>
+          <Row label="Domain">
+            {s.domain}
+            <ChangeLink open={editDomain} label="Change" disabled={running} onClick={() => setEditDomain(true)} />
+            {editDomain && (
+              <div className="mt-3 flex max-w-md flex-col gap-1.5">
+                <Label htmlFor="server-domain">New domain</Label>
+                <Input id="server-domain" autoComplete="off" spellCheck={false} placeholder="example.com" value={domain}
+                  onChange={(e) => setDomain(e.target.value)} aria-invalid={fieldErrors.domain ? true : undefined} />
+                <FieldError message={fieldErrors.domain} />
+                <p className="text-muted-foreground">Linx moves to it: passkeys and desk phones set up for {s.domain} need attention.</p>
+                <Button variant="link" className="h-auto w-fit p-0" onClick={() => { setEditDomain(false); setDomain(""); }}>Keep {s.domain}</Button>
+              </div>
+            )}
+          </Row>
+          <Row label="DNS company">
+            {s.token_saved ? `${company} token added ✓` : "No token: the certificate renews through port 443, and DNS records are yours to keep."}
+            <ChangeLink open={addToken} label={s.token_saved ? "Replace token" : "Add a token"} disabled={running} onClick={() => setAddToken(true)} />
+            {addToken && (
+              <div className="mt-2 flex max-w-md flex-col gap-2">
+                <Label htmlFor="server-token">New {newDomain.endsWith(".duckdns.org") ? "DuckDNS" : newDomain ? "Cloudflare" : company} token</Label>
+                <Input id="server-token" type="password" autoComplete="off" spellCheck={false} value={token}
+                  onChange={(e) => setToken(e.target.value)} aria-invalid={fieldErrors.token ? true : undefined} />
+                <FieldError message={fieldErrors.token} />
+                <p className="text-muted-foreground">Linx checks it can see {newDomain || s.domain} before using it.</p>
+              </div>
+            )}
+            {!addToken && <FieldError message={fieldErrors.token} />}
           </Row>
           <Row label="Size">
             <RadioGroup value={profile} onValueChange={setProfile} aria-label="Size of this server" className="gap-2" disabled={running}>
@@ -173,20 +337,25 @@ function Settings({ me, s, onChanged }: { me: Me; s: ServerSettings; onChanged: 
             </Row>
           )}
         </dl>
-        <p className="mt-4 text-sm text-muted-foreground">
-          To change the domain or what's in front of this server, run <code className="font-mono text-foreground">sudo linx setup</code> on
-          the server and choose the terminal.
-        </p>
         {error && <p role="alert" className="mt-3 text-sm font-medium">{error}</p>}
-        <div className="mt-4 flex justify-end">
-          <Button disabled={!changed || running} onClick={() => setAsking(true)}>Apply</Button>
-        </div>
+        {!preview && (
+          <div className="mt-4 flex justify-end">
+            <Button disabled={!changed || running || checking} onClick={() => void check()}>
+              {checking && <LoaderCircle aria-hidden="true" className="animate-spin" />}
+              {moves ? "Check" : "Apply"}
+            </Button>
+          </div>
+        )}
       </Card>
+      {preview && (
+        <Review preview={preview} doorDone={doorDone} onDoorDone={setDoorDone} running={running}
+          onCancel={() => setPreview(null)} onApply={() => setAsking(true)} ready={!needsTick || doorDone} />
+      )}
       {s.steps.length > 0 && <Progress s={s} />}
       <Dialog open={asking} onOpenChange={setAsking}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Apply these changes?</DialogTitle>
+            <DialogTitle>{preview && preview.address !== `https://${s.domain}` ? `Move Linx to ${preview.address}?` : "Apply these changes?"}</DialogTitle>
             <DialogDescription>
               Linx restarts the services whose settings changed, for about a minute. Calls in progress may drop.
             </DialogDescription>
@@ -199,6 +368,63 @@ function Settings({ me, s, onChanged }: { me: Me; s: ServerSettings; onChanged: 
       </Dialog>
       {confirm.dialog}
     </>
+  );
+}
+
+/** What a new domain or front door needs first, and what it means. */
+function Review({ preview, doorDone, onDoorDone, ready, running, onCancel, onApply }: {
+  preview: ServerPreview; doorDone: boolean; onDoorDone: (v: boolean) => void; ready: boolean; running: boolean;
+  onCancel: () => void; onApply: () => void;
+}) {
+  return (
+    <Card title="Before you apply">
+      <div className="flex flex-col gap-5 text-sm">
+        {preview.warnings.length > 0 && (
+          <ul className="flex flex-col gap-2">
+            {preview.warnings.map((w) => (
+              <li key={w} className="flex min-w-0 items-start gap-2">
+                <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-away" />
+                <span className="min-w-0 break-words">{w}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {preview.add_records.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h3 className="font-medium">DNS records to add</h3>
+            {preview.add_records.map((r) => <RecordBox key={r.name} record={r} />)}
+          </section>
+        )}
+        {preview.setup && (
+          <section className="flex flex-col gap-2">
+            <h3 className="font-medium">What's in front of this server</h3>
+            <ul className="list-disc space-y-1 ps-5">
+              {preview.setup.steps.map((line) => <li key={line}>{line}</li>)}
+            </ul>
+            {preview.setup.files.map((f) => (
+              <Disclosure key={f.title} label={`Show ${f.title}`}>
+                {f.path && <p className="mb-2 text-muted-foreground">Goes in {f.path}.</p>}
+                <CopyBlock text={f.text} label={f.title} />
+              </Disclosure>
+            ))}
+            <div className="mt-1 flex items-start gap-3">
+              <Checkbox id="server-door-done" checked={doorDone} onCheckedChange={(c) => onDoorDone(c === true)} className="mt-0.5" />
+              <Label htmlFor="server-door-done" className="font-normal leading-snug">I've done these steps</Label>
+            </div>
+          </section>
+        )}
+        <section className="flex flex-col gap-2">
+          <h3 className="font-medium">Setup on the server will</h3>
+          <ol className="list-decimal space-y-1 ps-5">
+            {preview.steps.map((st) => <li key={st}>{st}</li>)}
+          </ol>
+        </section>
+        <div className="flex flex-wrap justify-end gap-3">
+          <Button variant="outline" onClick={onCancel}>Back</Button>
+          <Button disabled={!ready || running} onClick={onApply}>Apply</Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 

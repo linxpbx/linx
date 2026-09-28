@@ -405,8 +405,10 @@ func main() {
 		bg.Wait()
 	}()
 
+	var apiServer *controlplaneapi.Server
 	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, backups,
 		func(s *controlplaneapi.Server) {
+			apiServer = s
 			s.SetServerSettings(serverSettings)
 			s.SetOps(opsHub, st.Audit, func() time.Time {
 				if sec := certExpiry.Load(); sec > 0 {
@@ -466,7 +468,19 @@ func main() {
 		os.Exit(1)
 	}
 	ips.IgnoreForwardedFor = useProxyProtocol
-	if err := server.Serve(log, server.Entry{Server: https, Wrap: proxyListener(ips, useProxyProtocol)}, server.Entry{Server: plain}); err != nil {
+	entries := []server.Entry{{Server: https, Wrap: proxyListener(ips, useProxyProtocol)}, {Server: plain}}
+	// The repair page (docs/INSTALL.md §7): only while setup on the server
+	// has it open, it publishes port 6464 here with the install's own
+	// temporary certificate (installer.RepairCompose).
+	if addr := os.Getenv("LINX_REPAIR_ADDR"); addr != "" {
+		repair, err := repairServer(addr, os.Getenv, serverSettings, mux, apiServer.RepairSettingsHandler(tenant))
+		if err != nil {
+			log.Error("the repair page", "err", err)
+			os.Exit(1)
+		}
+		entries = append(entries, server.Entry{Server: repair})
+	}
+	if err := server.Serve(log, entries...); err != nil {
 		log.Error("server stopped", "err", err)
 		stopBackground()
 		bg.Wait()

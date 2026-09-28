@@ -3,6 +3,7 @@
 // short-lived challenge cookie), the device answers, and POST <path> sends
 // the answer back as PublicKeyCredential.toJSON() gives it.
 import { CSRF_HEADER, csrfToken } from "@/api/client";
+import { onRepairPage } from "@/lib/repair";
 
 type Json = Record<string, unknown>;
 
@@ -20,7 +21,8 @@ function statics(): PublicKeyCredentialJSONStatics | undefined {
 
 /** Whether this browser can use passkeys the way Linx asks for them. */
 export function passkeysSupported(): boolean {
-  return window.isSecureContext && statics() !== undefined;
+  // A passkey belongs to the domain: none can work on the repair page.
+  return window.isSecureContext && statics() !== undefined && !onRepairPage();
 }
 
 /** Whether the email box can offer passkeys in the browser's autofill. */

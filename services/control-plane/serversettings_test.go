@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/install"
+	controlplaneapi "linxpbx.com/linx/services/control-plane/api"
 )
 
 type fakeServerSettings struct {
@@ -26,6 +28,19 @@ func (f *fakeServerSettings) ServerSettings() *install.ServerView {
 	return f.view
 }
 
+func (f *fakeServerSettings) PreviewServerSettings(_ context.Context, c install.ServerChange) (install.ServerPreview, error) {
+	p := install.ServerPreview{Address: "https://example.com", Steps: []string{"Save your settings"}}
+	if c.Domain != "" {
+		p.Address = "https://" + c.Domain
+		p.AddRecords = []install.Record{{Type: "A", Name: c.Domain, Value: "203.0.113.5"}}
+		p.Setup = &install.DoorSetup{Files: []install.SetupFile{{Title: "the block for Pangolin", Text: "tcp:"}}}
+	}
+	if c.Token == "bad" {
+		p.Errors = []install.FieldError{{Step: install.StepToken, Field: "token", Message: "That token can't see example.com at Cloudflare."}}
+	}
+	return p, nil
+}
+
 func (f *fakeServerSettings) ChangeServerSettings(_ context.Context, c install.ServerChange) ([]install.FieldError, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -34,6 +49,9 @@ func (f *fakeServerSettings) ChangeServerSettings(_ context.Context, c install.S
 	}
 	if c.Token == "bad" {
 		return []install.FieldError{{Step: install.StepToken, Field: "token", Message: "That token can't see example.com at Cloudflare."}}, nil
+	}
+	if c.Domain != "" && !c.DoorDone {
+		return []install.FieldError{{Step: install.StepDoorDone, Field: "door_done", Message: "Do the steps first."}}, nil
 	}
 	f.changes = append(f.changes, c)
 	return nil, nil
@@ -92,7 +110,29 @@ func TestServerSettingsEndpoints(t *testing.T) {
 	if code := problemCode(t, post(`{"profile":"huge","portainer":false}`)); code == "" {
 		t.Error("unknown size accepted")
 	}
-	if len(e.serverSettings.changes) != 1 || !e.serverSettings.changes[0].Portainer {
+	e.serverSettings.refuse = ""
+	// A new domain: the preview first (no confirm needed), then the change.
+	e.become(auth.RoleSystemAdmin, time.Hour)
+	resp := e.do("POST", "/api/v1/server-settings/preview", "application/json", strings.NewReader(`{"profile":"lite","portainer":false,"domain":"example.org"}`), true)
+	var p map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&p)
+	resp.Body.Close()
+	setup, _ := p["setup"].(map[string]any)
+	if resp.StatusCode != http.StatusOK || p["address"] != "https://example.org" || setup == nil || len(p["add_records"].([]any)) != 1 {
+		t.Errorf("preview: %d %v", resp.StatusCode, p)
+	}
+	e.become(auth.RoleSystemAdmin, 0)
+	if code := problemCode(t, post(`{"profile":"lite","portainer":false,"domain":"example.org"}`)); code != "server_settings_invalid" {
+		t.Errorf("not ticked: %s", code)
+	}
+	if resp := post(`{"profile":"lite","portainer":false,"domain":"example.org","front_door":"linx-443","door_done":true}`); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("move: %d", resp.StatusCode)
+	}
+	if code := problemCode(t, post(`{"profile":"lite","portainer":false,"front_door":"somewhere"}`)); code == "" {
+		t.Error("unknown front door accepted")
+	}
+	if len(e.serverSettings.changes) != 2 || !e.serverSettings.changes[0].Portainer || e.serverSettings.changes[1].Domain != "example.org" ||
+		e.serverSettings.changes[1].FrontDoor != "linx-443" {
 		t.Errorf("changes %+v", e.serverSettings.changes)
 	}
 	// Every change is in the activity log.
@@ -102,7 +142,45 @@ func TestServerSettingsEndpoints(t *testing.T) {
 			n++
 		}
 	}
-	if n != 3 {
+	if n != 5 {
 		t.Errorf("%d audit entries", n)
+	}
+}
+
+// A repair link that skips the sign-in reaches the page's own operations
+// without a session, and the activity log names setup as who did it.
+func TestRepairSettingsHandler(t *testing.T) {
+	e := newTestEnv(t)
+	e.serverSettings.view = &install.ServerView{Where: install.WhereRented, FrontDoor: "linx-443", Domain: "example.com", Provider: "cloudflare",
+		Profile: "lite", Repair: true, NoSignIn: true, ExpiresAt: time.Now().Add(time.Hour)}
+	h := e.apiServer.RepairSettingsHandler(e.store.tenant)
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.RemoteAddr = "198.51.100.7:4000"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := do("GET", install.RepairSettingsAPI, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"no_sign_in":true`) {
+		t.Errorf("get: %d %s", w.Code, w.Body)
+	}
+	if w := do("POST", install.RepairSettingsAPI+"/preview", `{"profile":"lite","portainer":false,"domain":"example.org"}`); w.Code != 200 ||
+		!strings.Contains(w.Body.String(), "https://example.org") {
+		t.Errorf("preview: %d %s", w.Code, w.Body)
+	}
+	if w := do("POST", install.RepairSettingsAPI, `{"profile":"lite","portainer":false,"sneaky":1}`); w.Code != 400 {
+		t.Errorf("unknown field: %d", w.Code)
+	}
+	if w := do("POST", install.RepairSettingsAPI, `{"profile":"standard","portainer":false}`); w.Code != http.StatusAccepted {
+		t.Errorf("change: %d %s", w.Code, w.Body)
+	}
+	found := false
+	for _, a := range e.store.audits {
+		if a.Action == "system.server_settings" && a.Actor == controlplaneapi.RepairActor && a.IP.String() == "198.51.100.7" && a.Detail["repair_page"] == true {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("audit %+v", e.store.audits)
 	}
 }

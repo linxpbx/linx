@@ -82,8 +82,9 @@ type Message struct {
 	// extras
 	Extras *Extras `json:"extras,omitempty"`
 
-	// server_change
-	Change *ServerChange `json:"change,omitempty"`
+	// server_change, server_preview (and its result's Preview)
+	Change  *ServerChange  `json:"change,omitempty"`
+	Preview *ServerPreview `json:"preview,omitempty"`
 
 	// result
 	OK     bool         `json:"ok,omitempty"`

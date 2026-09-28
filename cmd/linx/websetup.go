@@ -44,6 +44,11 @@ type webEnv struct {
 	// wait pauses between looks at the service's progress; false once ctx
 	// has ended.
 	wait func(ctx context.Context, d time.Duration) bool
+	// repairPath is the repair link's state (install.RepairPath).
+	repairPath string
+	// execute runs a plan on the host (nil: installer.Plan.Execute with
+	// the setup runner; tests record instead).
+	execute func(ctx context.Context, p installer.Plan) error
 }
 
 func realWebEnv() webEnv {
@@ -55,6 +60,7 @@ func realWebEnv() webEnv {
 			return publicip.Lookup(ctx, &http.Client{Timeout: 8 * time.Second}, publicip.TraceURL)
 		},
 		statePath:   install.HostPath,
+		repairPath:  install.RepairPath,
 		now:         time.Now,
 		secureCheck: secureAddressWorks,
 		wait: func(ctx context.Context, d time.Duration) bool {
@@ -69,7 +75,7 @@ func realWebEnv() webEnv {
 }
 
 type webOptions struct {
-	dryRun, newLink, replaceDocker bool
+	dryRun, newLink, noSignIn, replaceDocker bool
 }
 
 // linkWait is how long the terminal waits for the service's first link.
@@ -341,10 +347,22 @@ func clock(t time.Time) string { return t.Local().Format("15:04") }
 // printLink shows the link at each address it can be opened from
 // (docs/ui/INSTALL_SCREENS.md §1).
 func printLink(w io.Writer, env setupEnv, st install.HostState) {
-	link := func(a string) string {
-		return fmt.Sprintf("https://%s/install/%s", netip.AddrPortFrom(netip.MustParseAddr(a), install.Port), st.Secret)
-	}
 	fmt.Fprintln(w, "\nOpen this link in a browser to finish setting up Linx:")
+	printLinkAt(w, env, st, "/install")
+	fmt.Fprintln(w, "\nIt works once, for four hours, in the first browser that opens it.")
+	printFingerprint(w, env)
+	if local, ok := env.web.routeAddress(); ok && publicip.IsPublic(local) {
+		fmt.Fprintf(w, "If it doesn't open, allow TCP port %d in your server provider's firewall\n"+
+			"(this server's own firewall is already open for it).\n", install.Port)
+	}
+}
+
+// printLinkAt shows a link to page/<secret> on port 6464 at each address
+// it can be opened from.
+func printLinkAt(w io.Writer, env setupEnv, st install.HostState, page string) {
+	link := func(a string) string {
+		return fmt.Sprintf("https://%s%s/%s", netip.AddrPortFrom(netip.MustParseAddr(a), install.Port), page, st.Secret)
+	}
 	local, _ := env.web.routeAddress()
 	public := st.View.Facts.PublicAddress
 	if local.IsValid() && publicip.IsPublic(local) {
@@ -357,17 +375,17 @@ func printLink(w io.Writer, env setupEnv, st install.HostState) {
 			fmt.Fprintf(w, "\n  %s\n  (from anywhere else, if port %d on %s is sent to this server)\n", link(public), install.Port, public)
 		}
 	}
-	fmt.Fprintln(w, "\nIt works once, for four hours, in the first browser that opens it.")
+}
+
+// printFingerprint shows the port 6464 certificate's fingerprint, to check
+// in the browser.
+func printFingerprint(w io.Writer, env setupEnv) {
 	if b, err := env.readFile(install.FirstPageTLSDir + "/" + install.FirstPageCertFile); err == nil {
 		if fp, err := install.Fingerprint(b); err == nil {
 			fmt.Fprintf(w, "\nYour browser will warn that it doesn't know this page's certificate. That's expected:\n"+
-				"Linx makes its own until it has a real one. To be sure it's really this server, open the\n"+
+				"Linx makes its own for this page. To be sure it's really this server, open the\n"+
 				"certificate's details in the browser and check its SHA-256 fingerprint is:\n\n  %s\n", fp)
 		}
-	}
-	if local.IsValid() && publicip.IsPublic(local) {
-		fmt.Fprintf(w, "If it doesn't open, allow TCP port %d in your server provider's firewall\n"+
-			"(this server's own firewall is already open for it).\n", install.Port)
 	}
 }
 
@@ -388,14 +406,32 @@ func runInstallService(ctx context.Context, args []string, stderr io.Writer, env
 		log.Error("which Linx images to use", "err", err)
 		return 1
 	}
-	if len(args) == 1 && args[0] == settingsFlag {
-		// An installed server: the full Linx's Server settings page.
+	if len(args) >= 1 && args[0] == settingsFlag {
+		// An installed server: the full Linx's Server settings page, and
+		// the repair page on port 6464 with --repair.
+		repair := len(args) == 2 && args[1] == repairFlag
 		h := &install.SettingsHost{
-			Apply: webSettings{newWebApply(env, lan, imageTag)},
+			Apply: newWebSettings(newWebApply(env, lan, imageTag), repair),
 			Log:   log,
 			Dial:  func(ctx context.Context) (io.ReadWriteCloser, error) { return ops.DialBridge(ctx, "install-bridge") },
 		}
-		if err := h.Run(ctx); err != nil {
+		if repair {
+			h.RepairPath = env.web.repairPath
+		}
+		err := h.Run(ctx)
+		if repair && (err == nil || errors.Is(err, fs.ErrNotExist)) {
+			// Time's up (or stopped): port 6464 closes again.
+			if cerr := closeRepair(context.WithoutCancel(ctx), env); cerr != nil {
+				log.Error("closing the repair page", "err", cerr)
+			}
+			if err != nil {
+				// No repair link (setup closed it): nothing to serve, and
+				// nothing a restart would fix.
+				log.Warn("no repair link to serve", "err", err)
+				return 0
+			}
+		}
+		if err != nil {
 			log.Error("the Server settings page", "err", err)
 			return 1
 		}
@@ -483,47 +519,161 @@ const settingsFlag = "--settings"
 const ServerSettingsPath = "/admin/system/server"
 
 // runServerSettings is `sudo linx setup` on an installed server, in the
-// browser (docs/INSTALL.md §7, docs/ui/INSTALL_SCREENS.md §5.1): nothing
-// reopens; the linx-setup service opens the Server settings page for four
-// hours, for a system admin to change this server's size, Portainer and
-// DNS token.
+// browser (docs/INSTALL.md §7, docs/ui/INSTALL_SCREENS.md §5.1): the
+// linx-setup service opens the Server settings page for four hours, for a
+// system admin to change this server's domain, front door, size, Portainer
+// and DNS token. When https://<domain> doesn't answer from here (or with
+// --new-link), the page is also opened on port 6464 behind a new one-time
+// link: the repair page (§5.3).
 func runServerSettings(ctx context.Context, o webOptions, cfg installer.Config, stdout, stderr io.Writer, env setupEnv) int {
 	url := "https://" + cfg.Domain.Name + ServerSettingsPath
 	if o.dryRun {
-		fmt.Fprintf(stdout, "Linx is installed at https://%s. Setup would open the Server settings page for four hours:\n  %s\n\nDry run: nothing was changed.\n", cfg.Domain.Name, url)
+		fmt.Fprintf(stdout, "Linx is installed at https://%s. Setup would open the Server settings page for four hours:\n  %s\n", cfg.Domain.Name, url)
+		fmt.Fprintf(stdout, "If that address doesn't work from this server, or with --new-link, it would also open it on port %d.\n\nDry run: nothing was changed.\n", install.Port)
 		return 0
 	}
-	if o.newLink {
-		fmt.Fprintln(stderr, "Linx is installed here, so there's no install link to renew. Run  sudo linx setup  for the Server settings page.")
-		return 2
-	}
-	working := true
+	problem := ""
 	if env.web.secureCheck != nil {
 		if err := env.web.secureCheck(ctx, cfg.Domain.Name); err != nil {
-			working = false
+			problem = err.Error()
 			fmt.Fprintf(stdout, "Linx is installed, but https://%s didn't answer from this server:\n  %v\n\n", cfg.Domain.Name, err)
 		}
 	}
-	if working {
+	if problem == "" {
 		fmt.Fprintf(stdout, "Linx is installed at https://%s (working ✓).\n\n", cfg.Domain.Name)
 	}
-	if !unitActive(ctx, env.runner) {
-		_, _ = env.runner.Run(ctx, nil, "systemctl", "reset-failed", install.Unit)
-		if out, err := env.runner.Run(ctx, nil, "systemd-run", "--unit", install.Unit, "--description", "Linx setup: the Server settings page",
-			"--collect", "--property", "Restart=on-failure", "--property", "RestartSec=5",
-			installer.CLIPath, "install-service", settingsFlag); err != nil {
-			fmt.Fprintf(stderr, "Can't start %s: %v\n%s\n", install.Unit, err, indent(strings.TrimSpace(string(out))))
+	repair := problem != "" || o.newLink
+	active := unitActive(ctx, env.runner)
+	_, err := os.Stat(env.web.repairPath)
+	if repairOpen := err == nil; active && (repair || repairOpen) {
+		// A new repair link replaces whatever the service had open; with
+		// the address working again, the repair page closes.
+		_, _ = env.runner.Run(ctx, nil, "systemctl", "stop", install.Unit)
+		active = false
+	}
+	if !active {
+		if err := closeRepair(ctx, env); err != nil {
+			fmt.Fprintln(stderr, "Can't close the last repair page:", err)
 			return 1
 		}
 	}
-	fmt.Fprintf(stdout, "To change its size, Portainer or DNS token, sign in as a system admin at:\n\n  %s\n\n"+
-		"That page can make changes for the next four hours. Nothing was reopened.\n", url)
-	if !working {
-		fmt.Fprintln(stdout, "\nIf that address doesn't open in your browser either, run  sudo linx setup  again and choose\n"+
-			"the terminal: it asks its questions with your saved answers.")
+	var rs install.RepairState
+	if repair {
+		var code int
+		if rs, code = openRepair(ctx, o, cfg, problem, stdout, stderr, env); code != 0 {
+			return code
+		}
 	}
-	fmt.Fprintln(stdout, "To change the domain or what's in front of this server, run  sudo linx setup  and choose the terminal.")
+	if !active {
+		args := []string{"install-service", settingsFlag}
+		if repair {
+			args = append(args, repairFlag)
+		}
+		_, _ = env.runner.Run(ctx, nil, "systemctl", "reset-failed", install.Unit)
+		if out, err := env.runner.Run(ctx, nil, "systemd-run", append([]string{"--unit", install.Unit, "--description", "Linx setup: the Server settings page",
+			"--collect", "--property", "Restart=on-failure", "--property", "RestartSec=5",
+			installer.CLIPath}, args...)...); err != nil {
+			fmt.Fprintf(stderr, "Can't start %s: %v\n%s\n", install.Unit, err, indent(strings.TrimSpace(string(out))))
+			if repair {
+				_ = closeRepair(ctx, env)
+			}
+			return 1
+		}
+	}
+	if !repair {
+		fmt.Fprintf(stdout, "To change its domain, front door, size, Portainer or DNS token, sign in as a system admin at:\n\n  %s\n\n"+
+			"That page can make changes for the next four hours. Nothing was reopened.\n", url)
+		return 0
+	}
+	if problem != "" {
+		fmt.Fprintf(stdout, "If https://%s opens in your browser anyway, use the Server settings page there:\n  %s\n\n", cfg.Domain.Name, url)
+	}
+	fmt.Fprintln(stdout, "Otherwise open this link to fix it (it works once, for four hours, in the first browser that opens it):")
+	printRepairLink(stdout, env, rs)
+	if rs.NoSignIn {
+		fmt.Fprintln(stdout, "\nThis link skips the sign-in: anyone who opens it first can change this server's settings. Don't share it.")
+	} else {
+		fmt.Fprintln(stdout, "\nYou'll sign in there as a system admin, with your password and authenticator app or a recovery code:\n"+
+			"passkeys can't work at that address. Passkey only? Run  sudo linx setup --new-link --no-sign-in  instead.")
+	}
+	fmt.Fprintf(stdout, "Port %d closes again when the link's time is up, or after  sudo linx setup  once the address works.\n", install.Port)
 	return 0
+}
+
+// repairFlag runs install-service's settings mode with the repair page.
+const repairFlag = "--repair"
+
+// openRepair publishes the repair page on port 6464 and writes its new
+// link (docs/INSTALL.md §7).
+func openRepair(ctx context.Context, o webOptions, cfg installer.Config, problem string, stdout, stderr io.Writer, env setupEnv) (install.RepairState, int) {
+	address, ok := env.web.routeAddress()
+	if !ok {
+		fmt.Fprintln(stderr, "Can't tell this server's network address. Check it's connected, with a default route, and run setup again.")
+		return install.RepairState{}, 1
+	}
+	if user := installer.PortUser(ctx, env.runner, install.Port); user != "" {
+		fmt.Fprintf(stderr, "Port %d is used by %s. The repair page needs it: stop that, then run setup again.\n", install.Port, user)
+		return install.RepairState{}, 1
+	}
+	addrs := []netip.Addr{address}
+	if env.web.publicAddress != nil {
+		if pub, err := env.web.publicAddress(ctx); err == nil && pub != address {
+			addrs = append(addrs, pub)
+		}
+	}
+	tlsPlan, err := installer.FirstPageTLSPlan(addrs, env.readFile, env.web.now())
+	if err != nil {
+		fmt.Fprintln(stderr, "Can't make the repair page's certificate:", err)
+		return install.RepairState{}, 1
+	}
+	fmt.Fprintf(stdout, "Opening the repair page on port %d … ", install.Port)
+	if err := webExecute(ctx, env, append(tlsPlan, installer.RepairOpenPlan(cfg, env.lan(), address)...)); err != nil {
+		fmt.Fprintln(stdout, "failed")
+		reportStepError(stderr, err)
+		_ = closeRepair(ctx, env)
+		return install.RepairState{}, 1
+	}
+	rs := install.NewRepairState(env.web.now(), o.noSignIn, problem)
+	if err := rs.Save(env.web.repairPath); err != nil {
+		fmt.Fprintln(stdout, "failed")
+		fmt.Fprintln(stderr, "Can't save the repair link:", err)
+		_ = closeRepair(ctx, env)
+		return install.RepairState{}, 1
+	}
+	fmt.Fprintln(stdout, "done")
+	return rs, 0
+}
+
+// closeRepair closes port 6464 again after a repair page, if one was
+// open: the firewall set emptied, the control plane without the override.
+func closeRepair(ctx context.Context, env setupEnv) error {
+	if _, err := os.Stat(env.web.repairPath); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err := webExecute(ctx, env, installer.RepairClosePlan()); err != nil {
+		return err
+	}
+	return os.Remove(env.web.repairPath)
+}
+
+func webExecute(ctx context.Context, env setupEnv, p installer.Plan) error {
+	if env.web.execute != nil {
+		return env.web.execute(ctx, p)
+	}
+	return p.Execute(ctx, env.runner, func(installer.Step) {})
+}
+
+// printRepairLink shows the repair link at each address it can be opened
+// from, and the page certificate's fingerprint.
+func printRepairLink(w io.Writer, env setupEnv, rs install.RepairState) {
+	st := install.HostState{Secret: rs.Secret}
+	if env.web.publicAddress != nil {
+		if pub, err := env.web.publicAddress(context.Background()); err == nil {
+			st.View.Facts.PublicAddress = pub.String()
+		}
+	}
+	printLinkAt(w, env, st, install.RepairPage)
+	printFingerprint(w, env)
 }
 
 // secureAddressWorks checks https://<domain> answers with a certificate
