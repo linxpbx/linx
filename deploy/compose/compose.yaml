@@ -141,6 +141,10 @@ services:
       # passed through here unopened. On disk (up to about 2 GB each), owned
       # by this image's user, nobody else's.
       - backup-transfer:/var/lib/linx/backup-transfer
+    # The server helper's socket (linx-ops-agent reaches it through docker
+    # exec, docs/ADMIN.md §9): in memory, only this image's user can open it.
+    tmpfs:
+      - /run/linx:uid=65532,gid=65532,mode=0700
     # For a front door on the home network (Pangolin): on the LAN address,
     # and the firewall lets only the front door in. 127.0.0.1 otherwise.
     ports:

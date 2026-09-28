@@ -44,6 +44,10 @@ export interface FakeOptions {
   // the backup file's state (none by default).
   backups?: boolean;
   download?: "preparing" | "ready" | "failed" | "others";
+  // System → Status (docs/ADMIN.md §9): the server helper isn't running,
+  // or the phone system isn't answering.
+  helperMissing?: boolean;
+  phoneSystemDown?: boolean;
 }
 
 const GOOGLE = { id: "0199c1", kind: "google", name: "Google" };
@@ -219,7 +223,8 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "unauthenticated", detail: "Sign in." }, 401));
       }
       const adminScopes = ["settings:read", "settings:write", "system:read", "calls:read", "routing:read", "users:read", "users:write",
-        "extensions:read", "extensions:write", "devices:read", "devices:write", "routing:write", "backups:read", "backups:write"];
+        "extensions:read", "extensions:write", "devices:read", "devices:write", "routing:write", "backups:read", "backups:write",
+        "logs:read", "system:write"];
       return route.fulfill(json({
         id: "0199", type: "user", role: opts.systemAdmin ? "system_admin" : "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
@@ -228,9 +233,51 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         company_sign_in: opts.company ? ["Google"] : [],
       }));
     }
-    if (p === "/api/v1/system/status" && method === "GET") {
+    if (p === "/api/v1/system/services/asterisk/log" && method === "GET") {
+      const t0 = Date.now() - 40 * 60_000;
+      const lines = [
+        "Asterisk 22.11.0 built by linx",
+        "Loading realtime configuration from the database",
+        "res_odbc: Connecting linx-db... connected",
+        "PJSIP: transport-tls listening on 0.0.0.0:5061",
+        "PJSIP: transport-wss listening on 0.0.0.0:8089",
+        "Asterisk Ready.",
+        "Endpoint 1042-desk is now Reachable",
+        "Endpoint 1001-web is now Reachable",
+        "WARNING: res_pjsip_outbound_registration.c: No response to REGISTER for 'trunk-0199e2' (sip.telnyx.example): the provider didn't answer in 32 seconds, retrying in 60 seconds",
+        "Endpoint 1042-desk is now Unreachable",
+      ];
       return route.fulfill(json({
-        services: { control_plane: "ok", asterisk: "ok", database: "ok" },
+        service: "asterisk",
+        lines: lines.map((text, i) => ({ time: new Date(t0 + i * 4 * 60_000).toISOString(), text })),
+      }));
+    }
+    if (p.startsWith("/api/v1/system/services/") && p.endsWith("/restart") && method === "POST") {
+      const service = p.split("/")[5];
+      return route.fulfill(json({ service, result: "restarted" }));
+    }
+    if (p === "/api/v1/system/status" && method === "GET") {
+      const started = new Date(Date.now() - 3 * 86_400_000).toISOString();
+      const svc = (service: string, label: string, state = "running", extra: object = {}) => ({
+        service, label, state, started_at: state === "running" ? started : undefined, restarts: 0,
+        can_restart: !["postgres", "step-ca"].includes(service), optional: ["wireguard", "sni"].includes(service), ...extra,
+      });
+      return route.fulfill(json({
+        helper: opts.helperMissing ? { connected: false } : { connected: true, checked_at: new Date(Date.now() - 6_000).toISOString() },
+        containers: opts.helperMissing ? [] : [
+          svc("control-plane", "Web and API"),
+          opts.phoneSystemDown
+            ? svc("asterisk", "Phone system", "unhealthy", { restarts: 3, started_at: new Date(Date.now() - 20 * 60_000).toISOString() })
+            : svc("asterisk", "Phone system"),
+          svc("coturn", "Calls-from-outside relay"),
+          svc("postgres", "Database"),
+          svc("certd", "Certificates"),
+          svc("step-ca", "Internal certificates"),
+          svc("wireguard", "WireGuard connections", "missing"),
+          svc("sni", "Front door on port 443", "missing"),
+        ],
+        certificate: { expires_at: new Date(Date.now() + 61 * 86_400_000).toISOString() },
+        services: { "control-plane": "ok", asterisk: opts.phoneSystemDown ? "degraded" : "ok", database: "ok" },
         open_alerts: [
           { severity: "critical", title: "Line down", message: 'Line "Telnyx" is down since 09:12.', since: new Date(Date.now() - 4 * 60_000).toISOString() },
           { severity: "warning", title: "Certificate", message: "Certificate renews in 9 days (normal).", since: new Date().toISOString() },

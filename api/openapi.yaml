@@ -243,12 +243,23 @@ paths:
       operationId: getSystemStatus
       summary: System status
       description: >-
-        What `linx doctor` can see from inside the control plane: services,
-        open alerts, phone lines and WireGuard tunnels (docs/ADMIN.md §9).
-        Host-only checks (firewall, systemd, DNS) stay in `linx doctor`.
+        What `linx doctor` can see from inside the control plane: each Linx
+        service's state as the server helper (linx-ops-agent) last reported
+        it, the certificate, open alerts, phone lines and WireGuard tunnels
+        (docs/ADMIN.md §9). Host-only checks (firewall, systemd, DNS) stay
+        in `linx doctor`.
       tags: [settings]
       security:
         - bearer: [system:read]
+      parameters:
+        - name: check
+          in: query
+          description: >-
+            Ask the server helper to check every service now first ("Check
+            now"), waiting up to 15 s. Without it, the state is at most 10 s
+            old.
+          schema:
+            type: boolean
       responses:
         "200":
           description: The status.
@@ -256,6 +267,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SystemStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/system/services/{service}/log:
+    get:
+      operationId: getServiceLog
+      summary: A service's recent log lines
+      description: >-
+        The last lines of one Linx service's log, oldest first, read on the
+        server by linx-ops-agent (docs/ADMIN.md §9, ADR-056). Only the
+        services System → Status lists.
+      tags: [settings]
+      security:
+        - bearer: [logs:read]
+      parameters:
+        - $ref: "#/components/parameters/ServiceName"
+        - name: lines
+          in: query
+          description: How many lines (default 200, at most 500).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: The lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceLog"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/system/services/{service}/restart:
+    post:
+      operationId: restartService
+      summary: Restart a service
+      description: >-
+        Restarts one Linx service through linx-ops-agent and answers once
+        it's running again (`restarted`), or at once for the control plane
+        itself (`restarting`: this connection ends with it). Not the
+        database or the internal certificate authority (409
+        `not_restartable`); at most once in 30 s per service (429
+        `restarted_recently`). Restarting the phone system ends calls in
+        progress. Audited as `system.service_restart` (a second entry, result `failed`, if it didn't work).
+      tags: [settings]
+      security:
+        - bearer: [system:write]
+      parameters:
+        - $ref: "#/components/parameters/ServiceName"
+      responses:
+        "200":
+          description: Restarted, or restarting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceRestart"
         default:
           $ref: "#/components/responses/Problem"
 
@@ -3286,6 +3354,14 @@ components:
       schema:
         type: string
         format: uuid
+    ServiceName:
+      name: service
+      in: path
+      required: true
+      description: A Linx service, as System → Status lists them (e.g. `asterisk`).
+      schema:
+        type: string
+        maxLength: 32
     Limit:
       name: limit
       in: query
@@ -5749,8 +5825,33 @@ components:
 
     SystemStatus:
       type: object
-      required: [services, open_alerts, trunks, wireguard_profiles]
+      required: [services, helper, containers, open_alerts, trunks, wireguard_profiles]
       properties:
+        helper:
+          type: object
+          description: >-
+            The server helper (linx-ops-agent): connected, and when it last
+            checked the services. Not connected: `containers` is empty or
+            old, and logs and Restart aren't available.
+          required: [connected]
+          properties:
+            connected:
+              type: boolean
+            checked_at:
+              type: string
+              format: date-time
+        containers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceHealth"
+        certificate:
+          type: object
+          description: The certificate linx-certd last reported (absent before the first).
+          required: [expires_at]
+          properties:
+            expires_at:
+              type: string
+              format: date-time
         services:
           type: object
           additionalProperties:
@@ -5801,6 +5902,58 @@ components:
                 type: string
               status:
                 type: string
+
+    ServiceHealth:
+      type: object
+      required: [service, label, state, restarts, can_restart, optional]
+      properties:
+        service:
+          type: string
+        label:
+          type: string
+          description: Its plain name ("Phone system").
+        state:
+          type: string
+          enum: [running, starting, unhealthy, restarting, stopped, missing]
+        started_at:
+          type: string
+          format: date-time
+        restarts:
+          type: integer
+          description: How many times Docker has restarted it by itself since it was created.
+        can_restart:
+          type: boolean
+        optional:
+          type: boolean
+          description: Only some installs run it; `missing` is then fine.
+
+    ServiceLog:
+      type: object
+      required: [service, lines]
+      properties:
+        service:
+          type: string
+        lines:
+          type: array
+          items:
+            type: object
+            required: [text]
+            properties:
+              time:
+                type: string
+                format: date-time
+              text:
+                type: string
+
+    ServiceRestart:
+      type: object
+      required: [service, result]
+      properties:
+        service:
+          type: string
+        result:
+          type: string
+          enum: [restarted, restarting]
 
     User:
       type: object

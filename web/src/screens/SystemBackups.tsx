@@ -14,9 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
-import { navigate } from "@/hooks/useRoute";
+import { Guarded as GuardedWith, SystemCard as Card, SystemHeader } from "@/components/SystemPage";
 import { plainReason } from "@/lib/backupErrors";
 import { formatSize } from "@/lib/backupFile";
 import { hasScope } from "@/lib/roles";
@@ -38,59 +37,9 @@ const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hou
 const toHHMM = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 const fromHHMM = (s: string) => { const [h, m] = s.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
 
-// --- System's tabs (§10): only Backups is built so far ---
-
-const SYSTEM_TABS: { label: string; path?: string }[] = [
-  { label: "Status" }, { label: "Alerts" }, { label: "Activity" }, { label: "Settings" },
-  { label: "Backups", path: "/admin/system/backups" },
-];
-
-function SystemTabs({ current }: { current: string }) {
-  return (
-    <nav aria-label="System" className="mt-4 flex flex-wrap gap-x-1 border-b">
-      {SYSTEM_TABS.map((t) => {
-        const active = t.path === current;
-        const tab = (
-          <button key={t.label} type="button" aria-current={active ? "page" : undefined} aria-disabled={!t.path || undefined}
-            onClick={t.path ? () => navigate(t.path!) : undefined}
-            className={cn("-mb-px border-b-2 px-3 py-2 text-sm",
-              active ? "border-primary font-medium" : "border-transparent",
-              t.path ? "hover:text-foreground" : "cursor-default text-muted-foreground/60")}>
-            {t.label}
-          </button>
-        );
-        return t.path ? tab : (
-          <Tooltip key={t.label}>
-            <TooltipTrigger asChild>{tab}</TooltipTrigger>
-            <TooltipContent>Coming soon</TooltipContent>
-          </Tooltip>
-        );
-      })}
-    </nav>
-  );
-}
-
-function Card({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
-  return (
-    <section className="rounded-lg border bg-card p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-display text-lg font-semibold">{title}</h2>
-        {action}
-      </div>
-      <div className="mt-3">{children}</div>
-    </section>
-  );
-}
-
 /** A button greyed with its reason when the caller can't use it (§0). */
 function Guarded({ allowed, children }: { allowed: boolean; children: ReactNode }) {
-  if (allowed) return <>{children}</>;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild><span tabIndex={0}>{children}</span></TooltipTrigger>
-      <TooltipContent>{NO_WRITE}</TooltipContent>
-    </Tooltip>
-  );
+  return <GuardedWith allowed={allowed} reason={NO_WRITE}>{children}</GuardedWith>;
 }
 
 // --- The screen ---
@@ -134,8 +83,7 @@ export function SystemBackupsScreen({ me }: { me: Me }) {
 
   return (
     <div className="w-full max-w-5xl px-4 py-6 md:px-6">
-      <h1 className="font-display text-3xl font-semibold tracking-tight">System</h1>
-      <SystemTabs current="/admin/system/backups" />
+      <SystemHeader current="/admin/system/backups" />
       <div className="mt-6 flex flex-col gap-4">
         <Card title="Backups" action={<BackUpNow canWrite={canWrite} settings={settings} onAsked={setSettings} />}>
           <Schedule canWrite={canWrite} settings={settings} onSaved={setSettings} />

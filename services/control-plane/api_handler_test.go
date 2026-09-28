@@ -54,6 +54,8 @@ type testEnv struct {
 	hub      *teamHub
 	// company is company sign-in's provider and link store (sso_test.go).
 	company *fakeCompany
+	// ops is System → Status's server helper (ops_test.go).
+	ops *fakeOps
 	// asterisk is where the /sip relay connects (a websocket URL); tests
 	// that use the relay set it.
 	asterisk string
@@ -126,12 +128,14 @@ func newTestEnv(t *testing.T) *testEnv {
 	company := newFakeCompany(st)
 	accounts.CompanyProviders, accounts.Company = company, company
 	ssoSvc := &sso.Service{Store: company, Client: &sso.Client{Store: company}, Now: time.Now}
-	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, nil)
+	fops := &fakeOps{}
+	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, nil,
+		func(s *controlplaneapi.Server) { s.SetOps(fops, st.Audit, func() time.Time { return time.Time{} }) })
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}
 	env := &testEnv{t: t, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al,
-		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts, team: teamStore, hub: hub, company: company}
+		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts, team: teamStore, hub: hub, company: company, ops: fops}
 	sst := testSIPStore{fakeStore: st, fakePbxStore: pb}
 	pb.sessionLive = st.sessionLive
 	env.relay = &siprelay.Relay{

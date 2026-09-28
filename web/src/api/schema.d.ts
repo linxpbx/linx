@@ -161,11 +161,51 @@ export interface paths {
         };
         /**
          * System status
-         * @description What `linx doctor` can see from inside the control plane: services, open alerts, phone lines and WireGuard tunnels (docs/ADMIN.md §9). Host-only checks (firewall, systemd, DNS) stay in `linx doctor`.
+         * @description What `linx doctor` can see from inside the control plane: each Linx service's state as the server helper (linx-ops-agent) last reported it, the certificate, open alerts, phone lines and WireGuard tunnels (docs/ADMIN.md §9). Host-only checks (firewall, systemd, DNS) stay in `linx doctor`.
          */
         get: operations["getSystemStatus"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/services/{service}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A service's recent log lines
+         * @description The last lines of one Linx service's log, oldest first, read on the server by linx-ops-agent (docs/ADMIN.md §9, ADR-056). Only the services System → Status lists.
+         */
+        get: operations["getServiceLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/services/{service}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart a service
+         * @description Restarts one Linx service through linx-ops-agent and answers once it's running again (`restarted`), or at once for the control plane itself (`restarting`: this connection ends with it). Not the database or the internal certificate authority (409 `not_restartable`); at most once in 30 s per service (429 `restarted_recently`). Restarting the phone system ends calls in progress. Audited as `system.service_restart` (a second entry, result `failed`, if it didn't work).
+         */
+        post: operations["restartService"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3436,6 +3476,18 @@ export interface components {
             password: string;
         };
         SystemStatus: {
+            /** @description The server helper (linx-ops-agent): connected, and when it last checked the services. Not connected: `containers` is empty or old, and logs and Restart aren't available. */
+            helper: {
+                connected: boolean;
+                /** Format: date-time */
+                checked_at?: string;
+            };
+            containers: components["schemas"]["ServiceHealth"][];
+            /** @description The certificate linx-certd last reported (absent before the first). */
+            certificate?: {
+                /** Format: date-time */
+                expires_at: string;
+            };
             services: {
                 [key: string]: "ok" | "degraded" | "down";
             };
@@ -3461,6 +3513,33 @@ export interface components {
                 name: string;
                 status: string;
             }[];
+        };
+        ServiceHealth: {
+            service: string;
+            /** @description Its plain name ("Phone system"). */
+            label: string;
+            /** @enum {string} */
+            state: "running" | "starting" | "unhealthy" | "restarting" | "stopped" | "missing";
+            /** Format: date-time */
+            started_at?: string;
+            /** @description How many times Docker has restarted it by itself since it was created. */
+            restarts: number;
+            can_restart: boolean;
+            /** @description Only some installs run it; `missing` is then fine. */
+            optional: boolean;
+        };
+        ServiceLog: {
+            service: string;
+            lines: {
+                /** Format: date-time */
+                time?: string;
+                text: string;
+            }[];
+        };
+        ServiceRestart: {
+            service: string;
+            /** @enum {string} */
+            result: "restarted" | "restarting";
         };
         User: {
             /** Format: uuid */
@@ -3599,6 +3678,8 @@ export interface components {
     };
     parameters: {
         Id: string;
+        /** @description A Linx service, as System → Status lists them (e.g. `asterisk`). */
+        ServiceName: string;
         /** @description Maximum items per page (docs/API.md §2). */
         Limit: number;
         /** @description Opaque pagination cursor from a previous page's `next_cursor`. */
@@ -3835,7 +3916,10 @@ export interface operations {
     };
     getSystemStatus: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Ask the server helper to check every service now first ("Check now"), waiting up to 15 s. Without it, the state is at most 10 s old. */
+                check?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3849,6 +3933,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getServiceLog: {
+        parameters: {
+            query?: {
+                /** @description How many lines (default 200, at most 500). */
+                lines?: number;
+            };
+            header?: never;
+            path: {
+                /** @description A Linx service, as System → Status lists them (e.g. `asterisk`). */
+                service: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The lines. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceLog"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    restartService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A Linx service, as System → Status lists them (e.g. `asterisk`). */
+                service: components["parameters"]["ServiceName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Restarted, or restarting. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceRestart"];
                 };
             };
             default: components["responses"]["Problem"];

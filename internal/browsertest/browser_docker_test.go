@@ -29,6 +29,7 @@ import (
 	"linxpbx.com/linx/deploy/compose"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/installer"
+	"linxpbx.com/linx/internal/ops"
 )
 
 const (
@@ -276,6 +277,10 @@ func TestBrowserCallsDocker(t *testing.T) {
 			}
 			h.start()
 			h.provision(t)
+			// Once: nothing about it depends on the front door.
+			if door == frontDoors[0] {
+				h.serverHelper(t)
+			}
 		})
 	}
 }
@@ -418,12 +423,17 @@ func (h *harness) start() {
 
 	h.docker(append(append(h.compose, "up", "--detach", "--wait", "--wait-timeout", "180"), services...)...)
 
-	port := h.docker("port", "linx-control-plane", "8443/tcp")
+	h.api = apiURL(h.docker("port", "linx-control-plane", "8443/tcp"))
+}
+
+// apiURL is the control plane's HTTPS address on this machine, from
+// docker port's output.
+func apiURL(port string) string {
 	port = port[strings.LastIndex(port, ":")+1:]
 	if i := strings.IndexByte(port, '\n'); i >= 0 {
 		port = port[:i]
 	}
-	h.api = "https://127.0.0.1:" + port
+	return "https://127.0.0.1:" + strings.TrimSpace(port)
 }
 
 func slicesContainsPrefix(args []string, prefix string) bool {
@@ -742,4 +752,99 @@ func waitFor(t *testing.T, ctx context.Context, timeout time.Duration, check fun
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
+}
+
+// serverHelper runs linx-ops-agent's logic against the real control-plane
+// image (docs/ADMIN.md §9): the link through docker exec and the private
+// socket in its read-only container, every service's state, a log, a
+// restart, and the control plane restarting itself and the helper
+// connecting again.
+func (h *harness) serverHelper(t *testing.T) {
+	ctx, cancel := context.WithCancel(h.ctx)
+	defer cancel()
+	agent := &ops.Agent{Exec: ops.RunCommand, Dial: ops.DialControlPlane, Retry: time.Second}
+	done := make(chan struct{})
+	go func() { agent.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	type status struct {
+		Helper struct {
+			Connected bool `json:"connected"`
+		} `json:"helper"`
+		Containers []struct {
+			Service   string    `json:"service"`
+			State     string    `json:"state"`
+			StartedAt time.Time `json:"started_at"`
+		} `json:"containers"`
+	}
+	get := func() (status, bool) {
+		var st status
+		req, _ := http.NewRequestWithContext(h.ctx, "GET", h.api+"/api/v1/system/status?check=true", nil)
+		req.Header.Set("Authorization", "Bearer "+h.key)
+		resp, err := h.client.Do(req)
+		if err != nil {
+			// Restarted, the control plane may be on another local port.
+			if out, err := exec.Command("docker", "port", "linx-control-plane", "8443/tcp").Output(); err == nil {
+				h.api = apiURL(string(out))
+			}
+			return st, false
+		}
+		defer resp.Body.Close()
+		return st, resp.StatusCode == 200 && json.NewDecoder(resp.Body).Decode(&st) == nil
+	}
+	state := func(st status, svc string) (string, time.Time) {
+		for _, c := range st.Containers {
+			if c.Service == svc {
+				return c.State, c.StartedAt
+			}
+		}
+		return "", time.Time{}
+	}
+	var last status
+	running := func(svc string, after time.Time) func() bool {
+		return func() bool {
+			st, ok := get()
+			last = st
+			s, started := state(st, svc)
+			return ok && st.Helper.Connected && s == "running" && started.After(after)
+		}
+	}
+	detail := func() string { b, _ := json.Marshal(last); return string(b) }
+
+	waitFor(t, h.ctx, 30*time.Second, running("asterisk", time.Time{}), detail)
+	if s, _ := state(last, "postgres"); s != "running" {
+		t.Errorf("postgres: %q", s)
+	}
+	if s, _ := state(last, "sni"); s != ops.StateMissing && h.door != installer.FrontDoorLinx443 {
+		t.Errorf("sni without its front door: %q", s)
+	}
+
+	var log struct {
+		Lines []struct {
+			Text string `json:"text"`
+		} `json:"lines"`
+	}
+	h.call("GET", "/api/v1/system/services/control-plane/log?lines=20", nil, &log)
+	if len(log.Lines) == 0 || len(log.Lines) > 20 {
+		t.Errorf("control-plane log: %d lines", len(log.Lines))
+	}
+
+	_, before := state(last, "coturn")
+	var restarted struct {
+		Result string `json:"result"`
+	}
+	h.call("POST", "/api/v1/system/services/coturn/restart", nil, &restarted)
+	if restarted.Result != "restarted" {
+		t.Errorf("coturn restart: %q", restarted.Result)
+	}
+	waitFor(t, h.ctx, 60*time.Second, running("coturn", before), detail)
+
+	// The control plane restarting itself: the answer comes first, then
+	// the helper connects again once it's back.
+	_, before = state(last, "control-plane")
+	h.call("POST", "/api/v1/system/services/control-plane/restart", nil, &restarted)
+	if restarted.Result != "restarting" {
+		t.Errorf("control-plane restart: %q", restarted.Result)
+	}
+	waitFor(t, h.ctx, 90*time.Second, running("control-plane", before), detail)
 }

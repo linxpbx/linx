@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,11 +40,14 @@ const certAlertKey = "cert.renewal_failed"
 // with certd; DDNS update failure and disk/storage don't have anywhere to
 // read that signal from yet (docs/THREAT_MODEL.md), so they're not wired
 // up in this slice.
-func pollCertd(ctx context.Context, client *http.Client, engine *alert.Engine, tenant uuid.UUID, interval time.Duration, log *slog.Logger) {
+// The expiry it last read goes to expiry, for System → Status.
+func pollCertd(ctx context.Context, client *http.Client, engine *alert.Engine, tenant uuid.UUID, interval time.Duration, log *slog.Logger, expiry *atomic.Int64) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		checkCertd(ctx, client, certdMetricsURL, engine, tenant, log)
+		if exp := checkCertd(ctx, client, certdMetricsURL, engine, tenant, log); !exp.IsZero() {
+			expiry.Store(exp.Unix())
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -52,24 +56,25 @@ func pollCertd(ctx context.Context, client *http.Client, engine *alert.Engine, t
 	}
 }
 
-func checkCertd(ctx context.Context, client *http.Client, url string, engine *alert.Engine, tenant uuid.UUID, log *slog.Logger) {
+// checkCertd returns the certificate's expiry (zero: couldn't tell).
+func checkCertd(ctx context.Context, client *http.Client, url string, engine *alert.Engine, tenant uuid.UUID, log *slog.Logger) time.Time {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return
+		return time.Time{}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Warn("couldn't reach linx-certd for its certificate status", "err", err)
-		return
+		return time.Time{}
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
-		return
+		return time.Time{}
 	}
 	m := parseCertdMetrics(string(body))
 	if m.Expiry.IsZero() {
-		return // no certificate issued yet (fresh install): nothing to alert on
+		return time.Time{} // no certificate issued yet (fresh install): nothing to alert on
 	}
 	left := time.Until(m.Expiry)
 	if left < certExpiryWarning {
@@ -84,11 +89,12 @@ func checkCertd(ctx context.Context, client *http.Client, url string, engine *al
 			"Certificate renewal is failing", msg, ""); err != nil && ctx.Err() == nil {
 			log.Error("firing certificate alert failed", "err", err)
 		}
-		return
+		return m.Expiry
 	}
 	if err := engine.Resolve(ctx, tenant, certAlertKey); err != nil && ctx.Err() == nil {
 		log.Error("resolving certificate alert failed", "err", err)
 	}
+	return m.Expiry
 }
 
 type certdStats struct {

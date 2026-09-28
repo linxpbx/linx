@@ -18,6 +18,8 @@ func platformFixture(t *testing.T, state string) *fixture {
 	f := newFixture(t, true, now.Add(80*day), "*.lab.example.com")
 	f.runner[inspect+"linx-postgres"] = "running healthy\n"
 	f.runner[inspect+"linx-control-plane"] = "running healthy\n"
+	f.runner["systemctl is-enabled linx-ops-agent.service"] = "enabled\n"
+	f.runner["systemctl is-active linx-ops-agent.service"] = "active\n"
 	f.runner[psqlCmd+platformQuery] = state + "\n"
 	f.env.Stat = secretsStat(nil)
 	addPhones(t, f)
@@ -125,6 +127,15 @@ func TestServices(t *testing.T) {
 		f := platformFixture(t, healthyState)
 		delete(f.runner, inspect+"linx-control-plane")
 		want(t, Services(context.Background(), f.env), installer.Fail, "isn't installed")
+	})
+	t.Run("server helper", func(t *testing.T) {
+		f := platformFixture(t, healthyState)
+		want(t, Services(context.Background(), f.env), installer.OK, "The server helper is running")
+		f.runner["systemctl is-active linx-ops-agent.service"] = "failed\n"
+		want(t, Services(context.Background(), f.env), installer.Warn, "isn't running")
+		f.runner["systemctl is-enabled linx-ops-agent.service"] = ""
+		f.runner["systemctl is-active linx-ops-agent.service"] = "inactive\n"
+		want(t, Services(context.Background(), f.env), installer.Warn, "isn't installed")
 	})
 }
 

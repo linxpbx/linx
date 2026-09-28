@@ -23,6 +23,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,7 @@ import (
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/health"
 	"linxpbx.com/linx/internal/numbering"
+	"linxpbx.com/linx/internal/ops"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
@@ -84,6 +86,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "backup" {
 		os.Exit(runBackupCommand(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "ops-bridge" {
+		os.Exit(runOpsBridge(opsSocket(os.Getenv), os.Stdin, os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(runHealthcheck(os.Getenv, nil))
@@ -343,8 +348,9 @@ func main() {
 	runBackground(engine.Run)
 	// The certificate renewal alert source polls linx-certd directly (not
 	// through the SSRF guard: it's Linx's own service, not an admin URL).
+	var certExpiry atomic.Int64
 	runBackground(func(ctx context.Context) {
-		pollCertd(ctx, &http.Client{Timeout: 10 * time.Second}, engine, tenant, certdPollInterval, log)
+		pollCertd(ctx, &http.Client{Timeout: 10 * time.Second}, engine, tenant, certdPollInterval, log, &certExpiry)
 	})
 	runBackground(func(ctx context.Context) { sweepWebDevices(ctx, st, relay, webDeviceSweepInterval, log) })
 	runBackground(hub.Run)
@@ -352,6 +358,15 @@ func main() {
 	runBackground(trunkMonitor.Run)
 	runBackground(callAlerts.Run)
 	runBackground(func(ctx context.Context) { sweepBackupFiles(ctx, backups, log) })
+	// System → Status's server helper (linx-ops-agent, docs/ADMIN.md §9):
+	// it connects in through ops-bridge. Without the socket (a dev run
+	// outside the container) the page just says the helper isn't there.
+	opsHub := &ops.Hub{Log: log}
+	if ln, err := ops.Listen(opsSocket(os.Getenv)); err != nil {
+		log.Warn("no server helper socket; System → Status can't show services, logs or restart them", "err", err)
+	} else {
+		runBackground(func(ctx context.Context) { opsHub.Serve(ctx, ln) })
+	}
 	stopARI, err := startARI(bgCtx, ariCfg, tracker, log, runBackground)
 	if err != nil {
 		log.Error("ARI setup failed", "err", err)
@@ -365,7 +380,15 @@ func main() {
 		bg.Wait()
 	}()
 
-	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, backups)
+	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, backups,
+		func(s *controlplaneapi.Server) {
+			s.SetOps(opsHub, st.Audit, func() time.Time {
+				if sec := certExpiry.Load(); sec > 0 {
+					return time.Unix(sec, 0)
+				}
+				return time.Time{}
+			})
+		})
 	if err != nil {
 		log.Error("api handler setup failed", "err", err)
 		os.Exit(1)

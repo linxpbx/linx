@@ -190,6 +190,17 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-system-backups-password`);
     });
 
+    test("system status", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, phoneSystemDown: true });
+      await page.goto("/admin/system");
+      await expect(page.getByRole("heading", { name: "Linx services" })).toBeVisible();
+      await expect(page.getByText("Running, not answering")).toBeVisible();
+      await shot(page, `${scheme}-system-status`);
+      await page.getByRole("button", { name: /Phone system/ }).click();
+      await expect(page.getByRole("log", { name: "Phone system log" })).toContainText("Asterisk Ready.");
+      await shot(page, `${scheme}-system-status-log`);
+    });
+
     test("people list and detail", async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true });
       await page.goto("/admin/people");
@@ -377,7 +388,8 @@ test.describe("phone width", () => {
   for (const [path, name, ready] of [
     ["/", "dialer", "Dialer"], ["/team", "team", "Team"], ["/settings", "settings", "Settings"],
     ["/admin", "admin-home", "Getting started"], ["/admin/people", "people", "People"],
-    ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/backups", "system-backups", "Backups"],
+    ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/status", "system-status", "Linx services"],
+    ["/admin/system/backups", "system-backups", "Backups"],
   ] as const) {
     test(`no sideways scrolling: ${name}`, async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true, setupStep: 5, backups: true, download: "ready" });
@@ -443,5 +455,33 @@ test.describe("system backups", () => {
     await fakeServer(page, { signedIn: true, admin: true, backups: true, download: "others" });
     await page.goto("/admin/system/backups");
     await expect(page.getByText("Another admin has a backup file ready")).toBeVisible();
+  });
+});
+
+test.describe("system status", () => {
+  test("restart asks first and says what it does", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, phoneSystemDown: true });
+    await page.goto("/admin/system/status");
+    await page.getByRole("button", { name: /Phone system/ }).click();
+    await page.getByRole("button", { name: "Restart", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Restart the phone system?" })).toContainText("Calls in progress end.");
+    await shot(page, "system-status-restart");
+    await page.getByRole("dialog").getByRole("button", { name: "Restart", exact: true }).click();
+    await expect(page.getByText("Restarted.")).toBeVisible();
+  });
+
+  test("the database can't be restarted from here", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true });
+    await page.goto("/admin/system/status");
+    await page.getByRole("button", { name: /Database/ }).click();
+    await expect(page.getByRole("button", { name: "Restart", exact: true })).toBeDisabled();
+  });
+
+  test("the server helper isn't running", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, helperMissing: true });
+    await page.goto("/admin/system/status");
+    await expect(page.getByText("The server helper isn't running")).toBeVisible();
+    await expect(page.getByText("sudo linx setup")).toBeVisible();
+    await shot(page, "system-status-no-helper");
   });
 });

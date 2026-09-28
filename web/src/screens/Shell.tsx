@@ -22,7 +22,7 @@ import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
 export type Screen = "dialer" | "team" | "settings" | "account" | "admin-home" | "admin-people" | "admin-extensions"
-  | "admin-system-backups";
+  | "admin-system-status" | "admin-system-backups";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
@@ -38,7 +38,7 @@ const LATER: { label: string; icon: typeof Users }[] = [
 
 // The admin group (docs/ui/ADMIN_SCREENS_PHASE1E.md §1), in checklist order.
 // Home, People and Extensions have screens (steps 5-6), and System its
-// Backups tab (backup step 5); the rest arrive in steps 7-8 and appear
+// Status and Backups tabs; the rest arrive in steps 7-8 and appear
 // greyed "Coming soon" until then, like 1C's LATER.
 const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
   { label: "Home", icon: HomeIcon, path: "/admin" },
@@ -48,11 +48,11 @@ const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
   { label: "Incoming", icon: PhoneIncoming },
   { label: "Outgoing", icon: PhoneOutgoing },
   { label: "Simulator", icon: FlaskConical },
-  { label: "System", icon: Activity, path: "/admin/system/backups" },
+  { label: "System", icon: Activity, path: "/admin/system/status" },
 ];
 const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
   "/admin": "admin-home", "/admin/people": "admin-people", "/admin/extensions": "admin-extensions",
-  "/admin/system/backups": "admin-system-backups",
+  "/admin/system/status": "admin-system-status", "/admin/system/backups": "admin-system-backups",
 };
 
 const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users }[] = [
@@ -230,7 +230,8 @@ function AdminNav({ me, systemStatus, simpleMode, onSimpleModeChange, screen }: 
       <p className="px-3 py-1 text-xs font-medium tracking-wide text-sidebar-foreground/50 max-md:sr-only">ADMIN</p>
       {ADMIN_NAV.map((n) => (
         <NavItem key={n.label} label={n.label} icon={n.icon} disabled={!n.path}
-          active={!!n.path && screen === ADMIN_SCREEN_FOR_PATH[n.path]}
+          active={!!n.path && (screen === ADMIN_SCREEN_FOR_PATH[n.path]
+            || (n.label === "System" && screen === "admin-system-backups"))}
           onClick={n.path ? () => navigate(n.path!) : undefined}
           badge={n.label === "Home" ? openAlerts : undefined}
           dot={n.label === "Phone lines" ? linesDown : undefined} />

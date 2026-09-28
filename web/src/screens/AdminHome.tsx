@@ -8,6 +8,7 @@ import type { components } from "@/api/schema";
 import { Button } from "@/components/ui/button";
 import { Dot, StatusDot, statusLabel } from "@/components/presence";
 import { navigate } from "@/hooks/useRoute";
+import { trunkDot, trunkWords } from "@/lib/lines";
 import { hasScope } from "@/lib/roles";
 import type { SystemStatus } from "@/hooks/useSystemStatus";
 
@@ -83,12 +84,32 @@ function Card({ title, action, children }: { title: string; action?: ReactNode; 
   );
 }
 
-const trunkDot: Record<string, "good" | "warn" | "bad" | "neutral"> = {
-  registered: "good", reachable: "good", unknown: "warn", unreachable: "bad", rejected: "bad", disabled: "neutral",
-};
-const trunkWords: Record<string, string> = {
-  registered: "Working", reachable: "Working", unknown: "Checking…", unreachable: "Down", rejected: "Refused", disabled: "Turned off",
-};
+
+type ServiceHealth = components["schemas"]["ServiceHealth"];
+
+/** Every service in one line when all's well; otherwise each one that isn't. */
+function ServicesSummary({ containers }: { containers: ServiceHealth[] }) {
+  const shown = containers.filter((c) => !(c.optional && c.state === "missing"));
+  const trouble = shown.filter((c) => c.state !== "running");
+  if (trouble.length === 0) {
+    return (
+      <div className="flex items-center gap-2.5">
+        <Dot tone="good" />
+        <span>All {shown.length} Linx services are running</span>
+      </div>
+    );
+  }
+  return trouble.map((c) => (
+    <div key={c.service} className="flex items-center gap-2.5">
+      <Dot tone={c.state === "starting" || c.state === "restarting" ? "warn" : "bad"} />
+      <span>{c.label}</span>
+      <span className="ms-auto text-muted-foreground">
+        {c.state === "starting" ? "Starting" : c.state === "restarting" ? "Restarting" : c.state === "unhealthy" ? "Not answering"
+          : c.state === "missing" ? "Not installed" : "Stopped"}
+      </span>
+    </div>
+  ));
+}
 
 function callPeerLabel(party: ActiveCall["from"], members: TeamMember[] | null): string {
   if (party.extension) {
@@ -227,16 +248,18 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
             )}
           </Card>
 
-          <Card title="System" action={<ComingSoonButton label="Status" />}>
-            {systemStatus
-              ? Object.entries(systemStatus.services).map(([name, s]) => (
+          <Card title="System" action={
+            <Button variant="outline" size="sm" onClick={() => navigate("/admin/system/status")}>Status</Button>
+          }>
+            {!systemStatus ? <p className="text-muted-foreground">Loading…</p>
+              : systemStatus.containers.length > 0 ? <ServicesSummary containers={systemStatus.containers} />
+              : Object.entries(systemStatus.services).map(([name, s]) => (
                 <div key={name} className="flex items-center gap-2.5">
                   <Dot tone={s === "ok" ? "good" : s === "degraded" ? "warn" : "bad"} />
-                  <span className="capitalize">{name.replace(/_/g, " ")}</span>
+                  <span className="capitalize">{name.replace(/[-_]/g, " ")}</span>
                   <span className="ms-auto text-muted-foreground">{s === "ok" ? "Running" : s === "degraded" ? "Degraded" : "Down"}</span>
                 </div>
-              ))
-              : <p className="text-muted-foreground">Loading…</p>}
+              ))}
           </Card>
         </div>
       </div>

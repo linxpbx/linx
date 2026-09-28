@@ -210,8 +210,11 @@ func (s *Server) ListAuditLog(ctx context.Context, req ListAuditLogRequestObject
 	return ListAuditLog200JSONResponse(list), nil
 }
 
-func (s *Server) GetSystemStatus(ctx context.Context, _ GetSystemStatusRequestObject) (GetSystemStatusResponseObject, error) {
-	out := SystemStatus{Services: map[string]SystemStatusServices{"control_plane": "ok", "database": "ok"}}
+func (s *Server) GetSystemStatus(ctx context.Context, req GetSystemStatusRequestObject) (GetSystemStatusResponseObject, error) {
+	// Answering at all means the control plane and its database work; the
+	// server helper adds every other service.
+	out := SystemStatus{Services: map[string]SystemStatusServices{"control-plane": "ok", "database": "ok"}}
+	s.opsStatus(ctx, req.Params.Check != nil && *req.Params.Check, &out)
 	alerts, err := s.alerts.Alerts(ctx, alert.StatusOpen, nil, 100)
 	if err != nil {
 		return nil, err

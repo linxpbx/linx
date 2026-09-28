@@ -247,6 +247,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	plan = append(plan, installer.FirewallSyncPlan(env.executable, env.resolve, env.stat)...)
 	plan = append(plan, installer.ResticPlan(ctx, env.runner)...)
 	plan = append(plan, installer.BackupAgentPlan(env.executable, env.resolve, env.stat)...)
+	plan = append(plan, installer.OpsAgentPlan(env.executable, env.resolve, env.stat)...)
 	plan = append(plan, installer.Step{Title: "Save your answers to " + installer.ConfigPath, File: &installer.File{
 		Path: installer.ConfigPath, Data: cfg.Marshal(), Mode: 0o600, DirMode: 0o755,
 	}})

@@ -58,7 +58,26 @@ func Services(ctx context.Context, env Env) []Result {
 	var rs results
 	service(ctx, env, &rs, postgresContainer, "The database")
 	service(ctx, env, &rs, controlPlaneContainer, "The API service")
+	opsAgent(ctx, env, &rs)
 	return rs
+}
+
+// opsAgent checks linx-ops-agent, the host service System → Status uses
+// to show each service's state and log and to restart one (docs/ADMIN.md
+// §9). Only a warning: calls and everything else work without it.
+func opsAgent(ctx context.Context, env Env, rs *results) {
+	en, _ := env.Runner.Run(ctx, nil, "systemctl", "is-enabled", installer.OpsAgentService)
+	act, _ := env.Runner.Run(ctx, nil, "systemctl", "is-active", installer.OpsAgentService)
+	switch {
+	case strings.TrimSpace(string(en)) != "enabled" && strings.TrimSpace(string(act)) != "active":
+		rs.warn("The server helper (linx-ops-agent) isn't installed: the admin pages can't show services' logs or restart them.",
+			rerunSetup)
+	case strings.TrimSpace(string(act)) != "active":
+		rs.warn("The server helper (linx-ops-agent) isn't running: the admin pages can't show services' logs or restart them.",
+			"Start it: sudo systemctl enable --now "+installer.OpsAgentService+". If it stops again: sudo journalctl -u "+installer.OpsAgentService+" -n 50")
+	default:
+		rs.ok("The server helper is running (services' state, logs and restart in the admin pages).")
+	}
 }
 
 func service(ctx context.Context, env Env, rs *results, container, label string) {
