@@ -6,6 +6,10 @@ name: linx
 services:
   certd:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-certd:${LINX_VERSION:?set by linx setup}
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     container_name: linx-certd
     restart: unless-stopped
     read_only: true
@@ -41,6 +45,10 @@ services:
   # Application data (ADR-026), never reachable from outside linx-private.
   postgres:
     image: postgres:18@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     container_name: linx-postgres
     restart: unless-stopped
     read_only: true
@@ -77,6 +85,10 @@ services:
   # requests never reach any of these three networks (internal/safehttp).
   control-plane:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-control-plane:${LINX_VERSION:?set by linx setup}
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     container_name: linx-control-plane
     restart: unless-stopped
     read_only: true
@@ -196,6 +208,10 @@ services:
   # published on the server yet.
   coturn:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-coturn:${LINX_VERSION:?set by linx setup}
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     container_name: linx-coturn
     restart: unless-stopped
     read_only: true
@@ -242,6 +258,10 @@ services:
   # match internal/asteriskconf's RTPStart/RTPEnd.
   asterisk:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-asterisk:${LINX_VERSION:?set by linx setup}
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     container_name: linx-asterisk
     restart: unless-stopped
     # A minimal init as PID 1: the entrypoint stays beside Asterisk (it
@@ -347,6 +367,10 @@ services:
   sni:
     # haproxy:3.2.23-alpine (LTS)
     image: haproxy:3.2.23-alpine@sha256:5961c68bc8a81c5124d0a98ab20f81b74717d6afe596e805977d9cf84c126222
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     container_name: linx-sni
     profiles: [linx-443]
     restart: unless-stopped
@@ -372,6 +396,10 @@ services:
   # setup creates it in the linx-step-ca volume; the root key isn't on the server.
   step-ca:
     image: smallstep/step-ca:0.30.2@sha256:a2b17872915c193259b75a5474c398326f41bd199f0842093e52cf4182bc8270
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     container_name: linx-step-ca
     restart: unless-stopped
     read_only: true

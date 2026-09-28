@@ -17,6 +17,10 @@ name: linx
 services:
   control-plane:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-control-plane:${LINX_VERSION:?set by linx setup}
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     # The same name as the full stack's, so docker exec reaches it the same
     # way, and the full stack's control plane replaces it.
     container_name: linx-control-plane
@@ -68,6 +72,10 @@ services:
   # Run by linx setup (docker compose run), never started by "up".
   certd:
     image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-certd:${LINX_VERSION:?set by linx setup}
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     profiles: [certificate]
     read_only: true
     cap_drop: [ALL]
@@ -93,6 +101,10 @@ services:
   sni:
     # haproxy:3.2.23-alpine (LTS)
     image: haproxy:3.2.23-alpine@sha256:5961c68bc8a81c5124d0a98ab20f81b74717d6afe596e805977d9cf84c126222
+    # Short names are Linx's own services only: never completed with the
+    # host's search domain (a wildcard DNS record there would send them to
+    # the internet; found in the install demo).
+    dns_search: .
     container_name: linx-sni
     profiles: [linx-443]
     restart: unless-stopped

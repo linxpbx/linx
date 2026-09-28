@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	"linxpbx.com/linx/deploy/compose"
 	"linxpbx.com/linx/internal/turn"
 )
@@ -196,5 +198,31 @@ func TestStackSplit(t *testing.T) {
 	}
 	if got := StartServicesStep("x", "control-plane").Cmd.String(); !strings.HasSuffix(got, "up --detach --wait control-plane") {
 		t.Errorf("start one: %s", got)
+	}
+}
+
+// Every Linx container resolves only its own services' short names, never
+// with the host's search domain (found in the install demo: "step-ca" became
+// step-ca.<search domain>, which a wildcard DNS record sent to the
+// internet). A container sharing another's network (WireGuard) inherits it.
+func TestComposeNoSearchDomain(t *testing.T) {
+	for name, file := range map[string][]byte{"compose.yaml": compose.File, "install.yaml": compose.InstallFile} {
+		var c struct {
+			Services map[string]struct {
+				DNSSearch   any    `yaml:"dns_search"`
+				NetworkMode string `yaml:"network_mode"`
+			} `yaml:"services"`
+		}
+		if err := yaml.Unmarshal(file, &c); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for svc, s := range c.Services {
+			if s.NetworkMode != "" {
+				continue
+			}
+			if s.DNSSearch != "." {
+				t.Errorf("%s: service %s has dns_search %v, want \".\"", name, svc, s.DNSSearch)
+			}
+		}
 	}
 }
