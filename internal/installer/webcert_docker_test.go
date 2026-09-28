@@ -81,6 +81,9 @@ func TestWebCertificateInstall(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Download first: a pull's messages would mix into create's output.
+	docker("pull", "--quiet", pebbleImage)
+	docker("pull", "--quiet", challtestsrvImage)
 	id := docker("create", pebbleImage)
 	docker("cp", id+":/test/certs/pebble.minica.pem", filepath.Join(dir, "pebble.minica.pem"))
 	docker("rm", id)
