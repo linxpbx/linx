@@ -35,6 +35,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - Web client audio calls over WSS/TURN-TLS; CDR; voicemail with email delivery.
 - Slices so far: 1A API/webhooks/alerts, 1B phone engine, 1C web client, 1D phone lines (all approved). **1E** (approved 2026-09-26, `docs/ADMIN.md`): admin portal, web setup wizard with the numbering plan, passkeys, company sign-in. **1F** (owner-approved split): ring groups, office hours, the full inbound wizard, voicemail, email sending, call history, routing undo, Domain & DNS page.
 - **Web-first install** (owner direction 2026-09-27, `docs/INSTALL.md`, ADR-057/058, approved 2026-09-28): the terminal prints one link, everything else in the browser; replaces most setup questions and the 1F Domain & DNS page.
+- **Simpler phone lines, front doors and DNS** (owner request 2026-09-29, `docs/SIMPLER.md`, ADR-061 to 063, not yet approved): a PBX or gateway signs in to Linx like a phone, and providers are pasted and tested (with 1E step 7); one front-door method with instructions per proxy and "Check it", and any DNS company by hand or through libdns (1F, replacing its Domain & DNS item).
 - **Exit:** a web-to-web and web-to-trunk call on profile A with UDP blocked, and the SIPp suite green.
 
 ## Phase 2 — Provisioning + first native client

@@ -695,3 +695,27 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** (`docs/HELP.md`.) The guides are Markdown in `docs/help/`, built into each release's image and served at `https://<domain>/help` to signed-in people only, filtered by role, except the sign-in guides (`audience: public`), which open without a session from the sign-in page. Search runs in the control plane over an index built at image build time (sections ranked with BM25, stemming, everyday-word synonyms), so it's always there, private and free. Written answers from a language model are optional and off by default: an admin picks the provider (Ollama, Anthropic, OpenAI-compatible) and key; only the question and the matching guide sections are sent, through the SSRF guard, with per-person and per-server limits. Tests keep the guides in step with the app (every screen has a guide, links and screenshots exist, bolded button names still exist).
 
 **Consequences.** A server's help always matches its own version and works without reaching any outside site (China, closed networks). Writing and updating guides becomes part of every user-visible change. Without the AI provider, search finds sections by their words, not their meaning. No public site means nobody can read the guides before installing (a public copy can be added later from the same files).
+
+## ADR-061 — A PBX or gateway signs in to Linx (design, not yet approved)
+
+**Context.** Adding the owner's UCM6304 as a phone line was painful: Linx reached out to it, so it needed a certificate for its IP address, pinning, a "LAN peer" mode and exact firmware settings (docs/DEMO_PHASE1D.md). Every other PBX or FXO gateway would need the same, differently.
+
+**Decision.** (`docs/SIMPLER.md` §1.) A new line kind, `registers_here`: the PBX or gateway registers to Linx like a desk phone (`sip.<domain>`, 5061, TLS, SRTP, a generated username and password shown once), from the phone networks; calls both ways use that registration, inbound ones land in `linx-from-trunk` and are recognised by the login. Internet providers keep `registration`/`ip_authenticated`, set up by pasting the provider's details or picking a template, then Test. `lan_peer` stays as the fallback for a PBX that can't register anywhere.
+
+**Consequences.** No certificates or pinning on gateways; the same protections and status as desk phones. A gateway registering from anywhere waits for public SIP's password-guessing protection. Built with Phase 1E step 7.
+
+## ADR-062 — One front-door method for every proxy (design, not yet approved)
+
+**Context.** Five front-door kinds, each with its own files and steps; the owner asked for one unified setup, whether the proxy is set up in a web page (Pangolin, Nginx Proxy Manager) or a file (nginx, HAProxy).
+
+**Decision.** (`docs/SIMPLER.md` §2.) Every front door does the same three things: pass `<domain>` and `turn.<domain>` through by name, to Linx's 8443 and 5349, with PROXY v2 on the first. Setup and Server settings show those three facts once, with instructions per product generated from them; the kinds collapse to Linx takes 443, another program passes it through, home only. "Check it" tests from the server and, through a short link opened on mobile data, from outside. Decrypting proxies become an advanced last resort.
+
+**Consequences.** Adding support for another proxy is one more set of instructions, not a new mode. Pangolin's web page support is verified on the owner's Pangolin before it's promised. Built in Phase 1F.
+
+## ADR-063 — Any DNS company (design, not yet approved)
+
+**Context.** Linx spoke to Cloudflare and DuckDNS only; the owner doesn't expect an integration per DNS company.
+
+**Decision.** (`docs/SIMPLER.md` §3.) Certificates never need a DNS token (TLS-ALPN-01 by default everywhere). Records are added by hand, with the page checking them, for any DNS company. Where an address changes, Linx keeps records right through libdns (MIT; about 60 DNS companies behind one interface), starting with a curated set of ten, measured under the low-resource rule; certificates keep using lego. `sip.<domain>` stays.
+
+**Consequences.** Any DNS company works by hand; about 60 can be automated without Linx-specific code per company. Each added company adds a little to certd's image, so they're added on request, measured. Built in Phase 1F.
