@@ -358,7 +358,7 @@ test.describe("setup wizard", () => {
   test("people", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, setupStep: 4 });
     await page.goto("/setup");
-    await expect(page.getByRole("heading", { name: "Who will use Linx?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Extensions: who and what will use Linx?" })).toBeVisible();
     await page.getByRole("button", { name: "+ Add another row" }).click();
     await shot(page, "setup-wizard-people");
     // Checked as it's typed; Next doesn't skip a row that wasn't created
@@ -367,10 +367,20 @@ test.describe("setup wizard", () => {
     await page.getByLabel("Email").last().fill("sara@");
     await page.getByLabel("Extension").last().fill("99999");
     await expect(page.getByText("That doesn't look like an email address.", { exact: false })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create and get invite links" })).toBeDisabled();
-    await page.getByRole("button", { name: "Next" }).click();
-    await expect(page.getByText("for the people above first", { exact: false })).toBeVisible();
+    // One button: Next becomes "Create 1 extension", off until the row is right.
+    await expect(page.getByRole("button", { name: "Create 1 extension" })).toBeDisabled();
+    await page.getByRole("button", { name: "Skip for now" }).click();
+    await expect(page.getByText("Create the extensions above first", { exact: false })).toBeVisible();
     await shot(page, "setup-wizard-people-problems");
+    await page.getByLabel("Email").last().fill("sara@example.com");
+    await page.getByLabel("Extension").last().fill("102");
+    await expect(page.getByRole("button", { name: "Create 1 extension" })).toBeEnabled();
+    // A door phone: a name and a number, no email (an extension, no person).
+    await page.getByRole("button", { name: "+ Add another row" }).click();
+    await page.getByLabel("Name").last().fill("Front door");
+    await page.getByLabel("Extension").last().fill("150");
+    await expect(page.getByRole("button", { name: "Create 2 extensions" })).toBeEnabled();
+    await shot(page, "setup-wizard-people-door-phone");
   });
 
   test("line and calls", async ({ page }) => {

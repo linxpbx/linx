@@ -10,7 +10,7 @@ describe("extensionProblem", () => {
   it("says what's wrong as it's typed", () => {
     expect(extensionProblem("1234", 3, people, taken)).toBe("Extensions have 3 digits.");
     expect(extensionProblem("12a", 3, people, taken)).toBe("Digits only.");
-    expect(extensionProblem("650", 3, people, taken)).toBe("People's extensions are 100–599.");
+    expect(extensionProblem("650", 3, people, taken)).toBe("Extensions are 100–599.");
     expect(extensionProblem("100", 3, people, taken)).toBe("100 is already used.");
     expect(extensionProblem("", 3, people, taken)).toBe("Give an extension number.");
     expect(extensionProblem("101", 3, people, taken)).toBe("");
@@ -25,8 +25,10 @@ describe("rowProblems", () => {
       number: "Extensions have 3 digits.",
     });
     expect(rowProblems({ name: "", email: "sara@example.com", role: "user", number: "101" }, 3, people, taken)).toEqual({
-      name: "Give their name.",
+      name: "Give it a name (the person's, or what it is, like “Front door”).",
     });
+    // A door phone: an extension without a person, so no email (the owner's example).
+    expect(rowProblems({ name: "Front door", email: "", role: "user", number: "150" }, 3, people, taken)).toEqual({});
     expect(rowProblems({ name: "Sara", email: "sara@example.com", role: "user", number: "101" }, 3, people, taken)).toEqual({});
   });
 });
