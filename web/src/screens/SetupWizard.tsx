@@ -374,12 +374,21 @@ function PeopleStep(props: {
       <FormError message={createError} />
       {results.length > 0 && (
         <div className="mt-5 flex flex-col gap-3">
-          <p className="text-sm text-muted-foreground">Send each person their invite link (or let them scan the QR code): it's shown only here, works once, for 24 hours. Email invites come later. Then press Next.</p>
+          <h3 className="flex items-center gap-2 text-sm font-semibold">
+            <Check aria-hidden="true" className="size-4 text-status-available" />
+            Created: {results.length} extension{results.length === 1 ? "" : "s"}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            They've moved here from the rows above (change them later under People and Extensions). Send each person their invite link,
+            or let them scan the QR code: it's the same link. Each works once, for 24 hours, and is shown only here; a new one is on
+            their page under People. Email invites come later. Then press Next.
+          </p>
           {results.map((r) => r.link ? (
             <div key={r.row.number} className="flex items-center gap-3 rounded-md border bg-card p-3">
               <img src={r.qr} alt={`QR code to invite ${r.row.name}`} width={64} height={64} className="rounded-sm border" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">{r.row.name} <span className="font-mono text-muted-foreground">· {r.row.number}</span></p>
+                <p className="truncate text-xs text-muted-foreground">{r.row.email} · {r.row.role === "admin" ? "Admin" : "Person"}</p>
                 <p className="truncate text-xs text-muted-foreground">{r.link}</p>
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => void navigator.clipboard?.writeText(r.link ?? "")}>Copy</Button>
@@ -560,6 +569,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   // an extension, so the echo test waited for a phone line forever.
   const [taken, setTaken] = useState<Set<string>>(new Set());
   const [myNumber, setMyNumber] = useState<string | null>(null);
+  const myTyped = useRef(false);
   const [myExtension, setMyExtension] = useState(me.extension ?? "");
   const line = usePhoneLine();
 
@@ -605,7 +615,24 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
       if (list) setExistingUsers(list.items);
       nextNumber.current = next ? Number(next.number) : null;
       if (exts) setTaken(new Set(exts.items.map((e) => e.number)));
-      if (!myExtension && next) setMyNumber((n) => n ?? next.number);
+      // Suggestions follow the numbering plan: coming back after changing
+      // the people range re-suggests any number that's now outside it
+      // (owner, Phase 1E demo). A number you typed yourself is kept.
+      const inRange = (n: string) => !!ranges.people && Number(n) >= ranges.people.from && Number(n) <= ranges.people.to;
+      if (!myExtension && next) setMyNumber((n) => (n === null || (!myTyped.current && !inRange(n)) ? next.number : n));
+      if (next) {
+        setRows((list) => {
+          const used = new Set([...(exts?.items.map((e) => e.number) ?? []), ...list.map((x) => x.number)]);
+          let n = Number(next.number) + (myExtension ? 0 : 1);
+          return list.map((row) => {
+            if (inRange(row.number)) return row;
+            while (used.has(pad(n, digits))) n++;
+            const number = pad(n, digits);
+            used.add(number);
+            return { ...row, number };
+          });
+        });
+      }
     })();
     // Runs once when the People step is reached.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -772,7 +799,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
       )}
       {step === 4 && (
         <PeopleStep me={{ ...me, extension: myExtension || me.extension }} existing={existingUsers} rows={rows} onRows={(r) => { setRows(r); setError(""); }}
-          startNumber={nextNumber.current} digits={digits} people={ranges.people} taken={taken} myNumber={myNumber} onMyNumber={setMyNumber}
+          startNumber={nextNumber.current} digits={digits} people={ranges.people} taken={taken} myNumber={myNumber} onMyNumber={(n) => { myTyped.current = true; setMyNumber(n); }}
           results={results} onCreate={() => void onCreatePeople()} creating={creating} createError={createError}
           {...shellProps(true, () => void leavePeople(5), () => void leavePeople(5))} />
       )}

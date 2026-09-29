@@ -526,6 +526,23 @@ test.describe("setup wizard", () => {
     await expect(from).toHaveValue("100");
   });
 
+  test("people: a range changed after a first look is followed", async ({ page }) => {
+    // The owner's steps in the Phase 1E demo: Numbers (100-599) → People →
+    // Back → people 200-499 → People again: suggestions come from 200.
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupStep: 3, followRanges: true });
+    await page.goto("/setup");
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "+ Add another row" }).click();
+    await expect(page.getByLabel("Extension").last()).toHaveValue("100");
+    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByText("Change the ranges").click();
+    await page.getByLabel("People from").fill("200");
+    await page.getByLabel("People to").fill("499");
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByLabel("Extension").last()).toHaveValue("200");
+    await expect(page.getByText("isn't in the people range", { exact: false })).toHaveCount(0);
+  });
+
   test("people", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, setupStep: 4 });
     await page.goto("/setup");

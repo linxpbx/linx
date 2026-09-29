@@ -60,6 +60,9 @@ export interface FakeOptions {
   // Phone lines (docs/ui/ADMIN_SCREENS_PHASE1E.md §6-9): none at all, for
   // the empty states; seeded lines by default.
   noLines?: boolean;
+  // GET /numbering/next follows the saved people range (the setup wizard's
+  // range-change test).
+  followRanges?: boolean;
 }
 
 // Phone lines, numbers and routing (docs/ui/ADMIN_SCREENS_PHASE1E.md §6-9).
@@ -766,7 +769,15 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         ],
       }));
     }
-    if (p === "/api/v1/numbering/next" && method === "GET") return route.fulfill(json({ number: "1111" }));
+    if (p === "/api/v1/numbering/next" && method === "GET") {
+      // The first free number in the people range (1111 when the fake's
+      // ranges don't say, as the older screens expect).
+      const range = (settings.extension_ranges as { kind: string; from: number; to: number }[]).find((x) => x.kind === "people");
+      if (!opts.followRanges || !range) return route.fulfill(json({ number: "1111" }));
+      let n = range.from;
+      while (people.extensions.some((e) => e.number === String(n))) n++;
+      return route.fulfill(json({ number: String(n) }));
+    }
     if (p === "/api/v1/call-permission-levels" && method === "GET") return route.fulfill(json({ items: opts.setupCompleted ? [lines.level] : [] }));
     if (p === "/api/v1/sign-in-options") {
       return route.fulfill(json({ company: opts.company ? [GOOGLE] : [], company_sign_in_required: !!opts.companyRequired, passkeys_available: true,
