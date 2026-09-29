@@ -223,3 +223,23 @@ func TestFrontDoorFilesMore(t *testing.T) {
 		}
 	}
 }
+
+// linx-sni reads its settings only at start: an update that changes them
+// restarts it, an ordinary re-run doesn't (found in the 2026-09-29 demo).
+func TestSNIRestartPlan(t *testing.T) {
+	var c Config
+	c.Domain.Name = "vps.example.com"
+	c.FrontDoor.Kind = FrontDoorLinx443
+	same := func(string) ([]byte, error) { return HAProxyConfig("vps.example.com"), nil }
+	old := func(string) ([]byte, error) { return []byte("global\n"), nil }
+	if p := SNIRestartPlan(c, LAN{}, same); p != nil {
+		t.Errorf("unchanged settings restart it: %v", p)
+	}
+	if p := SNIRestartPlan(c, LAN{}, old); len(p) != 1 || !strings.Contains(p[0].Cmd.String(), "--force-recreate sni") {
+		t.Errorf("changed settings: %v", p)
+	}
+	c.FrontDoor.Kind = FrontDoorPangolin
+	if p := SNIRestartPlan(c, LAN{}, old); p != nil {
+		t.Errorf("no linx-sni behind Pangolin: %v", p)
+	}
+}

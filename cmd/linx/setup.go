@@ -306,9 +306,11 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	// 8. The Linx services: first certificate, then start everything; the
 	// front door's files first and its DNS names once they're up.
 	fdFiles, fdDNS := installer.FrontDoorPlan(cfg, lan)
+	sniRestart := installer.SNIRestartPlan(cfg, lan, env.readFile) // before the new settings are written
 	plan = append(plan, fdFiles...)
 	stack := installer.StackPlan(cfg, token, imageTag, lan)
 	plan = append(plan, stack.Plan...)
+	plan = append(plan, sniRestart...)
 	plan = append(plan, fdDNS...)
 
 	plan = append(plan, installer.CLIPlan(env.executable, env.resolve)...)

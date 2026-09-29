@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -617,4 +618,24 @@ and keeps them there if it changes.
 
 Check everything: sudo linx doctor ("Calls from outside").
 `, domain, CaddyFile, linx, WebPort, udpPort)
+}
+
+// SNIRestartPlan restarts Linx's port 443 router when setup is about to
+// write it settings that differ from the ones it runs with: it reads them
+// only when it starts, and compose doesn't restart it for a changed file
+// (found in the 2026-09-29 demo: an update wrote the small-office settings,
+// and the router kept using 42 MB with the old ones). Nothing when they're
+// the same, so an ordinary re-run doesn't drop the connections it carries.
+func SNIRestartPlan(c Config, lan LAN, readFile func(string) ([]byte, error)) Plan {
+	kind := FrontDoorFor(c, lan).ComposeProfiles
+	if kind != FrontDoorLinx443 {
+		return nil
+	}
+	// A missing file counts as changed (restarting a router that has just
+	// started is harmless).
+	if old, err := readFile(HAProxyConfigFile); err == nil && bytes.Equal(old, HAProxyConfig(c.Domain.Name)) {
+		return nil
+	}
+	return Plan{cmdStep("Restart Linx's port 443 router with its new settings", "docker",
+		"compose", "--file", stackFile, "up", "--detach", "--wait", "--force-recreate", "sni")}
 }

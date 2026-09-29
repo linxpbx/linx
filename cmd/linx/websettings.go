@@ -314,9 +314,9 @@ func (w webSettings) rows(ctx context.Context, ch install.ServerChange, x change
 	}
 	restart = append(restart, installer.StackPlan(next, token, w.imageTag, w.lan).Plan...)
 	restart = append(restart, installer.PruneOldImagesStep())
-	if (x.domain || x.door) && installer.FrontDoorFor(next, w.lan).ComposeProfiles == installer.FrontDoorLinx443 {
-		restart = append(restart, installer.RestartSNIStep())
-	}
+	// Linx's port 443 router reads its settings only when it starts: restart
+	// it whenever they change (a new domain or front door, or new defaults).
+	restart = append(restart, installer.SNIRestartPlan(next, w.lan, w.env.readFile)...)
 	rows = append(rows, applyRow{title: "Restart Linx with the new settings", plan: restart})
 	if token != "" && !next.Certificates.NoDNSToken && (ch.Token != "" || x.domain || x.door) && len(dns) > 0 {
 		rows = append(rows, applyRow{title: strings.TrimSuffix(strings.TrimPrefix(dns[0].Title, "Point "), " (DNS)"), plan: dns})
