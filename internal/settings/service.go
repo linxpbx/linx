@@ -196,9 +196,13 @@ func (s *Service) Update(ctx context.Context, patch Patch) (Settings, error) {
 		cur.CompanySignInRequired = *patch.CompanySignInRequired
 		changes["company_sign_in_required"] = cur.CompanySignInRequired
 	}
-	if cur.AdminNetworkRestricted && len(cur.AdminNetworks) == 0 {
+	// The phone networks from setup always count (docs/ADMIN.md §3), so a
+	// home install needs nothing more listed; only a server without any
+	// (a rented one) must name at least one, or no admin could sign in
+	// (owner found the old rule refusing a home install, Phase 1E demo).
+	if cur.AdminNetworkRestricted && len(cur.AdminNetworks) == 0 && len(s.PhoneNetworks) == 0 {
 		return Settings{}, invalid("admin_networks_required",
-			"Add at least one address or network before turning on \"only from my home/office network\" (otherwise no admin could sign in as one).")
+			"This server has no home or office network of its own: add at least one address or network before turning on \"only from my home/office network\" (otherwise no admin could sign in as one).")
 	}
 
 	_, a, err := audit(ctx, "settings.update")

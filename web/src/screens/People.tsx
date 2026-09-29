@@ -19,14 +19,22 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { ColumnDef } from "@tanstack/react-table";
+import { navigate } from "@/hooks/useRoute";
 import { isReadOnlyAdmin } from "@/lib/roles";
 
 type User = components["schemas"]["User"];
 type Role = components["schemas"]["Role"];
 
-const roleLabel: Record<Role, string> = { system_admin: "System admin", admin: "Admin", user: "Person", reporter: "Reporter" };
-const roleHint: Record<"user" | "reporter" | "admin", string> = {
-  user: "Makes and takes calls.", reporter: "Can see the admin pages, can't change them.", admin: "Can change everything except other system admins.",
+const roleLabel: Record<Role, string> = { system_admin: "System admin", admin: "Admin", user: "Person", reporter: "Read-only admin" };
+// The same three choices, in the same words, as the setup wizard's People
+// step: Person, Admin, Phone (owner, Phase 1E demo). The API's read-only
+// "reporter" role isn't offered; anyone who has it shows as a read-only admin.
+type Kind = "user" | "admin" | "phone";
+const kindLabel: Record<Kind, string> = { user: "Person", admin: "Admin", phone: "Phone" };
+const roleHint: Record<Kind, string> = {
+  user: "Someone who signs in to Linx to make and take calls. Gets an invite link by email address.",
+  admin: "A person who can also manage Linx (people, extensions, phone lines).",
+  phone: "An extension for a phone that isn't someone's, like a door phone or a meeting room. No email.",
 };
 
 type Status = "invited" | "active" | "locked" | "disabled";
@@ -155,7 +163,7 @@ function QuickAddPerson({ me, open, onOpenChange, onGuideInstead, always, onCrea
   );
 }
 
-const STEPS = ["Name", "Role", "Extension", "Done"];
+const STEPS = ["Name", "Type", "Extension", "Done"];
 
 function GuidedAddPerson({ me, open, onOpenChange, onCreated }: {
   me: Me; open: boolean; onOpenChange: (o: boolean) => void; onCreated: (u: User, token: string) => void;
@@ -163,26 +171,36 @@ function GuidedAddPerson({ me, open, onOpenChange, onCreated }: {
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"user" | "reporter" | "admin">("user");
+  const [role, setRole] = useState<Kind>("user");
   const [extChoice, setExtChoice] = useState<"next" | "other" | "none">("next");
   const [number, setNumber] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ user: User; link: string } | null>(null);
+  const [phoneDone, setPhoneDone] = useState("");
   const next = useNextNumber(open);
   const confirm = useConfirmIdentity(me);
 
   useEffect(() => {
     if (!open) return;
-    setStep(1); setName(""); setEmail(""); setRole("user"); setExtChoice("next"); setError(""); setResult(null);
+    setStep(1); setName(""); setEmail(""); setRole("user"); setExtChoice("next"); setError(""); setResult(null); setPhoneDone("");
   }, [open]);
   useEffect(() => { if (extChoice === "next") setNumber(next.number); }, [extChoice, next.number]);
 
+  const phone = role === "phone";
   const finish = async () => {
     setBusy(true);
     setError("");
+    if (phone) {
+      // An extension, no person (as the setup wizard's Phone rows).
+      const { data, error: err } = await api.POST("/api/v1/extensions", { body: { number: number.trim(), display_name: name.trim() } });
+      setBusy(false);
+      if (!data) { setError(problemMessage(err)); return; }
+      setPhoneDone(data.number);
+      return;
+    }
     await createPerson(
-      { name, email, role, number, giveExtension: extChoice !== "none" },
+      { name, email, role: role === "admin" ? "admin" : "user", number, giveExtension: extChoice !== "none" },
       confirm.run,
       (u, token) => setResult({ user: u, link: `${window.location.origin}/setup/${token}` }),
       setError,
@@ -208,17 +226,17 @@ function GuidedAddPerson({ me, open, onOpenChange, onCreated }: {
           {step === 1 && (
             <>
               <Field label="Name" htmlFor="guided-person-name"><Input id="guided-person-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus /></Field>
-              <Field label="Email" htmlFor="guided-person-email"><Input id="guided-person-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+              <Field label="Email (not needed for a phone that isn't someone's)" htmlFor="guided-person-email"><Input id="guided-person-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
             </>
           )}
           {step === 2 && (
-            <RadioGroup value={role} onValueChange={(v) => setRole(v as typeof role)} aria-label="What can they do?">
-              {(["user", "reporter", "admin"] as const).map((r) => (
+            <RadioGroup value={role} onValueChange={(v) => setRole(v as typeof role)} aria-label="Type">
+              {(["user", "admin", "phone"] as const).map((r) => (
                 <label key={r} htmlFor={`role-${r}`} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[[data-state=checked]]:border-primary">
                   <RadioGroupItem id={`role-${r}`} value={r} className="mt-0.5" />
                   <span className="flex flex-col gap-0.5">
                     <span className="text-sm font-medium">
-                      {roleLabel[r]}{r === "user" && <span className="ms-2 rounded-sm bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">Recommended</span>}
+                      {kindLabel[r]}{r === "user" && <span className="ms-2 rounded-sm bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">Recommended</span>}
                     </span>
                     <span className="text-sm text-muted-foreground">{roleHint[r]}</span>
                   </span>
@@ -244,31 +262,42 @@ function GuidedAddPerson({ me, open, onOpenChange, onCreated }: {
                   )}
                 </span>
               </label>
-              <label htmlFor="ext-none" className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[[data-state=checked]]:border-primary">
-                <RadioGroupItem id="ext-none" value="none" className="mt-0.5" />
-                <span className="text-sm font-medium">No phone</span>
-              </label>
+              {!phone && (
+                <label htmlFor="ext-none" className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[[data-state=checked]]:border-primary">
+                  <RadioGroupItem id="ext-none" value="none" className="mt-0.5" />
+                  <span className="text-sm font-medium">No phone</span>
+                </label>
+              )}
             </RadioGroup>
           )}
+          {step === 2 && !phone && !email.trim() && (
+            <p className="text-sm text-status-away">A person needs an email for their invite link: go back and add it. For a door phone or a room, choose Phone.</p>
+          )}
           {step === 4 && (
-            result ? (
+            phoneDone ? (
+              <p className="text-sm">Extension {phoneDone} ({name}) is ready. Add the phone itself (and get its login) under Extensions.</p>
+            ) : result ? (
               <InviteResult name={name} link={result.link} />
             ) : (
-              <p className="text-sm text-muted-foreground">Ready to create {name || "this person"}.</p>
+              <p className="text-sm text-muted-foreground">Ready to create {name || (phone ? "this extension" : "this person")}.</p>
             )
           )}
           <FormError message={error} />
         </div>
         <div className="mt-auto flex items-center justify-between gap-2 border-t p-4">
-          <Button variant="outline" disabled={step === 1 || busy || !!result} onClick={() => setStep(step - 1)}>Back</Button>
+          <Button variant="outline" disabled={step === 1 || busy || !!result || !!phoneDone} onClick={() => setStep(step - 1)}>Back</Button>
           {step < 4 && (
-            <Button disabled={(step === 1 && (!name.trim() || !email.trim())) || (step === 3 && extChoice === "other" && !number.trim())}
-              onClick={() => setStep(step + 1)}>
+            <Button disabled={(step === 1 && !name.trim()) || (step === 2 && !phone && !email.trim())
+              || (step === 3 && extChoice === "other" && !number.trim())}
+              onClick={() => { if (step === 2 && phone && extChoice === "none") setExtChoice("next"); setStep(step + 1); }}>
               Next
             </Button>
           )}
-          {step === 4 && !result && (
+          {step === 4 && !result && !phoneDone && (
             <Button disabled={busy} aria-busy={busy} onClick={() => void finish()}>Create</Button>
+          )}
+          {step === 4 && phoneDone && (
+            <Button onClick={() => { onOpenChange(false); navigate("/admin/extensions"); }}>Go to Extensions</Button>
           )}
           {step === 4 && result && (
             <Button onClick={() => { onCreated(result.user, ""); onOpenChange(false); }}>Done</Button>
@@ -399,7 +428,7 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
                     <SelectTrigger id="edit-person-role"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="user">Person</SelectItem>
-                      <SelectItem value="reporter">Reporter</SelectItem>
+                      {user.role === "reporter" && <SelectItem value="reporter">Read-only admin</SelectItem>}
                       <SelectItem value="admin">Admin</SelectItem>
                     </SelectContent>
                   </Select>
@@ -530,7 +559,8 @@ export function PeopleScreen({ me }: { me: Me }) {
           <Search aria-hidden="true" className="pointer-events-none absolute inset-y-0 start-3 my-auto size-4 text-muted-foreground" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" className="ps-9" aria-label="Search people" />
         </div>
-        <FilterChip label="Role" options={[["system_admin", "System admin"], ["admin", "Admin"], ["user", "Person"], ["reporter", "Reporter"]]}
+        <FilterChip label="Role" options={[["system_admin", "System admin"], ["admin", "Admin"], ["user", "Person"],
+          ...((users ?? []).some((u) => u.role === "reporter") ? [["reporter", "Read-only admin"] as ["reporter", string]] : [])]}
           selected={roleFilter} onChange={setRoleFilter} />
         <FilterChip label="Status" options={[["invited", "Invited"], ["active", "Active"], ["locked", "Locked"], ["disabled", "Disabled"]]}
           selected={statusFilter} onChange={setStatusFilter} />

@@ -226,6 +226,19 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Create" }).click();
       await expect(page.getByText("Send this to Priya Menon")).toBeVisible();
       await shot(page, `${scheme}-people-add-guided-done`);
+      // Reporter isn't offered; Phone is, as in the setup wizard.
+      await page.getByRole("button", { name: "Done" }).click();
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      await page.getByLabel("Name").fill("Front door");
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByRole("radio", { name: /Reporter/ })).toHaveCount(0);
+      await page.getByRole("radio", { name: /Phone/ }).click();
+      await shot(page, `${scheme}-people-add-type`);
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Create" }).click();
+      await expect(page.getByText("(Front door) is ready", { exact: false })).toBeVisible();
     });
 
     test("extensions list and detail", async ({ page }) => {
@@ -363,6 +376,17 @@ for (const scheme of ["light", "dark"] as const) {
       await page.goto("/admin/system/settings");
       await expect(page.getByRole("heading", { name: "Company sign-in" })).toBeVisible();
       await shot(page, `${scheme}-system-settings`);
+      // What's in effect is always said; a different choice waits for Save
+      // (owner, Phase 1E demo).
+      await expect(page.getByText("Right now: admins can sign in from anywhere.")).toBeVisible();
+      await page.getByRole("radio", { name: /Only my home or office network/ }).click();
+      await expect(page.getByText("Not saved yet.")).toBeVisible();
+      await page.getByRole("button", { name: "Change anyway" }).click();
+      await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+      await page.getByLabel("Password").fill("correct horse battery");
+      await page.getByLabel("Code from your authenticator app").pressSequentially("123456");
+      await expect(page.getByText("Right now: admins can sign in only from your home or office network.")).toBeVisible();
+      await expect(page.getByText("Not saved yet.")).toHaveCount(0);
       await page.getByRole("button", { name: "+ Add a provider" }).click();
       await page.getByRole("radio", { name: /Microsoft/ }).click();
       await page.getByRole("button", { name: "Next" }).click();

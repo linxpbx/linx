@@ -286,22 +286,34 @@ export function SystemSettingsScreen({ me, onSimpleModeChange }: { me: Me; onSim
             <label htmlFor="admin-network" className="flex cursor-pointer items-start gap-3 text-sm">
               <RadioGroupItem id="admin-network" value="network" className="mt-0.5" />
               <span><span className="font-medium">Only my home or office network</span>
-                <span className="block text-muted-foreground">Elsewhere, admins see only the ordinary pages. Your phone networks from setup always count.</span></span>
+                <span className="block text-muted-foreground">Elsewhere, admins see only the ordinary pages. Your home network from setup always counts; add others below only if you need them.</span></span>
             </label>
           </RadioGroup>
           {restricted && (
             <div className="mt-3 flex flex-col gap-2">
-              <Label htmlFor="admin-networks">More networks (one per line, e.g. 203.0.113.0/24)</Label>
+              <Label htmlFor="admin-networks">Other networks too (optional, one per line, e.g. 203.0.113.0/24)</Label>
               <textarea id="admin-networks" rows={3} value={networks} onChange={(e) => setNetworks(e.target.value)} disabled={!canWrite}
                 className="w-full max-w-md rounded-md border bg-background px-3 py-2 font-mono text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50" />
               <p className="text-sm text-status-away">If you aren't on one of these networks now, you lose the admin pages as soon as you save, until you're back.</p>
             </div>
           )}
+          <p className="mt-3 text-sm" role="status">
+            Right now: admins can sign in {settings.admin_network_restricted ? "only from your home or office network" : "from anywhere"}.
+          </p>
           {canWrite && networksChanged && (
-            <Button size="sm" className="mt-3" disabled={busy}
-              onClick={() => void patch({ admin_network_restricted: restricted, admin_networks: networksList }, "where admins sign in from")}>
-              {restricted ? "Change anyway" : "Save"}
-            </Button>
+            <div className="mt-3 flex flex-col gap-2 rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
+              <p className="font-medium">Not saved yet.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" disabled={busy}
+                  onClick={() => void patch({ admin_network_restricted: restricted, admin_networks: networksList }, "where admins sign in from")}>
+                  {restricted ? "Change anyway" : "Save"}
+                </Button>
+                <Button size="sm" variant="outline" disabled={busy}
+                  onClick={() => { setRestricted(settings.admin_network_restricted); setNetworks(settings.admin_networks.join("\n")); setError(""); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
           )}
         </SystemCard>
 

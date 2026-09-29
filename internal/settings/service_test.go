@@ -175,6 +175,12 @@ func TestUpdateSettingsAdminNetworks(t *testing.T) {
 	if _, err := svc.Update(ctx, Patch{AdminNetworkRestricted: &restricted}); err == nil || errCode(err) != "admin_networks_required" {
 		t.Fatalf("err = %v, want admin_networks_required with no networks listed", err)
 	}
+	// At home the phone networks from setup count on their own: nothing
+	// more needs listing (owner, Phase 1E demo).
+	home := &Service{Store: newFakeStore(), Now: time.Now, PhoneNetworks: []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")}}
+	if out, err := home.Update(ctx, Patch{AdminNetworkRestricted: &restricted}); err != nil || !out.AdminNetworkRestricted {
+		t.Fatalf("at home, with only the phone networks: %+v, %v", out, err)
+	}
 
 	networks := []string{"10.0.0.0/8"}
 	out, err := svc.Update(ctx, Patch{AdminNetworkRestricted: &restricted, AdminNetworks: &networks})
