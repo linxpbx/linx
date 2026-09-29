@@ -30,6 +30,9 @@ const ConnectionsScreen = lazy(() => import("./Connections").then((m) => ({ defa
 const SystemStatusScreen = lazy(() => import("./SystemStatus").then((m) => ({ default: m.SystemStatusScreen })));
 const SystemBackupsScreen = lazy(() => import("./SystemBackups").then((m) => ({ default: m.SystemBackupsScreen })));
 const SystemServerScreen = lazy(() => import("./SystemServer").then((m) => ({ default: m.SystemServerScreen })));
+const SystemAlertsScreen = lazy(() => import("./SystemAlerts").then((m) => ({ default: m.SystemAlertsScreen })));
+const SystemActivityScreen = lazy(() => import("./SystemActivity").then((m) => ({ default: m.SystemActivityScreen })));
+const SystemSettingsScreen = lazy(() => import("./SystemSettings").then((m) => ({ default: m.SystemSettingsScreen })));
 const SetupWizardScreen = lazy(() => import("./SetupWizard").then((m) => ({ default: m.SetupWizardScreen })));
 const loading = <div className="p-6" aria-busy="true" />;
 
@@ -97,6 +100,8 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
     : path === "/admin" ? "admin-home" : path === "/admin/people" ? "admin-people" : path === "/admin/extensions" ? "admin-extensions"
       : path === "/admin/system" || path === "/admin/system/status" ? "admin-system-status"
       : path === "/admin/system/backups" ? "admin-system-backups"
+      : path === "/admin/system/alerts" ? "admin-system-alerts" : path === "/admin/system/activity" ? "admin-system-activity"
+      : path === "/admin/system/settings" ? "admin-system-settings"
       : path === "/admin/system/server" && me.role === "system_admin" ? "admin-system-server"
       : path === "/admin/lines" ? "admin-lines" : path === "/admin/incoming" ? "admin-incoming"
       : path === "/admin/outgoing" ? "admin-outgoing" : path === "/admin/simulator" ? "admin-simulator"
@@ -119,6 +124,9 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
               : screen === "admin-system-status" ? <SystemStatusScreen me={me} />
               : screen === "admin-system-backups" ? <SystemBackupsScreen me={me} />
               : screen === "admin-system-server" ? <SystemServerScreen me={me} />
+              : screen === "admin-system-alerts" ? <SystemAlertsScreen me={me} />
+              : screen === "admin-system-activity" ? <SystemActivityScreen me={me} />
+              : screen === "admin-system-settings" ? <SystemSettingsScreen me={me} onSimpleModeChange={setSimpleMode} />
               : screen === "admin-lines" ? <PhoneLinesScreen me={me} />
               : screen === "admin-incoming" ? <IncomingCallsScreen me={me} />
               : screen === "admin-outgoing" ? <OutgoingCallsScreen me={me} simpleMode={simpleMode} />

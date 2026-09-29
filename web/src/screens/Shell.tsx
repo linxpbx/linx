@@ -23,7 +23,8 @@ import { DIALABLE, matchTeam } from "./Dialer";
 
 export type Screen = "dialer" | "team" | "settings" | "account" | "admin-home" | "admin-people" | "admin-extensions"
   | "admin-system-status" | "admin-system-backups" | "admin-system-server"
-  | "admin-lines" | "admin-incoming" | "admin-outgoing" | "admin-simulator" | "admin-connections";
+  | "admin-lines" | "admin-incoming" | "admin-outgoing" | "admin-simulator" | "admin-connections"
+  | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
@@ -233,7 +234,7 @@ function AdminNav({ me, systemStatus, simpleMode, onSimpleModeChange, screen }: 
       {ADMIN_NAV.map((n) => (
         <NavItem key={n.label} label={n.label} icon={n.icon} disabled={!n.path}
           active={!!n.path && (screen === ADMIN_SCREEN_FOR_PATH[n.path]
-            || (n.label === "System" && (screen === "admin-system-backups" || screen === "admin-system-server")))}
+            || (n.label === "System" && screen.startsWith("admin-system-")))}
           onClick={n.path ? () => navigate(n.path!) : undefined}
           badge={n.label === "Home" ? openAlerts : undefined}
           dot={n.label === "Phone lines" ? linesDown : undefined} />

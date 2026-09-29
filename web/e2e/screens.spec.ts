@@ -334,6 +334,41 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-connections-added`);
     });
 
+    test("system: alerts, activity, settings", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
+      await page.goto("/admin/system/alerts");
+      await expect(page.getByText("Mohammed's phone")).toBeVisible();
+      await shot(page, `${scheme}-system-alerts`);
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      await shot(page, `${scheme}-system-alerts-add-where`);
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByLabel("Topic").fill("linx-office-7h2k9");
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Add and test" }).click();
+      await expect(page.getByText("ntfy took it. Did it arrive?")).toBeVisible();
+      await shot(page, `${scheme}-system-alerts-added`);
+      await page.getByRole("button", { name: "It arrived" }).click();
+
+      await page.goto("/admin/system/activity");
+      await expect(page.getByText('Added person "Chen Wei"')).toBeVisible();
+      await expect(page.getByText("Refused: entered a sign-in code (wrong code)")).toBeVisible();
+      await shot(page, `${scheme}-system-activity`);
+      await page.getByRole("button", { name: /Added person "Chen Wei"/ }).click();
+      await expect(page.getByText("user.create")).toBeVisible();
+      await shot(page, `${scheme}-system-activity-detail`);
+
+      await page.goto("/admin/system/settings");
+      await expect(page.getByRole("heading", { name: "Company sign-in" })).toBeVisible();
+      await shot(page, `${scheme}-system-settings`);
+      await page.getByRole("button", { name: "+ Add a provider" }).click();
+      await page.getByRole("radio", { name: /Microsoft/ }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByText("Redirect address")).toBeVisible();
+      await shot(page, `${scheme}-system-settings-add-provider`);
+    });
+
     test("team, dialer, settings, calls", async ({ page }) => {
       const sip = await fakeServer(page, { signedIn: true });
       await page.goto("/team");
@@ -505,6 +540,8 @@ test.describe("phone width", () => {
     ["/admin/lines", "lines", "Phone lines"], ["/admin/incoming", "incoming", "Incoming calls"],
     ["/admin/outgoing", "outgoing", "Outgoing calls"], ["/admin/simulator", "simulator", "Call simulator"],
     ["/admin/connections", "connections", "Connections"],
+    ["/admin/system/alerts", "system-alerts", "Where alerts go"], ["/admin/system/activity", "system-activity", "System"],
+    ["/admin/system/settings", "system-settings", "Admins can sign in from"],
     ["/repair", "repair", "Fix this server's address"],
   ] as const) {
     test(`no sideways scrolling: ${name}`, async ({ page }) => {
@@ -737,6 +774,26 @@ test.describe("repair page (port 6464)", () => {
     await page.goto("/admin/system/status");
     await expect(page.getByRole("button", { name: "Backups" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Server settings" })).toHaveCount(0);
+  });
+});
+
+test.describe("system alerts", () => {
+  test("a Gotify on the home network: allowed after confirm-it's-you", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true });
+    await page.goto("/admin/system/alerts");
+    await page.getByRole("button", { name: "+ Add" }).click();
+    await page.getByRole("button", { name: /Quick add/ }).click();
+    await page.getByLabel("Where").selectOption("gotify");
+    await page.getByLabel("Server").fill("http://192.168.1.40:8080");
+    await page.getByLabel("App token").fill("AbCdEf123");
+    await page.getByRole("button", { name: "Add and test" }).click();
+    await expect(page.getByRole("button", { name: "Allow 192.168.1.40 and add" })).toBeVisible();
+    await shot(page, "system-alerts-private-address");
+    await page.getByRole("button", { name: "Allow 192.168.1.40 and add" }).click();
+    await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+    await page.getByLabel("Password").fill("correct horse battery");
+    await page.getByLabel("Code from your authenticator app").pressSequentially("123456");
+    await expect(page.getByText("Gotify took it. Did it arrive?")).toBeVisible();
   });
 });
 

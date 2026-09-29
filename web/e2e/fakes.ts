@@ -254,6 +254,40 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   });
   const seed = seedPeople();
   const lines = seedLines(!!opts.noLines);
+  const settings: Json = {
+    country: "AE", extension_digits: 3,
+    extension_ranges: [{ kind: "people", from: 100, to: 599 }, { kind: "groups", from: 600, to: 699 }, { kind: "reserved", from: 700, to: 899 }],
+    site_kind: "business", simple_mode: true, admin_network_restricted: false, admin_networks: [], company_sign_in_required: false,
+    default_call_permission_level_id: opts.setupCompleted ? "0199f1" : undefined, setup_step: opts.setupStep ?? 1,
+  };
+  const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+  const system = {
+    confirmed: false, allowed: false,
+    alerts: [
+      { id: "a1", key: "trunk.down:0199e2", severity: "critical", title: "Phone line \"Telnyx\" is down",
+        message: "Linx can't sign in to it: it refused the login or didn't answer. Outgoing calls use the next line.", status: "open",
+        first_seen_at: minsAgo(4), last_seen_at: minsAgo(0) },
+      { id: "a2", key: "backup.failure", severity: "warning", title: "A backup failed", message: "The office NAS didn't answer.",
+        status: "resolved", first_seen_at: minsAgo(60 * 20), last_seen_at: minsAgo(60 * 19), resolved_at: minsAgo(60 * 19) },
+    ] as Json[],
+    channels: [
+      { id: "0199c1", kind: "ntfy", name: "Mohammed's phone", min_severity: "warning",
+        quiet_hours: { enabled: true, start: "22:00", end: "07:00", timezone: "Asia/Dubai", bypass_critical: true },
+        enabled: true, created_by: "user:0199", created_at: minsAgo(9000), updated_at: minsAgo(9000), etag: '"1"' },
+    ] as Json[],
+    audit: [
+      { id: "l1", at: minsAgo(3), actor: "user:u1001", ip: "192.168.1.23", action: "user.create", target: "user:u1047", result: "ok", detail: { name: "Chen Wei", role: "reporter" } },
+      { id: "l2", at: minsAgo(4), actor: "user:u1001", ip: "192.168.1.23", action: "user.sign_in", result: "ok", detail: { method: "passkey" } },
+      { id: "l3", at: minsAgo(40), actor: "api_key:0199k1", ip: "203.0.113.9", action: "extension.update", target: "extension:e1110", result: "ok", detail: { number: "1110" } },
+      { id: "l4", at: minsAgo(60 * 26), actor: "", ip: "198.51.100.77", action: "user.sign_in_code", result: "denied", detail: { reason: "wrong_code" } },
+      { id: "l5", at: minsAgo(60 * 30), actor: "system:cli", action: "trunk.create", target: "trunk:0199e1", result: "ok", detail: { name: "UCM landlines", kind: "registers_here" } },
+    ] as Json[],
+    providers: [
+      { id: "0199b1", kind: "google", name: "Google", issuer: "https://accounts.google.com", client_id: "1234.apps.googleusercontent.com",
+        client_secret_set: true, enabled: true, shown: true, position: 0, redirect_uri: "https://example.com/api/v1/sso/callback",
+        created_at: minsAgo(9000), updated_at: minsAgo(9000), etag: '"1"' },
+    ] as Json[],
+  };
   const notFound = () => json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "No." }, 404);
   const people = { extensions: seed.extensions, users: seed.users, devices: seed.devices, nextId: 2000 };
   const idAfter = (p: string, prefix: string) => (p.startsWith(prefix) ? p.slice(prefix.length).split("/")[0] : null);
@@ -352,7 +386,8 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       }
       const adminScopes = ["settings:read", "settings:write", "system:read", "calls:read", "routing:read", "users:read", "users:write",
         "extensions:read", "extensions:write", "devices:read", "devices:write", "routing:write", "backups:read", "backups:write",
-        "logs:read", "system:write", "trunks:read", "trunks:write"];
+        "logs:read", "system:write", "trunks:read", "trunks:write", "alerts:read", "alerts:write", "audit:read", "sso:read", "sso:write",
+        "outbound_allowlist:write"];
       return route.fulfill(json({
         id: "0199", type: "user", role: opts.systemAdmin ? "system_admin" : "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
@@ -475,15 +510,55 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       const body = route.request().postDataJSON() as { step: number; complete?: boolean };
       return route.fulfill(json({ step: body.step, completed: !!body.complete }));
     }
-    if (p === "/api/v1/settings" && method === "GET") {
-      return route.fulfill(json({
-        country: "AE", extension_digits: 3,
-        extension_ranges: [{ kind: "people", from: 100, to: 599 }, { kind: "groups", from: 600, to: 699 }, { kind: "reserved", from: 700, to: 899 }],
-        site_kind: "business", simple_mode: true, admin_network_restricted: false, admin_networks: [],
-        default_call_permission_level_id: opts.setupCompleted ? "0199f1" : undefined, setup_step: opts.setupStep ?? 1,
-      }));
+    if (p === "/api/v1/settings" && method === "GET") return route.fulfill(json(settings));
+    if (p === "/api/v1/settings" && method === "PATCH") {
+      const body = route.request().postDataJSON() as Json;
+      if ((body.admin_network_restricted !== undefined || body.company_sign_in_required !== undefined) && !system.confirmed) {
+        return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
+      }
+      Object.assign(settings, body);
+      return route.fulfill(json(settings));
     }
-    if (p === "/api/v1/settings" && method === "PATCH") return route.fulfill({ status: 204 });
+    if (p === "/api/v1/alerts" && method === "GET") return route.fulfill(json({ items: system.alerts }));
+    if (p === "/api/v1/alert-channels" && method === "GET") return route.fulfill(json({ items: system.channels }));
+    if (p === "/api/v1/alert-channels" && method === "POST") {
+      const body = route.request().postDataJSON() as { kind: string; name: string; config: Json; min_severity?: string; quiet_hours?: Json };
+      const host = String(body.config.server_url ?? body.config.url ?? "");
+      if (/\/\/(192\.168|10\.)/.test(host) && !system.allowed) {
+        return route.fulfill(json({ type: "about:blank", title: "Unprocessable", status: 422, code: "url_blocked",
+          detail: "Server: that address is on a private network. Allow it on the outbound allowlist first." }, 422));
+      }
+      const c = { id: `0199c${people.nextId++}`, kind: body.kind, name: body.name, min_severity: body.min_severity ?? "info",
+        quiet_hours: body.quiet_hours, enabled: true, created_by: "user:0199", created_at: now(), updated_at: now(), etag: '"1"' };
+      system.channels.unshift(c);
+      return route.fulfill(json({ alert_channel: c }, 201));
+    }
+    const chId = idAfter(p, "/api/v1/alert-channels/");
+    if (chId && p.endsWith("/test") && method === "POST") return route.fulfill(json({ succeeded: true, status_code: 200, duration_ms: 240 }));
+    if (chId && method === "PATCH") {
+      const c = system.channels.find((x) => x.id === chId);
+      if (!c) return route.fulfill(notFound());
+      Object.assign(c, route.request().postDataJSON(), { etag: '"2"' });
+      return route.fulfill(json(c));
+    }
+    if (chId && method === "DELETE") { system.channels = system.channels.filter((x) => x.id !== chId); return route.fulfill({ status: 204 }); }
+    if (p === "/api/v1/outbound-allowlist" && method === "POST") {
+      if (!system.confirmed) return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
+      system.allowed = true;
+      return route.fulfill(json({ id: "0199d9", value: "192.168.1.40", kind: "cidr", description: "", created_by: "user:0199", created_at: now() }, 201));
+    }
+    if (p === "/api/v1/session/confirm" && method === "POST") { system.confirmed = true; return route.fulfill({ status: 204 }); }
+    if (p === "/api/v1/audit-log" && method === "GET") return route.fulfill(json({ items: system.audit }));
+    if (p === "/api/v1/sso-providers" && method === "GET") return route.fulfill(json({ items: system.providers }));
+    if (p === "/api/v1/sso-providers" && method === "POST") {
+      if (!system.confirmed) return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
+      const body = route.request().postDataJSON() as { kind: string; name?: string; client_id: string; shown?: boolean };
+      const pr = { id: `0199b${people.nextId++}`, kind: body.kind, name: body.name ?? (body.kind === "microsoft" ? "Microsoft" : "Google"),
+        issuer: "https://accounts.google.com", client_id: body.client_id, client_secret_set: true, enabled: true, shown: body.shown ?? true,
+        position: system.providers.length, redirect_uri: "https://example.com/api/v1/sso/callback", created_at: now(), updated_at: now(), etag: '"1"' };
+      system.providers.push(pr);
+      return route.fulfill(json(pr, 201));
+    }
     if (p === "/api/v1/inbound-routes" && method === "GET") return route.fulfill(json({ items: lines.dids }));
     if (p === "/api/v1/trunks" && method === "GET") return route.fulfill(json({ items: lines.trunks }));
     if (p === "/api/v1/trunks" && method === "POST") {

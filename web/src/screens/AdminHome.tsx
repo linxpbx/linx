@@ -69,10 +69,6 @@ function Checklist({ items }: { items: ChecklistItem[] }) {
   );
 }
 
-function ComingSoonButton({ label }: { label: string }) {
-  return <Button variant="outline" size="sm" disabled title="This page arrives in a later session">{label}</Button>;
-}
-
 function Card({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section aria-labelledby={`${title}-title`} className="flex flex-col rounded-lg border bg-card p-5">
@@ -206,7 +202,7 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
         {items.length > 0 && <Checklist items={items} />}
 
         <div className="grid gap-6 sm:grid-cols-2">
-          <Card title="Needs attention" action={<ComingSoonButton label="All alerts" />}>
+          <Card title="Needs attention" action={<Button variant="outline" size="sm" onClick={() => navigate("/admin/system/alerts")}>All alerts</Button>}>
             {openAlerts.length === 0 && <p className="text-muted-foreground">Nothing needs you right now.</p>}
             {openAlerts.slice(0, 4).map((a, i) => (
               <div key={i} className="flex items-start gap-2.5">

@@ -447,6 +447,11 @@ var hostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
 // AddAllowlistEntry lets outbound connections reach a private range (a
 // CIDR or single address inside one) or any address of one host name.
 func (s *Service) AddAllowlistEntry(ctx context.Context, value, description string) (AllowlistEntry, error) {
+	// It opens the server's own network to outbound requests: a "confirm
+	// it's you" action in a session (docs/ui/ADMIN_SCREENS_PHASE1E.md §10.2).
+	if err := auth.RequireConfirmed(ctx, s.Now()); err != nil {
+		return AllowlistEntry{}, err
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return AllowlistEntry{}, err
