@@ -1,6 +1,6 @@
 # Linx — Web-first install
 
-*Status: design drafted 2026-09-28 from the owner's direction of 2026-09-27 (CLAUDE.md "Pre-launch"), **approved by the owner 2026-09-28, all §10 questions as recommended**. ADR-057 and ADR-058 record the decisions.*
+*Status: design drafted 2026-09-28 from the owner's direction of 2026-09-27 (CLAUDE.md "Pre-launch"), **approved by the owner 2026-09-28, all §10 questions as recommended**. ADR-057 and ADR-058 record the decisions. **Built (steps 1–6), demo passed and approved by the owner 2026-09-29** (`docs/DEMO_INSTALL.md`).*
 
 Today `sudo linx setup` asks about ten questions in the terminal: resource profile, Docker, front door, Portainer, domain, DNS provider and token, test certificates, contact email, owner email and name. With this design the terminal asks nothing. It checks the server, installs Docker and Linx, and prints **one link**. Everything else happens in a browser.
 
