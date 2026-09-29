@@ -491,6 +491,41 @@ func TestTrunksDocker(t *testing.T) {
 		}
 	})
 
+	t.Run("a default level reaches extensions made before it", func(t *testing.T) {
+		mkLevel := func(name string) trunk.CallPermissionLevel {
+			l := trunk.CallPermissionLevel{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, Name: name, AllowedCategories: []string{"mobile"},
+				Version: 1, CreatedAt: now, UpdatedAt: now}
+			if err := s.CreateCallPermissionLevel(ctx, l, audit("call_permission_level.create")); err != nil {
+				t.Fatal(err)
+			}
+			return l
+		}
+		early := newExtension("406")
+		own := newExtension("407")
+		mine := mkLevel("Own level")
+		own.CallPermissionLevelID = &mine.ID
+		if _, err := s.UpdateExtension(ctx, own, audit("extension.update")); err != nil {
+			t.Fatal(err)
+		}
+		everyone := mkLevel("Everyone (default test)")
+		if err := s.SetDefaultCallPermissionLevel(ctx, everyone.ID, audit("settings.default_call_permission_level")); err != nil {
+			t.Fatal(err)
+		}
+		levelOf := func(id uuid.UUID) string {
+			var name *string
+			if err := pool.QueryRow(ctx, `SELECT l.name FROM extension e LEFT JOIN call_permission_level l ON l.id = e.call_permission_level_id WHERE e.id = $1`, id).Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			return deref(name)
+		}
+		if got := levelOf(early.ID); got != everyone.Name {
+			t.Errorf("an extension made before the default has %q, want %q", got, everyone.Name)
+		}
+		if got := levelOf(own.ID); got != mine.Name {
+			t.Errorf("an extension with its own level now has %q, want %q", got, mine.Name)
+		}
+	})
+
 	t.Run("a phone system that signs in to Linx (migration 0028)", func(t *testing.T) {
 		id := uuid.Must(uuid.NewV7())
 		gw := trunk.Trunk{ID: id, TenantID: tenant, Name: "Gateway", Kind: trunk.KindRegistersHere, Port: 5061,

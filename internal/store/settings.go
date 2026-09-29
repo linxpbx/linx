@@ -69,6 +69,21 @@ func (s *Store) SetDefaultCallPermissionLevel(ctx context.Context, id uuid.UUID,
 		if _, err := tx.Exec(ctx, `UPDATE pbx_setting SET default_call_permission_level_id = $1`, id); err != nil {
 			return err
 		}
+		// Extensions made before there was a default (the setup wizard's
+		// People step runs before its Calls step makes "Everyone") get it
+		// too; otherwise they could call emergency numbers only (owner
+		// found it in the Phase 1E demo). An extension with a level of its
+		// own keeps it.
+		tag, err := tx.Exec(ctx, `UPDATE extension SET call_permission_level_id = $1, version = version + 1, updated_at = now()
+			WHERE call_permission_level_id IS NULL AND deleted_at IS NULL
+			  AND tenant_id = (SELECT tenant_id FROM call_permission_level WHERE id = $1)`, id)
+		if err != nil {
+			return err
+		}
+		if audit.Detail == nil {
+			audit.Detail = map[string]any{}
+		}
+		audit.Detail["extensions_given_it"] = tag.RowsAffected()
 		return insertAudit(ctx, tx, audit)
 	})
 }
