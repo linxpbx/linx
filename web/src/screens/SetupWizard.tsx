@@ -440,18 +440,34 @@ function CallsStep(props: { categories: Set<NumberCategory>; onChange: (c: Set<N
 
 // --- Step 7: Test ---
 
-function TestStep(props: StepProps) {
+function TestStep(outer: StepProps) {
   const line = usePhoneLine();
   const { status, call, problem } = usePhoneState();
   const [heard, setHeard] = useState<boolean | null>(null);
-  if (call && call.peer.number === ECHO_TEST) {
+  // Leaving the step ends the echo test (found in the install demo: it was
+  // still going on the admin home).
+  const echo = call && call.peer.number === ECHO_TEST;
+  const leave = (fn?: () => void) => fn && (() => { if (echo) line.hangUp(); fn(); });
+  const props: StepProps = { ...outer, onNext: leave(outer.onNext)!, onBack: leave(outer.onBack), onSkip: leave(outer.onSkip),
+    onFinishLater: leave(outer.onFinishLater)! };
+  if (heard === true) {
     return (
-      <StepShell {...props} title="Make a test call" nextDisabled={heard !== true}>
+      <StepShell {...props} title="Make a test call">
+        <p className="flex items-center gap-2 text-sm">
+          <Check aria-hidden="true" className="size-4 text-status-available" />
+          The echo test worked: your browser's phone line is ready.
+        </p>
+      </StepShell>
+    );
+  }
+  if (echo) {
+    return (
+      <StepShell {...props} title="Make a test call" nextDisabled>
         <p className="text-sm text-muted-foreground">Speak — you should hear yourself back.</p>
         <div className="mt-4 max-w-sm"><CallPanel call={call} /></div>
         {call.phase === "active" && heard === null && (
           <div className="mt-4 flex gap-2">
-            <Button type="button" onClick={() => setHeard(true)}>I heard myself</Button>
+            <Button type="button" onClick={() => { setHeard(true); line.hangUp(); }}>I heard myself</Button>
             <Button type="button" variant="outline" onClick={() => setHeard(false)}>I didn't</Button>
           </div>
         )}
