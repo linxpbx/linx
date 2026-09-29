@@ -7,7 +7,7 @@ import type { RTCSession } from "jssip/lib/RTCSession";
 import type { RTCSessionEvent, UA } from "jssip/lib/UA";
 import type { DTMF_TRANSPORT } from "jssip/lib/Constants";
 import { api, type TurnCredentials, type WebPhone } from "@/api/client";
-import { preferOpusFecDtx } from "./sdp";
+import { capAudioSend, preferOpusFecDtx } from "./sdp";
 import { Ringtone } from "./ringtone";
 import { loadAudioSettings, type AudioSettings } from "./settings";
 
@@ -329,6 +329,7 @@ export class PhoneLine {
 
     session.on("accepted", () => {
       answered = true;
+      if (session.connection) void capAudioSend(session.connection);
       this.ringtone.stop();
       this.setCall({ phase: "active", answeredAt: Date.now() });
       this.startStats();

@@ -10,13 +10,13 @@ test("adds FEC and DTX to Opus, keeping its other settings", () => {
     "",
   ].join("\r\n");
   const out = preferOpusFecDtx(sdp);
-  expect(out).toContain("a=fmtp:111 minptime=10;useinbandfec=1;usedtx=1\r\n");
+  expect(out).toContain("a=fmtp:111 minptime=10;useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=24000\r\n");
   expect(out).toContain("a=rtpmap:9 G722/8000");
 });
 
 test("adds an fmtp line when Opus has none", () => {
   const out = preferOpusFecDtx("m=audio 9 RTP/SAVPF 96\na=rtpmap:96 opus/48000/2\n");
-  expect(out).toBe("m=audio 9 RTP/SAVPF 96\na=rtpmap:96 opus/48000/2\na=fmtp:96 useinbandfec=1;usedtx=1\n");
+  expect(out).toBe("m=audio 9 RTP/SAVPF 96\na=rtpmap:96 opus/48000/2\na=fmtp:96 useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=24000\n");
 });
 
 test("leaves an offer without Opus alone", () => {
