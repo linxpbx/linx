@@ -248,7 +248,16 @@ function ProgressStep({ finish, domain, problem, onRetry, onChange }: {
 }) {
   const steps = finish.steps ?? [];
   const failed = finish.install.state === "failed";
-  const keep = finish.keep ?? [];
+  // What to write down, as first shown: kept on this page until it's ticked,
+  // whatever later updates say (found on the VPS demo: the server wipes it
+  // when the install finishes, the next update came without it, and the
+  // page moved on to the sign-in with the CA's passphrase unticked).
+  const [keep, setKeep] = useState<NonNullable<FinishView["keep"]>>([]);
+  const latest = finish.keep;
+  useEffect(() => {
+    if (!latest?.length) return;
+    setKeep((seen) => [...seen, ...latest.filter((k) => !seen.some((s) => s.title === k.title))]);
+  }, [latest]);
   const [wrote, setWrote] = useState(false);
   const firstPending = steps.findIndex((s) => s.state !== "ok");
   return (

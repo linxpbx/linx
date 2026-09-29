@@ -825,8 +825,11 @@ export async function fakeSecureInstall(page: Page, base: string, opts: {
   });
   return {
     /** The full Linx takes over: the switch, then the first sign-in. */
-    switchOver() {
+    switchOver(opts: { keepWiped?: boolean } = {}) {
       finish.switching = true;
+      // The server wipes what to write down when the install finishes; a
+      // later update can come without it (found on the VPS demo).
+      if (opts.keepWiped) finish.keep = [];
       (finish.steps as { state: string }[]).forEach((s, i) => { if (i < titles.indexOf("Start Linx (this setup page closes)")) s.state = "ok"; });
     },
   };

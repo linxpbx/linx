@@ -895,6 +895,23 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.waitForURL("https://example.com/setup/" + "s".repeat(43));
     });
 
+    // Found on the VPS demo: an update after the switch came without the
+    // things to write down (the server had wiped them), and the page moved
+    // on to the sign-in without the tick.
+    test("waits for the tick even when the update loses what to write down", async ({ page, baseURL }) => {
+      const fake = await fakeSecureInstall(page, baseURL!, { installed: true });
+      await page.goto("https://example.com/install");
+      await expect(page.getByText("K7QM-2XPD-9RTA-LW4E-HB6N-C3VY")).toBeVisible();
+      await page.route("https://example.com/api/v1/sign-in-options", (route) => route.fulfill({ json: { password: true, providers: [] } }));
+      await page.route("https://example.com/api/v1/setup-links/*", (route) => route.fulfill({ json: { email: "mohammed@example.com", name: "Mohammed" } }));
+      fake.switchOver({ keepWiped: true });
+      await expect(page.getByText("Tick “I've written these down” to go to your first sign-in")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText("K7QM-2XPD-9RTA-LW4E-HB6N-C3VY")).toBeVisible();
+      expect(page.url()).toBe("https://example.com/install");
+      await page.getByLabel("I've written these down").click();
+      await page.waitForURL("https://example.com/setup/" + "s".repeat(43));
+    });
+
     test("a used handoff", async ({ page, baseURL }) => {
       await fakeSecureInstall(page, baseURL!, { usedHandoff: true });
       await page.goto("https://example.com/install/continue#" + "h".repeat(43));
