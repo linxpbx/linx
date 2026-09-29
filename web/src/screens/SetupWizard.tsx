@@ -17,6 +17,7 @@ import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { avoidedRange, defaultRanges, pad, type Range } from "@/lib/numbering";
 import { cn } from "@/lib/utils";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
+import { CATEGORY_SWITCHES } from "@/lib/categories";
 import { ECHO_TEST } from "@/phone/line";
 import { CallPanel } from "./CallPanel";
 import { RestoreFromBackup, StartChoice, type RestoreStatus } from "./SetupRestore";
@@ -395,14 +396,6 @@ function LineStep(props: StepProps) {
 
 // --- Step 6: Calls ---
 
-const CATEGORY_SWITCHES: { key: NumberCategory[]; label: string; hint?: string; recommended: boolean }[] = [
-  { key: ["landline", "service"], label: "Local numbers", recommended: true },
-  { key: ["mobile"], label: "Mobiles", recommended: true },
-  { key: ["national"], label: "Other cities in the UAE", recommended: true },
-  { key: ["toll_free"], label: "Free numbers (800)", recommended: true },
-  { key: ["international"], label: "Abroad", hint: "Recommended off: most phone fraud is calls abroad", recommended: false },
-  { key: ["premium"], label: "Premium-rate", hint: "Costs a lot per minute", recommended: false },
-];
 
 function CallsStep(props: { categories: Set<NumberCategory>; onChange: (c: Set<NumberCategory>) => void } & StepProps) {
   const { categories, onChange, ...shell } = props;

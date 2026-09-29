@@ -22,7 +22,8 @@ import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
 export type Screen = "dialer" | "team" | "settings" | "account" | "admin-home" | "admin-people" | "admin-extensions"
-  | "admin-system-status" | "admin-system-backups" | "admin-system-server";
+  | "admin-system-status" | "admin-system-backups" | "admin-system-server"
+  | "admin-lines" | "admin-incoming" | "admin-outgoing" | "admin-simulator" | "admin-connections";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
@@ -37,27 +38,27 @@ const LATER: { label: string; icon: typeof Users }[] = [
 ];
 
 // The admin group (docs/ui/ADMIN_SCREENS_PHASE1E.md §1), in checklist order.
-// Home, People and Extensions have screens (steps 5-6), and System its
-// Status and Backups tabs; the rest arrive in steps 7-8 and appear
-// greyed "Coming soon" until then, like 1C's LATER.
+// Every item has its screen (steps 5-7); System's tabs arrive in step 8.
 const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
   { label: "Home", icon: HomeIcon, path: "/admin" },
   { label: "People", icon: IdCard, path: "/admin/people" },
   { label: "Extensions", icon: Hash, path: "/admin/extensions" },
-  { label: "Phone lines", icon: PhoneCall },
-  { label: "Incoming", icon: PhoneIncoming },
-  { label: "Outgoing", icon: PhoneOutgoing },
-  { label: "Simulator", icon: FlaskConical },
+  { label: "Phone lines", icon: PhoneCall, path: "/admin/lines" },
+  { label: "Incoming", icon: PhoneIncoming, path: "/admin/incoming" },
+  { label: "Outgoing", icon: PhoneOutgoing, path: "/admin/outgoing" },
+  { label: "Simulator", icon: FlaskConical, path: "/admin/simulator" },
   { label: "System", icon: Activity, path: "/admin/system/status" },
 ];
 const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
   "/admin": "admin-home", "/admin/people": "admin-people", "/admin/extensions": "admin-extensions",
   "/admin/system/status": "admin-system-status", "/admin/system/backups": "admin-system-backups",
   "/admin/system/server": "admin-system-server",
+  "/admin/lines": "admin-lines", "/admin/incoming": "admin-incoming", "/admin/outgoing": "admin-outgoing",
+  "/admin/simulator": "admin-simulator", "/admin/connections": "admin-connections",
 };
 
-const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users }[] = [
-  { label: "Connections", icon: Network },
+const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users; path?: string }[] = [
+  { label: "Connections", icon: Network, path: "/admin/connections" },
   { label: "Webhooks", icon: Webhook },
   { label: "API keys", icon: KeyRound },
 ];
@@ -240,7 +241,11 @@ function AdminNav({ me, systemStatus, simpleMode, onSimpleModeChange, screen }: 
       {!simpleMode && (
         <>
           <p className="px-3 py-1 text-xs font-medium tracking-wide text-sidebar-foreground/50 max-md:sr-only">EXPERT</p>
-          {ADMIN_EXPERT_NAV.map((n) => <NavItem key={n.label} label={n.label} icon={n.icon} disabled />)}
+          {ADMIN_EXPERT_NAV.map((n) => (
+            <NavItem key={n.label} label={n.label} icon={n.icon} disabled={!n.path}
+              active={!!n.path && screen === ADMIN_SCREEN_FOR_PATH[n.path]}
+              onClick={n.path ? () => navigate(n.path!) : undefined} />
+          ))}
         </>
       )}
       <button type="button" onClick={() => onSimpleModeChange(!simpleMode)} disabled={!canToggleSimpleMode}

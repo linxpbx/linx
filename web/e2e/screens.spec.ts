@@ -245,6 +245,95 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-extensions-add-device`);
     });
 
+    test("phone lines: list, a phone system signs in, a company's certificate, detail", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
+      await page.goto("/admin/lines");
+      await expect(page.getByRole("heading", { name: "Phone lines" })).toBeVisible();
+      await expect(page.getByRole("cell", { name: "Not encrypted" })).toBeVisible();
+      await shot(page, `${scheme}-lines`);
+
+      // Guided: a phone system or gateway, which signs in to Linx.
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      await expect(page.getByRole("radio", { name: /Another phone system or gateway/ })).toBeChecked();
+      await shot(page, `${scheme}-lines-add-who`);
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByLabel("Name").fill("Branch GXW");
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "+ Add a number" }).click();
+      await page.getByLabel("Number 1", { exact: true }).fill("+971 4 200 0110");
+      await shot(page, `${scheme}-lines-add-numbers`);
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Create" }).click();
+      await expect(page.getByText('Enter this on "Branch GXW"')).toBeVisible();
+      await expect(page.getByText("Waiting for it to sign in…")).toBeVisible();
+      await shot(page, `${scheme}-lines-add-login`);
+      await page.getByRole("button", { name: "Done" }).click();
+
+      // Guided: a phone company, from what it sent; its certificate isn't
+      // from a company Linx knows, so the test offers to trust it.
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      await page.getByRole("radio", { name: /An internet phone company/ }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByLabel("Or paste what the company sent you").fill("SIP server: sip.example-voice.com\nUsername: linx01\nPassword: s3cret-Pw\nYour DID: +971 4 200 0120");
+      await expect(page.getByText("Linx understood:")).toBeVisible();
+      await shot(page, `${scheme}-lines-add-paste`);
+      await page.getByRole("button", { name: "Use these" }).click();
+      await expect(page.getByLabel("Server")).toHaveValue("sip.example-voice.com");
+      await page.getByRole("button", { name: "Save and test" }).click();
+      await expect(page.getByText("Something needs fixing")).toBeVisible();
+      await expect(page.getByText("3A:9F:12:C4", { exact: false })).toBeVisible();
+      await shot(page, `${scheme}-lines-add-test-untrusted`);
+      await page.getByRole("button", { name: "Trust this certificate" }).click();
+      await expect(page.getByText("It works")).toBeVisible();
+      await shot(page, `${scheme}-lines-add-test-ok`);
+      await page.keyboard.press("Escape");
+
+      // A line's detail.
+      await page.getByRole("row", { name: /UCM landlines/ }).click();
+      await expect(page.getByRole("heading", { name: "UCM landlines" })).toBeVisible();
+      await expect(page.getByText("Calls for any other number ring")).toBeVisible();
+      await shot(page, `${scheme}-lines-detail`);
+    });
+
+    test("incoming, outgoing, simulator, connections", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
+      await page.goto("/admin/incoming");
+      await expect(page.getByRole("heading", { name: "Incoming calls" })).toBeVisible();
+      await expect(page.getByText("Callers hear that the number isn't available.")).toBeVisible();
+      await shot(page, `${scheme}-incoming`);
+
+      await page.goto("/admin/outgoing");
+      await expect(page.getByRole("heading", { name: "Which line first" })).toBeVisible();
+      await expect(page.getByRole("switch", { name: /Mobiles/ })).toBeChecked();
+      await shot(page, `${scheme}-outgoing`);
+      await page.getByRole("switch", { name: /Abroad/ }).click();
+      await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+      await shot(page, `${scheme}-outgoing-abroad-confirm`);
+      await page.keyboard.press("Escape");
+
+      await page.goto("/admin/simulator");
+      await expect(page.getByRole("heading", { name: "Call simulator" })).toBeVisible();
+      await page.getByLabel("Number", { exact: true }).fill("050 123 4567");
+      await page.getByRole("button", { name: "Check" }).click();
+      await expect(page.getByText("Goes out on")).toBeVisible();
+      await shot(page, `${scheme}-simulator-allowed`);
+      await page.getByLabel("Number", { exact: true }).fill("0044 20 7946 0958");
+      await page.getByRole("button", { name: "Check" }).click();
+      await expect(page.getByRole("button", { name: "Change what phones can call" })).toBeVisible();
+      await shot(page, `${scheme}-simulator-refused`);
+
+      await page.goto("/admin/connections");
+      await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByLabel("Name").fill("Provider VPN");
+      await page.getByLabel("Or paste it").fill("[Interface]\nPrivateKey = x\n");
+      await page.getByRole("button", { name: "Add", exact: true }).click();
+      await expect(page.getByText('"Provider VPN" is added.')).toBeVisible();
+      await shot(page, `${scheme}-connections-added`);
+    });
+
     test("team, dialer, settings, calls", async ({ page }) => {
       const sip = await fakeServer(page, { signedIn: true });
       await page.goto("/team");
@@ -413,6 +502,9 @@ test.describe("phone width", () => {
     ["/admin", "admin-home", "Getting started"], ["/admin/people", "people", "People"],
     ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/status", "system-status", "Linx services"],
     ["/admin/system/backups", "system-backups", "Backups"], ["/admin/system/server", "system-server", "Server settings"],
+    ["/admin/lines", "lines", "Phone lines"], ["/admin/incoming", "incoming", "Incoming calls"],
+    ["/admin/outgoing", "outgoing", "Outgoing calls"], ["/admin/simulator", "simulator", "Call simulator"],
+    ["/admin/connections", "connections", "Connections"],
     ["/repair", "repair", "Fix this server's address"],
   ] as const) {
     test(`no sideways scrolling: ${name}`, async ({ page }) => {

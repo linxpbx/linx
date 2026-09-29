@@ -35,6 +35,7 @@ The server used 812 MB in all out of 3.9 GB. **An echo call (measured 2026-09-29
 | Asterisk's programs **stripped of debugging data** (`--strip-debug`: function names kept, so its own backtraces still read) | 358 → 279 MB | only matters to someone attaching a debugger to production |
 | After every setup or update, **remove the previous versions' Linx images** (only images labelled as Linx's, only unused ones) | about 450 MB per update that would otherwise pile up | none |
 | Internal names never completed with the host's search domain (`dns_search: .`) | (a correctness fix found while measuring) | none |
+| **Admin pages load only when opened** (2026-09-29, Phase 1E step 7): the admin area and the setup wizard are separate files fetched on demand, not part of what every signed-in person downloads | a signed-in page load: 232 → 168 KB compressed (app 107 → 84 KB, signed-in part 125 → 84 KB, *before* the step's five new pages, which alone would have added 18 KB); an admin opening Phone lines fetches 12 KB more | a moment's "loading" the first time an admin page opens |
 
 ## 3. Proposed (decisions noted per item)
 

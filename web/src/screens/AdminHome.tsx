@@ -179,18 +179,18 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
   });
   items.push({
     id: "line", label: "Connect a phone line", done: hasLine,
-    action: "Connect", onAction: () => navigate("/setup"),
+    action: "Connect", onAction: () => navigate("/admin/lines"),
   });
   if (hasLine && canRouting) {
     items.push({
       id: "did", label: "Send your phone number to someone", done: !!dids?.some((d) => d.extension_id),
-      action: "Choose", onAction: () => navigate("/setup"),
+      action: "Choose", onAction: () => navigate("/admin/incoming"),
     });
   }
   if (canSettings && settings) {
     items.push({
       id: "calls", label: "Decide what your phones can call", done: !!settings.default_call_permission_level_id,
-      action: "Review", onAction: () => navigate("/setup"),
+      action: "Review", onAction: () => navigate(settings.default_call_permission_level_id ? "/admin/outgoing" : "/setup"),
     });
   }
 
@@ -217,7 +217,7 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
             ))}
           </Card>
 
-          <Card title="Phone lines" action={<ComingSoonButton label="All lines" />}>
+          <Card title="Phone lines" action={<Button variant="outline" size="sm" onClick={() => navigate("/admin/lines")}>All lines</Button>}>
             {trunks.length === 0 && <p className="text-muted-foreground">No phone line yet — Linx can call between extensions only.</p>}
             {trunks.map((t) => (
               <div key={t.id} className="flex items-center gap-2.5">

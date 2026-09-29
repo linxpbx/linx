@@ -57,6 +57,36 @@ export interface FakeOptions {
   // "Moved to a new place?" (docs/INSTALL.md §8): restored from a backup
   // made at home under another domain, now on a rented server.
   moved?: boolean;
+  // Phone lines (docs/ui/ADMIN_SCREENS_PHASE1E.md §6-9): none at all, for
+  // the empty states; seeded lines by default.
+  noLines?: boolean;
+}
+
+// Phone lines, numbers and routing (docs/ui/ADMIN_SCREENS_PHASE1E.md §6-9).
+function seedLines(none: boolean) {
+  const at = new Date(Date.now() - 86_400_000).toISOString();
+  const since = new Date(Date.now() - 4 * 60_000).toISOString();
+  const base = { port: 5061, transport: "tls", media_encryption: "srtp", cert_trust: "public", dial_format: "e164", codecs: ["alaw", "ulaw"],
+    max_calls: 4, unencrypted: false, enabled: true, created_at: at, updated_at: at, etag: '"1"' };
+  const trunks: Json[] = none ? [] : [
+    { ...base, id: "0199e1", name: "UCM landlines", kind: "registers_here", template: "phone_system", host: "", dial_format: "local",
+      username: "trunk-0199e1a0-5278-704a-acbf-7fa42dd4bb5f", status: "registered", status_detail: "It's signed in to Linx.",
+      status_since: at, outbound_priority: 1, rings_extension_id: "e1110" },
+    { ...base, id: "0199e2", name: "Telnyx", kind: "registration", template: "telnyx", host: "sip.telnyx.com", username: "linx-office",
+      status: "unreachable", status_detail: "Linx can't sign in to it: it refused the login or didn't answer.", status_since: since, outbound_priority: 2 },
+    { ...base, id: "0199e3", name: "Old SIP", kind: "ip_authenticated", host: "203.0.113.40", port: 5060, transport: "udp", media_encryption: "none",
+      unencrypted: true, unencrypted_confirmed_by: "mohammed@example.com", status: "reachable", status_detail: "It answers Linx's keep-alive checks.", status_since: at },
+  ];
+  const dids: Json[] = none ? [] : [
+    { id: "0199f1", trunk_id: "0199e1", number: "+97142000100", label: "", extension_id: "e1001", created_at: at, updated_at: at, etag: '"1"' },
+    { id: "0199f2", trunk_id: "0199e2", number: "+97142000101", label: "", extension_id: "e1110", created_at: at, updated_at: at, etag: '"1"' },
+    { id: "0199f3", trunk_id: "0199e2", number: "+97142000102", label: "Sales", created_at: at, updated_at: at, etag: '"1"' },
+    { id: "0199f4", trunk_id: "0199e3", number: "+97142000103", label: "", extension_id: "e1024", created_at: at, updated_at: at, etag: '"1"' },
+  ];
+  const level: Json = { id: "0199f1", name: "Everyone", allowed_categories: ["landline", "service", "mobile", "national", "toll_free"],
+    withhold_caller_id: false, created_at: at, updated_at: at, etag: '"1"' };
+  const profiles: Json[] = [];
+  return { trunks, dids, level, profiles, alert: { minutes: 60, calls: 10 } };
 }
 
 const GOOGLE = { id: "0199c1", kind: "google", name: "Google" };
@@ -223,6 +253,8 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     status, contentType: status >= 400 ? "application/problem+json" : "application/json", body: JSON.stringify(body),
   });
   const seed = seedPeople();
+  const lines = seedLines(!!opts.noLines);
+  const notFound = () => json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "No." }, 404);
   const people = { extensions: seed.extensions, users: seed.users, devices: seed.devices, nextId: 2000 };
   const idAfter = (p: string, prefix: string) => (p.startsWith(prefix) ? p.slice(prefix.length).split("/")[0] : null);
   const now = () => new Date().toISOString();
@@ -320,7 +352,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       }
       const adminScopes = ["settings:read", "settings:write", "system:read", "calls:read", "routing:read", "users:read", "users:write",
         "extensions:read", "extensions:write", "devices:read", "devices:write", "routing:write", "backups:read", "backups:write",
-        "logs:read", "system:write"];
+        "logs:read", "system:write", "trunks:read", "trunks:write"];
       return route.fulfill(json({
         id: "0199", type: "user", role: opts.systemAdmin ? "system_admin" : "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
@@ -452,7 +484,143 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       }));
     }
     if (p === "/api/v1/settings" && method === "PATCH") return route.fulfill({ status: 204 });
-    if (p === "/api/v1/inbound-routes" && method === "GET") return route.fulfill(json({ items: [] }));
+    if (p === "/api/v1/inbound-routes" && method === "GET") return route.fulfill(json({ items: lines.dids }));
+    if (p === "/api/v1/trunks" && method === "GET") return route.fulfill(json({ items: lines.trunks }));
+    if (p === "/api/v1/trunks" && method === "POST") {
+      const body = route.request().postDataJSON() as Json;
+      const id = `0199e${people.nextId++}`;
+      const signsIn = body.kind === "registers_here";
+      const t: Json = {
+        port: 5061, transport: "tls", media_encryption: "srtp", cert_trust: "public", dial_format: signsIn ? "local" : "e164", codecs: ["alaw", "ulaw"],
+        max_calls: 4, unencrypted: false, enabled: body.enabled ?? true, created_at: now(), updated_at: now(), etag: '"1"', host: "",
+        ...body, id, username: signsIn ? `trunk-${id}-0000-7000-8000-000000000000` : body.username,
+        status: body.enabled === false ? "disabled" : "unknown", status_detail: signsIn ? "Waiting for it to sign in to Linx." : "Linx is signing in to it.",
+      };
+      delete t.password;
+      lines.trunks.push(t);
+      return route.fulfill(json({
+        ...t, ...(signsIn ? { login: { username: t.username, password: "EXAMPLE-NOT-A-REAL-PASSWORD", server: DOMAIN, port: 5061, transport: "tls",
+          settings_text: "Type: SIP trunk that registers" } } : {}),
+      }, 201));
+    }
+    const trunkId = idAfter(p, "/api/v1/trunks/");
+    const trunk = trunkId ? lines.trunks.find((t) => t.id === trunkId) : undefined;
+    if (trunkId && p === `/api/v1/trunks/${trunkId}` && method === "GET") return route.fulfill(trunk ? json(trunk) : notFound());
+    if (trunkId && p === `/api/v1/trunks/${trunkId}` && method === "PATCH") {
+      if (!trunk) return route.fulfill(notFound());
+      const body = route.request().postDataJSON() as Json;
+      delete body.password;
+      Object.assign(trunk, body, { updated_at: now(), etag: '"2"' });
+      if (body.enabled === true) Object.assign(trunk, { status: "registered", status_detail: "Linx is signed in to it." });
+      if (body.enabled === false) Object.assign(trunk, { status: "disabled", status_detail: "It's turned off." });
+      return route.fulfill(json(trunk));
+    }
+    if (trunkId && p === `/api/v1/trunks/${trunkId}` && method === "DELETE") {
+      lines.trunks = lines.trunks.filter((t) => t.id !== trunkId);
+      lines.dids = lines.dids.filter((d) => d.trunk_id !== trunkId);
+      return route.fulfill({ status: 204 });
+    }
+    if (trunk && p === `/api/v1/trunks/${trunkId}/test` && method === "POST") {
+      if (trunk.kind === "registers_here") {
+        const ok = trunk.status === "registered";
+        return route.fulfill(json({ ok, steps: [{ name: "signed_in", result: ok ? "ok" : "failed",
+          words: ok ? "It's signed in to Linx." : "It isn't signed in to Linx. On the phone system, check the server, port 5061, TLS, the username and password." }] }));
+      }
+      const pinned = trunk.cert_trust === "pinned";
+      return route.fulfill(json({
+        ok: pinned,
+        steps: [
+          { name: "address", result: "ok", words: `${String(trunk.host)} is 198.51.100.20.` },
+          { name: "connection", result: "ok", words: "Connected to port 5061." },
+          pinned ? { name: "certificate", result: "ok", words: "Its certificate is the one you trusted, and names it." }
+            : { name: "certificate", result: "failed", words: "Its certificate isn't signed by a company Linx trusts." },
+          ...(pinned ? [{ name: "sip", result: "ok", words: "It answers." }, { name: "login", result: "ok", words: "It accepted the login." }] : []),
+        ],
+        ...(pinned ? {} : {
+          untrusted: true,
+          certificates: [{ subject: String(trunk.host), issuer: "Example Voice Private CA", names: [trunk.host], not_after: "2027-09-01T00:00:00Z",
+            sha256: "3A:9F:12:C4:55:8B:70:1D:E2:6A:99:04:BB:31:7C:0E:5F:A8:21:6D:43:90:1B:77:C8:2E:65:D0:19:AF:84:C2",
+            self_signed: false, pem: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n" }],
+        }),
+      }));
+    }
+    if (trunk && p === `/api/v1/trunks/${trunkId}/reset-password` && method === "POST") {
+      return route.fulfill(json({ ...trunk, login: { username: trunk.username, password: "EXAMPLE-NEW-PASSWORD", server: DOMAIN, port: 5061, transport: "tls", settings_text: "" } }));
+    }
+    if (trunk && p === `/api/v1/trunks/${trunkId}/dids` && method === "GET") return route.fulfill(json({ items: lines.dids.filter((d) => d.trunk_id === trunkId) }));
+    if (trunk && p === `/api/v1/trunks/${trunkId}/dids` && method === "POST") {
+      const body = route.request().postDataJSON() as Json;
+      const d = { id: `0199f${people.nextId++}`, trunk_id: trunkId, label: "", created_at: now(), updated_at: now(), etag: '"1"', ...body };
+      lines.dids.push(d);
+      return route.fulfill(json(d, 201));
+    }
+    const didId = idAfter(p, "/api/v1/dids/");
+    if (didId && method === "PATCH") {
+      const d = lines.dids.find((x) => x.id === didId);
+      if (!d) return route.fulfill(notFound());
+      const body = route.request().postDataJSON() as Json;
+      if (body.extension_id === "") { delete d.extension_id; delete body.extension_id; }
+      Object.assign(d, body, { etag: '"2"' });
+      return route.fulfill(json(d));
+    }
+    if (didId && method === "DELETE") {
+      lines.dids = lines.dids.filter((x) => x.id !== didId);
+      return route.fulfill({ status: 204 });
+    }
+    if (p === "/api/v1/outbound-routing" && method === "GET") {
+      const ordered = lines.trunks.filter((t) => t.outbound_priority !== undefined).sort((a, b) => Number(a.outbound_priority) - Number(b.outbound_priority));
+      return route.fulfill(json({ country: "AE", trunks: ordered, international_alert: lines.alert }));
+    }
+    if (p === "/api/v1/outbound-routing" && method === "PUT") {
+      const body = route.request().postDataJSON() as { order: string[]; international_alert?: { minutes: number; calls: number } };
+      for (const t of lines.trunks) delete t.outbound_priority;
+      body.order.forEach((id, i) => { const t = lines.trunks.find((x) => x.id === id); if (t) t.outbound_priority = i + 1; });
+      if (body.international_alert) lines.alert = body.international_alert;
+      const ordered = body.order.map((id) => lines.trunks.find((t) => t.id === id)).filter(Boolean);
+      return route.fulfill(json({ country: "AE", trunks: ordered, international_alert: lines.alert }));
+    }
+    if (p === `/api/v1/call-permission-levels/${String(lines.level.id)}` && method === "GET") return route.fulfill(json(lines.level));
+    if (p === `/api/v1/call-permission-levels/${String(lines.level.id)}` && method === "PATCH") {
+      const body = route.request().postDataJSON() as { allowed_categories?: string[] };
+      const before = lines.level.allowed_categories as string[];
+      const costly = (body.allowed_categories ?? []).some((c) => (c === "international" || c === "premium") && !before.includes(c));
+      if (costly) return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
+      Object.assign(lines.level, body, { etag: '"2"' });
+      return route.fulfill(json(lines.level));
+    }
+    if (p === "/api/v1/route-test" && method === "POST") {
+      const body = route.request().postDataJSON() as { direction?: string; number: string; from?: string };
+      if (body.direction === "inbound") {
+        const d = lines.dids.find((x) => x.number === body.number);
+        const ext = d?.extension_id ? people.extensions.find((e) => e.id === d.extension_id) : undefined;
+        return route.fulfill(json(ext
+          ? { category: "landline", kind: "Landline number in the UAE", reason: "routed", extension: { number: ext.number, display_name: ext.display_name },
+            words: `Rings extension ${ext.number} (${ext.display_name}).` }
+          : { category: "landline", kind: "Landline number in the UAE", reason: "not_assigned", words: "Rings nobody: callers hear the number isn't available." }));
+      }
+      const n = body.number.replace(/\D/g, "");
+      if (n.startsWith("00")) {
+        return route.fulfill(json({ category: "international", kind: "International number (United Kingdom)", region: "GB", allowed: false, reason: "not_permitted",
+          words: "Not allowed. International number (United Kingdom). Your phones can't call abroad." }));
+      }
+      if (n === "999") {
+        return route.fulfill(json({ category: "emergency", kind: "Emergency (Police)", allowed: true, reason: "emergency",
+          lines: [{ trunk: "UCM landlines", number: "999" }], words: "Always allowed: emergency (Police). Goes out on \"UCM landlines\" as 999." }));
+      }
+      return route.fulfill(json({ category: "mobile", kind: "Mobile number in the UAE", region: "AE", e164: `+971${n.slice(1)}`, allowed: true, reason: "allowed",
+        lines: [{ trunk: "UCM landlines", number: n, caller_id: "+97142000100" }, { trunk: "Telnyx", number: `+971${n.slice(1)}`, caller_id: "+97142000101" }],
+        words: `Mobile number in the UAE. Your phones can call mobiles.` }));
+    }
+    if (p === "/api/v1/wireguard-profiles" && method === "GET") return route.fulfill(json({ items: lines.profiles }));
+    if (p === "/api/v1/wireguard-profiles" && method === "POST") {
+      const body = route.request().postDataJSON() as { name: string };
+      const w = { id: `0199a${people.nextId++}`, name: body.name, address: "10.6.0.2/32", public_key: "q1Xg8y2nTTmW1k1TOl0nH1sQzA5Y1bY6tJfPq6JmH2E=",
+        peer_public_key: "Zp3X7lqk9q8sXxZKx8r3M5y1v2m0dYk8x9nqQx1kQ0c=", peer_endpoint_host: "vpn.example-voice.com", peer_endpoint_port: 51820,
+        status: "connecting", status_detail: "Waiting for the first handshake.", created_at: now(), updated_at: now(), etag: '"1"',
+        notes: ["The file's AllowedIPs (0.0.0.0/0) are ignored: only the phone lines' own addresses go through it."] };
+      lines.profiles.push(w);
+      return route.fulfill(json(w, 201));
+    }
     if (p === "/api/v1/calls/active" && method === "GET") {
       return route.fulfill(json({
         phone_engine_connected: true,
@@ -463,7 +631,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       }));
     }
     if (p === "/api/v1/numbering/next" && method === "GET") return route.fulfill(json({ number: "1111" }));
-    if (p === "/api/v1/call-permission-levels" && method === "GET") return route.fulfill(json({ items: [] }));
+    if (p === "/api/v1/call-permission-levels" && method === "GET") return route.fulfill(json({ items: opts.setupCompleted ? [lines.level] : [] }));
     if (p === "/api/v1/sign-in-options") {
       return route.fulfill(json({ company: opts.company ? [GOOGLE] : [], company_sign_in_required: !!opts.companyRequired, passkeys_available: true,
         ...(opts.moved ? { passkeys_moved: true } : {}) }));
