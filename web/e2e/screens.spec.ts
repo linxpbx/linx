@@ -361,6 +361,16 @@ test.describe("setup wizard", () => {
     await expect(page.getByRole("heading", { name: "Who will use Linx?" })).toBeVisible();
     await page.getByRole("button", { name: "+ Add another row" }).click();
     await shot(page, "setup-wizard-people");
+    // Checked as it's typed; Next doesn't skip a row that wasn't created
+    // (install demo, 2026-09-29).
+    await page.getByLabel("Name").last().fill("Sara Haddad");
+    await page.getByLabel("Email").last().fill("sara@");
+    await page.getByLabel("Extension").last().fill("99999");
+    await expect(page.getByText("That doesn't look like an email address.", { exact: false })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create and get invite links" })).toBeDisabled();
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByText("for the people above first", { exact: false })).toBeVisible();
+    await shot(page, "setup-wizard-people-problems");
   });
 
   test("line and calls", async ({ page }) => {

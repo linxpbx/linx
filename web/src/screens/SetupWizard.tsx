@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
-import { avoidedRange, defaultRanges, pad } from "@/lib/numbering";
+import { avoidedRange, defaultRanges, pad, type Range } from "@/lib/numbering";
+import { cn } from "@/lib/utils";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
 import { ECHO_TEST } from "@/phone/line";
 import { CallPanel } from "./CallPanel";
@@ -216,17 +217,59 @@ function NumbersStep(props: {
 
 type PeopleRow = { name: string; email: string; role: Role; number: string };
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/**
+ * What's wrong with an extension number, in plain words, as it's typed
+ * (found in the install demo: nothing was said until "Create"). The server
+ * still decides (numbers like 112 are reserved); this catches the rest.
+ */
+export function extensionProblem(n: string, digits: number, people: Range, taken: Set<string>): string {
+  if (!n) return "Give an extension number.";
+  if (!/^[0-9]+$/.test(n)) return "Digits only.";
+  if (n.length !== digits) return `Extensions have ${digits} digits.`;
+  if (people && (Number(n) < people.from || Number(n) > people.to)) {
+    return `People's extensions are ${pad(people.from, digits)}–${pad(people.to, digits)}.`;
+  }
+  if (taken.has(n)) return `${n} is already used.`;
+  return "";
+}
+
+/** A row's problems (field → words); an empty row has none (it's ignored). */
+export function rowProblems(row: PeopleRow, digits: number, people: Range, taken: Set<string>): Partial<Record<keyof PeopleRow, string>> {
+  if (!row.name.trim() && !row.email.trim()) return {};
+  const out: Partial<Record<keyof PeopleRow, string>> = {};
+  if (!row.name.trim()) out.name = "Give their name.";
+  if (!row.email.trim()) out.email = "Give their email address.";
+  else if (!EMAIL.test(row.email.trim())) out.email = "That doesn't look like an email address.";
+  const n = extensionProblem(row.number.trim(), digits, people, taken);
+  if (n) out.number = n;
+  return out;
+}
+
 function PeopleStep(props: {
   me: Me; existing: User[]; rows: PeopleRow[]; onRows: (r: PeopleRow[]) => void; startNumber: number | null; digits: number;
+  people: Range; taken: Set<string>; myNumber: string | null; onMyNumber: (n: string) => void;
   results: { row: PeopleRow; link: string; qr: string }[]; onCreate: () => void; creating: boolean; createError: string;
 } & StepProps) {
-  const { me, existing, rows, onRows, startNumber, digits, results, onCreate, creating, createError, ...shell } = props;
+  const { me, existing, rows, onRows, startNumber, digits, people, taken, myNumber, onMyNumber, results, onCreate, creating, createError, ...shell } = props;
   const addRow = () => {
-    const number = startNumber === null ? "" : pad(startNumber + rows.length, digits);
-    onRows([...rows, { name: "", email: "", role: "user", number }]);
+    // After your own new extension (if you're getting one) and the rows
+    // above, skipping numbers already used.
+    const used = new Set([...taken, ...rows.map((r) => r.number), ...(myNumber ? [myNumber] : [])]);
+    let n = startNumber;
+    while (n !== null && used.has(pad(n, digits))) n++;
+    onRows([...rows, { name: "", email: "", role: "user", number: n === null ? "" : pad(n, digits) }]);
   };
   const updateRow = (i: number, patch: Partial<PeopleRow>) => onRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const removeRow = (i: number) => onRows(rows.filter((_, j) => j !== i));
+  // Each number is checked against the others typed on this page too.
+  const takenBut = (except: number) => new Set([...taken, ...(myNumber && except !== -1 ? [myNumber] : []),
+    ...rows.filter((_, j) => j !== except).map((r) => r.number.trim()).filter(Boolean)]);
+  const problems = rows.map((r, i) => rowProblems(r, digits, people, takenBut(i)));
+  const myProblem = myNumber === null ? "" : extensionProblem(myNumber.trim(), digits, people, takenBut(-1));
+  const filled = rows.filter((r) => r.name.trim() || r.email.trim());
+  const anyProblem = problems.some((p) => Object.keys(p).length > 0);
 
   return (
     <StepShell {...shell} title="Who will use Linx?">
@@ -236,18 +279,30 @@ function PeopleStep(props: {
         </div>
         <div className="grid grid-cols-[1fr_1fr_8rem_4rem] items-center gap-2 text-sm">
           <span>{me.name} (you)</span><span className="truncate text-muted-foreground">{me.email}</span>
-          <span className="text-muted-foreground">System admin</span><span className="font-mono">{me.extension ?? "—"}</span>
+          <span className="text-muted-foreground">System admin</span>
+          {myNumber === null
+            ? <span className="font-mono">{me.extension ?? "—"}</span>
+            : <Input aria-label="Your extension" className="font-mono" value={myNumber} onChange={(e) => onMyNumber(e.target.value)}
+                aria-invalid={!!myProblem} disabled={creating} />}
         </div>
+        {myNumber !== null && (
+          <p className={cn("text-sm", myProblem ? "text-destructive" : "text-muted-foreground")}>
+            {myProblem || "Your own extension, so you can make and take calls (and try the echo test later)."}
+          </p>
+        )}
         {existing.filter((u) => u.id !== me.id).map((u) => (
           <div key={u.id} className="grid grid-cols-[1fr_1fr_8rem_4rem] items-center gap-2 text-sm text-muted-foreground">
             <span>{u.name}</span><span className="truncate">{u.email}</span><span className="capitalize">{u.role.replace("_", " ")}</span>
             <span className="font-mono">—</span>
           </div>
         ))}
-        {rows.map((row, i) => (
-          <div key={i} className="grid grid-cols-[1fr_1fr_8rem_4rem_auto] items-center gap-2">
-            <Input aria-label="Name" value={row.name} onChange={(e) => updateRow(i, { name: e.target.value })} disabled={creating} />
-            <Input aria-label="Email" type="email" value={row.email} onChange={(e) => updateRow(i, { email: e.target.value })} disabled={creating} />
+        {rows.map((row, i) => { const pr = problems[i] ?? {}; return (
+          <div key={i}>
+          <div className="grid grid-cols-[1fr_1fr_8rem_4rem_auto] items-center gap-2">
+            <Input aria-label="Name" value={row.name} onChange={(e) => updateRow(i, { name: e.target.value })} disabled={creating}
+              aria-invalid={!!pr.name} />
+            <Input aria-label="Email" type="email" value={row.email} onChange={(e) => updateRow(i, { email: e.target.value })} disabled={creating}
+              aria-invalid={!!pr.email} />
             <Select value={row.role} onValueChange={(v) => updateRow(i, { role: v as Role })} disabled={creating}>
               <SelectTrigger aria-label="Role"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -256,19 +311,26 @@ function PeopleStep(props: {
                 <SelectItem value="admin">Admin</SelectItem>
               </SelectContent>
             </Select>
-            <Input aria-label="Extension" className="font-mono" value={row.number} onChange={(e) => updateRow(i, { number: e.target.value })} disabled={creating} />
+            <Input aria-label="Extension" className="font-mono" value={row.number} onChange={(e) => updateRow(i, { number: e.target.value })} disabled={creating}
+              aria-invalid={!!pr.number} />
             <button type="button" aria-label="Remove row" onClick={() => removeRow(i)} disabled={creating} className="text-muted-foreground hover:text-foreground">
               <X aria-hidden="true" className="size-4" />
             </button>
           </div>
-        ))}
+          {Object.keys(pr).length > 0 && (
+            <p className="mt-1 text-sm text-destructive" role="alert">
+              {[pr.name, pr.email, pr.number].filter(Boolean).join(" ")}
+            </p>
+          )}
+          </div>
+        ); })}
       </div>
       <button type="button" className="mt-3 text-sm text-link underline-offset-4 hover:underline" onClick={addRow} disabled={creating}>
         + Add another row
       </button>
       {rows.length > 0 && (
         <div className="mt-4">
-          <Button type="button" onClick={onCreate} disabled={creating || rows.every((r) => !r.name.trim() || !r.email.trim())}>
+          <Button type="button" onClick={onCreate} disabled={creating || filled.length === 0 || anyProblem}>
             Create and get invite links
           </Button>
           <FormError message={createError} />
@@ -359,7 +421,7 @@ function CallsStep(props: { categories: Set<NumberCategory>; onChange: (c: Set<N
 
 function TestStep(props: StepProps) {
   const line = usePhoneLine();
-  const { status, call } = usePhoneState();
+  const { status, call, problem } = usePhoneState();
   const [heard, setHeard] = useState<boolean | null>(null);
   if (call && call.peer.number === ECHO_TEST) {
     return (
@@ -387,7 +449,9 @@ function TestStep(props: StepProps) {
         <Phone aria-hidden="true" className="size-4" />
         Call the echo test
       </Button>
-      {status !== "ready" && <p className="mt-2 text-sm text-muted-foreground">Waiting for your browser's phone line…</p>}
+      {status === "unavailable"
+        ? <p className="mt-2 text-sm text-muted-foreground">{problem} You can skip this and test later from the Dialer.</p>
+        : status !== "ready" && <p className="mt-2 text-sm text-muted-foreground">Waiting for your browser's phone line…</p>}
     </StepShell>
   );
 }
@@ -436,6 +500,13 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   const [categories, setCategories] = useState<Set<NumberCategory>>(new Set(["landline", "service", "mobile", "national", "toll_free"]));
 
   const nextNumber = useRef<number | null>(null);
+  // Extension numbers already in use, and yours when you don't have one yet
+  // (null: you do). Found in the install demo: the first admin never got
+  // an extension, so the echo test waited for a phone line forever.
+  const [taken, setTaken] = useState<Set<string>>(new Set());
+  const [myNumber, setMyNumber] = useState<string | null>(null);
+  const [myExtension, setMyExtension] = useState(me.extension ?? "");
+  const line = usePhoneLine();
 
   useEffect(() => {
     void (async () => {
@@ -473,11 +544,13 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   useEffect(() => {
     if (step !== 4 || loaded === false) return;
     void (async () => {
-      const [{ data: list }, { data: next }] = await Promise.all([
-        api.GET("/api/v1/users"), api.GET("/api/v1/numbering/next"),
+      const [{ data: list }, { data: next }, { data: exts }] = await Promise.all([
+        api.GET("/api/v1/users"), api.GET("/api/v1/numbering/next"), api.GET("/api/v1/extensions", { params: { query: { limit: 200 } } }),
       ]);
       if (list) setExistingUsers(list.items);
       nextNumber.current = next ? Number(next.number) : null;
+      if (exts) setTaken(new Set(exts.items.map((e) => e.number)));
+      if (!myExtension && next) setMyNumber((n) => n ?? next.number);
     })();
     // Runs once when the People step is reached.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -532,14 +605,54 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   };
 
   const createRow = async (row: PeopleRow): Promise<{ link: string; qr: string } | "confirm" | null> => {
-    const ext = await api.POST("/api/v1/extensions", { body: { number: row.number, display_name: row.name } });
+    const ext = await api.POST("/api/v1/extensions", { body: { number: row.number.trim(), display_name: row.name.trim() } });
     if (!ext.data) { setCreateError(problemMessage(ext.error)); return null; }
-    const created = await api.POST("/api/v1/users", { body: { email: row.email, name: row.name, role: row.role, extension_id: ext.data.id } });
-    if (needsConfirm(created.error)) return "confirm";
-    if (!created.data) { setCreateError(problemMessage(created.error)); return null; }
+    const created = await api.POST("/api/v1/users", {
+      body: { email: row.email.trim(), name: row.name.trim(), role: row.role, extension_id: ext.data.id },
+    });
+    if (!created.data) {
+      // Don't leave an extension without its person behind (found in the
+      // install demo: it kept the number, so trying again said "taken").
+      await api.DELETE("/api/v1/extensions/{id}", { params: { path: { id: ext.data.id } } });
+      if (needsConfirm(created.error)) return "confirm";
+      setCreateError(problemMessage(created.error));
+      return null;
+    }
+    setTaken((t) => new Set([...t, row.number.trim()]));
     const link = `${window.location.origin}/setup/${created.data.setup_link_token}`;
     const QRCode = (await import("qrcode")).default;
     return { link, qr: await QRCode.toDataURL(link, { margin: 1, width: 128 }) };
+  };
+
+  // Your own extension, when you don't have one: made on the way to the
+  // next step, and your browser's phone line started again with it.
+  const giveMeExtension = async (): Promise<boolean> => {
+    if (myNumber === null) return true;
+    const ext = await api.POST("/api/v1/extensions", { body: { number: myNumber.trim(), display_name: me.name || me.email || "Me" } });
+    if (!ext.data) { setError(problemMessage(ext.error)); return false; }
+    const { error: err } = await api.PATCH("/api/v1/users/{id}", { params: { path: { id: me.id } }, body: { extension_id: ext.data.id } });
+    if (err) {
+      await api.DELETE("/api/v1/extensions/{id}", { params: { path: { id: ext.data.id } } });
+      setError(problemMessage(err));
+      return false;
+    }
+    setMyExtension(myNumber.trim());
+    setMyNumber(null);
+    setTaken((t) => new Set([...t, myNumber.trim()]));
+    line.stop();
+    void line.start();
+    return true;
+  };
+
+  const leavePeople = async (toStep: number) => {
+    setError("");
+    // Rows typed in but not created would be lost without a word (found in
+    // the install demo).
+    if (rows.some((r) => r.name.trim() || r.email.trim())) {
+      setError("Press “Create and get invite links” for the people above first, or remove their rows.");
+      return;
+    }
+    if (await giveMeExtension()) void advance(toStep);
   };
 
   const onCreatePeople = async () => {
@@ -590,9 +703,10 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
           })} />
       )}
       {step === 4 && (
-        <PeopleStep me={me} existing={existingUsers} rows={rows} onRows={setRows} startNumber={nextNumber.current} digits={digits}
+        <PeopleStep me={{ ...me, extension: myExtension || me.extension }} existing={existingUsers} rows={rows} onRows={setRows}
+          startNumber={nextNumber.current} digits={digits} people={ranges.people} taken={taken} myNumber={myNumber} onMyNumber={setMyNumber}
           results={results} onCreate={() => void onCreatePeople()} creating={creating} createError={createError}
-          {...shellProps(true, () => void advance(5), () => void advance(5))} />
+          {...shellProps(true, () => void leavePeople(5), () => void leavePeople(5))} />
       )}
       {step === 5 && (
         <LineStep {...shellProps(true, () => void advance(6), () => void advance(6))} />
