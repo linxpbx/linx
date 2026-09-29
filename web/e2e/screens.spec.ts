@@ -378,6 +378,9 @@ test.describe("setup wizard", () => {
     // A door phone: a name and a number, no email (an extension, no person).
     await page.getByRole("button", { name: "+ Add another row" }).click();
     await page.getByLabel("Name").last().fill("Front door");
+    await expect(page.getByText("A person needs an email", { exact: false })).toBeVisible();
+    await page.getByLabel("Type").last().click();
+    await page.getByRole("option", { name: "Phone" }).click();
     await page.getByLabel("Extension").last().fill("150");
     await expect(page.getByRole("button", { name: "Create 2 extensions" })).toBeEnabled();
     await shot(page, "setup-wizard-people-door-phone");

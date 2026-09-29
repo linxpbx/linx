@@ -25,10 +25,13 @@ describe("rowProblems", () => {
       number: "Extensions have 3 digits.",
     });
     expect(rowProblems({ name: "", email: "sara@example.com", role: "user", number: "101" }, 3, people, taken)).toEqual({
-      name: "Give it a name (the person's, or what it is, like “Front door”).",
+      name: "Give their name.",
     });
-    // A door phone: an extension without a person, so no email (the owner's example).
-    expect(rowProblems({ name: "Front door", email: "", role: "user", number: "150" }, 3, people, taken)).toEqual({});
+    // A person needs an email; a Phone (a door phone: the owner's example) doesn't.
+    expect(rowProblems({ name: "Sara", email: "", role: "admin", number: "101" }, 3, people, taken)).toEqual({
+      email: "A person needs an email for their invite link. For a door phone or a room, choose Phone.",
+    });
+    expect(rowProblems({ name: "Front door", email: "", role: "phone", number: "150" }, 3, people, taken)).toEqual({});
     expect(rowProblems({ name: "Sara", email: "sara@example.com", role: "user", number: "101" }, 3, people, taken)).toEqual({});
   });
 });

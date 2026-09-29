@@ -21,7 +21,6 @@ import { ECHO_TEST } from "@/phone/line";
 import { CallPanel } from "./CallPanel";
 import { RestoreFromBackup, StartChoice, type RestoreStatus } from "./SetupRestore";
 
-type Role = components["schemas"]["Role"];
 type NumberCategory = components["schemas"]["NumberCategory"];
 type User = components["schemas"]["User"];
 
@@ -215,7 +214,10 @@ function NumbersStep(props: {
 
 // --- Step 4: People ---
 
-type PeopleRow = { name: string; email: string; role: Role; number: string };
+// What a row is: a person (with their role) or a phone that isn't someone's
+// (owner, install demo: a door phone has no email and isn't a person).
+type RowKind = "user" | "admin" | "phone";
+type PeopleRow = { name: string; email: string; role: RowKind; number: string };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -237,15 +239,18 @@ export function extensionProblem(n: string, digits: number, people: Range, taken
 
 /**
  * A row's problems (field → words); an empty row has none (it's ignored).
- * A row is an extension; the email is optional: with one, a person gets it
- * and an invite link; without, it's an extension for a phone that isn't
- * someone's (a door phone, a meeting room; the owner's example).
+ * A row is an extension: a person's (who needs an email for their invite
+ * link) or a Phone's, one that isn't someone's (a door phone, a meeting
+ * room; the owner's example), with no email.
  */
 export function rowProblems(row: PeopleRow, digits: number, people: Range, taken: Set<string>): Partial<Record<keyof PeopleRow, string>> {
   if (!row.name.trim() && !row.email.trim()) return {};
   const out: Partial<Record<keyof PeopleRow, string>> = {};
-  if (!row.name.trim()) out.name = "Give it a name (the person's, or what it is, like “Front door”).";
-  if (row.email.trim() && !EMAIL.test(row.email.trim())) out.email = "That doesn't look like an email address.";
+  if (!row.name.trim()) out.name = row.role === "phone" ? "Give it a name, like “Front door”." : "Give their name.";
+  if (row.role !== "phone") {
+    if (!row.email.trim()) out.email = "A person needs an email for their invite link. For a door phone or a room, choose Phone.";
+    else if (!EMAIL.test(row.email.trim())) out.email = "That doesn't look like an email address.";
+  }
   const n = extensionProblem(row.number.trim(), digits, people, taken);
   if (n) out.number = n;
   return out;
@@ -286,7 +291,7 @@ function PeopleStep(props: {
       onNext={filled.length > 0 ? onCreate : shell.onNext}>
       <div className="flex flex-col gap-2">
         <div className="grid grid-cols-[1fr_1fr_8rem_4rem] gap-2 text-xs font-medium text-muted-foreground">
-          <span>Name</span><span>Email (for a person)</span><span>Role</span><span>Ext</span>
+          <span>Name</span><span>Email</span><span>Type</span><span>Ext</span>
         </div>
         <div className="grid grid-cols-[1fr_1fr_8rem_4rem] items-center gap-2 text-sm">
           <span>{me.name} (you)</span><span className="truncate text-muted-foreground">{me.email}</span>
@@ -312,14 +317,16 @@ function PeopleStep(props: {
           <div className="grid grid-cols-[1fr_1fr_8rem_4rem_auto] items-center gap-2">
             <Input aria-label="Name" value={row.name} onChange={(e) => updateRow(i, { name: e.target.value })} disabled={creating}
               aria-invalid={!!pr.name} />
-            <Input aria-label="Email" type="email" value={row.email} onChange={(e) => updateRow(i, { email: e.target.value })} disabled={creating}
+            <Input aria-label="Email" type="email" value={row.role === "phone" ? "" : row.email}
+              placeholder={row.role === "phone" ? "Not needed" : undefined}
+              onChange={(e) => updateRow(i, { email: e.target.value })} disabled={creating || row.role === "phone"}
               aria-invalid={!!pr.email} />
-            <Select value={row.role} onValueChange={(v) => updateRow(i, { role: v as Role })} disabled={creating || !row.email.trim()}>
-              <SelectTrigger aria-label="Role"><SelectValue /></SelectTrigger>
+            <Select value={row.role} onValueChange={(v) => updateRow(i, { role: v as RowKind })} disabled={creating}>
+              <SelectTrigger aria-label="Type"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="user">Person</SelectItem>
-                <SelectItem value="reporter">Reporter</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="phone">Phone</SelectItem>
               </SelectContent>
             </Select>
             <Input aria-label="Extension" className="font-mono" value={row.number} onChange={(e) => updateRow(i, { number: e.target.value })} disabled={creating}
@@ -339,6 +346,11 @@ function PeopleStep(props: {
       <button type="button" className="mt-3 text-sm text-link underline-offset-4 hover:underline" onClick={addRow} disabled={creating}>
         + Add another row
       </button>
+      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm text-muted-foreground">
+        <dt className="font-medium text-foreground">Person</dt><dd>Someone who signs in to Linx to make and take calls. Gets an invite link by email address.</dd>
+        <dt className="font-medium text-foreground">Admin</dt><dd>A person who can also manage Linx (people, extensions, phone lines).</dd>
+        <dt className="font-medium text-foreground">Phone</dt><dd>An extension for a phone that isn't someone's, like a door phone or a meeting room. No email; add the phone itself under Extensions afterwards.</dd>
+      </dl>
       <FormError message={createError} />
       {results.length > 0 && (
         <div className="mt-5 flex flex-col gap-3">
@@ -616,13 +628,13 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   const createRow = async (row: PeopleRow): Promise<{ link?: string; qr?: string } | "confirm" | null> => {
     const ext = await api.POST("/api/v1/extensions", { body: { number: row.number.trim(), display_name: row.name.trim() } });
     if (!ext.data) { setCreateError(problemMessage(ext.error)); return null; }
-    if (!row.email.trim()) {
+    if (row.role === "phone") {
       // An extension that isn't someone's (a door phone): no person, no link.
       setTaken((t) => new Set([...t, row.number.trim()]));
       return {};
     }
     const created = await api.POST("/api/v1/users", {
-      body: { email: row.email.trim(), name: row.name.trim(), role: row.role, extension_id: ext.data.id },
+      body: { email: row.email.trim(), name: row.name.trim(), role: row.role === "admin" ? "admin" : "user", extension_id: ext.data.id },
     });
     if (!created.data) {
       // Don't leave an extension without its person behind (found in the
