@@ -140,6 +140,8 @@ func TestFrontDoorFiles(t *testing.T) {
 		"mode tcp", "bind :443", "req_ssl_sni -i turn.lab.example.com",
 		"server control-plane control-plane:8443 send-proxy-v2", "server coturn coturn:5349",
 		"resolvers docker",
+		// Sized for a small office (low-resource rule): about 13 MB, not 40-100.
+		"maxconn 2000", "nbthread 1",
 	} {
 		if !strings.Contains(hp, want) {
 			t.Errorf("HAProxy config missing %q:\n%s", want, hp)

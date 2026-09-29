@@ -424,6 +424,12 @@ func HAProxyConfig(domain string) []byte {
 # are overwritten when setup runs again.
 global
     log stdout format raw local0 info
+    # Sized for a small office, not the container's million-file limit:
+    # about 13 MB instead of 40-100 (docs/RESOURCES.md). A pass-through
+    # needs one thread; 2000 connections is plenty (each browser holds one
+    # or two, each call from outside one more).
+    maxconn 2000
+    nbthread 1
 
 defaults
     mode tcp
