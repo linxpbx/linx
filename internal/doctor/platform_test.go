@@ -182,6 +182,15 @@ func TestDatabase(t *testing.T) {
 	})
 }
 
+// A rented server that skipped the DNS token has an empty token file on
+// purpose (found on the VPS demo: it was reported damaged).
+func TestSecretsNoDNSToken(t *testing.T) {
+	var cfg installer.Config
+	cfg.Certificates.NoDNSToken = true
+	rs := Secrets(Env{Stat: secretsStat(map[string]fs.FileInfo{installer.DNSTokenPath: fakeFile{0, 0o440}})}, cfg)
+	want(t, rs, installer.OK, "secret files are present")
+}
+
 func TestSecrets(t *testing.T) {
 	tests := []struct {
 		name string
@@ -192,12 +201,12 @@ func TestSecrets(t *testing.T) {
 		{"missing", installer.JWTSigningKeyPath, nil, "is missing"},
 		{"world readable", installer.DBPasswordPath, fakeFile{32, 0o444}, "can be read by anyone"},
 		{"wrong key size", installer.DBEncryptionKeyPath, fakeFile{31, 0o440}, "damaged"},
-		{"empty token", installer.DNSTokenPath, fakeFile{0, 0o440}, "damaged"},
+		{"empty token", installer.DNSTokenPath, fakeFile{0, 0o440}, "is empty"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			override := map[string]fs.FileInfo{tt.path: tt.file}
-			rs := Secrets(Env{Stat: secretsStat(override)})
+			rs := Secrets(Env{Stat: secretsStat(override)}, installer.Config{})
 			want(t, rs, installer.Fail, tt.text)
 			for _, r := range rs {
 				if r.Level == installer.OK {

@@ -194,7 +194,8 @@ func runWebSetup(ctx context.Context, o webOptions, stdout, stderr io.Writer, en
 	}{
 		{"Adding swap (this server has little memory)", swapPlan},
 		{"Installing Docker", dockerPlan},
-		{"Installing the linx command", installer.CLIPlan(env.executable, env.resolve)},
+		{"Installing the linx command", append(installer.CLIPlan(env.executable, env.resolve),
+			installer.HelperBinariesPlan(env.executable, env.resolve, env.stat)...)},
 		{"Making the installer's temporary certificate", tlsPlan},
 		{"Downloading Linx and starting the installer", installer.InstallStackPlan(imageTag, address)},
 	}

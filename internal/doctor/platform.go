@@ -32,7 +32,7 @@ func Run(ctx context.Context, env Env, cfg installer.Config) []Section {
 		{"Phone system", Phones(ctx, env, cfg)},
 		{"Phone lines", Lines(ctx, env)},
 		{"Calls from outside", append(Relay(ctx, env), FrontDoor(ctx, env, cfg)...)},
-		{"Secrets", Secrets(env)},
+		{"Secrets", Secrets(env, cfg)},
 	}
 }
 
@@ -197,13 +197,18 @@ var secretFiles = []struct {
 }
 
 // Secrets checks the installer's secret files exist, are the right size,
-// and aren't readable by everyone on the server.
-func Secrets(env Env) []Result {
+// and aren't readable by everyone on the server. Without a DNS token (a
+// rented server that skipped it: certificates.no_dns_token) its file is
+// empty on purpose (found on the VPS demo: it was reported damaged).
+func Secrets(env Env, cfg installer.Config) []Result {
 	var rs results
 	bad := 0
 	for _, s := range secretFiles {
 		fi, err := env.Stat(s.path)
+		noToken := s.path == installer.DNSTokenPath && cfg.Certificates.NoDNSToken
 		switch {
+		case noToken && err == nil && fi.Size() == 0 && fi.Mode().Perm()&0o007 == 0:
+			continue
 		case err != nil:
 			rs.fail("The "+s.what+" is missing ("+s.path+"). Linx can't start without it.", rerunSetup)
 		case fi.Mode().Perm()&0o007 != 0:
@@ -211,6 +216,9 @@ func Secrets(env Env) []Result {
 				"Fix its permissions: sudo chmod 440 "+s.path)
 		case !ownedByRoot(fi.Sys()):
 			rs.fail("The "+s.what+" ("+s.path+") isn't owned by root.", rerunSetup)
+		case s.path == installer.DNSTokenPath && fi.Size() == 0:
+			rs.fail("The "+s.what+" ("+s.path+") is empty, so the certificate can't be renewed and DNS records can't be kept up to date.",
+				"Give the token again: sudo linx setup (browser: System → Server settings; or the terminal questions).")
 		case fi.Size() == 0 || s.size != 0 && fi.Size() != s.size:
 			rs.fail("The "+s.what+" ("+s.path+") is damaged (wrong size).",
 				"Restore it from your backup. Otherwise, to make a new one: sudo linx setup --config "+installer.ConfigPath+
