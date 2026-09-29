@@ -36,12 +36,13 @@ The server used 812 MB in all out of 3.9 GB. **An echo call (measured 2026-09-29
 | After every setup or update, **remove the previous versions' Linx images** (only images labelled as Linx's, only unused ones) | about 450 MB per update that would otherwise pile up | none |
 | Internal names never completed with the host's search domain (`dns_search: .`) | (a correctness fix found while measuring) | none |
 
-## 3. Proposed, needs the owner's decision
+## 3. Proposed (decisions noted per item)
 
 1. **Database image: `postgres:18-alpine` instead of `postgres:18`** (650 → about 280 MB). *The catch:* Debian's Postgres sorts text with the system's C library (glibc), Alpine's with another (musl). Moving an existing database between them silently breaks the order its text indexes were built in, which Postgres can't detect. So:
    - New installs: create the database with Postgres's own built-in locale (`--locale-provider=builtin --builtin-locale=C.UTF-8`, Postgres 17+), which doesn't depend on the C library at all, then use the Alpine image. Safe for good, and future image changes can't hit this again.
    - Existing installs (the lab server, this demo server): keep the Debian image until they're moved over with Linx's own backup and restore (dump and reload, which rebuilds every index), or keep it for good. Both images would be supported; setup picks by what the database was created with.
    - *Recommendation:* yes, for new installs now; existing ones move on their next restore. Saves 370 MB for every new server.
+   - **Owner decision (2026-09-29): yes, as recommended**, built right after Phase 1E step 7.
 2. **Docker's image store:** Docker 29 keeps each image twice (compressed and unpacked). Switching a server to the classic storage (`"features": {"containerd-snapshotter": false}` in daemon.json) saves about 460 MB here. *The catch:* switching hides the images already downloaded (they're downloaded again), and it goes against where Docker is heading. *Recommendation:* not now; revisit if disk is the limit on real small servers.
 3. **Trimming Ubuntu Server's own background programs** (fwupd, ModemManager, udisks2, upower, multipathd: 100–150 MB of memory, none of which a server needs). *Recommendation:* not by setup (it's the owner's operating system, not Linx's); a one-paragraph "make a small VPS smaller" note in the help guides instead.
 4. **Profiles that actually change something:** the "lite/standard/performance" size chosen in setup is saved but changes nothing yet. Once meetings (LiveKit) and recordings arrive, it should decide what runs and with how much memory. Nothing to gain from it today.
