@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -393,9 +394,15 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 // printFirstAdmin creates the first system_admin account, once the stack is
 // up, the same way `sudo linx user create` does (docker exec into the
 // control plane), and relays its one-time set-password link (docs/ADMIN.md
-// §4). email == "": nobody was given, so nothing is created.
+// §4). Only ever the first: setup run again on a server that has a system
+// admin (the web install made one, or an earlier run) makes no second one
+// and says so (found in the install demo: it said "No first admin account
+// created… Create one" on a server that had one).
 func printFirstAdmin(ctx context.Context, stdout, stderr io.Writer, env setupEnv, email, name string) {
 	if email == "" {
+		if hasSystemAdminAccount(ctx, env) {
+			return
+		}
 		fmt.Fprintln(stdout, "\nNo first admin account created (no email given).\n"+
 			`Create one: sudo linx user create --email "you@example.com" --name "Your Name" --role system_admin`)
 		return
@@ -404,7 +411,12 @@ func printFirstAdmin(ctx context.Context, stdout, stderr io.Writer, env setupEnv
 		name = email
 	}
 	out, err := env.runner.Run(ctx, nil, "docker", "exec", controlPlaneContainer, controlPlaneBinary,
-		"user", "create", "--email", email, "--name", name, "--role", "system_admin")
+		"user", "create", "--first-admin", "--email", email, "--name", name, "--role", "system_admin")
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == exitFirstAdminExists {
+		fmt.Fprintln(stdout, "\nLinx already has a system admin: no new account made.")
+		return
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "\nCouldn't create the first admin account: %v\n%s\n", err, out)
 		fmt.Fprintln(stderr, `Create one yourself: sudo linx user create --email "you@example.com" --name "Your Name" --role system_admin`)
@@ -412,6 +424,22 @@ func printFirstAdmin(ctx context.Context, stdout, stderr io.Writer, env setupEnv
 	}
 	fmt.Fprintln(stdout)
 	stdout.Write(out)
+}
+
+// hasSystemAdminAccount asks the control plane whether a system admin
+// exists (sudo linx user list's ROLE column). Unsure counts as no, so the
+// hint is shown.
+func hasSystemAdminAccount(ctx context.Context, env setupEnv) bool {
+	out, err := env.runner.Run(ctx, nil, "docker", "exec", controlPlaneContainer, controlPlaneBinary, "user", "list")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if f := strings.Fields(line); len(f) > 0 && slices.Contains(f, "system_admin") {
+			return true
+		}
+	}
+	return false
 }
 
 // askDomain asks for the domain, DNS provider, token and certificate settings

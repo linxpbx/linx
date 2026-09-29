@@ -134,7 +134,7 @@ func TestSetupInstallsFirewallSync(t *testing.T) {
 func TestPrintFirstAdmin(t *testing.T) {
 	t.Run("creates the account", func(t *testing.T) {
 		runner := hostRunner{
-			"docker exec " + controlPlaneContainer + " " + controlPlaneBinary + " user create --email owner@example.com --name Owner --role system_admin": "Owner (owner@example.com, system_admin) can now set their password — it works once, for 24 hours:\n",
+			"docker exec " + controlPlaneContainer + " " + controlPlaneBinary + " user create --first-admin --email owner@example.com --name Owner --role system_admin": "Owner (owner@example.com, system_admin) can now set their password — it works once, for 24 hours:\n",
 		}
 		var out, errOut bytes.Buffer
 		printFirstAdmin(context.Background(), &out, &errOut, setupEnv{runner: runner}, "owner@example.com", "Owner")
@@ -145,9 +145,21 @@ func TestPrintFirstAdmin(t *testing.T) {
 			t.Errorf("unexpected stderr: %s", errOut.String())
 		}
 	})
+	// Setup run again on a server that has a system admin (a web install):
+	// no "create one" hint (found in the install demo).
+	t.Run("no email given, a system admin exists", func(t *testing.T) {
+		runner := hostRunner{
+			"docker exec " + controlPlaneContainer + " " + controlPlaneBinary + " user list": "EMAIL  NAME  ROLE  STATUS  MFA  ID\nme@example.com  Me  system_admin  active  off  01a0\n",
+		}
+		var out, errOut bytes.Buffer
+		printFirstAdmin(context.Background(), &out, &errOut, setupEnv{runner: runner}, "", "")
+		if out.Len() != 0 || errOut.Len() != 0 {
+			t.Errorf("said something:\n%s%s", out.String(), errOut.String())
+		}
+	})
 	t.Run("no email given", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		printFirstAdmin(context.Background(), &out, &errOut, setupEnv{}, "", "")
+		printFirstAdmin(context.Background(), &out, &errOut, setupEnv{runner: hostRunner{}}, "", "")
 		if !strings.Contains(out.String(), "No first admin account created") {
 			t.Errorf("didn't explain why no account was made:\n%s", out.String())
 		}
