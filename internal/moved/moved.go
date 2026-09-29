@@ -71,6 +71,9 @@ type Move struct {
 type Facts struct {
 	// LANPeers are phone lines to a phone system on the home network.
 	LANPeers []Named
+	// SignsIn are phone systems that sign in to Linx (docs/SIMPLER.md
+	// §1): set up with the old server's sip. name, on the old network.
+	SignsIn []Named
 	// ByAddress are providers that know Linx by its public address.
 	ByAddress []Named
 	// Tunnels are WireGuard tunnels.
@@ -128,6 +131,7 @@ const (
 	ItemProvider      = "provider"
 	ItemTunnel        = "tunnel"
 	ItemDeskPhones    = "desk_phones"
+	ItemSignsIn       = "signs_in"
 	ItemAdminNetworks = "admin_networks"
 	ItemPasskeys      = "passkeys"
 	ItemBackups       = "backups"
@@ -218,6 +222,13 @@ func Items(m Move, f Facts) []Item {
 		}
 		why := "Give each one this server's address, " + sipName(a.Domain) + ", and check it connects."
 		items = append(items, Item{ID: ItemDeskPhones, Link: LinkExtensions, Title: phones, Why: why})
+	}
+	if lanChanged || domainChanged {
+		for _, t := range f.SignsIn {
+			items = append(items, Item{ID: ItemSignsIn + ":" + t.ID.String(), Link: LinkPhoneLines,
+				Title: fmt.Sprintf("Phone system %q signs in to the old server", t.Name),
+				Why:   "On the phone system, set its SIP trunk's server to " + sipName(a.Domain) + ", and check it signs in from this network."})
+		}
 	}
 	if f.AdminRestricted && lanChanged && oldOnly(f.AdminNetworks, b.LANNetworks, a.LANNetworks) {
 		items = append(items, Item{ID: ItemAdminNetworks, Link: LinkSettings,

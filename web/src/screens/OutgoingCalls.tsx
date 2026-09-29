@@ -78,6 +78,8 @@ export function OutgoingCallsScreen({ me, simpleMode }: { me: Me; simpleMode: bo
   const say = (what: string) => { setSaved(what); window.setTimeout(() => setSaved(""), 2500); };
 
   const saveOrder = async (ids: string[]) => {
+    // No line left means no emergency calls either: say so first (Phase 1E review).
+    if (ids.length === 0 && !window.confirm("With no line for outgoing calls, nobody can call out, not even emergency numbers. Stop using it anyway?")) return;
     setBusy(true);
     setError("");
     const { data, error: err } = await api.PUT("/api/v1/outbound-routing", { body: { order: ids } });

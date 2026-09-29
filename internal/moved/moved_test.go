@@ -52,15 +52,16 @@ func ids(items []Item) []string {
 }
 
 func TestItems(t *testing.T) {
-	ucm, telnyx, wg := uuid.New(), uuid.New(), uuid.New()
+	ucm, telnyx, wg, gxw := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	f := Facts{
 		LANPeers: []Named{{ucm, "UCM landlines"}}, ByAddress: []Named{{telnyx, "Telnyx"}}, Tunnels: []Named{{wg, "Office"}},
+		SignsIn:    []Named{{gxw, "Branch GXW"}},
 		DeskPhones: 3, AdminRestricted: true, AdminNetworks: []string{"192.168.1.0/24"},
 		BackedUpSince: func(time.Time) bool { return false },
 	}
 	m := Move{DetectedAt: time.Now(), Before: home, After: rented}
 	got := Items(m, f)
-	want := []string{ItemOldServer, ItemLANPeer, ItemProvider, ItemTunnel, ItemDeskPhones, ItemAdminNetworks, ItemPasskeys, ItemBackups}
+	want := []string{ItemOldServer, ItemLANPeer, ItemProvider, ItemTunnel, ItemDeskPhones, ItemSignsIn, ItemAdminNetworks, ItemPasskeys, ItemBackups}
 	if !slices.Equal(ids(got), want) {
 		t.Fatalf("items %v", ids(got))
 	}
@@ -70,8 +71,8 @@ func TestItems(t *testing.T) {
 		}
 	}
 	if !strings.Contains(got[2].Title, "Telnyx") || !strings.Contains(got[2].Title, "203.0.113.5") ||
-		!strings.Contains(got[4].Title, "3 desk phones") || !strings.Contains(got[6].Why, "pbx.old.com") {
-		t.Errorf("words: %q / %q / %q", got[2].Title, got[4].Title, got[6].Why)
+		!strings.Contains(got[4].Title, "3 desk phones") || !strings.Contains(got[5].Title, "Branch GXW") || !strings.Contains(got[7].Why, "pbx.old.com") {
+		t.Errorf("words: %q / %q / %q / %q", got[2].Title, got[4].Title, got[5].Title, got[7].Why)
 	}
 
 	// The same home network and domain on a new server: only what always applies.

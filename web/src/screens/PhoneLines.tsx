@@ -150,7 +150,10 @@ export function TestPanel({ trunk, onTrunk, onResult, readOnly }: {
     onTrunk(data);
   };
 
-  const leaf = result?.certificates?.[0];
+  // The certificate trusting pins: the top of what it presented (its CA,
+  // or itself when self-signed), so its fingerprint is the one to compare,
+  // as `linx trunk add` shows (Phase 1E review).
+  const pinnable = result?.certificates?.at(-1);
   return (
     <div className="flex flex-col gap-3 rounded-md border bg-card p-4" aria-live="polite">
       <div className="flex items-center justify-between gap-2">
@@ -171,13 +174,18 @@ export function TestPanel({ trunk, onTrunk, onResult, readOnly }: {
           ))}
         </ul>
       )}
-      {result?.untrusted && leaf && !readOnly && (
+      {result?.untrusted && pinnable && !readOnly && (
         <div className="flex flex-col gap-2 rounded-md border border-status-away/50 p-3 text-sm">
           <p className="font-medium">Its certificate isn't from a company Linx knows.</p>
           <p className="text-muted-foreground">
             If this is the phone system or company you expect, check this fingerprint matches the one it shows for its certificate, then trust it.
           </p>
-          <p className="break-all font-mono text-xs">{leaf.sha256}</p>
+          <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-y-0.5">
+            <dt className="text-muted-foreground">For</dt><dd className="break-all">{pinnable.subject}</dd>
+            <dt className="text-muted-foreground">Issued by</dt><dd className="break-all">{pinnable.issuer}</dd>
+            <dt className="text-muted-foreground">Valid until</dt><dd>{new Date(pinnable.not_after).toLocaleDateString()}</dd>
+          </dl>
+          <p className="break-all font-mono text-xs">SHA-256 {pinnable.sha256}</p>
           <Button size="sm" className="self-start" onClick={() => void trust()}>Trust this certificate</Button>
         </div>
       )}

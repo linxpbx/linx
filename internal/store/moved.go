@@ -108,6 +108,8 @@ func (s *Store) Facts(ctx context.Context, tenant uuid.UUID) (moved.Facts, error
 			f.LANPeers = append(f.LANPeers, n)
 		case kind == "ip_authenticated":
 			f.ByAddress = append(f.ByAddress, n)
+		case kind == "registers_here":
+			f.SignsIn = append(f.SignsIn, n)
 		}
 	}
 	rows.Close()
