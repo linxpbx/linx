@@ -119,7 +119,7 @@ function AccountMenu({ me, presence, onPresence, onSignOut }:
           <span className="min-w-0 max-md:sr-only">
             <span className="block truncate text-sm font-medium text-sidebar-foreground">{name}</span>
             <span className="block truncate text-xs text-sidebar-foreground/70">
-              {me.extension ? `Ext ${me.extension} · ` : ""}{status === "ready" ? presenceLabel[presence] : status === "unavailable" ? "No phone line" : "Connecting…"}
+              {me.extension ? `Ext ${me.extension} · ` : ""}{status === "ready" ? presenceLabel[presence] : status === "unavailable" ? "No phone line" : status === "elsewhere" ? "Phone open in another tab" : "Connecting…"}
             </span>
           </span>
         </button>
@@ -258,6 +258,7 @@ export function Shell({ me, screen, members, presence, systemStatus, simpleMode,
   onPresence: (p: Presence) => void; onSignOut: () => void; children: (query: string) => ReactNode;
 }) {
   const { call, status, problem } = usePhoneState();
+  const line = usePhoneLine();
   const [query, setQuery] = useState("");
   const ringing = call?.direction === "incoming" && call.phase === "ringing" ? call : null;
 
@@ -298,6 +299,12 @@ export function Shell({ me, screen, members, presence, systemStatus, simpleMode,
         <header className="flex h-16 shrink-0 items-center gap-3 border-b px-4 md:px-6">
           <SearchBar members={members} query={query} setQuery={setQuery} onTeam={() => { if (screen !== "team") navigate("/team"); }} />
         </header>
+        {status === "elsewhere" && (
+          <p role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-card px-4 py-2.5 text-sm md:px-6">
+            <span>Your phone line is open in another tab of this browser.</span>
+            <button type="button" className="font-medium text-link underline-offset-4 hover:underline" onClick={() => line.takeOverHere()}>Use it here</button>
+          </p>
+        )}
         {problem && (
           <p role="status" className="border-b bg-card px-4 py-2.5 text-sm md:px-6">{problem}</p>
         )}

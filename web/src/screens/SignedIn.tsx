@@ -1,6 +1,6 @@
 // The signed-in app: the phone line and the Dialer, Team and Settings
 // screens (loaded after sign-in; see App.tsx).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Me, type Presence } from "@/api/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTeam } from "@/hooks/useTeam";
@@ -9,6 +9,7 @@ import { useSystemStatus } from "@/hooks/useSystemStatus";
 import { hasScope, seesAdminArea } from "@/lib/roles";
 import { PhoneContext } from "@/phone/context";
 import { PhoneLine } from "@/phone/line";
+import { holdLine, type LineHolder } from "@/phone/tabs";
 import { AccountScreen } from "./Account";
 import { AdminHomeScreen } from "./AdminHome";
 import { DialerScreen } from "./Dialer";
@@ -32,9 +33,12 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
   // sidebar doesn't flash expert items in while settings load.
   const [simpleMode, setSimpleMode] = useState(true);
 
+  // One tab holds the phone line (phone/tabs.ts).
+  const holder = useRef<LineHolder | null>(null);
   useEffect(() => {
-    void line.start();
-    return () => line.stop();
+    const h = holdLine(line);
+    holder.current = h;
+    return () => h.release();
   }, [line]);
 
   useEffect(() => {

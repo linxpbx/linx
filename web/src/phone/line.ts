@@ -11,7 +11,8 @@ import { preferOpusFecDtx } from "./sdp";
 import { Ringtone } from "./ringtone";
 import { loadAudioSettings, type AudioSettings } from "./settings";
 
-export type LineStatus = "starting" | "ready" | "reconnecting" | "unavailable";
+/** "elsewhere": another tab of this browser holds the phone line (phone/tabs.ts). */
+export type LineStatus = "starting" | "ready" | "reconnecting" | "unavailable" | "elsewhere";
 
 export interface Peer {
   name: string;
@@ -401,6 +402,15 @@ export class PhoneLine {
 
   private onUnload() {
     this.stop();
+  }
+
+  /** Moves the line to this tab ("Use it here"); set by phone/tabs.ts. */
+  takeOverHere: () => void = () => {};
+
+  /** Another tab holds the line: this one waits, signed out (phone/tabs.ts). */
+  openElsewhere() {
+    this.stop();
+    this.set({ status: "elsewhere", problem: undefined, call: null });
   }
 
   /** Signs the line out (page closing, or the person signing out). */

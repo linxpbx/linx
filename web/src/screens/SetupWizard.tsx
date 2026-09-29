@@ -470,7 +470,12 @@ function TestStep(props: StepProps) {
         <Phone aria-hidden="true" className="size-4" />
         Call the echo test
       </Button>
-      {status === "unavailable"
+      {status === "elsewhere"
+        ? <p className="mt-2 text-sm text-muted-foreground">
+            Your phone line is open in another tab of this browser.{" "}
+            <button type="button" className="font-medium text-link underline-offset-4 hover:underline" onClick={() => line.takeOverHere()}>Use it here</button>
+          </p>
+        : status === "unavailable"
         ? <p className="mt-2 text-sm text-muted-foreground">{problem} You can skip this and test later from the Dialer.</p>
         : status !== "ready" && <p className="mt-2 text-sm text-muted-foreground">Waiting for your browser's phone line…</p>}
     </StepShell>
@@ -665,8 +670,11 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
     setMyExtension(myNumber.trim());
     setMyNumber(null);
     setTaken((t) => new Set([...t, myNumber.trim()]));
-    line.stop();
-    void line.start();
+    // Start the line again with the new extension, in the tab that holds it.
+    if (line.getState().status !== "elsewhere") {
+      line.stop();
+      void line.start();
+    }
     return true;
   };
 
