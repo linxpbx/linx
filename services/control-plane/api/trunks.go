@@ -69,8 +69,42 @@ func toTrunk(t trunk.Trunk) Trunk {
 	if t.UnencryptedConfirmedBy != "" {
 		out.UnencryptedConfirmedBy = &t.UnencryptedConfirmedBy
 	}
+	out.RingsExtensionId = t.RingsExtensionID
 	return out
 }
+
+// toTrunkWithLogin is toTrunk plus, for a phone system that signs in to
+// Linx and was just given a password, the login to type into it: shown
+// this once (ADR-033).
+func (s *Server) toTrunkWithLogin(t trunk.Trunk) Trunk {
+	out := toTrunk(t)
+	if t.NewPassword == "" {
+		return out
+	}
+	server := s.pbx.SIPServer()
+	out.Login = &TrunkLogin{
+		Username: t.Username, Password: t.NewPassword, Server: server, Port: sipPort, Transport: "tls",
+		SettingsText: fmt.Sprintf(
+			"Type: SIP trunk that registers (signs in)\nServer: %s\nPort: %d\nTransport: TLS\nUsername: %s\nPassword: %s\nEncrypted audio: required (SRTP)",
+			server, sipPort, t.Username, t.NewPassword),
+	}
+	return out
+}
+
+func (s *Server) ResetTrunkPassword(ctx context.Context, req ResetTrunkPasswordRequestObject) (ResetTrunkPasswordResponseObject, error) {
+	t, err := s.trunks.ResetTrunkPassword(ctx, req.Id)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return ResetTrunkPassworddefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return ResetTrunkPassword200JSONResponse(s.toTrunkWithLogin(t)), nil
+}
+
+var invalidExtensionID = &apihttp.Error{Status: http.StatusUnprocessableEntity, Code: "extension_id_invalid",
+	Detail: "That isn't a valid extension id."}
 
 func (s *Server) ListTrunks(ctx context.Context, req ListTrunksRequestObject) (ListTrunksResponseObject, error) {
 	items, next, err := page(req.Params.Limit, req.Params.Cursor, func(t trunk.Trunk) uuid.UUID { return t.ID },
@@ -93,8 +127,9 @@ func (s *Server) ListTrunks(ctx context.Context, req ListTrunksRequestObject) (L
 
 func (s *Server) CreateTrunk(ctx context.Context, req CreateTrunkRequestObject) (CreateTrunkResponseObject, error) {
 	in := trunk.TrunkInput{
-		Name: req.Body.Name, Kind: string(req.Body.Kind), Host: req.Body.Host, Port: req.Body.Port,
-		Username: deref(req.Body.Username), Password: deref(req.Body.Password),
+		Name: req.Body.Name, Kind: string(req.Body.Kind), Host: deref(req.Body.Host), Port: req.Body.Port,
+		RingsExtensionID: req.Body.RingsExtensionId,
+		Username:         deref(req.Body.Username), Password: deref(req.Body.Password),
 		CallerIDNumber: deref(req.Body.CallerIdNumber), MaxCalls: req.Body.MaxCalls,
 		ConfirmUnencrypted: deref(req.Body.ConfirmUnencrypted), Enabled: req.Body.Enabled,
 		Codecs: fromTrunkCodecs(req.Body.Codecs),
@@ -129,7 +164,7 @@ func (s *Server) CreateTrunk(ctx context.Context, req CreateTrunkRequestObject) 
 		}
 		return CreateTrunkdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
-	return CreateTrunk201JSONResponse(toTrunk(t)), nil
+	return CreateTrunk201JSONResponse(s.toTrunkWithLogin(t)), nil
 }
 
 func (s *Server) GetTrunk(ctx context.Context, req GetTrunkRequestObject) (GetTrunkResponseObject, error) {
@@ -145,7 +180,8 @@ func (s *Server) GetTrunk(ctx context.Context, req GetTrunkRequestObject) (GetTr
 	return GetTrunk200JSONResponse{Body: out, Headers: GetTrunk200ResponseHeaders{ETag: &out.Etag}}, nil
 }
 
-// wireguardProfilePatch turns TrunkPatch's empty-string-clears convention
+// wireguardProfilePatch (also used for rings_extension_id) turns
+// TrunkPatch's empty-string-clears convention
 // into the **uuid.UUID tri-state trunk.TrunkPatch needs: nil (not sent),
 // pointer-to-nil (clear), or pointer-to-value.
 func wireguardProfilePatch(s *string) (**uuid.UUID, error) {
@@ -169,8 +205,13 @@ func (s *Server) UpdateTrunk(ctx context.Context, req UpdateTrunkRequestObject) 
 	if err != nil {
 		return UpdateTrunkdefaultApplicationProblemPlusJSONResponse{StatusCode: invalidWireGuardProfileID.Status, Body: problem(invalidWireGuardProfileID)}, nil
 	}
+	rings, err := wireguardProfilePatch(req.Body.RingsExtensionId)
+	if err != nil {
+		return UpdateTrunkdefaultApplicationProblemPlusJSONResponse{StatusCode: invalidExtensionID.Status, Body: problem(invalidExtensionID)}, nil
+	}
 	patch := trunk.TrunkPatch{
-		Name: req.Body.Name, Host: req.Body.Host, Port: req.Body.Port, Username: req.Body.Username,
+		RingsExtensionID: rings,
+		Name:             req.Body.Name, Host: req.Body.Host, Port: req.Body.Port, Username: req.Body.Username,
 		Password: req.Body.Password, CallerIDNumber: req.Body.CallerIdNumber, MaxCalls: req.Body.MaxCalls,
 		PinnedCertificate: req.Body.PinnedCertificate, ConfirmUnencrypted: req.Body.ConfirmUnencrypted,
 		Enabled: req.Body.Enabled, Codecs: fromTrunkCodecs(req.Body.Codecs), WireGuardProfileID: wgProfile,

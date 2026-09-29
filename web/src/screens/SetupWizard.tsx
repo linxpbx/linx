@@ -521,6 +521,7 @@ type StepProps = { step: number; canSkip: boolean; busy: boolean; error?: string
 
 export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }) {
   const confirm = useConfirmIdentity(me);
+  const confirmRun = confirm.run;
   const [step, setStep] = useState(1);
   const [loaded, setLoaded] = useState(false);
   const [done, setDone] = useState(false);
@@ -614,8 +615,13 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
       const everyone = levels?.items.find((l) => l.name === "Everyone");
       const chosen = [...categories].sort();
       if (everyone && JSON.stringify([...everyone.allowed_categories].sort()) !== JSON.stringify(chosen)) {
-        await api.PATCH("/api/v1/call-permission-levels/{id}", {
-          params: { path: { id: everyone.id } }, headers: { "If-Match": everyone.etag }, body: { allowed_categories: chosen },
+        // Allowing calls abroad or premium numbers asks "confirm it's you"
+        // (fraud costs money there); the wizard finishes either way.
+        await confirmRun(async () => {
+          const { error: perr } = await api.PATCH("/api/v1/call-permission-levels/{id}", {
+            params: { path: { id: everyone.id } }, headers: { "If-Match": everyone.etag }, body: { allowed_categories: chosen },
+          });
+          return { confirm: needsConfirm(perr) };
         });
       }
       setBusy(false);
@@ -625,7 +631,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
       setStep(toStep);
     }
     return true;
-  }, [categories]);
+  }, [categories, confirmRun]);
 
   const saveSettingsPatch = async (patch: components["schemas"]["SettingsPatch"]) => {
     const { error: err } = await api.PATCH("/api/v1/settings", { body: patch });

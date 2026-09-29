@@ -490,6 +490,93 @@ func TestTrunksDocker(t *testing.T) {
 			t.Errorf("DID of a turned-off extension: %d rows, %v", rows, err)
 		}
 	})
+
+	t.Run("a phone system that signs in to Linx (migration 0028)", func(t *testing.T) {
+		id := uuid.Must(uuid.NewV7())
+		gw := trunk.Trunk{ID: id, TenantID: tenant, Name: "Gateway", Kind: trunk.KindRegistersHere, Port: 5061,
+			Transport: trunk.TransportTLS, MediaEncryption: trunk.MediaSRTP, CertTrust: trunk.CertPublic,
+			Username: "trunk-" + id.String(), DigestHash: pbx.DigestHash("trunk-"+id.String(), "pw"),
+			DialFormat: trunk.DialLocal, Codecs: []string{"alaw"}, MaxCalls: 4, Enabled: true, Version: 1,
+			CreatedAt: now, UpdatedAt: now}
+		// The database refuses one with an address, another login name, a
+		// stored password, no login, or without encryption.
+		for name, bad := range map[string]func(*trunk.Trunk){
+			"host":     func(t *trunk.Trunk) { t.Host = "192.168.1.5" },
+			"username": func(t *trunk.Trunk) { t.Username = "mine" },
+			"password": func(t *trunk.Trunk) { t.PasswordEnc = []byte("x") },
+			"no login": func(t *trunk.Trunk) { t.DigestHash = "" },
+			"udp":      func(t *trunk.Trunk) { t.Transport = trunk.TransportUDP },
+		} {
+			g := gw
+			bad(&g)
+			if err := s.CreateTrunk(ctx, g, audit("trunk.create")); err == nil {
+				t.Errorf("%s: saved %+v", name, g)
+				s.DeleteTrunk(ctx, tenant, g.ID, now, audit("trunk.delete"))
+			}
+		}
+		// Nor may any other kind have a login Linx made.
+		other := newTrunk("Not a gateway")
+		other.DigestHash = gw.DigestHash
+		if _, err := s.UpdateTrunk(ctx, other, audit("trunk.update")); err == nil {
+			t.Error("a provider line got a digest hash")
+		}
+
+		ext := newExtension("405")
+		gw.RingsExtensionID = &ext.ID
+		if err := s.CreateTrunk(ctx, gw, audit("trunk.create")); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Trunk(ctx, tenant, gw.ID)
+		if err != nil || got.DigestHash != gw.DigestHash || got.RingsExtensionID == nil || *got.RingsExtensionID != ext.ID {
+			t.Fatalf("read back %+v, %v", got, err)
+		}
+		missing := uuid.New()
+		got.RingsExtensionID = &missing
+		if _, err := s.UpdateTrunk(ctx, got, audit("trunk.update")); !errors.Is(err, trunk.ErrExtensionNotFound) {
+			t.Errorf("a missing extension: %v", err)
+		}
+
+		rings := func() string {
+			var n []string
+			rows, err := pool.Query(ctx, `SELECT * FROM asterisk.linx_line_rings($1)`, gw.Endpoint())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var v string
+				rows.Scan(&v)
+				n = append(n, v)
+			}
+			return strings.Join(n, ",")
+		}
+		if got := rings(); got != "405" {
+			t.Errorf("linx_line_rings = %q, want 405", got)
+		}
+		// Asterisk's own login may call it, and only it of the trunk table.
+		var role string
+		if err := pool.QueryRow(ctx, `SELECT has_function_privilege('linx_asterisk', 'asterisk.linx_line_rings(text)', 'EXECUTE')::text`).Scan(&role); err != nil || role != "true" {
+			t.Errorf("linx_asterisk can't call linx_line_rings: %s %v", role, err)
+		}
+
+		// Deleting the extension: the line and its numbers ring nobody.
+		d := trunk.DID{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, TrunkID: gw.ID, Number: "+97142000405",
+			ExtensionID: &ext.ID, Version: 1, CreatedAt: now, UpdatedAt: now}
+		if err := s.CreateDID(ctx, d, audit("did.create")); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DeleteExtension(ctx, tenant, ext.ID, now, audit("extension.delete")); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.Trunk(ctx, tenant, gw.ID); got.RingsExtensionID != nil {
+			t.Error("the line still rings a deleted extension")
+		}
+		if got, _ := s.DID(ctx, tenant, d.ID); got.ExtensionID != nil {
+			t.Error("the number still rings a deleted extension")
+		}
+		if got := rings(); got != "" {
+			t.Errorf("linx_line_rings after the delete = %q", got)
+		}
+	})
 }
 
 func ptr[T any](v T) *T { return &v }

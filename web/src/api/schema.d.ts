@@ -1043,6 +1043,28 @@ export interface paths {
         patch: operations["updateTrunk"];
         trace?: never;
     };
+    "/api/v1/trunks/{id}/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a new password for a phone system that signs in
+         * @description Only for a `registers_here` line (409 `no_login_here` otherwise). Its username doesn't change; the new password is shown once in `login`, and the phone system must be given it. A session must have confirmed it's you (docs/ADMIN.md §7).
+         */
+        post: operations["resetTrunkPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trunks/{id}/test": {
         parameters: {
             query?: never;
@@ -1056,7 +1078,7 @@ export interface paths {
         put?: never;
         /**
          * Test a trunk's connection
-         * @description Checks the trunk as it's saved, from the control plane, step by step (docs/TRUNKS.md §6): its address, the connection, its TLS certificate (public CAs or the pinned one, and its name), that it answers SIP, and for a trunk Linx signs in to, that it accepts the login (a REGISTER with no Contact, which changes nothing at the provider). Takes up to about 20 seconds. Places no call.
+         * @description Checks the trunk as it's saved, from the control plane, step by step (docs/TRUNKS.md §6): its address, the connection, its TLS certificate (public CAs or the pinned one, and its name), that it answers SIP, and for a trunk Linx signs in to, that it accepts the login (a REGISTER with no Contact, which changes nothing at the provider). Takes up to about 20 seconds. Places no call. For a `registers_here` line, only whether it's signed in now.
          */
         post: operations["testTrunk"];
         delete?: never;
@@ -2821,10 +2843,10 @@ export interface components {
             settings_text: string;
         };
         /**
-         * @description `registration`: Linx signs in to the provider. `ip_authenticated`: the provider calls in from its own fixed addresses. `lan_peer`: another phone system on the LAN (docs/TRUNKS.md §3).
+         * @description `registration`: Linx signs in to the provider. `ip_authenticated`: the provider calls in from its own fixed addresses. `lan_peer`: another phone system on the LAN that Linx connects to (docs/TRUNKS.md §3). `registers_here`: a phone system or gateway that signs in to Linx with a login Linx makes for it, like a desk phone (docs/SIMPLER.md §1): it has no host, login or connection settings of its own (always TLS with encrypted audio; 422 `registers_here_fixed` if any are sent).
          * @enum {string}
          */
-        TrunkKind: "registration" | "ip_authenticated" | "lan_peer";
+        TrunkKind: "registration" | "ip_authenticated" | "lan_peer" | "registers_here";
         /**
          * @description tcp and udp need confirm_unencrypted (ADR-023).
          * @enum {string}
@@ -2886,6 +2908,12 @@ export interface components {
             max_calls: number;
             /**
              * Format: uuid
+             * @description Where this line's calls for none of its numbers ring (an analog landline often sends no number, docs/SIMPLER.md §1.2). Absent: they hear "not in use".
+             */
+            rings_extension_id?: string;
+            login?: components["schemas"]["TrunkLogin"];
+            /**
+             * Format: uuid
              * @description The WireGuard profile this trunk connects through. Absent means "Internet" (ADR-024). Through a tunnel, `host` must be an IPv4 address (422 `host_must_be_address`): the tunnel carries only addresses known in advance.
              */
             wireguard_profile_id?: string;
@@ -2905,11 +2933,25 @@ export interface components {
             /** @description Send as If-Match when changing it. */
             etag: string;
         };
+        /** @description A `registers_here` line's sign-in, only in the answer to creating it or to POST /trunks/{id}/reset-password: shown once, Linx keeps only its digest hash (ADR-033). The username is the line's `username`. */
+        TrunkLogin: {
+            username: string;
+            password: string;
+            /** @description e.g. "sip.example.com". */
+            server: string;
+            /** @description 5061. */
+            port: number;
+            /** @constant */
+            transport: "tls";
+            /** @description A plain-language summary of the above, ready to paste. */
+            settings_text: string;
+        };
         TrunkCreate: {
             name: string;
             kind: components["schemas"]["TrunkKind"];
             template?: string;
-            host: string;
+            /** @description Required for every kind but `registers_here`, which has none. */
+            host?: string;
             /** @description Defaults to 5061. */
             port?: number;
             /** @description Defaults to tls. */
@@ -2932,6 +2974,8 @@ export interface components {
             max_calls?: number;
             /** Format: uuid */
             wireguard_profile_id?: string;
+            /** Format: uuid */
+            rings_extension_id?: string;
             /** @description Must be true if the trunk as given is unencrypted and isn't reached through a WireGuard profile (ADR-023); refused with 422 unencrypted_confirmation_required otherwise. */
             confirm_unencrypted?: boolean;
             /** @description Defaults to true. */
@@ -2955,6 +2999,8 @@ export interface components {
             max_calls?: number;
             /** @description Empty string moves the trunk to "Internet". */
             wireguard_profile_id?: string;
+            /** @description Empty string clears it. */
+            rings_extension_id?: string;
             /** @description Must be true when the change leaves the trunk unencrypted and it wasn't confirmed before, or when an unencrypted trunk gets another host, transport or media encryption (the earlier confirmation no longer covers it); 422 unencrypted_confirmation_required otherwise. */
             confirm_unencrypted?: boolean;
             enabled?: boolean;
@@ -3016,8 +3062,11 @@ export interface components {
             /** @description No step failed (warnings allowed). */
             ok: boolean;
             steps: {
-                /** @enum {string} */
-                name: "tunnel" | "address" | "connection" | "certificate" | "sip" | "login" | "audio_encryption" | "tls_offered";
+                /**
+                 * @description `signed_in`: the only step for a `registers_here` line, which Linx never connects out to: whether it's signed in now.
+                 * @enum {string}
+                 */
+                name: "tunnel" | "address" | "connection" | "certificate" | "sip" | "login" | "audio_encryption" | "tls_offered" | "signed_in";
                 /** @enum {string} */
                 result: "ok" | "warning" | "failed" | "skipped";
                 /** @description What was found, in plain words. */
@@ -5689,6 +5738,29 @@ export interface operations {
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Trunk"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    resetTrunkPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The line, with its new login shown once. */
+            200: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

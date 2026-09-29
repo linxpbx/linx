@@ -102,3 +102,26 @@ func TestWriteRead(t *testing.T) {
 		t.Errorf("Read = %+v, want %+v", got, f)
 	}
 }
+
+func TestDecideSignedIn(t *testing.T) {
+	for _, tc := range []struct {
+		previous string
+		in       Trunk
+		want     string
+	}{
+		{StatusUnknown, Trunk{Contact: ContactAvail}, StatusRegistered},
+		{StatusUnknown, Trunk{Contact: ContactCreated}, StatusRegistered},
+		{StatusRegistered, Trunk{Contact: ContactUnavail}, StatusUnreachable},
+		// Never signed in yet: still being set up, not down.
+		{StatusUnknown, Trunk{}, StatusUnknown},
+		{StatusDisabled, Trunk{}, StatusUnknown},
+		// Was signed in, now isn't.
+		{StatusRegistered, Trunk{}, StatusUnreachable},
+		{StatusUnreachable, Trunk{Contact: ContactRemoved}, StatusUnreachable},
+	} {
+		got, detail := DecideSignedIn(tc.previous, tc.in)
+		if got != tc.want || detail == "" {
+			t.Errorf("DecideSignedIn(%q, %+v) = %q %q, want %q", tc.previous, tc.in, got, detail, tc.want)
+		}
+	}
+}

@@ -19,7 +19,9 @@ import (
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/dbsecret"
+	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/trunkprobe"
+	"linxpbx.com/linx/internal/trunkstatus"
 	"linxpbx.com/linx/internal/wgconf"
 )
 
@@ -241,6 +243,7 @@ type TrunkInput struct {
 	MaxCalls           *int
 	WireGuardProfileID *uuid.UUID
 	ConfirmUnencrypted bool
+	RingsExtensionID   *uuid.UUID
 	Enabled            *bool
 }
 
@@ -259,6 +262,9 @@ func checkTrunkFields(t *Trunk) error {
 	}
 	if !oneOf(Kinds, t.Kind) {
 		return invalid("kind_invalid", "Choose a trunk kind: "+strings.Join(Kinds, ", ")+".")
+	}
+	if t.Kind == KindRegistersHere {
+		return checkRegistersHere(t)
 	}
 	if err := checkHost(t.Host); err != nil {
 		return err
@@ -327,6 +333,45 @@ func checkTrunkFields(t *Trunk) error {
 	return nil
 }
 
+// errRegistersHereFixed is a phone system that signs in to Linx given
+// settings it doesn't have: it connects to Linx the way desk phones do.
+var errRegistersHereFixed = invalid("registers_here_fixed",
+	"A phone system that signs in to Linx has no address, login or connection settings to set here: it uses Linx's own (TLS and encrypted audio), with the login Linx made for it.")
+
+// checkRegistersHere is checkTrunkFields for KindRegistersHere
+// (docs/SIMPLER.md §1): Linx never connects out to it, so only its name,
+// numbers, caller ID, codecs and call limit are settings; the rest is
+// fixed (migration 0028 checks the same).
+func checkRegistersHere(t *Trunk) error {
+	if t.Host != "" || t.Port != 5061 || t.Transport != TransportTLS || t.MediaEncryption != MediaSRTP ||
+		t.CertTrust != CertPublic || t.PinnedCertificate != "" || t.WireGuardProfileID != nil ||
+		t.Username != t.Endpoint() || len(t.PasswordEnc) > 0 {
+		return errRegistersHereFixed
+	}
+	if !callerIDPattern.MatchString(t.CallerIDNumber) {
+		return invalid("caller_id_number_invalid", "A caller ID is 2 to 20 digits, optionally starting with +.")
+	}
+	if !oneOf(DialFormats, t.DialFormat) {
+		return invalid("dial_format_invalid", "Choose how numbers are dialled: "+strings.Join(DialFormats, ", ")+".")
+	}
+	if err := checkMaxCalls(t.MaxCalls); err != nil {
+		return err
+	}
+	codecs, err := checkCodecs(t.Codecs)
+	if err != nil {
+		return err
+	}
+	t.Codecs = codecs
+	return nil
+}
+
+// newLogin gives a KindRegistersHere trunk a new password (ADR-033: 130
+// random bits, only its digest hash kept), returned in t.NewPassword.
+func newLogin(t *Trunk) {
+	t.NewPassword = pbx.NewDevicePassword()
+	t.DigestHash = pbx.DigestHash(t.Endpoint(), t.NewPassword)
+}
+
 // applyUnencrypted resolves the ADR-023 confirmation once every other field
 // is set on t: if the result is unencrypted and wasn't already confirmed,
 // confirmed must be true, and the confirmation is stamped with actor and
@@ -365,6 +410,14 @@ func (s *Service) CreateTrunk(ctx context.Context, in TrunkInput) (Trunk, error)
 	if err != nil {
 		return Trunk{}, err
 	}
+	registersHere := in.Kind == KindRegistersHere
+	if registersHere {
+		// Its login is shown in the answer: one of "confirm it's you"'s
+		// actions, as for a device's (docs/ADMIN.md §7).
+		if err := auth.RequireConfirmed(ctx, s.Now()); err != nil {
+			return Trunk{}, err
+		}
+	}
 	now := s.Now().UTC()
 	port := 5061
 	if in.Port != nil {
@@ -380,11 +433,25 @@ func (s *Service) CreateTrunk(ctx context.Context, in TrunkInput) (Trunk, error)
 		MediaEncryption: defaultOr(in.MediaEncryption, MediaSRTP), CertTrust: defaultOr(in.CertTrust, CertPublic),
 		PinnedCertificate: in.PinnedCertificate, Username: in.Username, DialFormat: defaultOr(in.DialFormat, DialE164),
 		Codecs: in.Codecs, CallerIDNumber: in.CallerIDNumber, MaxCalls: maxCalls,
-		WireGuardProfileID: in.WireGuardProfileID, Enabled: in.Enabled == nil || *in.Enabled,
-		Version: 1, CreatedAt: now, UpdatedAt: now,
+		WireGuardProfileID: in.WireGuardProfileID, RingsExtensionID: in.RingsExtensionID,
+		Enabled: in.Enabled == nil || *in.Enabled, Version: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if registersHere {
+		if in.Username != "" || in.Password != "" {
+			return Trunk{}, errRegistersHereFixed
+		}
+		t.Username = t.Endpoint()
+		if in.DialFormat == "" {
+			// A phone system on the network usually dials numbers as
+			// people there write them.
+			t.DialFormat = DialLocal
+		}
 	}
 	if err := checkTrunkFields(&t); err != nil {
 		return Trunk{}, err
+	}
+	if registersHere {
+		newLogin(&t)
 	}
 	if err := applyUnencrypted(&t, in.ConfirmUnencrypted, p.Actor(), now); err != nil {
 		return Trunk{}, err
@@ -412,6 +479,9 @@ func (s *Service) CreateTrunk(ctx context.Context, in TrunkInput) (Trunk, error)
 			return Trunk{}, &apihttp.Error{Status: http.StatusConflict, Code: "name_duplicate",
 				Detail: fmt.Sprintf("A trunk named %q already exists.", t.Name)}
 		}
+		if errors.Is(err, ErrExtensionNotFound) {
+			return Trunk{}, errRingsExtensionNotFound
+		}
 		if errors.Is(err, ErrNotFound) {
 			return Trunk{}, invalid("wireguard_profile_not_found", "That WireGuard profile doesn't exist.")
 		}
@@ -419,6 +489,43 @@ func (s *Service) CreateTrunk(ctx context.Context, in TrunkInput) (Trunk, error)
 	}
 	s.changed()
 	return t, nil
+}
+
+var errRingsExtensionNotFound = invalid("extension_not_found", "That extension doesn't exist.")
+
+// ResetTrunkPassword gives a phone system that signs in to Linx a new
+// password, shown this once in the result's NewPassword; its login name
+// doesn't change, and the old password stops working at Asterisk's next
+// reload.
+func (s *Service) ResetTrunkPassword(ctx context.Context, id uuid.UUID) (Trunk, error) {
+	if err := auth.RequireConfirmed(ctx, s.Now()); err != nil {
+		return Trunk{}, err
+	}
+	t, err := s.GetTrunk(ctx, id)
+	if err != nil {
+		return Trunk{}, err
+	}
+	if t.Kind != KindRegistersHere {
+		return Trunk{}, &apihttp.Error{Status: http.StatusConflict, Code: "no_login_here",
+			Detail: "Only a phone system that signs in to Linx has a login Linx made. Change this line's own password instead."}
+	}
+	newLogin(&t)
+	t.UpdatedAt = s.Now().UTC()
+	_, a, err := audit(ctx, "trunk.update", "trunk:"+id.String())
+	if err != nil {
+		return Trunk{}, err
+	}
+	a.Detail = map[string]any{"password": "new"}
+	updated, err := s.Store.UpdateTrunk(ctx, t, a)
+	if errors.Is(err, ErrVersionChanged) {
+		return Trunk{}, errTrunkChanged
+	}
+	if err != nil {
+		return Trunk{}, err
+	}
+	s.changed()
+	updated.NewPassword = t.NewPassword
+	return updated, nil
 }
 
 // GetTrunk returns one of the caller's trunks.
@@ -462,6 +569,8 @@ type TrunkPatch struct {
 	CallerIDNumber     *string
 	MaxCalls           *int
 	WireGuardProfileID **uuid.UUID
+	// RingsExtensionID: non-nil sets it (a nil inside clears it).
+	RingsExtensionID   **uuid.UUID
 	ConfirmUnencrypted *bool
 	Enabled            *bool
 }
@@ -535,9 +644,16 @@ func (s *Service) UpdateTrunk(ctx context.Context, id uuid.UUID, patch TrunkPatc
 		t.WireGuardProfileID = *patch.WireGuardProfileID
 		changes["wireguard_profile_id"] = t.WireGuardProfileID
 	}
+	if patch.RingsExtensionID != nil {
+		t.RingsExtensionID = *patch.RingsExtensionID
+		changes["rings_extension_id"] = t.RingsExtensionID
+	}
 	if patch.Enabled != nil {
 		t.Enabled = *patch.Enabled
 		changes["enabled"] = t.Enabled
+	}
+	if t.Kind == KindRegistersHere && patch.Password != nil {
+		return Trunk{}, errRegistersHereFixed
 	}
 	if err := checkTrunkFields(&t); err != nil {
 		return Trunk{}, err
@@ -581,6 +697,9 @@ func (s *Service) UpdateTrunk(ctx context.Context, id uuid.UUID, patch TrunkPatc
 	updated, err := s.Store.UpdateTrunk(ctx, t, a)
 	if errors.Is(err, ErrVersionChanged) {
 		return Trunk{}, errTrunkChanged
+	}
+	if errors.Is(err, ErrExtensionNotFound) {
+		return Trunk{}, errRingsExtensionNotFound
 	}
 	if errors.Is(err, ErrNotFound) {
 		return Trunk{}, notFound("trunk")
@@ -1102,6 +1221,9 @@ func (s *Service) CreateCallPermissionLevel(ctx context.Context, in CallPermissi
 	if err != nil {
 		return CallPermissionLevel{}, err
 	}
+	if err := s.requireConfirmedForCostly(ctx, nil, categories); err != nil {
+		return CallPermissionLevel{}, err
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return CallPermissionLevel{}, err
@@ -1177,6 +1299,9 @@ func (s *Service) UpdateCallPermissionLevel(ctx context.Context, id uuid.UUID, p
 		if err != nil {
 			return CallPermissionLevel{}, err
 		}
+		if err := s.requireConfirmedForCostly(ctx, l.AllowedCategories, categories); err != nil {
+			return CallPermissionLevel{}, err
+		}
 		l.AllowedCategories = categories
 		changes["allowed_categories"] = l.AllowedCategories
 	}
@@ -1224,6 +1349,20 @@ func (s *Service) DeleteCallPermissionLevel(ctx context.Context, id uuid.UUID) e
 	return err
 }
 
+// costlyCategories are where phone fraud costs money (docs/ui/
+// ADMIN_SCREENS_PHASE1E.md §8): allowing one is a "confirm it's you"
+// action in a session (docs/ADMIN.md §7).
+var costlyCategories = []string{"international", "premium"}
+
+func (s *Service) requireConfirmedForCostly(ctx context.Context, before, after []string) error {
+	for _, c := range costlyCategories {
+		if slices.Contains(after, c) && !slices.Contains(before, c) {
+			return auth.RequireConfirmed(ctx, s.Now())
+		}
+	}
+	return nil
+}
+
 // --- Testing a trunk ------------------------------------------------------
 
 // Prober tests a trunk's connection (internal/trunkprobe's Prober).
@@ -1250,6 +1389,9 @@ func (s *Service) TestTrunk(ctx context.Context, id uuid.UUID) (trunkprobe.Resul
 	if err != nil {
 		return trunkprobe.Result{}, err
 	}
+	if t.Kind == KindRegistersHere {
+		return SignedInResult(t), nil
+	}
 	password, err := OpenPassword(s.Sealer, t)
 	if err != nil {
 		return trunkprobe.Result{}, fmt.Errorf("opening the trunk's password: %w", err)
@@ -1263,6 +1405,25 @@ func (s *Service) TestTrunk(ctx context.Context, id uuid.UUID) (trunkprobe.Resul
 		target.TunnelName, target.TunnelState, target.TunnelDetail = w.Name, w.Status, w.StatusDetail
 	}
 	return s.Prober.Run(ctx, target), nil
+}
+
+// SignedInResult is a test of a phone system that signs in to Linx: Linx
+// never connects out to it, so the only question is whether it's signed
+// in now (what the Monitor last saw), and if not, what to check on it.
+func SignedInResult(t Trunk) trunkprobe.Result {
+	step := trunkprobe.Step{Name: "signed_in"}
+	switch {
+	case !t.Enabled:
+		step.Result, step.Words = "failed", "It's turned off: Linx refuses its sign-in until you turn it on."
+	case trunkstatus.Up(t.Status):
+		step.Result, step.Words = "ok", "It's signed in to Linx."
+	case t.Status == trunkstatus.StatusUnreachable && t.StatusDetail == trunkstatus.DetailStoppedAnswering:
+		step.Result, step.Words = "failed", t.StatusDetail
+	default:
+		step.Result, step.Words = "failed", "It isn't signed in to Linx. On the phone system, check the server, port 5061, TLS, "+
+			"the username and password exactly as shown when this line was added, and that it's on one of your phone networks."
+	}
+	return trunkprobe.Result{OK: step.Result == "ok", Steps: []trunkprobe.Step{step}}
 }
 
 // InternationalAlert returns the "unusual calling abroad" alert's limits.

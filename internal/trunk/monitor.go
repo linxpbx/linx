@@ -139,6 +139,8 @@ func (m *Monitor) Check(ctx context.Context) error {
 		case t.WireGuardProfileID != nil && tunnels[*t.WireGuardProfileID].state == wgconf.StateDown:
 			tun := tunnels[*t.WireGuardProfileID]
 			status, detail = trunkstatus.StatusUnreachable, fmt.Sprintf("Its WireGuard tunnel %q is down: %s", tun.name, tun.detail)
+		case fresh && t.Kind == KindRegistersHere:
+			status, detail = trunkstatus.DecideSignedIn(t.Status, file.Trunks[t.Endpoint()])
 		case fresh:
 			status, detail = trunkstatus.Decide(t.Kind == KindRegistration, file.Trunks[t.Endpoint()])
 		case t.Status == trunkstatus.StatusDisabled:

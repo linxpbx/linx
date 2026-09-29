@@ -564,6 +564,11 @@ func (c Config) pjsipConf(nets []netip.Prefix, nat string, ws netip.Prefix) stri
 [global]
 type=global
 user_agent=Linx
+; The realm every login's digest hash is made with (pbx.DigestRealm). A
+; phone system that signs in to Linx (docs/SIMPLER.md §1) often calls with
+; its caller's number, not its login, in From: such a request is only told
+; apart by its login after a challenge, which then comes from here.
+default_realm=linxpbx
 
 [%[8]s]
 type=transport
@@ -906,6 +911,11 @@ readsql = SELECT reason, category, CASE WHEN withhold THEN 1 ELSE 0 END, lines F
 prefix = LINX
 dsn = asterisk
 readsql = SELECT * FROM linx_inbound('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}')
+
+[LINE_RINGS]
+prefix = LINX
+dsn = asterisk
+readsql = SELECT * FROM linx_line_rings('${SQL_ESC(${ARG1})}')
 `
 
 // extensionsConf is the whole dialplan (docs/PBX.md §4, docs/TRUNKS.md
@@ -934,7 +944,10 @@ readsql = SELECT * FROM linx_inbound('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}
 // contact). The caller's name and number are untrusted: filtered to plain
 // characters and shortened before anything else sees them. The call
 // passes through linx-trunk-did with the DID that matched as its extension,
-// which is how the control plane's call events learn it.
+// which is how the control plane's call events learn it. A call for none of
+// the trunk's numbers rings the line's own "calls on this line ring…"
+// extension if it has one (LINX_LINE_RINGS, docs/SIMPLER.md §1.2: an
+// analog landline often sends no number), else hears "not in use".
 const extensionsConf = `; Rendered by linx-asterisk-entrypoint.
 [general]
 static = yes
@@ -1028,7 +1041,11 @@ exten => s,1,Set(CALLERID(name)=${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40})
  same => n,GotoIf($[${ODBCROWS} > 0]?found)
  same => n,Set(DID=${FILTER(0-9+,${PJSIP_PARSE_URI(${CHANNEL(pjsip,local_uri)},user)})})
  same => n,Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DID})})
- same => n,GotoIf($[${ODBCROWS} > 0]?found:linx-messages,not-in-use,1)
+ same => n,GotoIf($[${ODBCROWS} > 0]?found)
+ same => n,Set(TARGET=${LINX_LINE_RINGS(${CHANNEL(endpoint)})})
+ same => n,GotoIf($[${ODBCROWS} < 1]?linx-messages,not-in-use,1)
+ same => n,GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
+ same => n,Goto(linx-ring,${TARGET},1)
  same => n(found),GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
  same => n,Set(DID=${FILTER(0-9+,${DID})})
  same => n,GotoIf($["${DID}" = ""]?linx-ring,${TARGET},1)

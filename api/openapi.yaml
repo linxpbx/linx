@@ -1731,6 +1731,30 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/trunks/{id}/reset-password:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: resetTrunkPassword
+      summary: Make a new password for a phone system that signs in
+      description: >-
+        Only for a `registers_here` line (409 `no_login_here` otherwise).
+        Its username doesn't change; the new password is shown once in
+        `login`, and the phone system must be given it. A session must
+        have confirmed it's you (docs/ADMIN.md §7).
+      tags: [trunks]
+      security:
+        - bearer: [trunks:write]
+      responses:
+        "200":
+          description: The line, with its new login shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trunk"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/trunks/{id}/test:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -1743,7 +1767,8 @@ paths:
         certificate (public CAs or the pinned one, and its name), that it
         answers SIP, and for a trunk Linx signs in to, that it accepts the
         login (a REGISTER with no Contact, which changes nothing at the
-        provider). Takes up to about 20 seconds. Places no call.
+        provider). Takes up to about 20 seconds. Places no call. For a
+        `registers_here` line, only whether it's signed in now.
       tags: [trunks]
       security:
         - bearer: [trunks:write]
@@ -4557,11 +4582,16 @@ components:
 
     TrunkKind:
       type: string
-      enum: [registration, ip_authenticated, lan_peer]
+      enum: [registration, ip_authenticated, lan_peer, registers_here]
       description: >-
         `registration`: Linx signs in to the provider. `ip_authenticated`:
         the provider calls in from its own fixed addresses. `lan_peer`:
-        another phone system on the LAN (docs/TRUNKS.md §3).
+        another phone system on the LAN that Linx connects to
+        (docs/TRUNKS.md §3). `registers_here`: a phone system or gateway
+        that signs in to Linx with a login Linx makes for it, like a desk
+        phone (docs/SIMPLER.md §1): it has no host, login or connection
+        settings of its own (always TLS with encrypted audio; 422
+        `registers_here_fixed` if any are sent).
 
     TrunkTransport:
       type: string
@@ -4649,6 +4679,15 @@ components:
           type: string
         max_calls:
           type: integer
+        rings_extension_id:
+          type: string
+          format: uuid
+          description: >-
+            Where this line's calls for none of its numbers ring (an analog
+            landline often sends no number, docs/SIMPLER.md §1.2). Absent:
+            they hear "not in use".
+        login:
+          $ref: "#/components/schemas/TrunkLogin"
         wireguard_profile_id:
           type: string
           format: uuid
@@ -4679,10 +4718,35 @@ components:
           type: string
           description: Send as If-Match when changing it.
 
+    TrunkLogin:
+      description: >-
+        A `registers_here` line's sign-in, only in the answer to creating it
+        or to POST /trunks/{id}/reset-password: shown once, Linx keeps only
+        its digest hash (ADR-033). The username is the line's `username`.
+      type: object
+      required: [username, password, server, port, transport, settings_text]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        server:
+          type: string
+          description: e.g. "sip.example.com".
+        port:
+          type: integer
+          description: "5061."
+        transport:
+          type: string
+          const: tls
+        settings_text:
+          type: string
+          description: A plain-language summary of the above, ready to paste.
+
     TrunkCreate:
       type: object
       additionalProperties: false
-      required: [name, kind, host]
+      required: [name, kind]
       properties:
         name:
           type: string
@@ -4695,6 +4759,7 @@ components:
         host:
           type: string
           maxLength: 255
+          description: Required for every kind but `registers_here`, which has none.
         port:
           type: integer
           description: Defaults to 5061.
@@ -4732,6 +4797,9 @@ components:
           type: integer
           description: Defaults to 4.
         wireguard_profile_id:
+          type: string
+          format: uuid
+        rings_extension_id:
           type: string
           format: uuid
         confirm_unencrypted:
@@ -4786,6 +4854,9 @@ components:
         wireguard_profile_id:
           type: string
           description: Empty string moves the trunk to "Internet".
+        rings_extension_id:
+          type: string
+          description: Empty string clears it.
         confirm_unencrypted:
           type: boolean
           description: >-
@@ -4918,7 +4989,8 @@ components:
             properties:
               name:
                 type: string
-                enum: [tunnel, address, connection, certificate, sip, login, audio_encryption, tls_offered]
+                enum: [tunnel, address, connection, certificate, sip, login, audio_encryption, tls_offered, signed_in]
+                description: "`signed_in`: the only step for a `registers_here` line, which Linx never connects out to: whether it's signed in now." 
               result:
                 type: string
                 enum: [ok, warning, failed, skipped]

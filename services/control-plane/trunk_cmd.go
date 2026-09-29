@@ -132,6 +132,7 @@ func runTrunkCommand(ctx context.Context, args []string, stdin io.Reader, stdout
 	// Render for Asterisk at once, rather than waiting for the running
 	// control plane's next minute.
 	renderer := &trunkconf.Renderer{Store: st, Sealer: sealer, Log: slog.New(slog.DiscardHandler),
+		SIPDomain:    trunkSIPDomain(os.Getenv("LINX_DOMAIN")),
 		Dir:          envOr(os.Getenv, "LINX_TRUNKS_DIR", "/var/lib/linx/trunks"),
 		WireGuardDir: envOr(os.Getenv, "LINX_WIREGUARD_DIR", "/var/lib/linx/wireguard")}
 	c := &trunkCmd{st: st, svc: svc, in: bufio.NewReader(stdin), out: stdout, errw: stderr,
@@ -213,6 +214,7 @@ var kindWords = map[string]string{
 	trunk.KindRegistration:    "Linx signs in",
 	trunk.KindIPAuthenticated: "provider calls in",
 	trunk.KindLANPeer:         "phone system on the LAN",
+	trunk.KindRegistersHere:   "signs in to Linx",
 }
 
 func encryptionWords(t trunk.Trunk) string {
@@ -249,7 +251,11 @@ func (c *trunkCmd) list(ctx context.Context) int {
 		if t.Unencrypted() {
 			unencrypted++
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s:%d/%s\t%s\t%s\t%s\n", t.Name, kindWords[t.Kind], t.Host, t.Port, t.Transport,
+		address := fmt.Sprintf("%s:%d/%s", t.Host, t.Port, t.Transport)
+		if t.Kind == trunk.KindRegistersHere {
+			address = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Name, kindWords[t.Kind], address,
 			t.Status, encryptionWords(t), outgoing)
 	}
 	w.Flush()
@@ -294,7 +300,11 @@ func (c *trunkCmd) test(ctx context.Context, args []string) int {
 		fmt.Fprintf(c.errw, "There is no line %q (see linx trunk list).\n", args[0])
 		return 1
 	}
-	fmt.Fprintf(c.out, "Testing %q (%s:%d)...\n", t.Name, t.Host, t.Port)
+	if t.Kind == trunk.KindRegistersHere {
+		fmt.Fprintf(c.out, "Checking %q...\n", t.Name)
+	} else {
+		fmt.Fprintf(c.out, "Testing %q (%s:%d)...\n", t.Name, t.Host, t.Port)
+	}
 	res, err := c.svc.TestTrunk(ctx, t.ID)
 	if err != nil {
 		fmt.Fprintf(c.errw, "Couldn't test it: %s\n", explain(err))
@@ -478,6 +488,36 @@ func (c *trunkCmd) add(ctx context.Context, tenant uuid.UUID, args []string) int
 		CertTrust: defaultOr(tmpl.CertTrust, trunk.CertPublic), DialFormat: tmpl.DialFormat, Codecs: tmpl.Codecs}
 	if in.Name, err = c.ask("Name for this line", defaultOr(*name, tmpl.Label)); err != nil {
 		return fail(err)
+	}
+	if in.Kind == trunk.KindRegistersHere {
+		// It signs in to Linx: nothing to connect to or test from here
+		// (docs/SIMPLER.md §1).
+		if *host != "" || *port != 0 || *username != "" || *passwordStdin || *pinFile != "" || *pinPEM != "" ||
+			*unencrypted || *tunnel != "" || *transport != "" {
+			return fail(errors.New("a phone system that signs in to Linx has no address, login or connection options: Linx makes its login"))
+		}
+		in.Transport, in.MediaEncryption, in.CertTrust = "", "", ""
+		t, err := c.svc.CreateTrunk(ctx, in)
+		if err != nil {
+			fmt.Fprintf(c.errw, "Couldn't save it: %s\n", explain(err))
+			return 1
+		}
+		fmt.Fprintf(c.out, "\nSaved %q. On the phone system or gateway, add a SIP trunk that registers (signs in), with:\n", t.Name)
+		fmt.Fprintf(c.out, "  Server:          %s\n  Port:            5061\n  Transport:       TLS\n  Encrypted audio: SRTP\n  Username:        %s\n  Password:        %s\n",
+			defaultOr(trunkSIPDomain(os.Getenv("LINX_DOMAIN")), "sip.<your domain>"), t.Username, t.NewPassword)
+		fmt.Fprintln(c.out, "The password is shown only now. It signs in from your phone networks only.")
+		code := 0
+		if err := c.addDIDs(ctx, tenant, t, dids); err != nil {
+			fmt.Fprintf(c.errw, "%v\n", err)
+			code = 1
+		}
+		if err := c.setOutgoing(ctx, t, *outgoing); err != nil {
+			fmt.Fprintf(c.errw, "%v\n", err)
+			code = 1
+		}
+		c.applied(ctx)
+		fmt.Fprintln(c.out, "Check it's signed in with: sudo linx trunk list")
+		return code
 	}
 	// Connection: the internet, or a WireGuard tunnel (ADR-024).
 	if *tunnel == "" && c.interactive {
@@ -792,4 +832,13 @@ func (c *trunkCmd) setOutgoing(ctx context.Context, t trunk.Trunk, choice string
 	}
 	fmt.Fprintf(c.out, "Outgoing calls use it as the %s line.\n", strings.ToLower(choice))
 	return nil
+}
+
+// trunkSIPDomain is the name phones and phone systems know Linx by
+// ("sip.<domain>", pbx.Service.SIPServer); empty without a domain.
+func trunkSIPDomain(domain string) string {
+	if domain == "" {
+		return ""
+	}
+	return (&pbx.Service{Domain: domain}).SIPServer()
 }

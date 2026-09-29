@@ -260,7 +260,7 @@ func main() {
 	// written at start, on every trunk change, and every minute (providers'
 	// addresses can change on their own).
 	// WireGuard profiles too, for linx-wireguard (docs/TRUNKS.md §7).
-	trunkFiles := &trunkconf.Renderer{Store: st, Sealer: sealer, Log: log,
+	trunkFiles := &trunkconf.Renderer{Store: st, Sealer: sealer, Log: log, SIPDomain: trunkSIPDomain(os.Getenv("LINX_DOMAIN")),
 		Dir:          envOr(os.Getenv, "LINX_TRUNKS_DIR", "/var/lib/linx/trunks"),
 		WireGuardDir: envOr(os.Getenv, "LINX_WIREGUARD_DIR", "/var/lib/linx/wireguard")}
 	trunks.OnChange = trunkFiles.Changed

@@ -20,6 +20,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -30,6 +31,7 @@ import (
 
 	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/dbsecret"
+	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/wgconf"
 )
@@ -47,6 +49,10 @@ type Input struct {
 	// Tunnels are every WireGuard profile, keys opened and endpoint
 	// resolved (docs/TRUNKS.md §7).
 	Tunnels []wgconf.Profile
+	// SIPDomain is the name phones know Linx by ("sip.<domain>"), the
+	// From domain of calls to phone systems that sign in to Linx; empty:
+	// left to Asterisk.
+	SIPDomain string
 }
 
 // Files is a render: what Write puts in the directory Asterisk reads.
@@ -97,6 +103,12 @@ func Render(in Input) (Files, []string) {
 		}
 		if err := check(t, in.Passwords[t.ID]); err != nil {
 			problems = append(problems, fmt.Sprintf("trunk %s (%s) left out: %v", t.ID, t.Name, err))
+			continue
+		}
+		if t.Kind == trunk.KindRegistersHere {
+			// Signs in to Linx from the phone networks, like a desk phone:
+			// no address of its own, nothing to add to the ACL.
+			writeSignedIn(&body, t, in.SIPDomain)
 			continue
 		}
 		addrs := in.Addresses[t.Host]
@@ -243,6 +255,15 @@ func check(t trunk.Trunk, password string) error {
 	if !slices.Contains(trunk.Transports, t.Transport) || !slices.Contains(trunk.MediaEncryptions, t.MediaEncryption) {
 		return errors.New("unknown transport or media encryption")
 	}
+	if t.Kind == trunk.KindRegistersHere {
+		if !digestPattern.MatchString(t.DigestHash) || t.Username != t.Endpoint() || t.Host != "" ||
+			t.Transport != trunk.TransportTLS || t.MediaEncryption != trunk.MediaSRTP || t.WireGuardProfileID != nil {
+			return errors.New("a phone system that signs in to Linx needs its login and TLS with encrypted audio")
+		}
+		if t.CallerIDNumber != "" && !digitsPattern.MatchString(t.CallerIDNumber) {
+			return errors.New("bad caller ID")
+		}
+	}
 	if t.Kind == trunk.KindRegistration && (t.Username == "" || password == "") {
 		return errors.New("a trunk that signs in needs a login and password")
 	}
@@ -252,6 +273,47 @@ func check(t trunk.Trunk, password string) error {
 		}
 	}
 	return nil
+}
+
+var (
+	digestPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	digitsPattern = regexp.MustCompile(`^\+?[0-9]{2,20}$`)
+	domainPattern = regexp.MustCompile(`^[a-z0-9.-]+$`)
+)
+
+// writeSignedIn writes a phone system or gateway that signs in to Linx
+// (trunk.KindRegistersHere, docs/SIMPLER.md §1, ADR-061). It's rendered
+// like a device (the realtime views, migration 0013): a login checked
+// against its digest hash, one contact at a time (a new sign-in replaces
+// the old), in the trunks' own context. Many phone systems put their
+// caller's number, not their login, in From, so it's identified by the
+// login in its Authorization header (after a challenge, pjsip.conf's
+// default_realm), or by From when that's its login; never by address.
+func writeSignedIn(b *bytes.Buffer, t trunk.Trunk, sipDomain string) {
+	id := t.Endpoint()
+	fmt.Fprintf(b, "\n; ---- trunk %s (kind %s): signs in to Linx\n", t.ID, t.Kind)
+	fmt.Fprintf(b, "[%s]\ntype=aor\nmax_contacts=1\nremove_existing=yes\nqualify_frequency=60\nqualify_timeout=5\n", id)
+	fmt.Fprintf(b, "\n[%s]\ntype=auth\nauth_type=md5\nusername=%s\nmd5_cred=%s\nrealm=%s\n", id, id, t.DigestHash, pbx.DigestRealm)
+	fmt.Fprintf(b, "\n[%s]\ntype=endpoint\ntransport=%s\n", id, asteriskconf.TLSTransport)
+	b.WriteString("context=linx-from-trunk\n")
+	fmt.Fprintf(b, "disallow=all\nallow=%s\naors=%s\nauth=%s\n", strings.Join(t.Codecs, ","), id, id)
+	b.WriteString("media_encryption=sdes\nmedia_encryption_optimistic=no\n")
+	if domainPattern.MatchString(sipDomain) {
+		fmt.Fprintf(b, "from_domain=%s\n", sipDomain)
+	}
+	b.WriteString(`identify_by=auth_username,username
+direct_media=no
+rtp_symmetric=yes
+force_rport=yes
+rewrite_contact=yes
+dtmf_mode=rfc4733
+send_pai=yes
+send_rpid=no
+trust_id_inbound=no
+trust_id_outbound=yes
+allow_subscribe=no
+allow_transfer=no
+`)
 }
 
 // configValue escapes ";" (a comment otherwise); check already refused
@@ -399,6 +461,8 @@ type Renderer struct {
 	// WireGuardDir is where linx-wireguard reads its tunnels
 	// (internal/wgconf); empty: not written.
 	WireGuardDir string
+	// SIPDomain is Input.SIPDomain.
+	SIPDomain string
 	// Lookup resolves a trunk's host. Nil: the system resolver.
 	Lookup   func(ctx context.Context, host string) ([]netip.Addr, error)
 	Interval time.Duration
@@ -456,7 +520,7 @@ func (r *Renderer) RenderOnce(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	in := Input{Passwords: map[uuid.UUID]string{}, Addresses: map[string][]netip.Addr{}}
+	in := Input{Passwords: map[uuid.UUID]string{}, Addresses: map[string][]netip.Addr{}, SIPDomain: r.SIPDomain}
 	var before *uuid.UUID
 	for {
 		page, err := r.Store.ListTrunks(ctx, tenant, before, 100)
@@ -474,7 +538,7 @@ func (r *Renderer) RenderOnce(ctx context.Context) (bool, error) {
 			}
 			in.Trunks = append(in.Trunks, t)
 			in.Passwords[t.ID] = pw
-			if _, done := in.Addresses[t.Host]; !done {
+			if _, done := in.Addresses[t.Host]; !done && t.Kind != trunk.KindRegistersHere {
 				in.Addresses[t.Host] = r.resolve(ctx, t.Host)
 			}
 		}

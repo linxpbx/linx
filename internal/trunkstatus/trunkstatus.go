@@ -241,3 +241,26 @@ func Decide(registers bool, t Trunk) (status, detail string) {
 		return StatusUnknown, "Waiting for the first keep-alive check."
 	}
 }
+
+// DetailStoppedAnswering is DecideSignedIn's reason for a phone system
+// that's signed in but doesn't answer.
+const DetailStoppedAnswering = "It's signed in, but stopped answering Linx's keep-alive checks."
+
+// DecideSignedIn is Decide for a phone system that signs in to Linx
+// (trunk.KindRegistersHere, docs/SIMPLER.md §1): its registered contact is
+// the whole story. previous is its status so far: one that has never
+// signed in is still being set up, not down, so no "line down" alert
+// fires while the admin is still typing its login into it.
+func DecideSignedIn(previous string, t Trunk) (status, detail string) {
+	switch t.Contact {
+	case ContactUnavail:
+		return StatusUnreachable, DetailStoppedAnswering
+	case "", ContactRemoved:
+		if previous == StatusRegistered || previous == StatusUnreachable {
+			return StatusUnreachable, "It isn't signed in to Linx any more."
+		}
+		return StatusUnknown, "Waiting for it to sign in to Linx."
+	default:
+		return StatusRegistered, "It's signed in to Linx."
+	}
+}

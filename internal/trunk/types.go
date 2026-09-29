@@ -21,10 +21,14 @@ const (
 	KindRegistration    = "registration"
 	KindIPAuthenticated = "ip_authenticated"
 	KindLANPeer         = "lan_peer"
+	// KindRegistersHere is a phone system or gateway that signs in to
+	// Linx with a login Linx made for it, like a desk phone
+	// (docs/SIMPLER.md §1, ADR-061).
+	KindRegistersHere = "registers_here"
 )
 
 // Kinds lists every trunk kind.
-var Kinds = []string{KindRegistration, KindIPAuthenticated, KindLANPeer}
+var Kinds = []string{KindRegistration, KindIPAuthenticated, KindLANPeer, KindRegistersHere}
 
 // Transports a trunk can use. Only TransportTLS needs no ADR-023 confirmation.
 const (
@@ -80,6 +84,9 @@ var (
 	// the row (a trunk on a WireGuard profile, an extension on a
 	// permission level).
 	ErrInUse = errors.New("in use")
+	// ErrExtensionNotFound is a trunk's "calls on this line ring"
+	// extension that doesn't exist.
+	ErrExtensionNotFound = errors.New("extension not found")
 )
 
 // Trunk is a phone line to a provider or another phone system
@@ -106,9 +113,19 @@ type Trunk struct {
 	OutboundPriority       *int
 	UnencryptedConfirmedBy string
 	UnencryptedConfirmedAt *time.Time
-	Enabled                bool
-	Version                int
-	CreatedAt, UpdatedAt   time.Time
+	// DigestHash is a KindRegistersHere trunk's login, as for devices
+	// (pbx.DigestHash); its username is Endpoint().
+	DigestHash string
+	// RingsExtensionID is where the line's calls for none of its numbers
+	// ring (docs/SIMPLER.md §1.2); nil: they hear "not in use".
+	RingsExtensionID     *uuid.UUID
+	Enabled              bool
+	Version              int
+	CreatedAt, UpdatedAt time.Time
+	// NewPassword is a KindRegistersHere trunk's password, only in what
+	// creating it or making it a new one returns: shown once, never
+	// stored (ADR-033).
+	NewPassword string
 	// Status is what Asterisk last said about it (internal/trunkstatus's
 	// Status constants), kept by the Monitor; not a setting.
 	Status       string
@@ -120,6 +137,9 @@ type Trunk struct {
 // media (docs/TRUNKS.md §6): the ADR-023 warning applies, unless a
 // WireGuard tunnel already encrypts everything (ADR-024).
 func (t Trunk) Unencrypted() bool {
+	if t.Kind == KindRegistersHere {
+		return false // always TLS and SRTP (migration 0028)
+	}
 	return (t.Transport != TransportTLS || t.MediaEncryption != MediaSRTP) && t.WireGuardProfileID == nil
 }
 

@@ -320,3 +320,50 @@ func TestRenderWireGuard(t *testing.T) {
 		t.Error("tunnel file not written")
 	}
 }
+
+// A phone system that signs in to Linx is rendered like a device: its
+// login's digest hash, one contact, identified by its login (never its
+// address), in the trunks' context, and nothing added to the ACL.
+func TestRenderSignsIn(t *testing.T) {
+	gw := base("UCM landlines")
+	gw.Kind, gw.Host, gw.Username = trunk.KindRegistersHere, "", gw.Endpoint()
+	gw.DigestHash = "0123456789abcdef0123456789abcdef"
+	files, problems := Render(Input{Trunks: []trunk.Trunk{gw}, SIPDomain: "sip.example.com"})
+	if len(problems) > 0 {
+		t.Errorf("problems: %v", problems)
+	}
+	conf := string(files.PJSIP)
+	id := gw.Endpoint()
+	for _, want := range []string{
+		"[" + id + "]\ntype=aor\nmax_contacts=1\nremove_existing=yes\nqualify_frequency=60\n",
+		"[" + id + "]\ntype=auth\nauth_type=md5\nusername=" + id + "\nmd5_cred=0123456789abcdef0123456789abcdef\nrealm=linxpbx\n",
+		"[" + id + "]\ntype=endpoint\ntransport=transport-tls\ncontext=linx-from-trunk\n",
+		"aors=" + id + "\nauth=" + id + "\n", "media_encryption=sdes\nmedia_encryption_optimistic=no\n",
+		"from_domain=sip.example.com\n", "identify_by=auth_username,username\n", "allow_transfer=no\n",
+	} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("pjsip_trunks.conf missing %q:\n%s", want, conf)
+		}
+	}
+	for _, not := range []string{"type=identify", "type=registration", "\ncontact=", "phone-networks", "outbound_auth", "callerid="} {
+		if strings.Contains(conf, not) {
+			t.Errorf("pjsip_trunks.conf has %q:\n%s", not, conf)
+		}
+	}
+
+	// Anything that would make it something else is left out.
+	for _, bad := range []func(*trunk.Trunk){
+		func(t *trunk.Trunk) { t.DigestHash = "" },
+		func(t *trunk.Trunk) { t.DigestHash = "0123456789abcdef0123456789abcdeF\n[x]" },
+		func(t *trunk.Trunk) { t.Username = "someone" },
+		func(t *trunk.Trunk) { t.MediaEncryption = trunk.MediaNone },
+		func(t *trunk.Trunk) { t.Host = "192.168.1.5" },
+	} {
+		g := gw
+		bad(&g)
+		files, problems := Render(Input{Trunks: []trunk.Trunk{g}})
+		if len(problems) != 1 || strings.Contains(string(files.PJSIP), id) {
+			t.Errorf("rendered %+v: problems %v\n%s", g, problems, files.PJSIP)
+		}
+	}
+}

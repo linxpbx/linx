@@ -704,6 +704,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** No certificates or pinning on gateways; the same protections and status as desk phones. A gateway registering from anywhere waits for public SIP's password-guessing protection. Built with Phase 1E step 7.
 
+**As built (2026-09-29).** Kind `registers_here`, migration 0028; the login name is the line's endpoint name `trunk-<id>`, since PJSIP's `auth_username` identification finds the endpoint *named* after the Authorization username (a gateway's From usually carries the caller's number); the challenge of an unidentified first INVITE uses `default_realm=linxpbx`. Details in docs/SIMPLER.md §1 "As built".
+
 ## ADR-062 — One front-door method for every proxy (owner decision, approved 2026-09-29)
 
 **Context.** Five front-door kinds, each with its own files and steps; the owner asked for one unified setup, whether the proxy is set up in a web page (Pangolin, Nginx Proxy Manager) or a file (nginx, HAProxy).

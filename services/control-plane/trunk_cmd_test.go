@@ -172,10 +172,40 @@ func newTrunkCmd(t *testing.T, input string, interactive bool) (*trunkCmd, *fake
 	return c, st, pr, &out, &errb
 }
 
+func TestTrunkAddSignsIn(t *testing.T) {
+	// A phone system that signs in to Linx: nothing but a name, then its
+	// numbers and outgoing choice; its login is shown once.
+	c, st, pr, out, errb := newTrunkCmd(t, "", false)
+	code := c.run(context.Background(), []string{"add", "--template", "phone_system", "--name", "UCM landlines",
+		"--did", "+97142000100=101", "--outgoing", "primary"})
+	if code != 0 {
+		t.Fatalf("code %d\n%s\n%s", code, out, errb)
+	}
+	if len(st.trunks) != 1 || len(pr.targets) != 0 {
+		t.Fatalf("trunks %+v, probed %+v", st.trunks, pr.targets)
+	}
+	tr := st.trunks[0]
+	if tr.Kind != trunk.KindRegistersHere || tr.Host != "" || tr.Username != tr.Endpoint() || tr.DigestHash == "" ||
+		tr.DialFormat != trunk.DialLocal || tr.Unencrypted() {
+		t.Errorf("saved %+v", tr)
+	}
+	if !strings.Contains(out.String(), "Username:        "+tr.Endpoint()) || !strings.Contains(out.String(), "Password:        ") {
+		t.Errorf("output doesn't show the login:\n%s", out)
+	}
+	if tr.OutboundPriority == nil || len(st.dids) != 1 {
+		t.Errorf("outgoing %v, dids %+v", tr.OutboundPriority, st.dids)
+	}
+
+	c, _, _, _, errb = newTrunkCmd(t, "", false)
+	if code := c.run(context.Background(), []string{"add", "--template", "phone_system", "--name", "x", "--host", "192.168.1.5"}); code == 0 {
+		t.Error("an address was accepted for a phone system that signs in")
+	}
+}
+
 func TestTrunkAddGuided(t *testing.T) {
-	// Template 4 (Grandstream UCM), default name, address, default port,
+	// Template 5 (Grandstream UCM, Linx connects to it), default name, address, default port,
 	// pin the certificate, one DID ringing 101, then done, primary line.
-	input := "4\n\n192.168.1.5\n\nyes\n+97142000100\n101\n\nprimary\n"
+	input := "5\n\n192.168.1.5\n\nyes\n+97142000100\n101\n\nprimary\n"
 	c, st, pr, out, errb := newTrunkCmd(t, input, true)
 	if code := c.run(context.Background(), []string{"add"}); code != 0 {
 		t.Fatalf("code %d\n%s\n%s", code, out, errb)
@@ -184,7 +214,7 @@ func TestTrunkAddGuided(t *testing.T) {
 		t.Fatalf("trunks %+v", st.trunks)
 	}
 	tr := st.trunks[0]
-	if tr.Name != "Grandstream UCM (on the LAN)" || tr.Host != "192.168.1.5" || tr.Port != 5061 || tr.Kind != trunk.KindLANPeer ||
+	if tr.Name != "Grandstream UCM, Linx connects to it (advanced)" || tr.Host != "192.168.1.5" || tr.Port != 5061 || tr.Kind != trunk.KindLANPeer ||
 		tr.CertTrust != trunk.CertPinned || tr.PinnedCertificate != testPEM || tr.Unencrypted() {
 		t.Errorf("saved %+v", tr)
 	}
@@ -217,7 +247,7 @@ func TestTrunkAddGuided(t *testing.T) {
 
 	// remove.
 	c.interactive = false
-	if code := c.run(context.Background(), []string{"remove", "grandstream ucm (on the lan)"}); code != 2 {
+	if code := c.run(context.Background(), []string{"remove", "grandstream ucm, linx connects to it (advanced)"}); code != 2 {
 		t.Errorf("remove without --yes or a terminal: code %d", code)
 	}
 	if code := c.run(context.Background(), []string{"remove", "--yes", tr.Name}); code != 0 || len(st.trunks) != 0 {

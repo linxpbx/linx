@@ -415,6 +415,77 @@ func TestTrunksDocker(t *testing.T) {
 		// Phones are untouched by all these reloads.
 		e.run("echo-after", "call.xml", alice, "-s", "*43", "-d", "1000")
 	})
+
+	t.Run("a phone system that signs in to Linx", func(t *testing.T) {
+		// docs/SIMPLER.md §1: it signs in like a desk phone, with the login
+		// Linx made; calls both ways go over that one connection.
+		gw := newTrunk(trunk.TrunkInput{Name: "Gateway", Kind: trunk.KindRegistersHere, RingsExtensionID: &bob.ext.ID})
+		did(gw, "+97142000105", bob.ext)
+		route(gw)
+		render()
+		login := phone{dev: pbx.Device{SIPUsername: gw.Username}, password: gw.NewPassword}
+		gwPhone := e.sipp("gateway", "register.xml", login, "-oocsf", "/scenarios/answer.xml", "-d", "600000")
+		t.Cleanup(func() { exec.Command("docker", "rm", "--force", gwPhone).Run() })
+		eventually(t, "the gateway signed in", 15*time.Second, func() bool {
+			return strings.Contains(e.asteriskCLI("pjsip show contacts"), gw.Endpoint())
+		})
+
+		// Its status: signed in, from Asterisk's report and doctor's parser.
+		statusDir := filepath.Join(e.dir, "trunk-status")
+		eventually(t, "the gateway in the status report", 30*time.Second, func() bool {
+			f, err := trunkstatus.Read(statusDir)
+			return err == nil && f.Trunks[gw.Endpoint()].Contact != ""
+		})
+		mon := &trunk.Monitor{Store: e.store, Alerts: noAlerts{}, Dir: statusDir, Log: slog.New(slog.DiscardHandler)}
+		if err := mon.Check(e.ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := e.store.Trunk(e.ctx, gw.TenantID, gw.ID); err != nil || got.Status != trunkstatus.StatusRegistered {
+			t.Errorf("gateway status %q %q (%v), want registered", got.Status, got.StatusDetail, err)
+		}
+
+		// Out: Alice's mobile call goes to wherever it signed in from.
+		e.run("gw-out", "call.xml", alice, "-s", "0507654321", "-d", "1000")
+		if ended := e.callEnded("0507654321"); ended["outcome"] != pbx.OutcomeAnswered || ended["trunk_id"] != gw.ID.String() {
+			t.Errorf("outgoing call.ended = %v", ended)
+		}
+
+		// In: a call for its number, with the caller's number in From (not
+		// its login), rings Bob.
+		e.wait(e.sipp("gw-in", "gateway-call.xml", login, "-s", "+97142000105", "-set", "caller", "0501112233", "-d", "1000"))
+		if in := e.callEnded("+97142000105"); in["direction"] != pbx.DirectionInbound || in["trunk_id"] != gw.ID.String() {
+			t.Errorf("inbound call.ended = %v", in)
+		}
+		// A call for none of its numbers (an analog line sends none) rings
+		// its "calls on this line ring" extension: Bob, never back out.
+		e.wait(e.sipp("gw-in-none", "gateway-call.xml", login, "-s", "0509998877", "-set", "caller", "0501112244", "-d", "1000"))
+		var out int
+		if err := e.pool.QueryRow(e.ctx, `SELECT count(*) FROM event_outbox WHERE type = 'call.ended'
+			AND convert_from(body, 'UTF8')::jsonb->'data'->>'direction' = 'outbound'
+			AND convert_from(body, 'UTF8')::jsonb->'data'->>'to' = '0509998877'`).Scan(&out); err != nil || out != 0 {
+			t.Errorf("a call from the gateway went back out (%d, %v)", out, err)
+		}
+
+		// A wrong password is refused (Asterisk challenges again; SIPp
+		// gives up after -timeout), and a new password replaces the old.
+		wrong := login
+		wrong.password = "not-its-password"
+		if code := docker(t, e.ctx, "wait", e.sipp("gw-wrong", "gateway-call.xml", wrong, "-s", "+97142000105",
+			"-set", "caller", "0501112255", "-d", "1000", "-timeout", "15s")); code == "0" {
+			t.Error("a call with the wrong password got through")
+		}
+		reset, err := svc.ResetTrunkPassword(admin, gw.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		render()
+		if code := docker(t, e.ctx, "wait", e.sipp("gw-old", "gateway-call.xml", login, "-s", "+97142000105",
+			"-set", "caller", "0501112266", "-d", "1000", "-timeout", "15s")); code == "0" {
+			t.Error("the old password still works")
+		}
+		fresh := phone{dev: login.dev, password: reset.NewPassword}
+		e.wait(e.sipp("gw-new", "gateway-call.xml", fresh, "-s", "+97142000105", "-set", "caller", "0501112277", "-d", "1000"))
+	})
 }
 
 func ptr[T any](v T) *T { return &v }

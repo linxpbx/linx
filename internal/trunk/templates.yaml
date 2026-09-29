@@ -30,8 +30,15 @@
   codecs: [alaw, ulaw]
   notes: Create a Termination SIP domain in the Twilio console and use its credential list username and password.
 
+- name: phone_system
+  label: Another phone system or gateway (it signs in to Linx)
+  kind: registers_here
+  dial_format: local
+  codecs: [alaw, ulaw, g722]
+  notes: Linx makes a login for it. On the phone system or gateway (a Grandstream UCM, GXW or HT, Yeastar, FreePBX, an FXO adapter), add a SIP trunk that registers, with that server, port 5061, TLS, encrypted audio (SRTP) and that username and password.
+
 - name: grandstream_ucm
-  label: Grandstream UCM (on the LAN)
+  label: Grandstream UCM, Linx connects to it (advanced)
   kind: lan_peer
   transport: tls
   media_encryption: srtp

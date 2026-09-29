@@ -188,6 +188,17 @@ func (s *Store) DeleteExtension(ctx context.Context, tenant, id uuid.UUID, at ti
 		if err := revokeDevicesOf(ctx, tx, id, at); err != nil {
 			return err
 		}
+		// Numbers and lines that rang it now ring nobody, rather than
+		// pointing at an extension that's gone (the admin screens would
+		// show it; the dialplan already ignores a deleted one).
+		if _, err := tx.Exec(ctx, `UPDATE trunk_did SET extension_id = NULL, version = version + 1, updated_at = $2
+			WHERE extension_id = $1`, id, at); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE trunk SET rings_extension_id = NULL, version = version + 1, updated_at = $2
+			WHERE rings_extension_id = $1`, id, at); err != nil {
+			return err
+		}
 		ev, err := extensionEvent(e, "extension.deleted", at)
 		if err != nil {
 			return err

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/trunk"
@@ -19,20 +20,32 @@ var _ trunk.Store = (*Store)(nil)
 const trunkColumns = `id, tenant_id, name, kind, template, host, port, transport, media_encryption, cert_trust,
 	pinned_certificate, username, password_enc, dial_format, codecs, caller_id_number, max_calls,
 	wireguard_profile_id, outbound_priority, unencrypted_confirmed_by, unencrypted_confirmed_at,
-	enabled, version, created_at, updated_at, status, status_detail, status_since`
+	enabled, version, created_at, updated_at, status, status_detail, status_since, digest_hash, rings_extension_id`
 
 func scanTrunk(row pgx.Row) (trunk.Trunk, error) {
 	var t trunk.Trunk
-	var pinnedCert, callerID, confirmedBy *string
+	var pinnedCert, callerID, confirmedBy, digest *string
 	err := row.Scan(&t.ID, &t.TenantID, &t.Name, &t.Kind, &t.Template, &t.Host, &t.Port, &t.Transport,
 		&t.MediaEncryption, &t.CertTrust, &pinnedCert, &t.Username, &t.PasswordEnc, &t.DialFormat, &t.Codecs,
 		&callerID, &t.MaxCalls, &t.WireGuardProfileID, &t.OutboundPriority, &confirmedBy, &t.UnencryptedConfirmedAt,
-		&t.Enabled, &t.Version, &t.CreatedAt, &t.UpdatedAt, &t.Status, &t.StatusDetail, &t.StatusSince)
+		&t.Enabled, &t.Version, &t.CreatedAt, &t.UpdatedAt, &t.Status, &t.StatusDetail, &t.StatusSince, &digest, &t.RingsExtensionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, trunk.ErrNotFound
 	}
 	t.PinnedCertificate, t.CallerIDNumber, t.UnencryptedConfirmedBy = deref(pinnedCert), deref(callerID), deref(confirmedBy)
+	t.DigestHash = deref(digest)
 	return t, err
+}
+
+// ringsExtensionFK is the foreign key of a trunk's "calls on this line
+// ring" extension (migration 0028).
+const ringsExtensionFK = "trunk_rings_extension_id_fkey"
+
+// isConstraintViolation reports whether err is a violation of the named
+// constraint.
+func isConstraintViolation(err error, name string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.ConstraintName == name
 }
 
 func trunkEvent(t trunk.Trunk, eventType string, at time.Time) (webhook.Event, error) {
@@ -100,15 +113,19 @@ func (s *Store) CreateTrunk(ctx context.Context, t trunk.Trunk, audit auth.Audit
 		_, err := tx.Exec(ctx, `INSERT INTO trunk (id, tenant_id, name, kind, template, host, port, transport,
 				media_encryption, cert_trust, pinned_certificate, username, password_enc, dial_format, codecs,
 				caller_id_number, max_calls, wireguard_profile_id, unencrypted_confirmed_by, unencrypted_confirmed_at,
-				enabled, version, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+				enabled, version, created_at, updated_at, digest_hash, rings_extension_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
 			t.ID, t.TenantID, t.Name, t.Kind, t.Template, t.Host, t.Port, t.Transport, t.MediaEncryption, t.CertTrust,
 			emptyStrToNil(t.PinnedCertificate), t.Username, t.PasswordEnc, t.DialFormat, t.Codecs,
 			emptyStrToNil(t.CallerIDNumber), t.MaxCalls, t.WireGuardProfileID,
-			emptyStrToNil(t.UnencryptedConfirmedBy), t.UnencryptedConfirmedAt, t.Enabled, t.Version, t.CreatedAt, t.UpdatedAt)
+			emptyStrToNil(t.UnencryptedConfirmedBy), t.UnencryptedConfirmedAt, t.Enabled, t.Version, t.CreatedAt, t.UpdatedAt,
+			emptyStrToNil(t.DigestHash), t.RingsExtensionID)
 		if err != nil {
 			if IsUniqueViolation(err) {
 				return trunk.ErrDuplicate
+			}
+			if isConstraintViolation(err, ringsExtensionFK) {
+				return trunk.ErrExtensionNotFound
 			}
 			if isForeignKeyViolation(err) {
 				return trunk.ErrNotFound
@@ -157,12 +174,15 @@ func (s *Store) UpdateTrunk(ctx context.Context, t trunk.Trunk, audit auth.Audit
 				cert_trust = $11, pinned_certificate = $12, username = $13, password_enc = $14, dial_format = $15,
 				codecs = $16, caller_id_number = $17, max_calls = $18, wireguard_profile_id = $19,
 				unencrypted_confirmed_by = $20, unencrypted_confirmed_at = $21, enabled = $22, version = version + 1,
-				updated_at = $23
+				updated_at = $23, digest_hash = $24, rings_extension_id = $25
 			WHERE id = $1 AND tenant_id = $2 AND version = $3 RETURNING `+trunkColumns,
 			t.ID, t.TenantID, t.Version, t.Name, t.Kind, t.Template, t.Host, t.Port, t.Transport, t.MediaEncryption,
 			t.CertTrust, emptyStrToNil(t.PinnedCertificate), t.Username, t.PasswordEnc, t.DialFormat, t.Codecs,
 			emptyStrToNil(t.CallerIDNumber), t.MaxCalls, t.WireGuardProfileID, emptyStrToNil(t.UnencryptedConfirmedBy),
-			t.UnencryptedConfirmedAt, t.Enabled, t.UpdatedAt))
+			t.UnencryptedConfirmedAt, t.Enabled, t.UpdatedAt, emptyStrToNil(t.DigestHash), t.RingsExtensionID))
+		if isConstraintViolation(err, ringsExtensionFK) {
+			return trunk.ErrExtensionNotFound
+		}
 		if errors.Is(err, trunk.ErrNotFound) {
 			var exists bool
 			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM trunk WHERE id = $1 AND tenant_id = $2)`,

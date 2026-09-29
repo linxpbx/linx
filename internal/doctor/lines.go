@@ -126,13 +126,20 @@ func Lines(ctx context.Context, env Env) []Result {
 	}
 	for _, t := range st.Trunks {
 		label := fmt.Sprintf("Line %q (%s)", t.Name, t.Host)
+		if t.Kind == trunk.KindRegistersHere {
+			label = fmt.Sprintf("Line %q (signs in to Linx)", t.Name)
+		}
 		if !t.Enabled {
 			rs.ok(label + " is turned off.")
 			continue
 		}
 		status, detail := t.Status, t.Detail
 		if asked {
-			status, detail = trunkstatus.Decide(t.Kind == "registration", live["trunk-"+t.ID])
+			if t.Kind == trunk.KindRegistersHere {
+				status, detail = trunkstatus.DecideSignedIn(t.Status, live["trunk-"+t.ID])
+			} else {
+				status, detail = trunkstatus.Decide(t.Kind == "registration", live["trunk-"+t.ID])
+			}
 		}
 		if t.Outbound != nil {
 			outbound++
