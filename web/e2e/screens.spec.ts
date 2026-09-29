@@ -511,6 +511,19 @@ test.describe("setup wizard", () => {
     await shot(page, "setup-wizard-numbers");
     await page.getByText("Change the ranges").click();
     await shot(page, "setup-wizard-numbers-ranges");
+    // Typing a new range the way people do: empty a box, type the number
+    // (the second box once emptied the first; owner, Phase 1E demo).
+    const from = page.getByLabel("People from");
+    const to = page.getByLabel("People to");
+    await from.fill("");
+    await from.pressSequentially("200");
+    await to.fill("");
+    await to.pressSequentially("499");
+    await expect(from).toHaveValue("200");
+    await expect(to).toHaveValue("499");
+    await expect(page.getByText("200–499")).toBeVisible();
+    await page.getByText("Use the recommended ranges").click();
+    await expect(from).toHaveValue("100");
   });
 
   test("people", async ({ page }) => {

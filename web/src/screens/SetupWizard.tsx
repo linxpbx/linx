@@ -161,14 +161,33 @@ function NumberBar({ digits, ranges }: { digits: number; ranges: ReturnType<type
   );
 }
 
-function RangeFields({ label, range, onChange }: { label: string; range: { from: number; to: number } | null; onChange: (r: { from: number; to: number } | null) => void }) {
+type Span = { from: number; to: number };
+const rangeOf = (from: string, to: string): Span | null =>
+  from.trim() !== "" && to.trim() !== "" ? { from: Number(from), to: Number(to) } : null;
+const sameRange = (a: Span | null, b: Span | null) => (a === null ? b === null : b !== null && a.from === b.from && a.to === b.to);
+
+// Each box keeps what's typed in it: emptying one (to type another number)
+// mustn't empty the other (owner found it in the Phase 1E demo). The range
+// is whole only when both boxes hold a number.
+export function RangeFields({ label, range, onChange }: { label: string; range: Span | null; onChange: (r: Span | null) => void }) {
+  const [from, setFrom] = useState(range ? String(range.from) : "");
+  const [to, setTo] = useState(range ? String(range.to) : "");
+  // A change from outside ("Use the recommended ranges", another digit count).
+  useEffect(() => {
+    if (!sameRange(range, rangeOf(from, to))) {
+      setFrom(range ? String(range.from) : "");
+      setTo(range ? String(range.to) : "");
+    }
+    // Only when the range itself changes, not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range?.from, range?.to, range === null]);
   return (
     <div className="grid grid-cols-[auto_1fr_1fr] items-center gap-2">
       <span className="text-sm">{label}</span>
-      <Input type="number" aria-label={`${label} from`} value={range?.from ?? ""}
-        onChange={(e) => onChange(e.target.value === "" ? null : { from: Number(e.target.value), to: range?.to ?? Number(e.target.value) })} />
-      <Input type="number" aria-label={`${label} to`} value={range?.to ?? ""}
-        onChange={(e) => onChange(e.target.value === "" ? null : { from: range?.from ?? Number(e.target.value), to: Number(e.target.value) })} />
+      <Input type="number" aria-label={`${label} from`} value={from}
+        onChange={(e) => { setFrom(e.target.value); onChange(rangeOf(e.target.value, to)); }} />
+      <Input type="number" aria-label={`${label} to`} value={to}
+        onChange={(e) => { setTo(e.target.value); onChange(rangeOf(from, e.target.value)); }} />
     </div>
   );
 }
