@@ -189,11 +189,15 @@ func TestSetupConfigFile(t *testing.T) {
 		{"invalid", "version: 1\ncontainer_ui: dockge\n", 1, "container_ui"},
 		{"no domain", "version: 1\ndocker:\n  install: true\n", 1, "domain.name: required"},
 		{"no token", "version: 1\ndocker:\n  install: true\ndomain:\n  name: x.duckdns.org\n  dns_provider: duckdns\n", 1, "no DNS provider token"},
+		// A rented server that skipped the token in the web install runs
+		// setup again (or updates) without one (found on the VPS demo).
+		{"no token, skipped on purpose", "version: 1\ndocker:\n  install: true\n" + domain +
+			"certificates:\n  staging: false\n  email: owner@example.com\n  no_dns_token: true\nfront_door:\n  kind: linx-443\n", 0, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			files := map[string]string{"s.yaml": tt.yaml}
-			if tt.name != "no token" {
+			if !strings.HasPrefix(tt.name, "no token") {
 				files[installer.DNSTokenPath] = testToken + "\n"
 			}
 			env := testEnv("", files)

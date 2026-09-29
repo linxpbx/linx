@@ -454,6 +454,12 @@ func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (stri
 		if cfg.Domain.Name == "" {
 			return "", errors.New("setup.yaml: domain.name: required, e.g. pbx.example.com")
 		}
+		if saved == "" && cfg.Certificates.NoDNSToken {
+			// A rented server that skipped the token in the web install: its
+			// certificate renews through port 443 (found on the VPS demo:
+			// setup run again, or an update, stopped here).
+			return "", nil
+		}
 		if saved == "" {
 			return "", fmt.Errorf("no DNS provider token saved yet. Put it in %s (one line, root only) and run setup again", installer.DNSTokenPath)
 		}
