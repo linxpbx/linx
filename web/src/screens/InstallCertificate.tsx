@@ -366,6 +366,11 @@ function MoveToSecure({ url }: { url: string }) {
     setProblem("");
     setPhase("checking");
     if (!(await canOpen(url))) {
+      // The page may be older than the certificate: its security policy,
+      // fixed when it loaded, then doesn't allow the check yet (the server
+      // adds the secure address once the certificate is ready). Load the
+      // page again, once, to get the current one (found on the VPS demo).
+      if (reloadOnce(url)) return;
       setPhase("blocked");
       return;
     }
@@ -398,6 +403,19 @@ function MoveToSecure({ url }: { url: string }) {
         )}
     </div>
   );
+}
+
+/** Reloads the page once per secure address; false when it already did. */
+function reloadOnce(url: string): boolean {
+  const key = "linx-install-reloaded:" + url;
+  try {
+    if (sessionStorage.getItem(key)) return false;
+    sessionStorage.setItem(key, "1");
+  } catch {
+    return false; // no storage: don't risk reloading in a loop
+  }
+  window.location.reload();
+  return true;
 }
 
 /** https://<domain>: /install/continue#<handoff>, then /install. */
