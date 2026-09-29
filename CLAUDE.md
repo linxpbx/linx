@@ -13,6 +13,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/WEB.md` web client, accounts/sign-in, `/sip` relay, coturn, front doors, Opus (Phase 1C)
 - `docs/TRUNKS.md` trunks, numbering/outbound routing, WireGuard, toll fraud (Phase 1D)
 - `docs/ADMIN.md` admin portal, web setup wizard, numbering plan, passkeys, company sign-in (Phase 1E)
+- `docs/RESOURCES.md` what Linx needs to run (measured), minimum hardware, what's been made smaller
 - `docs/HELP.md` help pages and search (guides in `docs/help/`)
 - `docs/INSTALL.md` web-first install: one link from the terminal, HTTP 6464 → TLS-ALPN-01 → HTTPS, moved-server checklist
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
@@ -135,6 +136,16 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - Keep replies short. Don't restate plans or summarise diffs unless asked.
 - Each phase ends with passing tests, `docker compose up` working on clean Ubuntu 24.04, updated docs, and `docs/DEMO_PHASE<N>.md`.
 - Turn repeated procedures into `make` targets or project skills.
+
+## Low-resource and low-bandwidth rule (owner, 2026-09-29, applies to every step)
+Linx must run well on the smallest servers (1 core, 1–2 GB, a few GB of disk). Every change keeps processor, memory and disk use at a bare minimum, both idle and under load (calls, video calls, meetings, and all other server activity):
+- **Measure, don't guess.** Anything that adds a service, a dependency, a background loop or a bigger image gets its idle and busy cost measured (`docker stats`, image size, disk) and recorded in `docs/RESOURCES.md`. Numbers go up only with a reason written there.
+- **Nothing runs that isn't needed:** optional features start only when turned on (meetings, recordings, AI); no polling where an event will do; timers as slow as the job allows.
+- **Small images:** smallest safe base (distroless/Alpine/slim), stripped binaries, no build tools or docs in runtime images; old versions cleaned up after updates.
+- **Tuned defaults for small servers:** memory caps per container, services' own settings sized for a small office (connection pools, buffers, worker threads), logs capped.
+- **Never at the cost of security or correctness:** say what a saving trades away and ask when it's not free.
+- **Low bandwidth too** (owner, 2026-09-29): calls, video and meetings must work on slow or poor links (mobile data, hotel Wi-Fi, China): Opus with a low, adaptive bitrate and forward error correction before anything else; video that scales down (simulcast, bitrate caps, audio kept first); the web app small and cached (compressed, split, long-cached assets); no chatty polling (websockets/events, small payloads). Measure data used per minute of a call and per page load, and record it in `docs/RESOURCES.md`.
+- Each phase's demo includes the 1-core 2 GB VPS (`docs/RESOURCES.md` §4).
 
 ## Front-end rules (added by owner)
 - Use docs/ui/linx-tokens.json as the single source for colours, fonts, radii and the logo. Never invent colours.
