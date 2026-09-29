@@ -19,7 +19,7 @@
 | Portainer (optional) | 16–76 MB |
 | Ubuntu Server's own programs (fwupd, multipathd, ModemManager, udisks2, …) | 300–450 MB |
 
-The server used 812 MB in all out of 3.9 GB. A call adds a few MB to Asterisk; an Opus call that needs converting adds processor time more than memory.
+The server used 812 MB in all out of 3.9 GB. **An echo call (measured 2026-09-29, browser on the home network, Opus end to end):** Asterisk 38 → 45 MB and about 1.2% of one core; the control plane about 0.2%; the whole server 97% idle. A call that needs converting between audio formats, or that goes through the audio relay from outside, costs more processor time.
 
 **Disk:** images 1.8 GB, stored twice by Docker's containerd image store (0.46 GB compressed plus 1.3 GB unpacked), volumes 69 MB, Docker's programs about 250 MB. Setup added about 2.3 GB to the disk in all.
 
