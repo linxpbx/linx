@@ -696,7 +696,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** A server's help always matches its own version and works without reaching any outside site (China, closed networks). Writing and updating guides becomes part of every user-visible change. Without the AI provider, search finds sections by their words, not their meaning. No public site means nobody can read the guides before installing (a public copy can be added later from the same files).
 
-## ADR-061 — A PBX or gateway signs in to Linx (design, not yet approved)
+## ADR-061 — A PBX or gateway signs in to Linx (owner decision, approved 2026-09-29)
 
 **Context.** Adding the owner's UCM6304 as a phone line was painful: Linx reached out to it, so it needed a certificate for its IP address, pinning, a "LAN peer" mode and exact firmware settings (docs/DEMO_PHASE1D.md). Every other PBX or FXO gateway would need the same, differently.
 
@@ -704,7 +704,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** No certificates or pinning on gateways; the same protections and status as desk phones. A gateway registering from anywhere waits for public SIP's password-guessing protection. Built with Phase 1E step 7.
 
-## ADR-062 — One front-door method for every proxy (design, not yet approved)
+## ADR-062 — One front-door method for every proxy (owner decision, approved 2026-09-29)
 
 **Context.** Five front-door kinds, each with its own files and steps; the owner asked for one unified setup, whether the proxy is set up in a web page (Pangolin, Nginx Proxy Manager) or a file (nginx, HAProxy).
 
@@ -712,7 +712,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Adding support for another proxy is one more set of instructions, not a new mode. Pangolin's web page support is verified on the owner's Pangolin before it's promised. Built in Phase 1F.
 
-## ADR-063 — Any DNS company (design, not yet approved)
+## ADR-063 — Any DNS company (owner decision, approved 2026-09-29)
 
 **Context.** Linx spoke to Cloudflare and DuckDNS only; the owner doesn't expect an integration per DNS company.
 

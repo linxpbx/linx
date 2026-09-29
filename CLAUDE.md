@@ -14,7 +14,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/TRUNKS.md` trunks, numbering/outbound routing, WireGuard, toll fraud (Phase 1D)
 - `docs/ADMIN.md` admin portal, web setup wizard, numbering plan, passkeys, company sign-in (Phase 1E)
 - `docs/RESOURCES.md` what Linx needs to run (measured), minimum hardware, what's been made smaller
-- `docs/SIMPLER.md` simpler phone lines (gateways sign in to Linx), one front-door method, any DNS company (ADR-061 to 063)
+- `docs/SIMPLER.md` simpler phone lines (gateways sign in to Linx), one front-door method, any DNS company (ADR-061 to 063, approved 2026-09-29)
 - `docs/HELP.md` help pages and search (guides in `docs/help/`)
 - `docs/INSTALL.md` web-first install: one link from the terminal, HTTP 6464 → TLS-ALPN-01 → HTTPS, moved-server checklist
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`

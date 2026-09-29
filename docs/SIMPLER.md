@@ -1,6 +1,6 @@
 # Linx — Simpler phone lines, front doors and DNS
 
-*Status: design drafted 2026-09-29 from the owner's request during the install demo ("a very painful process to add the UCM"; "one unified setup" for reverse proxies; "I don't expect integration with every DNS company"). The directions in §1–§3 were agreed in the session; this write-up is **not yet approved**. ADR-061 to ADR-063. Built in the phases in §4, not before. The low-resource and low-bandwidth rule (CLAUDE.md) applies to all of it.*
+*Status: design drafted 2026-09-29 from the owner's request during the install demo ("a very painful process to add the UCM"; "one unified setup" for reverse proxies; "I don't expect integration with every DNS company"). **Approved by the owner 2026-09-29.** ADR-061 to ADR-063. Built in the phases in §4, not before. The low-resource and low-bandwidth rule (CLAUDE.md) applies to all of it.*
 
 ## 1. Phone lines: a PBX or gateway signs in to Linx (ADR-061)
 
