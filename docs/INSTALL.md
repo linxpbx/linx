@@ -160,3 +160,6 @@ On the home server (`home.mym.ae`, token first, an existing domain being re-used
 - **Reuse a certificate that's still good:** on a re-install or a restore for the same domain (the certificate is in certd's volume, or could travel in the backup), use it at once and renew in the background, never asking Let's Encrypt again; this also protects the "5 duplicate certificates a week" limit on re-installs.
 - **Both names in one order** (they already are for the wildcard; check the non-wildcard path) and **the page showing what it's waiting for** ("Waiting for the DNS record to reach the internet… 40 s") so the wait never looks stuck.
 
+## 16. Owner note (2026-09-29, Phase 1E demo): the first admin's email
+The install uses the email given for the certificate (Let's Encrypt's contact address) as the first system admin's sign-in email too. The owner wants them separate: **ask the first admin's email on its own** (pre-filled with the certificate email as a suggestion only, freely changeable), and **say plainly that this is the system admin account**, with the highest authority over Linx: it can change the server's settings, restore backups, add and remove admins, and see everything. Suggest using a personal, well-protected address. Applies to the browser install, the terminal setup (`--owner-email`), and anywhere the first admin is named. Not started.
+
