@@ -721,3 +721,11 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** (`docs/SIMPLER.md` §3.) Certificates never need a DNS token (TLS-ALPN-01 by default everywhere). Records are added by hand, with the page checking them, for any DNS company. Where an address changes, Linx keeps records right through libdns (MIT; about 60 DNS companies behind one interface), starting with a curated set of ten, measured under the low-resource rule; certificates keep using lego. `sip.<domain>` stays.
 
 **Consequences.** Any DNS company works by hand; about 60 can be automated without Linx-specific code per company. Each added company adds a little to certd's image, so they're added on request, measured. Built in Phase 1F.
+
+## ADR-064 — Public port (advanced) behind a router (owner request 2026-09-29; design waiting for approval)
+
+**Context.** At home or in an office, public TCP 443 may already belong to something that can't pass Linx through by name, and there's no proxy. The router can forward another public port (e.g. 8443) to Linx's 443. docs/INSTALL.md §12 had parked this.
+
+**Decision (proposed).** (`docs/SIMPLER.md` §2.5.) Linx keeps listening on 443 inside; one optional setting, the public port (default 443), used only to build addresses and checks, never listened on. Offered only after the front-door question finds nothing that can pass Linx through, marked advanced. It requires a DNS token (TLS-ALPN-01 needs public 443). Passkeys keep their relying party (the domain) and accept the port's origin, so they survive a port change. Company sign-in's return address carries the port. TURN over TLS shares the forwarded port by name; TURN over UDP gets its own forwarded port. Setup shows the exact router rules and, in plain words, that networks allowing only 443 may block calls and even the web page, recommending a front door on 443 or a small rented front door instead. LAN desk phones and gateways are unaffected.
+
+**Consequences.** Works for ordinary home and mobile networks without any proxy; unreliable on 443-only and inspecting networks (stated everywhere it's chosen). No new service or loop. Built in Phase 1F after the front-door card, once approved.
