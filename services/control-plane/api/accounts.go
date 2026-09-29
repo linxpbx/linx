@@ -148,6 +148,50 @@ func (s *Server) ChangeMyPassword(ctx context.Context, req ChangeMyPasswordReque
 	return ChangeMyPassword204Response{}, nil
 }
 
+func (s *Server) ListMySessions(ctx context.Context, _ ListMySessionsRequestObject) (ListMySessionsResponseObject, error) {
+	list, err := s.accounts.MySessions(ctx)
+	if err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return ListMySessionsdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	cur, _ := auth.SessionFromContext(ctx)
+	out := MySessionList{Items: make([]MySession, 0, len(list))}
+	for _, sess := range list {
+		m := MySession{Id: sess.ID, Current: sess.ID == cur.ID, UserAgent: sess.UserAgent, CreatedAt: sess.CreatedAt, LastSeenAt: sess.LastSeenAt}
+		if sess.LastSeenIP != nil && sess.LastSeenIP.IsValid() {
+			ip := sess.LastSeenIP.String()
+			m.Ip = &ip
+		}
+		out.Items = append(out.Items, m)
+	}
+	return ListMySessions200JSONResponse(out), nil
+}
+
+func (s *Server) SignOutMySession(ctx context.Context, req SignOutMySessionRequestObject) (SignOutMySessionResponseObject, error) {
+	if err := s.accounts.SignOutMySession(ctx, req.Id); err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return SignOutMySessiondefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return SignOutMySession204Response{}, nil
+}
+
+func (s *Server) SignOutMyOtherSessions(ctx context.Context, _ SignOutMyOtherSessionsRequestObject) (SignOutMyOtherSessionsResponseObject, error) {
+	if err := s.accounts.SignOutOtherSessions(ctx); err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return SignOutMyOtherSessionsdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return SignOutMyOtherSessions204Response{}, nil
+}
+
 func (s *Server) BeginMyMfaEnrollment(ctx context.Context, _ BeginMyMfaEnrollmentRequestObject) (BeginMyMfaEnrollmentResponseObject, error) {
 	secret, uri, err := s.accounts.BeginMFAEnrollment(ctx)
 	if err != nil {

@@ -430,3 +430,15 @@ func (f *fakeStore) AcceptPasswordOnly(_ context.Context, _, user uuid.UUID, at 
 	f.users[user] = u
 	return nil
 }
+
+func (f *fakeStore) LiveUserSessions(_ context.Context, user uuid.UUID, now time.Time) ([]auth.UserSession, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []auth.UserSession
+	for _, s := range f.sessions {
+		if s.UserID == user && s.RevokedAt == nil && s.ExpiresAt.After(now) && s.IdleExpiresAt.After(now) {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}

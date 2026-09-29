@@ -432,6 +432,25 @@ func revokeUserSessionsTx(ctx context.Context, db execer, user uuid.UUID, at tim
 	return err
 }
 
+func (s *Store) LiveUserSessions(ctx context.Context, user uuid.UUID, now time.Time) ([]auth.UserSession, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+sessionColumns+` FROM user_session
+		WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > $2 AND idle_expires_at > $2
+		ORDER BY last_seen_at DESC LIMIT 100`, user, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []auth.UserSession
+	for rows.Next() {
+		sess, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sess)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) PromoteSession(ctx context.Context, id uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `UPDATE user_session SET mfa_verified = true WHERE id = $1 AND revoked_at IS NULL`, id)
 	return err

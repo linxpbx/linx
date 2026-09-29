@@ -158,6 +158,7 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("list", { name: "Company accounts" })).toContainText("Google: mohammed@example.com");
       await expect(page.getByRole("button", { name: "Link Microsoft" })).toBeVisible();
       await expect(page.getByRole("status")).toHaveText("Linked.");
+      await expect(page.getByText("Safari on iPhone")).toBeVisible();
       await shot(page, `${scheme}-account`);
       await page.getByRole("button", { name: "Remove" }).first().click();
       await expect(page.getByRole("dialog")).toBeVisible();
@@ -369,6 +370,39 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-system-settings-add-provider`);
     });
 
+    test("expert: webhooks and API keys", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true });
+      await page.goto("/admin/webhooks");
+      await expect(page.getByText("https://crm.example.com/hooks/linx")).toBeVisible();
+      await shot(page, `${scheme}-webhooks`);
+      await page.getByRole("row", { name: /crm\.example\.com/ }).click();
+      await expect(page.getByRole("heading", { name: "Recent deliveries" })).toBeVisible();
+      await shot(page, `${scheme}-webhooks-detail`);
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      await page.getByLabel("Address").fill("https://erp.example.com/linx");
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Add and test" }).click();
+      await expect(page.getByText("It answered 200 in 183 ms.")).toBeVisible();
+      await shot(page, `${scheme}-webhooks-added`);
+      await page.getByRole("button", { name: "Done" }).click();
+
+      await page.goto("/admin/api-keys");
+      await expect(page.getByRole("cell", { name: "CRM" })).toBeVisible();
+      await shot(page, `${scheme}-api-keys`);
+      await page.getByRole("button", { name: "+ Create" }).click();
+      await page.getByLabel("What it's for").fill("Directory sync");
+      await page.getByRole("radio", { name: /Manage people and extensions/ }).click();
+      await shot(page, `${scheme}-api-keys-create`);
+      await page.getByRole("button", { name: "Create", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+      await page.getByLabel("Password").fill("correct horse battery");
+      await page.getByLabel("Code from your authenticator app").pressSequentially("123456");
+      await expect(page.getByText("The key, shown once:")).toBeVisible();
+      await shot(page, `${scheme}-api-keys-created`);
+    });
+
     test("team, dialer, settings, calls", async ({ page }) => {
       const sip = await fakeServer(page, { signedIn: true });
       await page.goto("/team");
@@ -542,6 +576,7 @@ test.describe("phone width", () => {
     ["/admin/connections", "connections", "Connections"],
     ["/admin/system/alerts", "system-alerts", "Where alerts go"], ["/admin/system/activity", "system-activity", "System"],
     ["/admin/system/settings", "system-settings", "Admins can sign in from"],
+    ["/admin/webhooks", "webhooks", "Webhooks"], ["/admin/api-keys", "api-keys", "API keys"],
     ["/repair", "repair", "Fix this server's address"],
   ] as const) {
     test(`no sideways scrolling: ${name}`, async ({ page }) => {

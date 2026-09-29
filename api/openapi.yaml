@@ -2595,6 +2595,51 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/me/sessions:
+    get:
+      operationId: listMySessions
+      summary: My signed-in browsers
+      description: >-
+        Every session of mine that's still live, newest use first
+        (docs/ui/ADMIN_SCREENS_PHASE1E.md §11). Only for a signed-in
+        browser session.
+      tags: [people]
+      responses:
+        "200":
+          description: My sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MySessionList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/sessions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    delete:
+      operationId: signOutMySession
+      summary: Sign out one of my browsers
+      description: Its browser phone line closes at once. Another person's session is not found (404).
+      tags: [people]
+      responses:
+        "204":
+          description: Signed out.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/sessions/sign-out-others:
+    post:
+      operationId: signOutMyOtherSessions
+      summary: Sign out everywhere else
+      description: Ends every session of mine except this one.
+      tags: [people]
+      responses:
+        "204":
+          description: Signed out.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/me/mfa:
     post:
       operationId: beginMyMfaEnrollment
@@ -6543,6 +6588,38 @@ components:
         setup_link_token:
           type: string
           description: Shown once; build the link as https://<domain>/setup/<token>.
+
+    MySession:
+      type: object
+      required: [id, current, user_agent, created_at, last_seen_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        current:
+          type: boolean
+          description: This browser.
+        user_agent:
+          type: string
+          description: What the browser said it was, when it signed in.
+        ip:
+          type: string
+          description: Where it was last used from.
+        created_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+
+    MySessionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MySession"
 
     PasswordChange:
       type: object

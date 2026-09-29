@@ -33,6 +33,8 @@ const SystemServerScreen = lazy(() => import("./SystemServer").then((m) => ({ de
 const SystemAlertsScreen = lazy(() => import("./SystemAlerts").then((m) => ({ default: m.SystemAlertsScreen })));
 const SystemActivityScreen = lazy(() => import("./SystemActivity").then((m) => ({ default: m.SystemActivityScreen })));
 const SystemSettingsScreen = lazy(() => import("./SystemSettings").then((m) => ({ default: m.SystemSettingsScreen })));
+const WebhooksScreen = lazy(() => import("./Webhooks").then((m) => ({ default: m.WebhooksScreen })));
+const ApiKeysScreen = lazy(() => import("./ApiKeys").then((m) => ({ default: m.ApiKeysScreen })));
 const SetupWizardScreen = lazy(() => import("./SetupWizard").then((m) => ({ default: m.SetupWizardScreen })));
 const loading = <div className="p-6" aria-busy="true" />;
 
@@ -106,6 +108,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
       : path === "/admin/lines" ? "admin-lines" : path === "/admin/incoming" ? "admin-incoming"
       : path === "/admin/outgoing" ? "admin-outgoing" : path === "/admin/simulator" ? "admin-simulator"
       : path === "/admin/connections" ? "admin-connections"
+      : path === "/admin/webhooks" ? "admin-webhooks" : path === "/admin/api-keys" ? "admin-api-keys"
       : "dialer";
 
   return (
@@ -132,6 +135,8 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
               : screen === "admin-outgoing" ? <OutgoingCallsScreen me={me} simpleMode={simpleMode} />
               : screen === "admin-simulator" ? <CallSimulatorScreen me={me} />
               : screen === "admin-connections" ? <ConnectionsScreen me={me} />
+              : screen === "admin-webhooks" ? <WebhooksScreen me={me} />
+              : screen === "admin-api-keys" ? <ApiKeysScreen me={me} />
               : <DialerScreen members={team.members} />}</Suspense>}
       </Shell>
     </PhoneContext.Provider>

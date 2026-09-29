@@ -1245,3 +1245,71 @@ func (f *fakeAccountStore) DeletePasskey(_ context.Context, tenant, user, id uui
 	f.users[user] = u
 	return nil
 }
+
+func (f *fakeAccountStore) LiveUserSessions(_ context.Context, user uuid.UUID, now time.Time) ([]UserSession, error) {
+	var out []UserSession
+	for _, s := range f.sessions {
+		if s.UserID == user && s.RevokedAt == nil && s.ExpiresAt.After(now) && s.IdleExpiresAt.After(now) {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// My account → Signed-in browsers: my live sessions only; signing out one
+// or all the others ends them (and closes their phone lines), never
+// someone else's.
+func TestMySessions(t *testing.T) {
+	a, st, _ := newTestAccounts(t)
+	var ended []uuid.UUID
+	a.SessionsEnded = func(_ context.Context, _ uuid.UUID, s *uuid.UUID) { ended = append(ended, *s) }
+	now := time.Now()
+	tenant, me, other := uuid.New(), uuid.New(), uuid.New()
+	mk := func(user uuid.UUID, expired bool) UserSession {
+		s := UserSession{ID: uuid.New(), TenantID: tenant, UserID: user, Role: RoleUser, MFAVerified: true,
+			CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(time.Hour), IdleExpiresAt: now.Add(time.Hour)}
+		if expired {
+			s.IdleExpiresAt = now.Add(-time.Minute)
+		}
+		st.sessions[s.ID] = s
+		return s
+	}
+	here, phone, laptop, stale, theirs := mk(me, false), mk(me, false), mk(me, false), mk(me, true), mk(other, false)
+	ctx := WithSession(WithPrincipal(context.Background(), here.Principal()), here)
+
+	list, err := a.MySessions(ctx)
+	if err != nil || len(list) != 3 {
+		t.Fatalf("MySessions = %d sessions, %v; want 3 (not the expired one, not someone else's)", len(list), err)
+	}
+	if err := a.SignOutMySession(ctx, theirs.ID); apiErrCode(err) != "not_found" {
+		t.Errorf("signing out someone else's session: %v", err)
+	}
+	if err := a.SignOutMySession(ctx, stale.ID); apiErrCode(err) != "not_found" {
+		t.Errorf("signing out an expired session: %v", err)
+	}
+	if err := a.SignOutMySession(ctx, phone.ID); err != nil {
+		t.Fatal(err)
+	}
+	if st.sessions[phone.ID].RevokedAt == nil || len(ended) != 1 || ended[0] != phone.ID {
+		t.Errorf("phone not ended: %v", ended)
+	}
+	pending := here
+	pending.MFAVerified = false
+	if _, err := a.MySessions(WithSession(WithPrincipal(context.Background(), pending.Principal()), pending)); err == nil {
+		t.Error("a sign-in still waiting on its second step listed sessions")
+	}
+	if err := a.SignOutOtherSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st.sessions[laptop.ID].RevokedAt == nil || st.sessions[here.ID].RevokedAt != nil || st.sessions[theirs.ID].RevokedAt != nil {
+		t.Error("sign out everywhere else ended the wrong sessions")
+	}
+}
+
+func apiErrCode(err error) string {
+	var e *apihttp.Error
+	if errors.As(err, &e) {
+		return e.Code
+	}
+	return ""
+}

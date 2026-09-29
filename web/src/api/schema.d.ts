@@ -1550,6 +1550,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My signed-in browsers
+         * @description Every session of mine that's still live, newest use first (docs/ui/ADMIN_SCREENS_PHASE1E.md §11). Only for a signed-in browser session.
+         */
+        get: operations["listMySessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Sign out one of my browsers
+         * @description Its browser phone line closes at once. Another person's session is not found (404).
+         */
+        delete: operations["signOutMySession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sessions/sign-out-others": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign out everywhere else
+         * @description Ends every session of mine except this one.
+         */
+        post: operations["signOutMyOtherSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/mfa": {
         parameters: {
             query?: never;
@@ -3848,6 +3910,23 @@ export interface components {
         SetupLinkIssued: {
             /** @description Shown once; build the link as https://<domain>/setup/<token>. */
             setup_link_token: string;
+        };
+        MySession: {
+            /** Format: uuid */
+            id: string;
+            /** @description This browser. */
+            current: boolean;
+            /** @description What the browser said it was, when it signed in. */
+            user_agent: string;
+            /** @description Where it was last used from. */
+            ip?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_seen_at: string;
+        };
+        MySessionList: {
+            items: components["schemas"]["MySession"][];
         };
         PasswordChange: {
             /** @description Required when the account has a password. A passkey-only account adding its first password leaves it out and needs "confirm it's you" instead. */
@@ -6659,6 +6738,67 @@ export interface operations {
         };
         responses: {
             /** @description Changed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listMySessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description My sessions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MySessionList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    signOutMySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed out. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    signOutMyOtherSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed out. */
             204: {
                 headers: {
                     [name: string]: unknown;

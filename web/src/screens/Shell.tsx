@@ -24,7 +24,7 @@ import { DIALABLE, matchTeam } from "./Dialer";
 export type Screen = "dialer" | "team" | "settings" | "account" | "admin-home" | "admin-people" | "admin-extensions"
   | "admin-system-status" | "admin-system-backups" | "admin-system-server"
   | "admin-lines" | "admin-incoming" | "admin-outgoing" | "admin-simulator" | "admin-connections"
-  | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings";
+  | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings" | "admin-webhooks" | "admin-api-keys";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
@@ -56,12 +56,13 @@ const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
   "/admin/system/server": "admin-system-server",
   "/admin/lines": "admin-lines", "/admin/incoming": "admin-incoming", "/admin/outgoing": "admin-outgoing",
   "/admin/simulator": "admin-simulator", "/admin/connections": "admin-connections",
+  "/admin/webhooks": "admin-webhooks", "/admin/api-keys": "admin-api-keys",
 };
 
 const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users; path?: string }[] = [
   { label: "Connections", icon: Network, path: "/admin/connections" },
-  { label: "Webhooks", icon: Webhook },
-  { label: "API keys", icon: KeyRound },
+  { label: "Webhooks", icon: Webhook, path: "/admin/webhooks" },
+  { label: "API keys", icon: KeyRound, path: "/admin/api-keys" },
 ];
 
 function NavItem({ active, label, icon: Icon, onClick, disabled, badge, dot }:

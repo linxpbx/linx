@@ -1250,6 +1250,61 @@ func (a *Accounts) addPassword(ctx context.Context, u User, newPassword string, 
 }
 
 // SignOut revokes the caller's session (docs/WEB.md §4).
+// MySessions is the caller's own signed-in browsers (My account,
+// docs/ui/ADMIN_SCREENS_PHASE1E.md §11), newest use first.
+func (a *Accounts) MySessions(ctx context.Context) ([]UserSession, error) {
+	sess, ok := SessionFromContext(ctx)
+	if !ok {
+		return nil, notASession()
+	}
+	// A sign-in still waiting on its second step can't see or end others.
+	if !sess.MFAVerified {
+		return nil, mfaVerifyFirst()
+	}
+	return a.Store.LiveUserSessions(ctx, sess.UserID, a.Now().UTC())
+}
+
+// SignOutMySession ends one of the caller's own sessions (another browser);
+// someone else's, or one already ended, is not found.
+func (a *Accounts) SignOutMySession(ctx context.Context, id uuid.UUID) error {
+	return a.signOutMine(ctx, func(s UserSession) bool { return s.ID == id }, true)
+}
+
+// SignOutOtherSessions ends every session of the caller's but this one.
+func (a *Accounts) SignOutOtherSessions(ctx context.Context) error {
+	cur, ok := SessionFromContext(ctx)
+	if !ok {
+		return notASession()
+	}
+	return a.signOutMine(ctx, func(s UserSession) bool { return s.ID != cur.ID }, false)
+}
+
+func (a *Accounts) signOutMine(ctx context.Context, match func(UserSession) bool, mustFind bool) error {
+	live, err := a.MySessions(ctx)
+	if err != nil {
+		return err
+	}
+	now := a.Now().UTC()
+	found := 0
+	for _, s := range live {
+		if !match(s) {
+			continue
+		}
+		found++
+		if err := a.Store.RevokeSession(ctx, s.ID, now); err != nil {
+			return err
+		}
+		a.sessionsEnded(ctx, s.UserID, &s.ID)
+	}
+	if mustFind && found == 0 {
+		return &apihttp.Error{Status: http.StatusNotFound, Code: "not_found", Detail: "There is no signed-in browser of yours with that id."}
+	}
+	cur, _ := SessionFromContext(ctx)
+	p, _ := PrincipalFromContext(ctx)
+	return a.Store.Audit(ctx, AuditEntry{TenantID: &cur.TenantID, Actor: p.Actor(), IP: ClientIPFromContext(ctx),
+		Action: "user.sessions_ended", Target: "user:" + cur.UserID.String(), Result: ResultOK, Detail: map[string]any{"count": found}})
+}
+
 func (a *Accounts) SignOut(ctx context.Context) error {
 	sess, ok := SessionFromContext(ctx)
 	if !ok {

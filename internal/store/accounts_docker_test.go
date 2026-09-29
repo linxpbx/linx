@@ -302,11 +302,21 @@ func TestAccountsDocker(t *testing.T) {
 		if err := s.TouchSession(ctx, sess.ID, now.Add(time.Minute), now.Add(time.Hour+time.Minute), netip.MustParseAddr("203.0.113.5")); err != nil {
 			t.Fatalf("TouchSession: %v", err)
 		}
+		live, err := s.LiveUserSessions(ctx, u.ID, now)
+		if err != nil || len(live) != 1 || live[0].LastSeenIP == nil || live[0].LastSeenIP.String() != "203.0.113.5" {
+			t.Fatalf("LiveUserSessions = %+v, %v", live, err)
+		}
+		if later, _ := s.LiveUserSessions(ctx, u.ID, now.Add(2*time.Hour)); len(later) != 0 {
+			t.Errorf("an idle-expired session is still live: %+v", later)
+		}
 		if err := s.RevokeSession(ctx, sess.ID, now.Add(2*time.Minute)); err != nil {
 			t.Fatalf("RevokeSession: %v", err)
 		}
 		if _, err := s.SessionByTokenHash(ctx, auth.HashSecret("tok3")); err != nil {
 			t.Fatalf("a revoked session should still be found (callers check RevokedAt): %v", err)
+		}
+		if live, _ := s.LiveUserSessions(ctx, u.ID, now); len(live) != 0 {
+			t.Errorf("a revoked session is still live: %+v", live)
 		}
 	})
 

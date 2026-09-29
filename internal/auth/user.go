@@ -148,6 +148,9 @@ type UserStore interface {
 	// RevokeUserSessions ends every session of user (signing out,
 	// disabling the person or changing the password all call this).
 	RevokeUserSessions(ctx context.Context, user uuid.UUID, at time.Time) error
+	// LiveUserSessions is every session of user not revoked or expired at
+	// now, newest use first (My account → Signed-in browsers).
+	LiveUserSessions(ctx context.Context, user uuid.UUID, now time.Time) ([]UserSession, error)
 	// PromoteSession turns a pending session (still waiting on its
 	// authenticator code or first-run MFA enrollment) into a full one.
 	PromoteSession(ctx context.Context, id uuid.UUID) error

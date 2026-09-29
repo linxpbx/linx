@@ -282,6 +282,22 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       { id: "l4", at: minsAgo(60 * 26), actor: "", ip: "198.51.100.77", action: "user.sign_in_code", result: "denied", detail: { reason: "wrong_code" } },
       { id: "l5", at: minsAgo(60 * 30), actor: "system:cli", action: "trunk.create", target: "trunk:0199e1", result: "ok", detail: { name: "UCM landlines", kind: "registers_here" } },
     ] as Json[],
+    sessions: [
+      { id: "s1", current: true, user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+        ip: "192.168.1.23", created_at: minsAgo(300), last_seen_at: minsAgo(0) },
+      { id: "s2", current: false, user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+        ip: "94.200.12.7", created_at: minsAgo(3000), last_seen_at: minsAgo(60 * 20) },
+    ] as Json[],
+    webhooks: [
+      { id: "0199w1", url: "https://crm.example.com/hooks/linx", description: "CRM", event_types: ["call.ended", "call.missed"], enabled: true,
+        last_success_at: minsAgo(90), failing_since: minsAgo(30), created_by: "user:u1001", created_at: minsAgo(9000), updated_at: minsAgo(9000), etag: '"1"' },
+      { id: "0199w2", url: "https://hooks.example.org/old", description: "", event_types: [], enabled: false, disabled_reason: "failing",
+        created_by: "user:u1001", created_at: minsAgo(20000), updated_at: minsAgo(20000), etag: '"1"' },
+    ] as Json[],
+    keys: [
+      { id: "0199k1", name: "CRM", prefix: "linx_0199k1", role: "admin", scopes: ["extensions:read", "calls:read", "users:read"], allowed_ips: [],
+        created_by: "user:u1001", created_at: minsAgo(20000), expires_at: new Date(Date.now() + 60 * 86_400_000).toISOString(), last_used_at: minsAgo(40), last_used_ip: "203.0.113.9" },
+    ] as Json[],
     providers: [
       { id: "0199b1", kind: "google", name: "Google", issuer: "https://accounts.google.com", client_id: "1234.apps.googleusercontent.com",
         client_secret_set: true, enabled: true, shown: true, position: 0, redirect_uri: "https://example.com/api/v1/sso/callback",
@@ -387,7 +403,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       const adminScopes = ["settings:read", "settings:write", "system:read", "calls:read", "routing:read", "users:read", "users:write",
         "extensions:read", "extensions:write", "devices:read", "devices:write", "routing:write", "backups:read", "backups:write",
         "logs:read", "system:write", "trunks:read", "trunks:write", "alerts:read", "alerts:write", "audit:read", "sso:read", "sso:write",
-        "outbound_allowlist:write"];
+        "outbound_allowlist:write", "webhooks:read", "webhooks:write", "api_keys:read", "api_keys:write", "oauth_clients:read", "oauth_clients:write"];
       return route.fulfill(json({
         id: "0199", type: "user", role: opts.systemAdmin ? "system_admin" : "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
         email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
@@ -549,6 +565,51 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     }
     if (p === "/api/v1/session/confirm" && method === "POST") { system.confirmed = true; return route.fulfill({ status: 204 }); }
     if (p === "/api/v1/audit-log" && method === "GET") return route.fulfill(json({ items: system.audit }));
+    if (p === "/api/v1/me/sessions" && method === "GET") return route.fulfill(json({ items: system.sessions }));
+    if (p === "/api/v1/me/sessions/sign-out-others" && method === "POST") {
+      system.sessions = system.sessions.filter((x) => x.current);
+      return route.fulfill({ status: 204 });
+    }
+    if (p.startsWith("/api/v1/me/sessions/") && method === "DELETE") {
+      const id = p.split("/").pop();
+      system.sessions = system.sessions.filter((x) => x.id !== id);
+      return route.fulfill({ status: 204 });
+    }
+    if (p === "/api/v1/event-types" && method === "GET") {
+      return route.fulfill(json({ items: ["user.created", "user.updated", "extension.created", "device.registered", "call.started", "call.ended",
+        "call.missed", "trunk.status_changed"].map((name) => ({ name, description: name })) }));
+    }
+    if (p === "/api/v1/webhooks" && method === "GET") return route.fulfill(json({ items: system.webhooks }));
+    if (p === "/api/v1/webhooks" && method === "POST") {
+      const body = route.request().postDataJSON() as { url: string; description?: string; event_types?: string[] };
+      const w = { id: `0199w${people.nextId++}`, url: body.url, description: body.description ?? "", event_types: body.event_types ?? [],
+        enabled: true, created_by: "user:0199", created_at: now(), updated_at: now(), etag: '"1"' };
+      system.webhooks.push(w);
+      return route.fulfill(json({ webhook: w, secret: "whsec_EXAMPLEEXAMPLEEXAMPLEEXAMPLE0000" }, 201));
+    }
+    const whId = idAfter(p, "/api/v1/webhooks/");
+    if (whId && p.endsWith("/test") && method === "POST") {
+      return route.fulfill(json({ id: "0199x1", webhook_id: whId, event_id: "0199e0", event_type: "test", status: "succeeded", attempts: 1, max_attempts: 1,
+        created_at: now(), log: [{ at: now(), status_code: 200, duration_ms: 183 }] }));
+    }
+    if (whId && p.endsWith("/deliveries") && method === "GET") {
+      return route.fulfill(json({ items: [
+        { id: "0199x2", webhook_id: whId, event_id: "e2", event_type: "call.ended", status: "failed", attempts: 8, max_attempts: 8, created_at: minsAgo(30) },
+        { id: "0199x3", webhook_id: whId, event_id: "e3", event_type: "user.created", status: "succeeded", attempts: 1, max_attempts: 8, created_at: minsAgo(90) },
+      ] }));
+    }
+    if (p === "/api/v1/api-keys" && method === "GET") return route.fulfill(json({ items: system.keys }));
+    if (p === "/api/v1/oauth-clients" && method === "GET") return route.fulfill(json({ items: [] }));
+    if (p === "/api/v1/api-keys" && method === "POST") {
+      const body = route.request().postDataJSON() as { name: string; scopes: string[]; expires_at: string };
+      if (body.scopes.includes("users:write") && !system.confirmed) {
+        return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
+      }
+      const k = { id: `0199k${people.nextId++}`, name: body.name, prefix: "linx_0199k9", role: "admin", scopes: body.scopes, allowed_ips: [],
+        created_by: "user:u1001", created_at: now(), expires_at: body.expires_at };
+      system.keys.push(k);
+      return route.fulfill(json({ api_key: k, key: "linx_0199k9_EXAMPLEEXAMPLEEXAMPLE" }, 201));
+    }
     if (p === "/api/v1/sso-providers" && method === "GET") return route.fulfill(json({ items: system.providers }));
     if (p === "/api/v1/sso-providers" && method === "POST") {
       if (!system.confirmed) return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));

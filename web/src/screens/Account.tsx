@@ -14,12 +14,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { companyErrorMessage, goToCompany, takeCompanyResult } from "@/lib/company";
+import { deviceWords } from "@/lib/device";
 import { passkeysSupported } from "@/lib/passkey";
+import { cn } from "@/lib/utils";
 import { NewPasskey } from "./SignIn";
 import type { components } from "@/api/schema";
 
 type Passkey = components["schemas"]["Passkey"];
 type CompanyAccounts = components["schemas"]["MyCompanyAccounts"];
+type MySession = components["schemas"]["MySession"];
 
 const MAX_PASSKEYS = 10;
 
@@ -41,6 +44,7 @@ export function AccountScreen() {
   const [enrolling, setEnrolling] = useState<Enrollment | null>(null);
   const [enrollError, setEnrollError] = useState("");
   const confirm = useConfirmIdentity(me);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // A new authenticator is a new way in: the server asks "confirm it's
   // you" first (docs/ADMIN.md §7). The old one keeps working until the new
@@ -143,9 +147,22 @@ export function AccountScreen() {
         </section>
       )}
 
+      {me && me.has_password !== false && (
+        <section aria-labelledby="password-title" className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-card p-5 md:p-6">
+          <div>
+            <h2 id="password-title" className="font-display text-lg font-semibold">Password</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Changing it signs you out everywhere, this browser too.</p>
+          </div>
+          <Button variant="outline" onClick={() => setChangingPassword(true)}>Change</Button>
+        </section>
+      )}
+
       {company && (company.items.length > 0 || company.available.length > 0) && (
         <CompanySection accounts={company} onChanged={() => void load()} />
       )}
+
+      <BrowsersSection />
+      {changingPassword && <ChangePasswordDialog onClose={() => setChangingPassword(false)} />}
 
       <Dialog open={adding} onOpenChange={setAdding}>
         <DialogContent>
@@ -372,6 +389,93 @@ function RemoveDialog({ passkey, me, last, run, onClose, onDone }: {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const { response, error: err } = await api.POST("/api/v1/me/password", { body: { current_password: current, new_password: next } });
+    setBusy(false);
+    if (!response.ok) { setError(problemMessage(err)); return; }
+    // Every session ended, this one too: sign in again with the new one.
+    window.location.assign("/");
+  };
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Change your password</DialogTitle>
+          <DialogDescription>Then you sign in again, everywhere, with the new one. Your passkeys and authenticator app don't change.</DialogDescription>
+        </DialogHeader>
+        <form id="change-password" onSubmit={(e) => void submit(e)} className="flex flex-col gap-2">
+          <Label htmlFor="current-pw">Current password</Label>
+          <Input id="current-pw" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus disabled={busy} />
+          <Label htmlFor="changed-pw" className="mt-2">New password</Label>
+          <Input id="changed-pw" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} disabled={busy} />
+          <p className="text-sm text-muted-foreground">At least 12 characters. A few unrelated words work well.</p>
+          {error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}
+        </form>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="change-password" disabled={busy || !current || next.length < 12}>Change password</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Signed-in browsers (ADMIN_SCREENS_PHASE1E.md §11): each of mine, sign one out or all the others. */
+function BrowsersSection() {
+  const [list, setList] = useState<MySession[] | null>(null);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    const { data, error: err } = await api.GET("/api/v1/me/sessions");
+    if (data) setList(data.items);
+    else setError(problemMessage(err));
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const signOut = async (id?: string) => {
+    setError("");
+    const res = id
+      ? await api.DELETE("/api/v1/me/sessions/{id}", { params: { path: { id } } })
+      : await api.POST("/api/v1/me/sessions/sign-out-others");
+    if (!res.response.ok) setError(problemMessage(res.error));
+    void load();
+  };
+  const ago = (iso: string) => {
+    const m = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+    if (m < 2) return "now";
+    if (m < 60) return `${m} min ago`;
+    if (m < 60 * 24) return `${Math.round(m / 60)} h ago`;
+    return new Date(iso).toLocaleDateString([], { day: "numeric", month: "short" });
+  };
+  if (!list) return null;
+  const others = list.filter((s) => !s.current);
+  return (
+    <section aria-labelledby="browsers-title" className="mt-6 rounded-lg border bg-card p-5 md:p-6">
+      <h2 id="browsers-title" className="font-display text-lg font-semibold">Signed-in browsers</h2>
+      <ul className="mt-3 flex flex-col divide-y" aria-label="Signed-in browsers">
+        {list.map((s) => (
+          <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-sm">
+            <span className={cn("size-2.5 shrink-0 rounded-full", s.current ? "bg-status-available" : "bg-muted-foreground/40")} aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              {s.current ? "This browser — " : ""}{deviceWords(s.user_agent)}
+              <span className="block text-muted-foreground">{s.ip ? `${s.ip} · ` : ""}{s.current ? "now" : ago(s.last_seen_at)}</span>
+            </span>
+            {!s.current && <Button size="sm" variant="outline" onClick={() => void signOut(s.id)}>Sign out</Button>}
+          </li>
+        ))}
+      </ul>
+      {others.length > 0 && <Button variant="outline" className="mt-3" onClick={() => void signOut()}>Sign out everywhere else</Button>}
+      {error && <p role="alert" className="mt-2 text-sm font-medium text-destructive">{error}</p>}
+    </section>
   );
 }
 
