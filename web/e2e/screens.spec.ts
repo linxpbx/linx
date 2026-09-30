@@ -1079,6 +1079,16 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await expect(page.getByText("Saved on the server.")).toBeVisible();
     });
 
+    test("certificate: waiting, with the time so far", async ({ page }) => {
+      const at = new Date(Date.now() - 72_000).toISOString();
+      await fakeInstall(page, "home", { accepted: { front_door: "home-only" }, cert: fakeCert({ mode: "token", front_door: "home-only", add_records: undefined, dns: {},
+        token_saved: true, records: { state: "ok", at }, certificate: { state: "running", at } }) });
+      await page.goto("/install");
+      await expect(page.getByText("usually two or three minutes")).toBeVisible();
+      await expect(page.getByText(/\(1:1\d so far\)/)).toBeVisible();
+      await shot(page, `install-certificate-waiting-${label}`);
+    });
+
     test("certificate ready, browser can't open it yet", async ({ page }) => {
       await fakeInstall(page, "rented", {
         cert: fakeCert({ dns: { state: "ok" }, reach: { state: "ok" }, certificate: { state: "ok" }, secure_url: "https://example.com" }),

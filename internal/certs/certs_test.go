@@ -77,7 +77,9 @@ func TestConfigFromEnv(t *testing.T) {
 // have the record, and that check results pass through unchanged.
 func TestSettle(t *testing.T) {
 	var slept []time.Duration
-	wrap := settle(90*time.Second, func(d time.Duration) { slept = append(slept, d) })
+	clock := time.Now()
+	wrap := settle(90*time.Second, func() time.Time { return clock },
+		func(d time.Duration) { slept = append(slept, d); clock = clock.Add(d) })
 	boom := errors.New("NS 8.8.8.8:53 returned NXDOMAIN")
 	for _, tt := range []struct {
 		ok  bool
@@ -95,6 +97,25 @@ func TestSettle(t *testing.T) {
 	}
 	if !slices.Equal(slept, []time.Duration{90 * time.Second}) {
 		t.Errorf("slept %v, want 90 s once", slept)
+	}
+
+	// A wildcard's second value at the same name: the first's settle
+	// already covered it, so only the short wait; another name settles in
+	// full; a second value checked early waits out the rest.
+	yes := func(string, string) (bool, error) { return true, nil }
+	slept = nil
+	_, _ = wrap("example.com", "_acme-challenge.example.com.", "w", yes)
+	_, _ = wrap("other.example", "_acme-challenge.other.example.", "v", yes)
+	if !slices.Equal(slept, []time.Duration{10 * time.Second, 90 * time.Second}) {
+		t.Errorf("slept %v, want 10 s then 90 s", slept)
+	}
+	slept = nil
+	early := settle(90*time.Second, func() time.Time { return clock }, func(d time.Duration) { slept = append(slept, d) })
+	_, _ = early("example.com", "_acme-challenge.example.com.", "v", yes)
+	clock = clock.Add(30 * time.Second)
+	_, _ = early("example.com", "_acme-challenge.example.com.", "w", yes)
+	if !slices.Equal(slept, []time.Duration{90 * time.Second, 60 * time.Second}) {
+		t.Errorf("slept %v, want 90 s then the 60 s left", slept)
 	}
 }
 

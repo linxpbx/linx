@@ -275,10 +275,15 @@ test("an admin sets up with a passkey and signs in with it", async () => {
   await signedInWithPasskey(answered);
 
   // The button, in a browser without autofill for passkeys.
-  await page.addInitScript(() => {
-    PublicKeyCredential.isConditionalMediationAvailable = async () => false;
-  });
+  // In this page too, not only after the reload: otherwise the sign-in
+  // page shown by signing out starts autofill, the virtual authenticator
+  // answers it, and it can sign straight back in before the reload (CI,
+  // 2026-09-30: the reload then came back signed in, with no button).
+  const noAutofill = () => { PublicKeyCredential.isConditionalMediationAvailable = async () => false; };
+  await page.addInitScript(noAutofill);
+  await page.evaluate(noAutofill);
   await signOut();
+  await expect(page.getByRole("button", { name: "Sign in with a passkey" })).toBeVisible();
   await page.reload();
   answered = passkeySignIn();
   await page.getByRole("button", { name: "Sign in with a passkey" }).click();

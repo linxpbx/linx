@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-acme/lego/v4/certcrypto"
@@ -40,11 +41,15 @@ const (
 	// propagationTimeout is how long to wait for the DNS-01 record to appear
 	// at the domain's own name servers; pollInterval is how often to look.
 	propagationTimeout = 10 * time.Minute
-	pollInterval       = 10 * time.Second
+	pollInterval       = 5 * time.Second
 	// settleDelay is an extra wait once the name servers we reach have the
 	// record: Cloudflare-style anycast name servers update location by
 	// location, and Let's Encrypt checks from several places at once.
 	settleDelay = 90 * time.Second
+	// settleAgain is the least wait for another record at a name that has
+	// already settled (a wildcard certificate's second value at the same
+	// _acme-challenge name, published with the first).
+	settleAgain = 10 * time.Second
 )
 
 const (
@@ -114,12 +119,27 @@ func (a *acmeIssuer) ID() string { return a.id }
 
 // settle wraps lego's propagation check: once the authoritative name servers
 // have the record, it waits once more before Let's Encrypt is asked to look.
-func settle(d time.Duration, sleep func(time.Duration)) dns01.WrapPreCheckFunc {
+// lego publishes every record of an order before checking any, then checks
+// them one by one; a wildcard certificate's two values share one name, so
+// the second waits only for what's left of the first's settle, and at
+// least settleAgain (docs/INSTALL.md §15: this halved the wait).
+func settle(d time.Duration, now func() time.Time, sleep func(time.Duration)) dns01.WrapPreCheckFunc {
+	var mu sync.Mutex
+	settled := map[string]time.Time{}
 	return func(_, fqdn, value string, check dns01.PreCheckFunc) (bool, error) {
 		ok, err := check(fqdn, value)
-		if ok && err == nil {
-			sleep(d)
+		if !ok || err != nil {
+			return ok, err
 		}
+		mu.Lock()
+		wait := d
+		if at, seen := settled[fqdn]; seen {
+			wait = max(d-now().Sub(at), min(settleAgain, d))
+		} else {
+			settled[fqdn] = now()
+		}
+		mu.Unlock()
+		sleep(wait)
 		return ok, err
 	}
 }
@@ -143,7 +163,7 @@ func (a *acmeIssuer) Obtain(ctx context.Context, names []string) (*Issued, error
 	// default). Public resolvers are never asked: asking them before the
 	// record is everywhere makes them remember "no such record" for up to the
 	// zone's negative TTL (30 minutes on Cloudflare).
-	err = client.Challenge.SetDNS01Provider(a.dns, dns01.WrapPreCheck(settle(settleDelay, time.Sleep)))
+	err = client.Challenge.SetDNS01Provider(a.dns, dns01.WrapPreCheck(settle(settleDelay, time.Now, time.Sleep)))
 	if err != nil {
 		return nil, err
 	}

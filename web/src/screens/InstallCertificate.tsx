@@ -126,7 +126,7 @@ function Port443Rows({ cert, answers, facts, act }: RowsProps) {
         )}
       </Row>
       <Row n={++n} state={stageMark(cert.reach, !dnsOK || setupFirst)} title="Let's Encrypt reaches this server on port 443">
-        {cert.reach.state === "running" && <p className="text-sm text-muted-foreground">Checking… this takes about a minute.</p>}
+        {cert.reach.state === "running" && <p className="text-sm text-muted-foreground">Checking… this takes about a minute. <SoFar since={cert.reach.at} /></p>}
         {cert.reach.state === "failed" && (
           <Failure onRetry={() => void act(retryCertificate)} title="Let's Encrypt couldn't reach this server on port 443">
             {problemWords(cert.reach, cert, facts)} <Detail text={cert.reach.detail} />
@@ -168,9 +168,31 @@ function TokenRows({ cert, answers, facts, act }: RowsProps) {
   );
 }
 
+/** "1:12 so far", ticking every second, so a long wait never looks stuck. */
+function SoFar({ since }: { since?: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  const start = since ? new Date(since).getTime() : NaN;
+  if (!Number.isFinite(start)) return null;
+  const secs = Math.max(0, Math.floor((now - start) / 1000));
+  return <span className="tabular-nums">({Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} so far)</span>;
+}
+
 function CertificateStage({ cert, facts, act }: Pick<RowsProps, "cert" | "facts" | "act">) {
   const s = cert.certificate;
-  if (s.state === "running") return <p className="text-sm text-muted-foreground">Getting it… this can take a few minutes.</p>;
+  if (s.state === "running") {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {cert.mode === "token"
+          ? "Getting it… usually two or three minutes: Linx waits for its DNS record to reach the whole internet before Let's Encrypt looks."
+          : "Getting it… usually under a minute."}{" "}
+        <SoFar since={s.at} />
+      </p>
+    );
+  }
   if (s.state === "failed") {
     return (
       <Failure onRetry={() => void act(retryCertificate)} title="Linx couldn't get the certificate">
