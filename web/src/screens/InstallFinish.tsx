@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import {
-  Choice, CopyButton, Countdown, Disclosure, FieldMessage, Frame, LinkUnusable, Nav, Row, submit, Title, useSecondsLeft, type Mark,
+  Choice, CopyButton, Countdown, Disclosure, FieldMessage, Frame, LinkUnusable, Nav, PortainerNote, Row, submit, Title, useSecondsLeft, type Mark,
 } from "@/components/InstallFrame";
 import {
   getState, LinkClosed, linxAnswers, Problem, saveExtras, sendToken, setupLinkReady, skipToken, startInstall,
@@ -231,6 +231,7 @@ function ExtrasStep({ finish, problem, act, onBack, onInstalling }: {
           <Switch id="portainer" checked={portainer} onCheckedChange={setPortainer} />
         </div>
       )}
+      {!finish.portainer_allowed && <PortainerNote className="mt-6" />}
       {problem && <div className="mt-4"><FieldMessage message={problem} /></div>}
       <Nav onBack={onBack} next="Install" busy={busy} />
     </form>

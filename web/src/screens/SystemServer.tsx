@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
-import { CopyBlock, Disclosure, RecordBox } from "@/components/InstallFrame";
+import { CopyBlock, Disclosure, PortainerNote, RecordBox } from "@/components/InstallFrame";
 import { SystemCard as Card, SystemHeader } from "@/components/SystemPage";
 import { domainProblem, portProblem, proxyAddressProblem } from "@/lib/install";
 import {
@@ -363,6 +363,11 @@ function Settings({ me, s, client, onChanged, onMoved }:
                 <Switch id="server-portainer" aria-label="Portainer" checked={portainer} onCheckedChange={setPortainer} disabled={running} />
                 <span className="text-muted-foreground">A web page to look at this server's Docker containers, on your home network only.</span>
               </div>
+            </Row>
+          )}
+          {!s.portainer_allowed && (
+            <Row label="Portainer">
+              <PortainerNote />
             </Row>
           )}
         </dl>

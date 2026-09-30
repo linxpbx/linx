@@ -58,7 +58,7 @@ When the certificate is ready, the page moves itself to `https://<your domain>`,
 ## 5. On the secure page
 
 - **Your DNS company's token**, if you didn't give it already. On a rented server you may skip it; the certificate still renews by itself.
-- **A few extras**: the size of this server (the suggested one is right almost every time) and, at home, Portainer.
+- **A few extras**: the size of this server (the suggested one is right almost every time) and, at home, Portainer (on a rented server a note says why it isn't offered).
 - **Install**. The page ticks through each step. Before Linx starts, a box shows things to **write down now**, like the certificate authority backup passphrase. Save them in your password manager, then tick **I've written these down**.
 
 ## 6. Your first sign-in

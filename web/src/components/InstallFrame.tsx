@@ -282,3 +282,13 @@ export function RecordBox({ record }: { record: { type: string; name: string; va
     </dl>
   );
 }
+
+/** Why Portainer isn't offered: it's home only (docs/INSTALL.md §10 item 4). */
+export function PortainerNote({ className }: { className?: string }) {
+  return (
+    <p className={cn("text-sm text-muted-foreground", className)}>
+      Portainer is offered only on a server at home: it can control everything on the server, and here it would be open to the internet.
+      Linx's System → Status shows each part of Linx, its recent log and a Restart button.
+    </p>
+  );
+}

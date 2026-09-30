@@ -326,7 +326,7 @@ The existing first-admin page (`ADMIN_SCREENS_PHASE1E.md` §3.1) inside the inst
 ```
 
 - Size: today's three profiles with today's descriptions; our pick from the hardware, with its reason.
-- Portainer: off by default, home only (`docs/INSTALL.md` §10 item 4); hidden on a rented server.
+- Portainer: off by default, home only (`docs/INSTALL.md` §10 item 4); on a rented server a short note says why it isn't offered and points at System → Status (owner, 2026-09-30; Server settings too).
 
 ### 3.5 Installing
 

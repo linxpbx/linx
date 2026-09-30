@@ -904,6 +904,7 @@ test.describe("system: server settings", () => {
     await page.goto("/admin/system/server");
     await expect(page.getByText("No token: the certificate renews through port 443")).toBeVisible();
     await expect(page.getByLabel("Portainer")).toHaveCount(0);
+    await expect(page.getByText("Portainer is offered only on a server at home")).toBeVisible();
     await page.getByRole("button", { name: "Add a token" }).click();
     await page.getByLabel("New Cloudflare token").fill("short");
     await page.getByRole("button", { name: "Apply" }).click();
@@ -1248,7 +1249,8 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.getByRole("button", { name: "Skip" }).click();
       await expect(page.getByRole("heading", { name: "A few extras" })).toBeVisible();
       await expect(page.getByRole("radio", { name: /Standard/ })).toBeChecked();
-      await expect(page.getByText("Portainer")).toHaveCount(0);
+      await expect(page.getByRole("switch", { name: "Portainer" })).toHaveCount(0);
+      await expect(page.getByText("Portainer is offered only on a server at home")).toBeVisible();
       await shot(page, `install-extras-${label}`);
       await page.getByRole("button", { name: "Install" }).click();
       await expect(page.getByRole("heading", { name: "Installing Linx" })).toBeVisible();
