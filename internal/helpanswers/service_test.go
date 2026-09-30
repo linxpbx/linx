@@ -323,6 +323,22 @@ func TestProviderFailuresInPlainWords(t *testing.T) {
 	}
 }
 
+// The provider's own words (which can name its account or a LAN address)
+// are for the admin's Test and the log, never the person asking.
+func TestProviderWordsOnlyForAdmins(t *testing.T) {
+	e := newEnv(t)
+	p := newProvider(t, helpanswers.ProviderAnthropic, http.StatusInternalServerError)
+	e.turnOn(t, p, helpanswers.ProviderAnthropic, "sk-key")
+	_, _, err := e.ask(auth.RoleUser, "desk phone")
+	var f *helpanswers.Failure
+	if !errors.As(err, &f) {
+		t.Fatalf("%v", err)
+	}
+	if strings.Contains(f.Detail, "x-api-key") || !strings.Contains(f.Why, "invalid x-api-key") || !strings.Contains(f.Full(), "invalid x-api-key") {
+		t.Errorf("detail %q, why %q", f.Detail, f.Why)
+	}
+}
+
 // confirmed is a system admin's session, confirmed now.
 func (e *env) confirmed() context.Context {
 	now := e.now

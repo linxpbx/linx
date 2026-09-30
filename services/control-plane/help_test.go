@@ -414,7 +414,7 @@ func TestHelpAnswer(t *testing.T) {
 	}
 
 	status, body, h := e.postAnswer("who is here?", person, csrf...)
-	if status != http.StatusOK || h.Get("Content-Type") != "application/x-ndjson" {
+	if status != http.StatusOK || h.Get("Content-Type") != "application/x-ndjson" || h.Get("X-Accel-Buffering") != "no" {
 		t.Fatalf("%d %s %s", status, h.Get("Content-Type"), body)
 	}
 	lines := strings.Split(strings.TrimSpace(body), "\n")

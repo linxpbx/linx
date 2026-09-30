@@ -50,6 +50,14 @@ func buildPrompt(question string, excerpts []help.Excerpt, all []*help.Guide) pr
 
 const guidesMarker = "Guides:"
 
+// Linx's own bounds on an answer, whatever the provider does with
+// max_tokens (help step 4 review): about twice maxAnswerTokens of English,
+// and a guides line longer than every guide's name could make.
+const (
+	maxAnswerBytes = 32 << 10
+	maxGuidesLine  = 2 << 10
+)
+
 // guidesFilter passes the answer through as it's written but holds back
 // its last line while it could be the "Guides:" line, which the page shows
 // as links instead.
@@ -57,13 +65,18 @@ type guidesFilter struct {
 	write func(string) error
 	tail  string // the text after the last newline, not written yet
 	wrote bool
+	total int
 }
 
 func (f *guidesFilter) Write(s string) error {
+	f.total += len(s)
+	if f.total > maxAnswerBytes {
+		return errTooLong
+	}
 	f.tail += s
 	i := strings.LastIndexByte(f.tail, '\n')
 	if i < 0 {
-		if couldBeMarker(f.tail) {
+		if couldBeMarker(f.tail) && len(f.tail) <= maxGuidesLine {
 			return nil
 		}
 		return f.flush(len(f.tail))
@@ -73,7 +86,7 @@ func (f *guidesFilter) Write(s string) error {
 	if err := f.flush(i + 1); err != nil {
 		return err
 	}
-	if !couldBeMarker(f.tail) {
+	if !couldBeMarker(f.tail) || len(f.tail) > maxGuidesLine {
 		return f.flush(len(f.tail))
 	}
 	return nil

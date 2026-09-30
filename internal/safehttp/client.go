@@ -30,8 +30,10 @@ type Options struct {
 	// RootCAs replaces the system roots (tests only).
 	RootCAs *x509.CertPool
 	// Timeout replaces the whole-request Timeout, for a response that's
-	// read as it's written (Help's written answers, docs/HELP.md §4).
-	// Connecting and the response's headers still get Timeout.
+	// read as it's written (Help's written answers, docs/HELP.md §4), and
+	// the wait for the response's headers: a model on a small computer can
+	// take longer than Timeout to load before it answers at all.
+	// Connecting still gets Timeout.
 	Timeout time.Duration
 }
 
@@ -89,6 +91,7 @@ func NewClient(policy Policy, opts Options) *http.Client {
 	if timeout == 0 {
 		timeout = Timeout
 	}
+	transport.ResponseHeaderTimeout = timeout
 	return &http.Client{
 		Transport: httpsOnly{transport},
 		Timeout:   timeout,

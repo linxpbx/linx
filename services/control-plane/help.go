@@ -146,6 +146,9 @@ func serveAnswer(w http.ResponseWriter, r *http.Request, answers *helpanswers.Se
 		if !started {
 			w.Header().Set("Content-Type", "application/x-ndjson")
 			w.Header().Set("X-Content-Type-Options", "nosniff")
+			// An nginx front door (Pangolin, the admin's own) would
+			// otherwise hold the answer back until it's all written.
+			w.Header().Set("X-Accel-Buffering", "no")
 			w.WriteHeader(http.StatusOK)
 			started = true
 		}
@@ -160,6 +163,9 @@ func serveAnswer(w http.ResponseWriter, r *http.Request, answers *helpanswers.Se
 	if err != nil {
 		var f *helpanswers.Failure
 		var ae *apihttp.Error
+		if errors.As(err, &f) && f.Why != "" {
+			log.Warn("a help answer failed", "err", f.Why)
+		}
 		switch {
 		case started && errors.As(err, &f):
 			_ = line(helpAnswerError{Error: f.Detail})

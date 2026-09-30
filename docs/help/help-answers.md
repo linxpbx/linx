@@ -33,4 +33,4 @@ Each person can ask 10 questions a minute and 200 a day, and the whole server 1,
 
 ## If an answer doesn't come
 
-Help shows why (for example, the provider didn't accept the key, or didn't answer within 30 seconds) and the search results under it. Press **Test** on the card to try it yourself.
+Help shows why (for example, the provider didn't accept the key, or didn't answer within 30 seconds) and the search results under it. Press **Test** on the card to try it yourself: there you also see what the provider itself said, which people asking don't (it can name your account with the provider, or an address on your network).

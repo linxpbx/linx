@@ -68,7 +68,8 @@ func (s *Server) TestHelpAnswers(ctx context.Context, req TestHelpAnswersRequest
 	var f *helpanswers.Failure
 	switch {
 	case errors.As(err, &f):
-		out.Error = &f.Detail
+		msg := f.Full()
+		out.Error = &msg
 	case err != nil:
 		e, err := apiError(err)
 		if e == nil {

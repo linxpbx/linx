@@ -37,3 +37,23 @@ func TestGuidesFilter(t *testing.T) {
 		})
 	}
 }
+
+// Linx's own bounds, whatever the provider sends (help step 4 review).
+func TestGuidesFilterBounds(t *testing.T) {
+	var b strings.Builder
+	f := &guidesFilter{write: func(s string) error { b.WriteString(s); return nil }}
+	long := "Guides: " + strings.Repeat("[a], ", maxGuidesLine/4)
+	if err := f.Write(long); err != nil {
+		t.Fatal(err)
+	}
+	if b.String() != long {
+		t.Errorf("a guides line past %d bytes was held back", maxGuidesLine)
+	}
+	var err error
+	for i := 0; err == nil && i < maxAnswerBytes; i++ {
+		err = f.Write("words ")
+	}
+	if err != errTooLong {
+		t.Errorf("an answer past %d bytes: %v", maxAnswerBytes, err)
+	}
+}

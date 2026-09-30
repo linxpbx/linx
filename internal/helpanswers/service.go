@@ -334,7 +334,7 @@ func (s *Service) ask(ctx context.Context, c Config, q Question, write func(stri
 		return Answer{}, invalid("question_too_long", "Ask in 500 characters or fewer.")
 	}
 	if c.Provider == ProviderAnthropic && c.APIKeyEnc == nil {
-		return Answer{}, &Failure{"Anthropic needs an API key: add it in System → Settings → Help answers."}
+		return Answer{}, &Failure{Detail: "Anthropic needs an API key: add it in System → Settings → Help answers."}
 	}
 	now := s.Now()
 	s.once.Do(func() { s.perMinute = auth.NewLimiters(PersonPerMinute, PersonPerMinute) })
@@ -398,26 +398,46 @@ func (s *Service) ask(ctx context.Context, c Config, q Question, write func(stri
 	return a, nil
 }
 
-// Failure is a provider failure in plain words, for the page.
-type Failure struct{ Detail string }
+// Failure is a provider failure in plain words, for the page. Why is what
+// the provider or the connection said, for the admin's Test and the log
+// only: a provider's own error text can name its account or a LAN address,
+// which isn't for everyone who asks (help step 4 review).
+type Failure struct{ Detail, Why string }
 
 func (e *Failure) Error() string { return e.Detail }
 
+// maxWhy bounds a provider's own words kept for Test and the log.
+const maxWhy = 300
+
 func describe(ctx context.Context, err error) error {
 	var pe *providerError
+	f := &Failure{}
 	switch {
 	case errors.Is(err, errRefused):
-		return &Failure{"The model declined to answer that question."}
+		f.Detail = "The model declined to answer that question."
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return &Failure{fmt.Sprintf("No answer within %d seconds.", int(AnswerTimeout.Seconds()))}
+		f.Detail = fmt.Sprintf("No answer within %d seconds.", int(AnswerTimeout.Seconds()))
 	case errors.As(err, &pe) && (pe.status == http.StatusUnauthorized || pe.status == http.StatusForbidden):
-		return &Failure{"The provider didn't accept the API key. An admin can check it in System → Settings."}
+		f.Detail = "The provider didn't accept the API key. An admin can check it in System → Settings."
 	case errors.As(err, &pe) && pe.status == http.StatusTooManyRequests:
-		return &Failure{"The provider is busy, or its plan has run out. Try again later."}
+		f.Detail = "The provider is busy, or its plan has run out. Try again later."
 	case errors.As(err, &pe) && pe.status == http.StatusNotFound:
-		return &Failure{"The provider doesn't know that model or address: " + err.Error() + "."}
+		f.Detail, f.Why = "The provider doesn't know the model or address in System → Settings. An admin can check it there.", err.Error()
 	case errors.As(err, &pe):
-		return &Failure{"The provider couldn't answer: " + err.Error() + "."}
+		f.Detail, f.Why = "The provider couldn't answer. Try again later, or tell an admin.", err.Error()
+	default:
+		f.Detail, f.Why = "Linx couldn't reach the provider. Try again later, or tell an admin.", safehttp.Describe(err)
 	}
-	return &Failure{"Linx couldn't reach the provider: " + safehttp.Describe(err)}
+	if r := []rune(f.Why); len(r) > maxWhy {
+		f.Why = string(r[:maxWhy]) + "…"
+	}
+	return f
+}
+
+// Full is the failure with the provider's own words, for the admin's Test.
+func (e *Failure) Full() string {
+	if e.Why == "" {
+		return e.Detail
+	}
+	return e.Detail + " (" + strings.TrimSuffix(e.Why, ".") + ".)"
 }
