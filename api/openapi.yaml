@@ -327,6 +327,151 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/system/reach-check:
+    post:
+      operationId: checkReach
+      summary: Check it, from this server
+      description: >-
+        "Check it" (docs/SIMPLER.md §2.3): can people reach Linx from
+        outside, as far as this server can see? Each line is one check in
+        plain words: the domain and `turn.` at the domain's own name servers,
+        Linx's certificate through the front door, the call relay over TLS
+        through it, and this network's public address (which many home
+        routers can't reach from inside: an `info` line then sends the admin
+        to the phone link). Takes up to about 10 s; runs only when asked.
+      tags: [settings]
+      security:
+        - bearer: [system:write]
+      responses:
+        "200":
+          description: The checks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReachCheck"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/system/reach-links:
+    post:
+      operationId: createReachLink
+      summary: Check it, from outside (a phone link)
+      description: >-
+        A link to open on a phone with Wi-Fi off: `https://<domain>/reach/<code>`,
+        usable once, for 10 minutes. Opening it records the address Linx saw
+        and tests the call relay from the phone. Kept in memory only.
+      tags: [settings]
+      security:
+        - bearer: [system:write]
+      responses:
+        "201":
+          description: The link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReachLink"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/system/reach-links/{id}:
+    get:
+      operationId: getReachLink
+      summary: What the phone link found
+      description: >-
+        With `after`, waits (up to 25 s) until the link changes from that
+        version (the phone opened it, its relay test came in, or the link
+        ran out) instead of the page asking again and again. 404
+        `not_found` for an unknown link.
+      tags: [settings]
+      security:
+        - bearer: [system:write]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: after
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: The link now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReachLink"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/reach/{code}:
+    parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 32
+    post:
+      operationId: claimReachLink
+      summary: The phone's side of Check it
+      description: >-
+        Used by the page a phone opens (`/reach/<code>`), with no sign-in:
+        the address Linx saw and a relay credential good for 3 minutes, to
+        test call audio from there. Works once; 404 `reach_link_invalid`
+        for an unknown, used or old code, with nothing else about the
+        server. Tries are limited per address (429 `too_many_requests`).
+      tags: [settings]
+      security: []
+      responses:
+        "200":
+          description: The link worked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReachClaim"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/reach/{code}/relay:
+    parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 32
+    post:
+      operationId: reportReachRelay
+      summary: The phone's call relay test
+      description: >-
+        Whether the phone got a relay address with the credential from
+        claiming the link. Once, within 3 minutes of the claim; 404
+        `reach_link_invalid` otherwise.
+      tags: [settings]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ok]
+              properties:
+                ok:
+                  type: boolean
+                detail:
+                  type: string
+                  maxLength: 200
+      responses:
+        "204":
+          description: Recorded.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/server-settings:
     get:
       operationId: getServerSettings
@@ -6573,6 +6718,90 @@ components:
       properties:
         password:
           type: string
+
+    ReachCheck:
+      type: object
+      required: [lines, checked_at]
+      properties:
+        lines:
+          type: array
+          items:
+            type: object
+            required: [state, text]
+            properties:
+              state:
+                type: string
+                enum: [ok, fail, warn, info]
+              text:
+                type: string
+              meaning:
+                type: string
+                description: What a failure means for people, in one sentence.
+              fix:
+                type: string
+                enum: [records, steps, router]
+                description: Which fix helps.
+        checked_at:
+          type: string
+          format: date-time
+
+    ReachLink:
+      type: object
+      required: [id, url, state, expires_at, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        state:
+          type: string
+          enum: [waiting, reached, expired]
+        expires_at:
+          type: string
+          format: date-time
+        address:
+          type: string
+          description: The address Linx saw the phone come from.
+        seen:
+          type: string
+          enum: [outside, home, local, proxy]
+          description: >-
+            outside: from outside, it works; home: this network's own
+            public address (Wi-Fi still on?); local: a home-network address
+            (Wi-Fi on); proxy: the front door's own address (it doesn't
+            tell Linx who's visiting).
+        relay:
+          type: object
+          required: [ok]
+          properties:
+            ok:
+              type: boolean
+            detail:
+              type: string
+        version:
+          type: integer
+
+    ReachClaim:
+      type: object
+      required: [domain, address, turn]
+      properties:
+        domain:
+          type: string
+        address:
+          type: string
+        turn:
+          type: object
+          required: [urls, username, credential]
+          properties:
+            urls:
+              type: array
+              items:
+                type: string
+            username:
+              type: string
+            credential:
+              type: string
 
     SystemStatus:
       type: object

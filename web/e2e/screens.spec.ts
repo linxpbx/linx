@@ -123,6 +123,16 @@ for (const scheme of ["light", "dark"] as const) {
   test.describe(scheme, () => {
     test.use({ colorScheme: scheme });
 
+    test("system status: check it", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, reach: "reached" });
+      await page.goto("/admin/system/status");
+      const card = page.locator("section", { has: page.getByRole("heading", { name: "Reachable from outside" }) });
+      await card.getByRole("button", { name: "Check it" }).click();
+      await expect(card.getByText("Calls from outside will have audio.")).toBeVisible();
+      await card.scrollIntoViewIfNeeded();
+      await shot(page, `${scheme}-system-status-check-it`);
+    });
+
     test("sign-in", async ({ page }) => {
       await fakeServer(page);
       await page.goto("/");
@@ -1081,7 +1091,82 @@ test.describe("system alerts", () => {
   });
 });
 
+test.describe("check it: the phone's page", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+  test("reached, and call audio works", async ({ page }) => {
+    // A relay address, as a real call relay would give.
+    await page.addInitScript(() => {
+      class FakePC {
+        onicecandidate: ((e: { candidate: { type: string; candidate: string } | null }) => void) | null = null;
+        createDataChannel() { return {}; }
+        async createOffer() { return { type: "offer", sdp: "" }; }
+        async setLocalDescription() {
+          setTimeout(() => this.onicecandidate?.({ candidate: { type: "relay", candidate: "candidate:1 1 udp 1 203.0.113.5 50000 typ relay" } }), 200);
+        }
+        close() {}
+      }
+      (window as unknown as { RTCPeerConnection: unknown }).RTCPeerConnection = FakePC;
+    });
+    await fakeServer(page, {});
+    await page.goto("/reach/7K2QHM4XRB");
+    await expect(page.getByRole("heading", { name: "You reached Linx at example.com" })).toBeVisible();
+    await expect(page.getByText("Linx saw you coming from 5.194.33.12.")).toBeVisible();
+    await expect(page.getByText("Calls from here will have audio.")).toBeVisible();
+    await shot(page, "reach-phone");
+  });
+
+  test("a used link", async ({ page }) => {
+    await fakeServer(page, {});
+    await page.goto("/reach/USEDCODE22");
+    await expect(page.getByRole("heading", { name: "This link can't be used" })).toBeVisible();
+    await expect(page.getByText("Links work once, for 10 minutes", { exact: false })).toBeVisible();
+    await shot(page, "reach-phone-used");
+  });
+});
+
 test.describe("system status", () => {
+  test("check it: from this server, then a phone link", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, reach: "waiting" });
+    await page.goto("/admin/system/status");
+    const card = page.locator("section", { has: page.getByRole("heading", { name: "Reachable from outside" }) });
+    await card.getByRole("button", { name: "Check it" }).click();
+    await expect(card.getByText("example.com answers with Linx's certificate")).toBeVisible();
+    await expect(card.getByText("Calls from outside will have no audio.", { exact: false })).toBeVisible();
+    await expect(card.getByRole("link", { name: "Show the steps" })).toBeVisible();
+    await expect(card.getByText("https://example.com/reach/7K2QHM4XRB")).toBeVisible();
+    await expect(card.getByRole("img", { name: "The link as a picture to scan" })).toBeVisible();
+    await expect(card.getByText("Waiting for your phone…", { exact: false })).toBeVisible();
+    await card.scrollIntoViewIfNeeded();
+    await shot(page, "system-status-check-it");
+  });
+
+  test("check it: the phone came", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, reach: "reached" });
+    await page.goto("/admin/system/status");
+    const card = page.locator("section", { has: page.getByRole("heading", { name: "Reachable from outside" }) });
+    await card.getByRole("button", { name: "Check it" }).click();
+    await expect(card.getByText("Your phone reached Linx from 5.194.33.12. People outside can open Linx.")).toBeVisible();
+    await expect(card.getByText("Calls from outside will have audio.")).toBeVisible();
+    await card.scrollIntoViewIfNeeded();
+    await shot(page, "system-status-check-it-phone");
+  });
+
+  test("check it: Wi-Fi was still on", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, reach: "wifi" });
+    await page.goto("/admin/system/status");
+    const card = page.locator("section", { has: page.getByRole("heading", { name: "Reachable from outside" }) });
+    await card.getByRole("button", { name: "Check it" }).click();
+    await expect(card.getByText("Your phone came from your own network (94.200.1.10)", { exact: false })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Try again with a new link" })).toBeVisible();
+  });
+
+  test("check it needs an admin", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: false });
+    await page.goto("/admin/system/status");
+    await expect(page.getByRole("button", { name: "Check it" })).toHaveCount(0);
+  });
+
   test("restart asks first and says what it does", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, phoneSystemDown: true });
     await page.goto("/admin/system/status");

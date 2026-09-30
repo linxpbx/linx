@@ -423,6 +423,9 @@ func main() {
 	}
 	helpAnswers := &helpanswers.Service{Store: st, Sealer: sealer, Policy: policy, Help: helpLib, Now: time.Now,
 		Client: safehttp.NewClient(policy, safehttp.Options{Timeout: helpanswers.AnswerTimeout + 5*time.Second})}
+	// linx-certd's certificate, for the HTTPS port below and Check it.
+	cert := &certs.ServingCert{Dir: envOr(os.Getenv, "LINX_CERTS_DIR", defaultCertsDir)}
+	reachCheck, reachLinks := newReach(os.Getenv, cert, turnIssuer, ips)
 	var apiServer *controlplaneapi.Server
 	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, backups,
 		func(s *controlplaneapi.Server) {
@@ -430,6 +433,7 @@ func main() {
 			s.SetServerSettings(serverSettings)
 			s.SetMoved(movedSvc)
 			s.SetHelpAnswers(helpAnswers)
+			s.SetReach(reachCheck, reachLinks)
 			s.SetOps(opsHub, st.Audit, func() time.Time {
 				if sec := certExpiry.Load(); sec > 0 {
 					return time.Unix(sec, 0)
@@ -459,7 +463,6 @@ func main() {
 	// linx-certd's certificate, picked up again whenever it's renewed. Until
 	// certd has the first certificate, connections fail their handshake
 	// (and the logs say why) while everything else runs.
-	cert := &certs.ServingCert{Dir: envOr(os.Getenv, "LINX_CERTS_DIR", defaultCertsDir)}
 	if _, err := cert.Current(); err != nil {
 		log.Warn("no TLS certificate yet; HTTPS connections fail until linx-certd deploys one", "err", err)
 	}

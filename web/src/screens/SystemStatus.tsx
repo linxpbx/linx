@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Copy, LoaderCircle, RefreshCw, RotateCw, TriangleAlert } from "lucide-react";
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
+import { CheckIt } from "@/components/CheckIt";
 import { Dot } from "@/components/presence";
 import { Guarded, SystemCard, SystemHeader } from "@/components/SystemPage";
 import { Button } from "@/components/ui/button";
@@ -124,6 +125,11 @@ export function SystemStatusScreen({ me }: { me: Me }) {
         </SystemCard>
         <SystemCard title="Certificate">
           <Certificate expires={status.certificate?.expires_at} now={now} />
+        </SystemCard>
+        <SystemCard title="Reachable from outside">
+          {hasScope(me, "system:write")
+            ? <CheckIt />
+            : <p className="text-sm text-muted-foreground">Only an admin can check it: it makes a link to open on a phone.</p>}
         </SystemCard>
         <SystemCard title="Phone lines">
           {status.trunks.length === 0 ? (

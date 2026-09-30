@@ -379,7 +379,7 @@ func (h *harness) start() {
 	must(t, os.WriteFile(filepath.Join(h.dir, "compose.yaml"), []byte(y), 0o644))
 	must(t, os.WriteFile(filepath.Join(h.dir, "override.yaml"), []byte(override(h.door)), 0o644))
 	env := fmt.Sprintf("LINX_IMAGE_PREFIX=%s\nLINX_VERSION=test\nLINX_DOMAIN=%s\nLINX_DNS_PROVIDER=cloudflare\n"+
-		"LINX_SIP_ADDRESS=127.0.0.1\nLINX_SIP_NETWORKS=%s\nLINX_POSTGRES_IMAGE=%s\n", imagePrefix, domain, publicSubnet, db.PostgresImage)
+		"LINX_SIP_ADDRESS=127.0.0.1\nLINX_SIP_NETWORKS=%s\nLINX_POSTGRES_IMAGE=%s\nLINX_FRONT_DOOR=%s\n", imagePrefix, domain, publicSubnet, db.PostgresImage, h.door)
 	services := []string{"postgres", "step-ca", "control-plane", "asterisk", "coturn"}
 	linx := netip.MustParseAddr("192.0.2.1") // replaced by container names below
 	switch h.door {
@@ -623,6 +623,8 @@ func (h *harness) provision(t *testing.T) {
 		})
 	}
 
+	reachURL, reachID := h.checkIt(t)
+
 	// The browsers: Playwright's own image on linx-public, running
 	// web/e2e/calls.spec.ts against https://linx.test, through the
 	// front door on 443.
@@ -633,6 +635,7 @@ func (h *harness) provision(t *testing.T) {
 		"--env", "LINX_BASE_URL=https://"+domain,
 		"--env", "LINX_TEST_SPKI="+os.Getenv("LINX_TEST_SPKI"),
 		"--env", "LINX_SETUP_A="+aisha, "--env", "LINX_SETUP_B="+omar, "--env", "LINX_SETUP_ADMIN="+owner,
+		"--env", "LINX_REACH_URL="+reachURL,
 		"--env", "CI=1",
 		playwrightImage, "npx", "--no-install", "playwright", "test", "--config", "e2e/calls.config.ts")
 	// The softphone calls a browser when the suite says it's ready for it
@@ -673,6 +676,7 @@ func (h *harness) provision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("browser call suite failed: %v", err)
 	}
+	h.checkItPhone(t, reachID)
 	if !calling {
 		t.Fatal("the browser suite never asked for the softphone's call")
 	}
@@ -848,4 +852,47 @@ func (h *harness) serverHelper(t *testing.T) {
 		t.Errorf("control-plane restart: %q", restarted.Result)
 	}
 	waitFor(t, h.ctx, 90*time.Second, running("control-plane", before), detail)
+}
+
+// checkIt runs Check it's server-side checks through this front door
+// (docs/SIMPLER.md §2.3) and opens a phone link for the browsers, whose
+// result checkItPhone reads once they've been. The test domain isn't in
+// public DNS and the stack has no public address of its own, so only the
+// front door and relay lines are checked here. A decrypting proxy's own
+// certificate is the test CA's, which the control plane rightly doesn't
+// trust, and its relay port is the host's: those lines are skipped.
+func (h *harness) checkIt(t *testing.T) (url, id string) {
+	var check struct {
+		Lines []struct{ State, Text, Meaning string }
+	}
+	h.call(http.MethodPost, "/api/v1/system/reach-check", nil, &check)
+	t.Logf("Check it, from the server: %+v", check.Lines)
+	if h.door != installer.FrontDoorHTTPProxy {
+		for _, want := range []string{domain + " answers with Linx's certificate", "turn." + domain + " relays call audio over port 443"} {
+			found := false
+			for _, l := range check.Lines {
+				found = found || (l.State == "ok" && l.Text == want)
+			}
+			if !found {
+				t.Errorf("Check it: no ok line %q", want)
+			}
+		}
+	}
+	var link struct{ ID, URL string }
+	h.call(http.MethodPost, "/api/v1/system/reach-links", nil, &link)
+	return link.URL, link.ID
+}
+
+// checkItPhone checks the admin's side saw the browser open the link: its
+// own address (not the front door's, so PROXY or X-Forwarded-For works)
+// and a working relay.
+func (h *harness) checkItPhone(t *testing.T, id string) {
+	var link struct {
+		State, Address, Seen string
+		Relay              *struct{ OK bool }
+	}
+	h.call(http.MethodGet, "/api/v1/system/reach-links/"+id, nil, &link)
+	if link.State != "reached" || link.Seen == "proxy" || link.Address == "" || link.Relay == nil || !link.Relay.OK {
+		t.Errorf("Check it, from the phone: %+v", link)
+	}
 }

@@ -705,7 +705,10 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	// The embedded spec's operation ids are capitalised by the generator.
 	// The four session endpoints authenticate a cookie themselves (or are
 	// unauthenticated, signing in), never the bearer scheme (docs/WEB.md §4).
-	public := []string{"GetOpenapiSpec", "OauthToken", "CreateSession", "VerifySessionMfa", "CompleteSetupLink", "DeleteSession"}
+	// The phone's side of Check it uses a one-time code instead of a
+	// sign-in (docs/SIMPLER.md §2.3), limited per address.
+	public := []string{"GetOpenapiSpec", "OauthToken", "CreateSession", "VerifySessionMfa", "CompleteSetupLink", "DeleteSession",
+		"ClaimReachLink", "ReportReachRelay"}
 	// /me/mfa* and /me/password act on the caller's own account, whatever
 	// kind of credential it is signed in with (docs/WEB.md §4), like GetMe.
 	// /me/web-phone and /me/turn-credentials are the signed-in person's own

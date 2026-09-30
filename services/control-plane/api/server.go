@@ -23,6 +23,7 @@ import (
 	"linxpbx.com/linx/internal/moved"
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/reach"
 	"linxpbx.com/linx/internal/settings"
 	"linxpbx.com/linx/internal/sso"
 	"linxpbx.com/linx/internal/trunk"
@@ -32,6 +33,11 @@ import (
 
 // Server implements StrictServerInterface.
 type Server struct {
+	// Check it (reach.go).
+	reachCheck func(context.Context) []reach.Line
+	reachLinks *reach.Links
+	reachLimit *auth.Limiters
+
 	spec      *openapi3.T
 	store     CredentialStore
 	webhooks  *webhook.Service

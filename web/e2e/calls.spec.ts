@@ -114,6 +114,22 @@ async function relayCandidates(page: Page): Promise<string[]> {
   });
 }
 
+// Check it from "outside" (docs/SIMPLER.md §2.3): the phone link the
+// harness made, opened with UDP blocked, so the relay test has to go over
+// TLS through the front door. The harness then checks what the admin's
+// side saw. First, so the link (10 minutes) is still fresh.
+test("check it: the phone link", async () => {
+  const url = process.env.LINX_REACH_URL ?? "";
+  test.skip(!url, "no phone link from the harness");
+  const b = await launch(["--force-webrtc-ip-handling-policy=disable_non_proxied_udp"]);
+  const page = await (await b.newContext()).newPage();
+  await page.goto(url);
+  await expect(page.getByRole("heading", { name: /You reached Linx at / })).toBeVisible();
+  await expect(page.getByText(/Linx saw you coming from \d+\.\d+\.\d+\.\d+\./)).toBeVisible();
+  await expect(page.getByText("Calls from here will have audio.")).toBeVisible();
+  await b.close();
+});
+
 test("browsers call each other, one with UDP blocked", async () => {
   const a = await launch();
   const b = await launch(["--force-webrtc-ip-handling-policy=disable_non_proxied_udp"]);

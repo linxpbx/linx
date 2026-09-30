@@ -19,6 +19,9 @@ const Install = lazy(() => import("@/screens/Install"));
 const Repair = lazy(() => import("@/screens/Repair"));
 // Help without signing in: the sign-in guides (docs/HELP.md §8 item 3).
 const Help = lazy(() => import("@/screens/Help"));
+// The phone's side of Check it (docs/SIMPLER.md §2.3), no sign-in.
+const Reach = lazy(() => import("@/screens/Reach"));
+const REACH = /^\/reach\/([A-Za-z0-9]{1,32})$/;
 
 type Auth =
   | { state: "loading" }
@@ -56,6 +59,10 @@ export function App() {
   if (path === "/company-done") return <CompanyDonePage />;
   if (path === "/install" || path === "/install/continue") {
     return <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}><Install /></Suspense>;
+  }
+  const reach = REACH.exec(path)?.[1];
+  if (reach) {
+    return <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}><Reach code={reach} /></Suspense>;
   }
   if (path === REPAIR_PATH) {
     return <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}><Repair /></Suspense>;

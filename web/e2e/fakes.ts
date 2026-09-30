@@ -49,6 +49,9 @@ export interface FakeOptions {
   // or the phone system isn't answering.
   helperMissing?: boolean;
   phoneSystemDown?: boolean;
+  // Check it (docs/SIMPLER.md §2.3): the phone link still waiting, or the
+  // phone came (from outside, or with Wi-Fi still on) and tested the relay.
+  reach?: "waiting" | "reached" | "wifi";
   // System → Server settings (docs/INSTALL.md §7): open (sudo linx setup
   // has it open) at home or on a rented server; closed by default.
   serverSettings?: "home" | "rented";
@@ -438,6 +441,35 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     if (p.startsWith("/api/v1/system/services/") && p.endsWith("/restart") && method === "POST") {
       const service = p.split("/")[5];
       return route.fulfill(json({ service, result: "restarted" }));
+    }
+    if (p.startsWith("/api/v1/reach/") && method === "POST") {
+      if (p.endsWith("/relay")) return route.fulfill({ status: 204 });
+      if (p.endsWith("/USEDCODE22")) {
+        return route.fulfill(json({ type: "about:blank", title: "Not Found", status: 404, code: "reach_link_invalid",
+          detail: "This link can't be used. Links work once, for 10 minutes: make a new one with Check it." }, 404));
+      }
+      return route.fulfill(json({ domain: "example.com", address: "5.194.33.12",
+        turn: { urls: ["turns:turn.example.com:443?transport=tcp"], username: "1790000000:linx-reach-c0de", credential: "x" } }));
+    }
+    if (p === "/api/v1/system/reach-check" && method === "POST") {
+      return route.fulfill(json({ checked_at: new Date().toISOString(), lines: [
+        { state: "ok", text: "example.com points to 94.200.1.10 (your home's address)" },
+        { state: "ok", text: "turn.example.com points to 94.200.1.10 (your home's address)" },
+        { state: "ok", text: "example.com answers with Linx's certificate" },
+        { state: "fail", text: "turn.example.com doesn't answer (connection refused).",
+          meaning: "Your front door isn't sending turn.example.com to port 5349. Calls from outside will have no audio.", fix: "steps" },
+        { state: "info", text: "Your router can't reach its own address from inside, so this server can't test the rest.", meaning: "Use your phone below." },
+      ] }));
+    }
+    const reachLink = (state: string, extra: object = {}) => ({ id: "0199d0c2-7a00-7000-8000-00000000c0de", url: "https://example.com/reach/7K2QHM4XRB",
+      state, expires_at: new Date(Date.now() + 10 * 60_000).toISOString(), version: state === "waiting" ? 0 : 2, ...extra });
+    if (p === "/api/v1/system/reach-links" && method === "POST") return route.fulfill(json(reachLink("waiting"), 201));
+    if (p.startsWith("/api/v1/system/reach-links/") && method === "GET") {
+      if (opts.reach === "reached") return route.fulfill(json(reachLink("reached", { address: "5.194.33.12", seen: "outside", relay: { ok: true } })));
+      if (opts.reach === "wifi") return route.fulfill(json(reachLink("reached", { address: "94.200.1.10", seen: "home", relay: { ok: true } })));
+      // Still waiting: the real server holds this for 25 s.
+      await new Promise((r) => setTimeout(r, 5_000));
+      return route.fulfill(json(reachLink("waiting"))).catch(() => {});
     }
     if (p === "/api/v1/system/status" && method === "GET") {
       const started = new Date(Date.now() - 3 * 86_400_000).toISOString();

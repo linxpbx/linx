@@ -212,6 +212,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/reach-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check it, from this server
+         * @description "Check it" (docs/SIMPLER.md §2.3): can people reach Linx from outside, as far as this server can see? Each line is one check in plain words: the domain and `turn.` at the domain's own name servers, Linx's certificate through the front door, the call relay over TLS through it, and this network's public address (which many home routers can't reach from inside: an `info` line then sends the admin to the phone link). Takes up to about 10 s; runs only when asked.
+         */
+        post: operations["checkReach"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/reach-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check it, from outside (a phone link)
+         * @description A link to open on a phone with Wi-Fi off: `https://<domain>/reach/<code>`, usable once, for 10 minutes. Opening it records the address Linx saw and tests the call relay from the phone. Kept in memory only.
+         */
+        post: operations["createReachLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/reach-links/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the phone link found
+         * @description With `after`, waits (up to 25 s) until the link changes from that version (the phone opened it, its relay test came in, or the link ran out) instead of the page asking again and again. 404 `not_found` for an unknown link.
+         */
+        get: operations["getReachLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reach/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The phone's side of Check it
+         * @description Used by the page a phone opens (`/reach/<code>`), with no sign-in: the address Linx saw and a relay credential good for 3 minutes, to test call audio from there. Works once; 404 `reach_link_invalid` for an unknown, used or old code, with nothing else about the server. Tries are limited per address (429 `too_many_requests`).
+         */
+        post: operations["claimReachLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reach/{code}/relay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The phone's call relay test
+         * @description Whether the phone got a relay address with the credential from claiming the link. Once, within 3 minutes of the claim; 404 `reach_link_invalid` otherwise.
+         */
+        post: operations["reportReachRelay"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/server-settings": {
         parameters: {
             query?: never;
@@ -3936,6 +4040,52 @@ export interface components {
         BackupPassword: {
             password: string;
         };
+        ReachCheck: {
+            lines: {
+                /** @enum {string} */
+                state: "ok" | "fail" | "warn" | "info";
+                text: string;
+                /** @description What a failure means for people, in one sentence. */
+                meaning?: string;
+                /**
+                 * @description Which fix helps.
+                 * @enum {string}
+                 */
+                fix?: "records" | "steps" | "router";
+            }[];
+            /** Format: date-time */
+            checked_at: string;
+        };
+        ReachLink: {
+            /** Format: uuid */
+            id: string;
+            url: string;
+            /** @enum {string} */
+            state: "waiting" | "reached" | "expired";
+            /** Format: date-time */
+            expires_at: string;
+            /** @description The address Linx saw the phone come from. */
+            address?: string;
+            /**
+             * @description outside: from outside, it works; home: this network's own public address (Wi-Fi still on?); local: a home-network address (Wi-Fi on); proxy: the front door's own address (it doesn't tell Linx who's visiting).
+             * @enum {string}
+             */
+            seen?: "outside" | "home" | "local" | "proxy";
+            relay?: {
+                ok: boolean;
+                detail?: string;
+            };
+            version: number;
+        };
+        ReachClaim: {
+            domain: string;
+            address: string;
+            turn: {
+                urls: string[];
+                username: string;
+                credential: string;
+            };
+        };
         SystemStatus: {
             /** @description The server helper (linx-ops-agent): connected, and when it last checked the services. Not connected: `containers` is empty or old, and logs and Restart aren't available. */
             helper: {
@@ -4624,6 +4774,124 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ServiceRestart"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    checkReach: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The checks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReachCheck"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createReachLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReachLink"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getReachLink: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReachLink"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    claimReachLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link worked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReachClaim"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    reportReachRelay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ok: boolean;
+                    detail?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

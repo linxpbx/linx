@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
+import { CheckIt } from "@/components/CheckIt";
 import { FrontDoorCard } from "@/components/FrontDoorCard";
 import { CopyBlock, Disclosure, PortainerNote, RecordBox } from "@/components/InstallFrame";
 import { SystemCard as Card, SystemHeader } from "@/components/SystemPage";
@@ -316,6 +317,7 @@ function Settings({ me, s, client, onChanged, onMoved }:
               </div>
             )}
             {preview && checkedAt === "door" && review}
+            {me && !editDoor && !running && <CheckIt className="mt-3" />}
           </Row>
           <Row label="Domain">
             {s.domain}
