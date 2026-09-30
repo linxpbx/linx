@@ -461,10 +461,13 @@ function CallsStep(props: { categories: Set<NumberCategory>; onChange: (c: Set<N
 
 // --- Step 7: Test ---
 
-function TestStep(outer: StepProps) {
+// Whether the echo test was heard, kept by the wizard (not the step), so
+// going Back and then Next again doesn't ask for it again (owner, Phase 1E
+// demo on the VPS).
+function TestStep(outer: StepProps & { heard: boolean | null; onHeard: (v: boolean | null) => void }) {
   const line = usePhoneLine();
   const { status, call, problem } = usePhoneState();
-  const [heard, setHeard] = useState<boolean | null>(null);
+  const { heard, onHeard: setHeard } = outer;
   // Leaving the step ends the echo test (found in the install demo: it was
   // still going on the admin home).
   const echo = call && call.peer.number === ECHO_TEST;
@@ -570,6 +573,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   const [taken, setTaken] = useState<Set<string>>(new Set());
   const [myNumber, setMyNumber] = useState<string | null>(null);
   const myTyped = useRef(false);
+  const [echoHeard, setEchoHeard] = useState<boolean | null>(null);
   const [myExtension, setMyExtension] = useState(me.extension ?? "");
   const line = usePhoneLine();
 
@@ -811,7 +815,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
           {...shellProps(true, () => void advance(7), () => void advance(7))} />
       )}
       {step === 7 && (
-        <TestStep {...shellProps(true, () => void advance(8, true), () => void advance(8, true))} />
+        <TestStep {...shellProps(true, () => void advance(8, true), () => void advance(8, true))} heard={echoHeard} onHeard={setEchoHeard} />
       )}
       {confirm.dialog}
     </>
