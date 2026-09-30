@@ -329,6 +329,7 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(user.name);
+  const [email, setEmail] = useState(user.email);
   const [role, setRole] = useState<Role>(user.role);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -343,6 +344,7 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
     setError("");
     const patch: Record<string, unknown> = {};
     if (name.trim() !== user.name) patch.name = name.trim();
+    if (email.trim().toLowerCase() !== user.email) patch.email = email.trim();
     if (role !== user.role) patch.role = role;
     const { data, error: err } = await api.PATCH("/api/v1/users/{id}", {
       params: { path: { id: user.id }, header: { "If-Match": user.etag } }, body: patch,
@@ -423,6 +425,15 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
             ) : (
               <div className="mt-2 flex flex-col gap-3">
                 <Field label="Name" htmlFor="edit-person-name"><Input id="edit-person-name" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+                <Field label="Email" htmlFor="edit-person-email">
+                  <Input id="edit-person-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
+                </Field>
+                {email.trim().toLowerCase() !== user.email && (
+                  <p className="text-sm text-muted-foreground">
+                    They'll sign in with the new email from now on.
+                    {(user.company_sign_in?.length ?? 0) > 0 && " Their company account is unlinked; they can link it again from My account."}
+                  </p>
+                )}
                 <Field label="Role" htmlFor="edit-person-role">
                   <Select value={role} onValueChange={(v) => setRole(v as Role)} disabled={user.role === "system_admin"}>
                     <SelectTrigger id="edit-person-role"><SelectValue /></SelectTrigger>
@@ -435,7 +446,7 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
                 </Field>
                 <div className="flex gap-2">
                   <Button size="sm" disabled={busy} onClick={() => void save()}>Save</Button>
-                  <Button size="sm" variant="outline" onClick={() => { setEditing(false); setName(user.name); setRole(user.role); }}>Cancel</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setEditing(false); setName(user.name); setEmail(user.email); setRole(user.role); }}>Cancel</Button>
                 </div>
               </div>
             )}

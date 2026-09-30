@@ -137,6 +137,8 @@ export function AccountScreen() {
         </section>
       )}
 
+      {me && <EmailSection me={me} run={confirm.run} onChanged={() => void load()} />}
+
       {me && me.has_password === false && (
         <section aria-labelledby="password-title" className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-card p-5 md:p-6">
           <div>
@@ -389,6 +391,66 @@ function RemoveDialog({ passkey, me, last, run, onClose, onDone }: {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Email (owner, Phase 1E demo): it's what you sign in with, so changing it
+ * asks "confirm it's you". Company accounts linked by the old email are
+ * unlinked; link them again below.
+ */
+function EmailSection({ me, run, onChanged }: {
+  me: Me; run: (action: () => Promise<Outcome>) => Promise<void>; onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [email, setEmail] = useState(me.email ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const same = email.trim().toLowerCase() === (me.email ?? "");
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    void run(async () => {
+      setBusy(true);
+      setError("");
+      const { response, error: err } = await api.PUT("/api/v1/me/email", { body: { email: email.trim() } });
+      setBusy(false);
+      if (needsConfirm(err)) return { confirm: true };
+      if (!response.ok) { setError(problemMessage(err)); return { confirm: false }; }
+      onChanged();
+      setEditing(false);
+      setSaved(true);
+      return { confirm: false };
+    });
+  };
+  return (
+    <section aria-labelledby="email-title" className="mt-6 rounded-lg border bg-card p-5 md:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h2 id="email-title" className="font-display text-lg font-semibold">Email</h2>
+          <p className="mt-1 break-words text-sm text-muted-foreground">
+            {saved ? <>Changed. Sign in with <span className="font-medium text-foreground">{me.email}</span> from now on.</>
+              : <>You sign in with <span className="font-medium text-foreground">{me.email}</span>.</>}
+          </p>
+        </div>
+        {!editing && <Button variant="outline" onClick={() => { setEmail(me.email ?? ""); setError(""); setSaved(false); setEditing(true); }}>Change</Button>}
+      </div>
+      {editing && (
+        <form onSubmit={save} className="mt-4 flex flex-col gap-2">
+          <Label htmlFor="new-email">New email</Label>
+          <Input id="new-email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus disabled={busy} />
+          <p className="text-sm text-muted-foreground">
+            You'll sign in with it from now on.
+            {(me.company_sign_in?.length ?? 0) > 0 && " Your company account is unlinked; link it again below if it uses the new email."}
+          </p>
+          {error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}
+          <div className="mt-1 flex gap-2">
+            <Button type="submit" disabled={busy || same || !email.trim()}>Save</Button>
+            <Button type="button" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+          </div>
+        </form>
+      )}
+    </section>
   );
 }
 

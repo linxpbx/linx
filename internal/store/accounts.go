@@ -101,17 +101,29 @@ func (s *Store) ListUsers(ctx context.Context, tenant uuid.UUID, before *uuid.UU
 func (s *Store) UpdateUser(ctx context.Context, u auth.User, audit auth.AuditEntry) (auth.User, error) {
 	var out auth.User
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		// A new email drops the person's company-account links (each was
+		// allowed because its email matched the old one, ADR-052) and any
+		// unused invite link (it was sent to the old address).
+		if _, err := tx.Exec(ctx, `DELETE FROM user_sso_link l USING app_user u
+			WHERE l.user_id = u.id AND u.id = $1 AND u.tenant_id = $2 AND u.email <> $3`, u.ID, u.TenantID, u.Email); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM user_setup_link l USING app_user u
+			WHERE l.user_id = u.id AND l.used_at IS NULL AND u.id = $1 AND u.tenant_id = $2 AND u.email <> $3`,
+			u.ID, u.TenantID, u.Email); err != nil {
+			return err
+		}
 		var err error
 		out, err = scanUser(tx.QueryRow(ctx, `UPDATE app_user SET
 				name = $4, role = $5, extension_id = $6, password_hash = $7, password_updated_at = $8,
 				mfa_secret_enc = $9, mfa_pending_secret_enc = $10, mfa_enabled = $11, recovery_code_hashes = $12,
 				failed_attempts = $13, locked_until = $14, failure_window_start = $15, failure_window_count = $16,
-				disabled_at = $17, version = version + 1, updated_at = $18
+				disabled_at = $17, version = version + 1, updated_at = $18, email = $19
 			WHERE id = $1 AND tenant_id = $2 AND version = $3
 			RETURNING `+userColumns,
 			u.ID, u.TenantID, u.Version, u.Name, u.Role, u.ExtensionID, u.PasswordHash, u.PasswordUpdatedAt,
 			u.MFASecretEnc, u.MFAPendingSecretEnc, u.MFAEnabled, u.RecoveryCodeHashes, u.FailedAttempts, u.LockedUntil,
-			u.FailureWindowStart, u.FailureWindowCount, u.DisabledAt, u.UpdatedAt))
+			u.FailureWindowStart, u.FailureWindowCount, u.DisabledAt, u.UpdatedAt, u.Email))
 		if errors.Is(err, auth.ErrNotFound) {
 			var exists bool
 			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM app_user WHERE id = $1 AND tenant_id = $2)`,

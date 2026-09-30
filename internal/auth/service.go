@@ -310,6 +310,9 @@ func (a *Accounts) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
 
 // UserPatch is a JSON Merge Patch of a person; nil fields stay as they are.
 type UserPatch struct {
+	// Email: a new sign-in email (confirm it's you; their company-account
+	// links are dropped, since each was allowed for the old address).
+	Email       *string
 	Name        *string
 	Role        *string
 	ExtensionID *uuid.UUID
@@ -346,6 +349,23 @@ func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch
 		}
 	}
 	now := a.Now().UTC()
+	emailChanging := false
+	oldEmail := u.Email
+	if patch.Email != nil {
+		email := strings.ToLower(strings.TrimSpace(*patch.Email))
+		if !validEmail(email) {
+			return User{}, badRequest("email_invalid", "That doesn't look like an email address.")
+		}
+		if email != u.Email {
+			// Who signs in as this person: "confirm it's you" (owner,
+			// Phase 1E demo: the first admin's email couldn't be changed).
+			if err := RequireConfirmed(ctx, now); err != nil {
+				return User{}, err
+			}
+			emailChanging = true
+			u.Email = email
+		}
+	}
 	if patch.Name != nil {
 		name := strings.TrimSpace(*patch.Name)
 		if name == "" || len([]rune(name)) > 100 {
@@ -380,7 +400,14 @@ func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch
 	if err != nil {
 		return User{}, err
 	}
+	if emailChanging {
+		audit.Detail = map[string]any{"email": u.Email, "previous_email": oldEmail}
+	}
 	out, err := a.Store.UpdateUser(ctx, u, audit)
+	if errors.Is(err, ErrDuplicate) && emailChanging {
+		return User{}, &apihttp.Error{Status: http.StatusConflict, Code: "email_taken",
+			Detail: "Someone else in Linx already signs in with that email."}
+	}
 	if errors.Is(err, ErrVersionChanged) {
 		return User{}, &apihttp.Error{Status: http.StatusConflict, Code: "version_changed",
 			Detail: "Someone else changed this person first. Reload and try again."}
@@ -402,6 +429,19 @@ func (a *Accounts) UpdateUser(ctx context.Context, id uuid.UUID, patch UserPatch
 		a.sessionsEnded(ctx, id, nil)
 	}
 	return out, nil
+}
+
+// ChangeMyEmail is My account's "change email": the signed-in person's own
+// sign-in email, after "confirm it's you" (UpdateUser's rules otherwise).
+func (a *Accounts) ChangeMyEmail(ctx context.Context, email string) (User, error) {
+	sess, ok := SessionFromContext(ctx)
+	if !ok {
+		return User{}, notASession()
+	}
+	if !sess.MFAVerified {
+		return User{}, mfaVerifyFirst()
+	}
+	return a.UpdateUser(ctx, sess.UserID, UserPatch{Email: &email}, "")
 }
 
 // DisableUser stops a person signing in and ends every session of theirs

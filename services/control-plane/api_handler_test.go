@@ -712,7 +712,7 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	// choice (docs/ADMIN.md §5), refused to anything but a session;
 	// /me/sso-links* their own company accounts (§6), likewise, and
 	// /me/sessions* their own signed-in browsers (step 8).
-	anyCredential := []string{"CheckMyPassword", "ListMySessions", "SignOutMySession", "SignOutMyOtherSessions", "GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
+	anyCredential := []string{"ChangeMyEmail", "CheckMyPassword", "ListMySessions", "SignOutMySession", "SignOutMyOtherSessions", "GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
 		"IssueMyWebPhone", "GetMyTurnCredentials", "SetMyPresence",
 		"ListMyPasskeys", "RenameMyPasskey", "RemoveMyPasskey", "AcceptPasswordOnly",
 		"ListMyCompanyLinks", "UnlinkMyCompanyAccount"}

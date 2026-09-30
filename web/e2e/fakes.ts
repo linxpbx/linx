@@ -573,6 +573,14 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       return route.fulfill(body.password === "correct horse battery" ? { status: 204 }
         : json({ type: "about:blank", title: "Unauthorized", status: 401, code: "password_invalid", detail: "Your current password is incorrect." }, 401));
     }
+    if (p === "/api/v1/me/email" && method === "PUT") {
+      if (!system.confirmed) return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
+      const body = route.request().postDataJSON() as { email: string };
+      if (people.users.some((u) => u.email === body.email.toLowerCase())) {
+        return route.fulfill(json({ type: "about:blank", title: "Conflict", status: 409, code: "email_taken", detail: "Someone already uses that email." }, 409));
+      }
+      return route.fulfill(json({ id: "0199", email: body.email.toLowerCase(), name: ME.name, role: "admin" }));
+    }
     if (p === "/api/v1/me/sessions" && method === "GET") return route.fulfill(json({ items: system.sessions }));
     if (p === "/api/v1/me/sessions/sign-out-others" && method === "POST") {
       system.sessions = system.sessions.filter((x) => x.current);

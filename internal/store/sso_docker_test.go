@@ -152,4 +152,34 @@ func TestSSODocker(t *testing.T) {
 	if req, err := s.CompanySignInRequired(ctx, tenant); err != nil || !req {
 		t.Fatalf("after turning on = %v %v", req, err)
 	}
+
+	// A new email drops the person's company links (they were matched on
+	// the old one); an email someone else has is refused.
+	if err := link(omar, entra, "m-omar"); err != nil {
+		t.Fatal(err)
+	}
+	omar, err = s.User(ctx, tenant, omar.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invite := auth.SetupLink{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, UserID: omar.ID,
+		TokenHash: make([]byte, 32), CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	if err := s.CreateSetupLink(ctx, invite); err != nil {
+		t.Fatal(err)
+	}
+	omar.Email = "sara@example.com"
+	if _, err := s.UpdateUser(ctx, omar, audit("user.update")); !errors.Is(err, auth.ErrDuplicate) {
+		t.Fatalf("someone else's email = %v", err)
+	}
+	omar.Email = "omar.new@example.com"
+	changed, err := s.UpdateUser(ctx, omar, audit("user.update"))
+	if err != nil || changed.Email != "omar.new@example.com" {
+		t.Fatalf("change email = %+v %v", changed, err)
+	}
+	if links, _ := s.CompanyLinks(ctx, tenant, omar.ID); len(links) != 0 {
+		t.Fatalf("links after the email changed = %+v", links)
+	}
+	if _, err := s.SetupLinkByTokenHash(ctx, invite.TokenHash); !errors.Is(err, auth.ErrNotFound) {
+		t.Fatalf("invite sent to the old email still there: %v", err)
+	}
 }

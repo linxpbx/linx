@@ -2595,6 +2595,33 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/me/email:
+    put:
+      operationId: changeMyEmail
+      summary: Change my sign-in email
+      description: >-
+        After "confirm it's you" (403 `confirm_required`). Drops my
+        company-account links, which were for the old address. Only for a
+        signed-in browser session.
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  maxLength: 200
+      responses:
+        "204":
+          description: Changed.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/me/password/check:
     post:
       operationId: checkMyPassword
@@ -6575,6 +6602,14 @@ components:
       type: object
       additionalProperties: false
       properties:
+        email:
+          type: string
+          maxLength: 200
+          description: >-
+            A new sign-in email. A session must have confirmed it's you
+            (403 `confirm_required`); 409 `email_taken` if someone else has
+            it. Drops the person's company-account links (each was allowed
+            for the old address).
         name:
           type: string
           minLength: 1

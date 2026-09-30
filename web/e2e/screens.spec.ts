@@ -160,8 +160,18 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("status")).toHaveText("Linked.");
       await expect(page.getByText("Safari on iPhone")).toBeVisible();
       await shot(page, `${scheme}-account`);
+      // Change email: it's what you sign in with, so "confirm it's you".
+      const emailBox = page.getByRole("region", { name: "Email" });
+      await emailBox.getByRole("button", { name: "Change", exact: true }).click();
+      await page.getByLabel("New email").fill("mohammed@newcompany.example");
+      await expect(page.getByText("Your company account is unlinked")).toBeVisible();
+      await shot(page, `${scheme}-account-change-email`);
+      await emailBox.getByRole("button", { name: "Save" }).click();
+      await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await emailBox.getByRole("button", { name: "Cancel" }).click();
       // Change password: the current one is checked before the new one is asked.
-      await page.getByRole("button", { name: "Change", exact: true }).click();
+      await page.getByRole("region", { name: "Password" }).getByRole("button", { name: "Change", exact: true }).click();
       await expect(page.getByLabel("New password")).toHaveCount(0);
       await page.getByLabel("Current password").fill("a wrong guess here");
       await page.getByRole("button", { name: "Next" }).click();
@@ -225,6 +235,11 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("row", { name: /Sara Haddad/ }).click();
       await expect(page.getByRole("heading", { name: "Sara Haddad" })).toBeVisible();
       await shot(page, `${scheme}-people-detail`);
+      await page.getByRole("button", { name: "Edit" }).click();
+      await page.getByLabel("Email").fill("sara.h@example.com");
+      await expect(page.getByText("They'll sign in with the new email from now on.")).toBeVisible();
+      await shot(page, `${scheme}-people-edit-email`);
+      await page.getByRole("button", { name: "Cancel" }).click();
       await page.getByRole("button", { name: "Close" }).click();
 
       await page.getByRole("button", { name: "+ Add" }).click();

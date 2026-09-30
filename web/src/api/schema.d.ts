@@ -1550,6 +1550,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change my sign-in email
+         * @description After "confirm it's you" (403 `confirm_required`). Drops my company-account links, which were for the old address. Only for a signed-in browser session.
+         */
+        put: operations["changeMyEmail"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/password/check": {
         parameters: {
             query?: never;
@@ -3912,6 +3932,8 @@ export interface components {
         };
         /** @description JSON Merge Patch; fields not sent stay as they are. */
         UserPatch: {
+            /** @description A new sign-in email. A session must have confirmed it's you (403 `confirm_required`); 409 `email_taken` if someone else has it. Drops the person's company-account links (each was allowed for the old address). */
+            email?: string;
             name?: string;
             role?: components["schemas"]["Role"];
             /** Format: uuid */
@@ -6754,6 +6776,31 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PasswordChange"];
+            };
+        };
+        responses: {
+            /** @description Changed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    changeMyEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    email: string;
+                };
             };
         };
         responses: {

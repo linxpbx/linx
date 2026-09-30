@@ -69,7 +69,7 @@ func (s *Server) GetUser(ctx context.Context, req GetUserRequestObject) (GetUser
 }
 
 func (s *Server) UpdateUser(ctx context.Context, req UpdateUserRequestObject) (UpdateUserResponseObject, error) {
-	patch := auth.UserPatch{Name: req.Body.Name, ExtensionID: req.Body.ExtensionId, Disabled: req.Body.Disabled}
+	patch := auth.UserPatch{Email: req.Body.Email, Name: req.Body.Name, ExtensionID: req.Body.ExtensionId, Disabled: req.Body.Disabled}
 	if req.Body.Role != nil {
 		role := string(*req.Body.Role)
 		patch.Role = &role
@@ -146,6 +146,17 @@ func (s *Server) ChangeMyPassword(ctx context.Context, req ChangeMyPasswordReque
 		return ChangeMyPassworddefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
 	return ChangeMyPassword204Response{}, nil
+}
+
+func (s *Server) ChangeMyEmail(ctx context.Context, req ChangeMyEmailRequestObject) (ChangeMyEmailResponseObject, error) {
+	if _, err := s.accounts.ChangeMyEmail(ctx, req.Body.Email); err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return ChangeMyEmaildefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return ChangeMyEmail204Response{}, nil
 }
 
 func (s *Server) CheckMyPassword(ctx context.Context, req CheckMyPasswordRequestObject) (CheckMyPasswordResponseObject, error) {

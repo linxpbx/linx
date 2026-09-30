@@ -80,6 +80,11 @@ func (f *fakeAccountStore) UpdateUser(_ context.Context, u User, _ AuditEntry) (
 	if cur.Version != u.Version {
 		return User{}, ErrVersionChanged
 	}
+	for _, o := range f.users {
+		if o.ID != u.ID && o.TenantID == u.TenantID && o.Email == u.Email {
+			return User{}, ErrDuplicate
+		}
+	}
 	u.Version++
 	f.users[u.ID] = u
 	return u, nil
@@ -1341,5 +1346,42 @@ func TestCheckCurrentPassword(t *testing.T) {
 	}
 	if st.users[u.ID].PasswordHash != hash {
 		t.Error("checking changed the password")
+	}
+}
+
+// An email is who signs in: changing one needs "confirm it's you", is
+// lower-cased, and can't take someone else's.
+func TestChangeEmail(t *testing.T) {
+	a, st, _ := newTestAccounts(t)
+	tenant := uuid.New()
+	me := User{ID: uuid.New(), TenantID: tenant, Email: "me@example.com", Name: "Me", Role: RoleUser}
+	other := User{ID: uuid.New(), TenantID: tenant, Email: "taken@example.com", Name: "O", Role: RoleUser}
+	st.users[me.ID], st.users[other.ID] = me, other
+	sess := UserSession{ID: uuid.New(), TenantID: tenant, UserID: me.ID, Role: RoleUser, MFAVerified: true}
+	ctx := func(s UserSession) context.Context {
+		return WithSession(WithPrincipal(context.Background(), s.Principal()), s)
+	}
+	if _, err := a.ChangeMyEmail(ctx(sess), "new@example.com"); apiErrCode(err) != errConfirmRequired.Code {
+		t.Fatalf("without confirming: %v", err)
+	}
+	if _, err := a.ChangeMyEmail(ctx(sess), "ME@example.com"); err != nil {
+		t.Fatalf("same email, other case, needs no confirm: %v", err)
+	}
+	at := time.Now()
+	sess.ConfirmedAt = &at
+	if _, err := a.ChangeMyEmail(ctx(sess), "not an email"); apiErrCode(err) != "email_invalid" {
+		t.Errorf("bad email: %v", err)
+	}
+	if _, err := a.ChangeMyEmail(ctx(sess), "Taken@Example.com"); apiErrCode(err) != "email_taken" {
+		t.Errorf("someone else's email: %v", err)
+	}
+	u, err := a.ChangeMyEmail(ctx(sess), " New@Example.com ")
+	if err != nil || u.Email != "new@example.com" {
+		t.Fatalf("change: %q, %v", u.Email, err)
+	}
+	pending := sess
+	pending.MFAVerified = false
+	if _, err := a.ChangeMyEmail(ctx(pending), "x@example.com"); err == nil {
+		t.Error("a half-finished sign-in changed the email")
 	}
 }
