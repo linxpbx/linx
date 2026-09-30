@@ -738,3 +738,21 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 **Decision.** Every message Linx plays is its own, in one voice: the words in `tools/prompts/prompts.tsv`, spoken by the Piper voice "kristin" (trained from scratch on public-domain LibriVox recordings; the voice collection is MIT, pinned revision, SHA-256) with `make prompts`, a development-only tool (Piper is GPL-3.0; it never ships, and generated audio isn't covered by its licence). Only the audio is committed (`deploy/docker/asterisk/prompts/`, `SHA256SUMS` checked at image build). Asterisk's prompt pack is no longer installed. Rejected: the other free US English female voices (hfc_female is non-commercial; lessac and amy come from the research-only Blizzard 2013 data); buying recordings from Allison Smith (an exact match, but paid and slow); changing only the refusals (two voices on one system).
 
 **Consequences.** Plain-words messages; the image loses 13 MB and a download; changing a message is one line and `make prompts`. The voice is synthetic, and new messages (voicemail, office hours, Phase 1F) use the same tool and voice. `TestPlaybackPromptsExist` fails a dialplan `Playback` of anything else.
+
+## ADR-066 — Email through the owner's own SMTP account (owner decision, approved 2026-09-30, `docs/PHASE1F.md` §4)
+**Decision.** Linx sends email through an SMTP server the owner already has (mail provider with an app password, or a sending service), TLS or STARTTLS only with the certificate checked, password sealed, the private-address guard, a database queue with 3 tries and an hourly cap. Go's `net/smtp` and `mime`: no new dependency. Rejected: a mail server inside Linx (home connections are blocked or marked as spam; another service to run and secure). OAuth sign-in for Google/Microsoft later.
+
+## ADR-067 — Password reset by email (owner decision, approved 2026-09-30, `docs/PHASE1F.md` §5)
+**Decision.** Offered only when email is set up; same answer and timing for any email; one-use hashed link for 30 minutes; the second step is still required; other sessions ended; rate limits and an alert. Never resets the authenticator.
+
+## ADR-068 — Call routing decided in the database (owner decision, approved 2026-09-30, `docs/PHASE1F.md` §6–7)
+**Decision.** One destinations list (person, ring group, voicemail box, message and hang up; menus and queues later). Ring groups, office hours, holidays and per-number rules live in tables the control plane owns; the dialplan asks a database function for the next step (at most 10 steps a call), so calls keep working through a control-plane restart (ADR-034) and the call simulator uses the same function. Asterisk stays read-only on routing.
+
+## ADR-069 — Voicemail recorded by Asterisk, kept in the database (owner decision, approved 2026-09-30, `docs/PHASE1F.md` §8)
+**Decision.** The dialplan plays the greeting and records (`app_record`) into a volume shared only by Asterisk and the control plane, then signals over ARI (`app_userevent`); the control plane checks the file, stores it (G.711) in Postgres, deletes it, emails it and fires `voicemail.created`; files left during a restart are picked up on start. In the database, backups include voicemail with no change. Rejected: `app_voicemail` (own mail program, config files and message folders). Listening from desk phones (`*97`) and the message-waiting light wait for Phase 2's ARI call control.
+
+## ADR-070 — Call history from Asterisk's call records, add-only (owner decision, approved 2026-09-30, `docs/PHASE1F.md` §9)
+**Decision.** `cdr_adaptive_odbc` writes each call leg into one table; Asterisk's database user may only INSERT into that table (no read, change or delete; everything else stays read-only). The control plane groups legs into one plain line per call. Rejected: building history from the control plane's own call events (calls ending during a restart would be missing).
+
+## ADR-071 — Undo for call routing by snapshots (owner decision, approved 2026-09-30, `docs/PHASE1F.md` §9)
+**Decision.** Each routing change first saves a snapshot of the routing settings (last 50 kept); "Undo" and "Put this version back" restore one, audited, itself undoable; confirm-it's-you when outgoing permissions would change.

@@ -14,6 +14,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/TRUNKS.md` trunks, numbering/outbound routing, WireGuard, toll fraud (Phase 1D)
 - `docs/ADMIN.md` admin portal, web setup wizard, numbering plan, passkeys, company sign-in (Phase 1E)
 - `docs/RESOURCES.md` what Linx needs to run (measured), minimum hardware, what's been made smaller
+- `docs/PHASE1F.md` Phase 1F: email, password reset, ring groups, office hours, voicemail, call history, undo; one build order with SIMPLER (ADR-066 to 071, approved 2026-09-30)
 - `docs/SIMPLER.md` simpler phone lines (gateways sign in to Linx), one front-door method, any DNS company (ADR-061 to 063, approved 2026-09-29)
 - `docs/HELP.md` help pages and search (guides in `docs/help/`)
 - `docs/INSTALL.md` web-first install: one link from the terminal, HTTP 6464 → TLS-ALPN-01 → HTTPS, moved-server checklist
@@ -39,6 +40,8 @@ Now (2026-09-30):
 - Help step 3, written answers (2026-09-30, `docs/HELP.md` §7 "As built"): **owner decision: no Anthropic SDK** (it added 6.7 MB, +23%, to the control plane; direct HTTPS adds 0.1 MB). Ollama only over `https://` (security rule), behind the admin's proxy.
 - Help step 4 (2026-09-30): security review done, 4 fixes (`docs/HELP.md` §7 step 4): the provider's own error text only for the admin's Test and the log, answers cut at 32 KB by Linx, a slow model gets the full 30 s before its first reply, no buffering at nginx front doors. **Help (steps 1–4) complete, demo passed and approved by the owner 2026-09-30** (`docs/DEMO_HELP.md`).
 - Owner's "speed up how we work" request (2026-09-30): measurements, this trim, the test guide below. **CI speed-ups approved and done 2026-09-30:** image builds and scans start at once; call suite, install suite and the browser suite (one job per front door, `TestCIRunsEveryFrontDoor` keeps that list complete) run side by side; publishing (`publish`, `asterisk-push` → `asterisk-publish`) waits for every test, scan and suite. Nothing removed.
+
+- **Phase 1F started 2026-09-30:** design **approved by the owner 2026-09-30, all §10 as recommended** (`docs/PHASE1F.md`, ADR-066 to 071): two demos (A: front doors/DNS/public port after step 8; B: the rest), `*97`/message light in Phase 2, forwarding outside later. Build order §11, one step per session. **Next: step 1, screen specs.**
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
 1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Steps 1 (guides + checks), 2 (Help screen, search, **?** button, public sign-in help) and 3 (written answers: Anthropic/OpenAI-compatible/Ollama, sealed key, limits, System → Settings card) done 2026-09-30; step 4 review done 2026-09-30; **demo passed and approved 2026-09-30**. Done.
