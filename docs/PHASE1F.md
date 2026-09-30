@@ -90,7 +90,7 @@ The owner's 2026-09-27 decision, built:
 
 ## 11. Build order (one session each)
 Part A: getting in
-1. Screen specs for every new or changed screen (front-door card, Check it, DNS, public port, Email card, forgot password, ring groups, office hours, the wizard, Voicemail, Call history, Routing changes).
+1. Screen specs for every new or changed screen (front-door card, Check it, DNS, public port, Email card, forgot password, ring groups, office hours, the wizard, Voicemail, Call history, Routing changes). **Drafted 2026-09-30**: `docs/ui/SCREENS_PHASE1F.md` (reviewed as an artifact; its §16 has six questions for the owner). Waiting for the owner's approval.
 2. Pangolin's web page checked on the owner's Pangolin; the **front-door card** everywhere (setup, install page, Server settings) with "How to do this in…" for each proxy; decrypting under Advanced.
 3. **Check it**: from the server (doctor's checks, in words) and from outside (the phone link, showing the address Linx saw).
 4. **DNS by hand**: the records list and checks at the domain's own name servers.
