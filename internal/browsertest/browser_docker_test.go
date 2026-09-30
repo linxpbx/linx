@@ -889,7 +889,7 @@ func (h *harness) checkIt(t *testing.T) (url, id string) {
 func (h *harness) checkItPhone(t *testing.T, id string) {
 	var link struct {
 		State, Address, Seen string
-		Relay              *struct{ OK bool }
+		Relay                *struct{ OK bool }
 	}
 	h.call(http.MethodGet, "/api/v1/system/reach-links/"+id, nil, &link)
 	if link.State != "reached" || link.Seen == "proxy" || link.Address == "" || link.Relay == nil || !link.Relay.OK {
