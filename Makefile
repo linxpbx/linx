@@ -85,6 +85,11 @@ test-browser: ## Browser call suite: the real stack + two headless Chromiums (ne
 		echo "--- the test's own lines (service logs left out):"; echo "$$out" | grep -v '^=== ' | grep -Ev '^ {8}([^|]|$$)' | tail -100; \
 		echo "browser suite: FAILED"; exit 1; fi
 
+.PHONY: prompts
+prompts: ## Make the call messages from tools/prompts/prompts.tsv (kristin voice) into deploy/docker/asterisk/prompts
+	@docker build -q -t linx-prompts-tool tools/prompts >/dev/null
+	@docker run --rm --network none -v "$(CURDIR)/tools/prompts:/in:ro" -v "$(CURDIR)/deploy/docker/asterisk/prompts:/out" linx-prompts-tool
+
 .PHONY: screens
 screens: ## Screenshots of every web screen against a stand-in server, into web/e2e/screenshots
 	@cd web && npx playwright test >/dev/null && echo "screens: web/e2e/screenshots/"

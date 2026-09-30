@@ -1,0 +1,7 @@
+# Linx's call messages (internal/asteriskconf's linx-messages context).
+# name<TAB>what it says. Change a line, then: make prompts
+not-in-use	That number isn't in use. Please check it and try again.
+not-available	Nobody can take your call right now. Please try again later.
+not-permitted	This phone isn't allowed to call that number. If you need to, ask your admin.
+no-lines	Calls outside the company can't be made right now. Please try again later.
+limit	This phone is already on as many outside calls as it's allowed. Please end one, then try again.

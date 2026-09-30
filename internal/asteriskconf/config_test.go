@@ -298,7 +298,7 @@ func TestRenderARI(t *testing.T) {
 			t.Errorf("ari.conf missing %q:\n%s", want, got)
 		}
 	}
-	for _, want := range []string{"exten => *43,1,Answer()", "Dial(${TARGETS},30)", "Playback(ss-noservice)", "Playback(vm-nobodyavail)",
+	for _, want := range []string{"exten => *43,1,Answer()", "Dial(${TARGETS},30)", "Playback(linx/not-in-use)", "Playback(linx/not-available)",
 		`GotoIf($["${CALLERID(num)}" = "${EXTEN}"]?linx-messages,not-available,1)`,
 		// Outside numbers go out; trunks' calls only reach DIDs (ADR-048).
 		"exten => _[0-9*#+].,1,Goto(linx-outbound,${EXTEN},1)", "Set(GROUP(linx-out)=${CALLERID(num)})",
@@ -311,6 +311,38 @@ func TestRenderARI(t *testing.T) {
 	}
 	if got := read(t, c, "func_odbc.conf"); !strings.Contains(got, "FROM linx_ring_targets WHERE number = '${SQL_ESC(${ARG1})}'") {
 		t.Errorf("func_odbc.conf must escape the number:\n%s", got)
+	}
+}
+
+// Every message the dialplan plays is one of Linx's own (make prompts),
+// committed and in SHA256SUMS: the image has no other prompts.
+func TestPlaybackPromptsExist(t *testing.T) {
+	c := testConfig(t)
+	if err := c.Render(); err != nil {
+		t.Fatal(err)
+	}
+	sums, err := os.ReadFile("../../deploy/docker/asterisk/prompts/SHA256SUMS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plays := regexp.MustCompile(`Playback\(([^)]*)\)`).FindAllStringSubmatch(read(t, c, "extensions.conf"), -1)
+	if len(plays) == 0 {
+		t.Fatal("no Playback in the dialplan")
+	}
+	for _, m := range plays {
+		for _, name := range strings.Split(m[1], "&") {
+			file, ok := strings.CutPrefix(name, "linx/")
+			if !ok {
+				t.Errorf("Playback(%s): not one of Linx's own messages (linx/...)", name)
+				continue
+			}
+			if _, err := os.Stat("../../deploy/docker/asterisk/prompts/" + file + ".g722"); err != nil {
+				t.Errorf("Playback(%s): %v", name, err)
+			}
+			if !strings.Contains(string(sums), "./"+file+".g722\n") {
+				t.Errorf("Playback(%s): not in SHA256SUMS", name)
+			}
+		}
 	}
 }
 

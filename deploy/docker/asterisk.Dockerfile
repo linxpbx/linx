@@ -17,15 +17,6 @@ ARG ASTERISK_SHA256=3bd5ee040509a3d3cd9b1ba9520c18e6ec0a7e7981ca68c457dcd36ba3c5
 # keyserver.ubuntu.com and pinned here; deploy/docker/asterisk/asterisk-pubkey.asc
 # must export to this exact fingerprint.
 ARG ASTERISK_GPG_FINGERPRINT=F2FC93DB7587BD1FB49E045A5D984BE337191CE7
-# English prompts ("number not in service", "nobody is available"). Asterisk's
-# own sounds Makefile downloads these without checking anything, so we fetch
-# the tarball ourselves, pinned by SHA-256 (captured from a download whose
-# SHA-1 matched downloads.asterisk.org's published .sha1), and leave it where
-# the Makefile finds it.
-# G.722 (wideband) rather than GSM: the best quality Asterisk can store, and
-# converted on the fly for Opus callers (Asterisk has no Opus file format).
-ARG CORE_SOUNDS=asterisk-core-sounds-en-g722-1.6.1.tar.gz
-ARG CORE_SOUNDS_SHA256=59891033e764d9dffc5ccdd78e845a1c8ea6bed0b434128bb0199c63ef591770
 # Opus transcoding (ADR-041): Wazo's open-source codec_opus (a maintained
 # fork of traud/asterisk-opus, GPLv2 like Asterisk; libopus is BSD), from a
 # pinned commit of wazo-platform/wazo-codec-opus-open-source (their 26.09
@@ -42,8 +33,6 @@ FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2
 ARG ASTERISK_VERSION
 ARG ASTERISK_SHA256
 ARG ASTERISK_GPG_FINGERPRINT
-ARG CORE_SOUNDS
-ARG CORE_SOUNDS_SHA256
 ARG OPUS_CODEC_COMMIT
 ARG OPUS_CODEC_C_SHA256
 ARG OPUS_CODEC_H_SHA256
@@ -72,9 +61,6 @@ RUN gpg --with-colons --import-options show-only --import asterisk-pubkey.asc \
     && rm -rf "$GNUPGHOME"
 
 RUN tar xzf asterisk.tar.gz && mv "asterisk-${ASTERISK_VERSION}" asterisk
-ADD --checksum=sha256:${CORE_SOUNDS_SHA256} \
-    https://downloads.asterisk.org/pub/telephony/sounds/releases/${CORE_SOUNDS} \
-    asterisk/sounds/${CORE_SOUNDS}
 # Before ./configure and menuselect, so menuselect lists the module.
 ADD --checksum=sha256:${OPUS_CODEC_C_SHA256} \
     https://raw.githubusercontent.com/wazo-platform/wazo-codec-opus-open-source/${OPUS_CODEC_COMMIT}/codecs/codec_opus_open_source.c \
@@ -151,7 +137,7 @@ RUN menuselect/menuselect \
       --enable pbx_config \
       --enable bridge_simple --enable bridge_native_rtp \
       --enable format_pcm --enable format_sln \
-      --disable CORE-SOUNDS-EN-GSM --enable CORE-SOUNDS-EN-G722 \
+      --disable-category MENUSELECT_CORE_SOUNDS --disable-category MENUSELECT_EXTRA_SOUNDS \
       --disable BUILD_NATIVE \
       menuselect.makeopts \
     && menuselect/menuselect --check-deps menuselect.makeopts
@@ -213,6 +199,13 @@ COPY --from=asterisk-build /usr/lib/libasterisk*.so* /usr/lib/
 # Asterisk needs its XML docs at startup: without them it refuses to
 # register config options ("Stasis initialization failed").
 COPY --from=asterisk-build /var/lib/asterisk /usr/share/asterisk
+# Linx's own call messages (make prompts: tools/prompts, one open voice for
+# every message; Asterisk's 13 MB prompt pack isn't installed). G.722
+# (wideband): the best quality Asterisk can store, converted on the fly for
+# Opus callers (Asterisk has no Opus file format). Checked against the
+# committed SHA256SUMS so a changed file can't slip in unnoticed.
+COPY deploy/docker/asterisk/prompts/ /usr/share/asterisk/sounds/en/linx/
+RUN cd /usr/share/asterisk/sounds/en/linx && sha256sum -c --quiet SHA256SUMS && rm SHA256SUMS
 # /etc/asterisk and /var/run/asterisk are tmpfs mounts in compose.yaml; they
 # exist here, owned by asterisk, so a mount without options still starts
 # out writable.

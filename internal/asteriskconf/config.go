@@ -1060,29 +1060,29 @@ exten => _[0-9+].,1,Goto(linx-ring,${TARGET},1)
 [linx-messages]
 exten => not-in-use,1,Answer()
  same => n,Wait(0.5)
- same => n,Playback(ss-noservice)
+ same => n,Playback(linx/not-in-use)
  same => n,Hangup()
 
 exten => not-available,1,Answer()
  same => n,Wait(0.5)
- same => n,Playback(vm-nobodyavail)
+ same => n,Playback(linx/not-available)
  same => n,Hangup()
 
 ; The caller's permission level doesn't include this kind of number.
 exten => not-permitted,1,Answer()
  same => n,Wait(0.5)
- same => n,Playback(im-sorry&feature-not-avail-line)
+ same => n,Playback(linx/not-permitted)
  same => n,Hangup()
 
 ; No line is set up, or every line is down or full.
 exten => no-lines,1,Answer()
  same => n,Wait(0.5)
- same => n,Playback(all-circuits-busy-now&please-try-call-later)
+ same => n,Playback(linx/no-lines)
  same => n,Hangup()
 
 ; This extension already has 2 outside calls.
 exten => limit,1,Answer()
  same => n,Wait(0.5)
- same => n,Playback(simul-call-limit-reached)
+ same => n,Playback(linx/limit)
  same => n,Hangup()
 `
