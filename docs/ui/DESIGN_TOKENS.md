@@ -31,6 +31,8 @@ All text/background pairs must meet WCAG 2.2 AA. This is verified by a contrast 
 | Offline | `status.offline` | `#8A8E96` grey | `#8A8E96` |
 | In a meeting | `status.meeting` | `#1F5FD6` cobalt | `#5B8FEA` |
 
+**Light or dark** (owner, 2026-09-30): every web page has an **Appearance** switch (Light / Dark / Match this device; `web/src/components/ThemeMenu.tsx`, `web/src/lib/theme.ts`), kept in the browser's local storage. The page always carries the resolved theme on `<html data-theme>`, which the generated tokens and Tailwind's `dark:` variant both follow; help pictures pick their light or dark shot from it too. `make screens` fails a screen without the switch.
+
 Some dark-mode shades (and the light-mode away yellow) were lightened or darkened so that every status dot reaches the WCAG 3:1 minimum for non-text elements. This is enforced by `internal/tokens` tests.
 
 Status is never shown by colour alone. It always has a text label, and the dot has an accessible name.

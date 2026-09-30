@@ -9,6 +9,7 @@ import {
 import type { Me, Presence, TeamMember } from "@/api/client";
 import { LogoMark, Wordmark } from "@/components/brand";
 import { Avatar, presenceLabel, statusLabel } from "@/components/presence";
+import { ThemeMenu } from "@/components/ThemeMenu";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -224,7 +225,7 @@ function ScreenHelp() {
     <Tooltip>
       <TooltipTrigger asChild>
         <button type="button" onClick={() => void open()} aria-label="Help for this page"
-          className="ms-auto flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-card hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50">
+          className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-card hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50">
           <CircleHelp aria-hidden="true" className="size-5" />
         </button>
       </TooltipTrigger>
@@ -329,7 +330,10 @@ export function Shell({ me, screen, members, presence, systemStatus, simpleMode,
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-16 shrink-0 items-center gap-3 border-b px-4 md:px-6">
           <SearchBar members={members} query={query} setQuery={setQuery} onTeam={() => { if (screen !== "team") navigate("/team"); }} />
-          {screen !== "help" && <ScreenHelp />}
+          <div className="ms-auto flex shrink-0 items-center gap-1">
+            {screen !== "help" && <ScreenHelp />}
+            <ThemeMenu />
+          </div>
         </header>
         {status === "elsewhere" && (
           <p role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-card px-4 py-2.5 text-sm md:px-6">

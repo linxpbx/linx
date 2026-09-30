@@ -43,8 +43,8 @@ Now (2026-09-30):
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
 1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Steps 1 (guides + checks), 2 (Help screen, search, **?** button, public sign-in help) and 3 (written answers: Anthropic/OpenAI-compatible/Ollama, sealed key, limits, System → Settings card) done 2026-09-30; step 4 review done 2026-09-30; **demo passed and approved 2026-09-30**. Done.
 2. Phase 1F: front doors + DNS (`docs/SIMPLER.md` §2–3), public port (advanced) (`docs/SIMPLER.md` §2.5, ADR-064; build after the front-door card), email (password reset, below), ring groups, office hours, full inbound wizard, voicemail, CDR, undo.
-3. Portainer note on the rented extras page.
-4. Light/dark toggle on every page (owner, 2026-09-30, during the Help demo): switch the app's appearance by hand (Light / Dark / follow the device), not only via the device setting. Do after the Help demo.
+3. Portainer note on the rented extras page. **Done 2026-09-30** (`8453509`): install extras and Server settings say why it isn't offered and point at System → Status.
+4. Light/dark toggle on every page (owner, 2026-09-30, during the Help demo). **Done 2026-09-30**: **Appearance** button (Light / Dark / Match this device) in every page's header or top-right corner, kept per browser (`web/src/lib/theme.ts`, `components/ThemeMenu.tsx`; own small menu, +1.4 KB on sign-in instead of +24 KB, `docs/RESOURCES.md`); `make screens` fails a screen without it. Needs the owner's look.
 
 Open notes:
 - **Test VPS (64.177.45.141, `vps.mym.ae`, 1 core 1.9 GB):** kept for the next phases' demos; the owner is reinstalling it with **Debian 13** (same IP, user `linx`). Old host key removed from `~/.ssh/known_hosts`; check SSH key access and passwordless sudo again before using it (on Debian `sudo` may need installing).

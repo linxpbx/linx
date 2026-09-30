@@ -9,6 +9,8 @@ import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type Reac
 import { ArrowLeft, FileText, Search, Sparkles } from "lucide-react";
 import { api } from "@/api/client";
 import { Wordmark } from "@/components/brand";
+import { ThemeMenu } from "@/components/ThemeMenu";
+import { useTheme } from "@/lib/theme";
 import { Button } from "@/components/ui/button";
 import { navigate } from "@/hooks/useRoute";
 import {
@@ -24,7 +26,10 @@ export default function HelpScreen({ path, signedIn }: { path: string; signedIn:
     <div className="min-h-dvh bg-background">
       <header className="flex h-16 items-center justify-between gap-3 border-b px-4 md:px-6">
         <Wordmark className="text-3xl" />
-        <Link href="/">Back to sign in</Link>
+        <div className="flex items-center gap-2">
+          <Link href="/">Back to sign in</Link>
+          <ThemeMenu />
+        </div>
       </header>
       <main className="mx-auto w-full max-w-3xl px-4 py-6 md:px-6">{page}</main>
     </div>
@@ -278,17 +283,20 @@ function GuideBlock({ block: b, guide }: { block: HelpBlock; guide: string }) {
     case "code":
       return <pre className="mt-3 whitespace-pre-wrap rounded-md border bg-card px-3 py-2 font-mono text-sm [overflow-wrap:anywhere]">{b.text}</pre>;
     case "picture":
-      return (
-        <figure className="mt-4">
-          <picture>
-            <source srcSet={`/api/v1/help/pictures/dark-${b.picture}.webp`} media="(prefers-color-scheme: dark)" />
-            <img src={`/api/v1/help/pictures/light-${b.picture}.webp`} alt={b.alt ?? ""} width={1440} height={900}
-              loading="lazy" decoding="async" className="h-auto w-full rounded-md border" />
-          </picture>
-        </figure>
-      );
+      return <GuidePicture name={b.picture ?? ""} alt={b.alt ?? ""} />;
   }
   return null;
+}
+
+/** A screen's picture in the page's own light or dark. */
+function GuidePicture({ name, alt }: { name: string; alt: string }) {
+  const theme = useTheme();
+  return (
+    <figure className="mt-4">
+      <img src={`/api/v1/help/pictures/${theme}-${name}.webp`} alt={alt} width={1440} height={900}
+        loading="lazy" decoding="async" className="h-auto w-full rounded-md border" />
+    </figure>
+  );
 }
 
 function GuideList({ block, guide, nested = false }: { block: HelpBlock; guide: string; nested?: boolean }) {

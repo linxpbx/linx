@@ -4,6 +4,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Check, ChevronDown, CircleAlert, CircleX, Clock, Copy, LoaderCircle, ShieldAlert, TriangleAlert } from "lucide-react";
 import { Wordmark } from "@/components/brand";
+import { ThemeCorner } from "@/components/ThemeMenu";
 import { Button } from "@/components/ui/button";
 import { RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
@@ -103,6 +104,7 @@ export function Frame({ at, back, strip = true, footer, children }: {
 }) {
   return (
     <main className="flex min-h-dvh items-start justify-center bg-background px-4 py-10 sm:items-center">
+      <ThemeCorner />
       <div className="w-full max-w-xl min-w-0">
         <div className="mb-8 flex justify-center">
           <Wordmark className="text-5xl" />

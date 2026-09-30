@@ -10,6 +10,7 @@ import { CircleAlert, DatabaseBackup, LoaderCircle, Sparkles } from "lucide-reac
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
 import { Wordmark } from "@/components/brand";
+import { ThemeCorner, ThemeMenu } from "@/components/ThemeMenu";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -34,11 +35,14 @@ function Frame({ onFinishLater, children }: { onFinishLater?: () => void; childr
           <Wordmark className="text-2xl" />
           <h1 className="hidden font-display text-lg font-semibold sm:block">Set up Linx</h1>
         </div>
-        {onFinishLater && (
-          <button type="button" className="text-sm text-link underline-offset-4 hover:underline" onClick={onFinishLater}>
-            Finish later →
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {onFinishLater && (
+            <button type="button" className="text-sm text-link underline-offset-4 hover:underline" onClick={onFinishLater}>
+              Finish later →
+            </button>
+          )}
+          <ThemeMenu />
+        </div>
       </header>
       <div className="flex flex-1 items-start justify-center overflow-y-auto px-4 py-10 md:px-8">
         <div className="w-full max-w-xl">{children}</div>
@@ -198,6 +202,7 @@ export function RestoreFromBackup({ me, initial, onBack, onFinishLater }: {
   if (phase === "done") {
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-background px-4 text-center">
+      <ThemeCorner />
         <Wordmark className="text-3xl" />
         <div>
           <h1 className="font-display text-2xl font-semibold">Restored</h1>

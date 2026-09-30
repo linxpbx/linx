@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CircleAlert } from "lucide-react";
 import { api, type Me } from "@/api/client";
 import { Wordmark } from "@/components/brand";
+import { ThemeCorner } from "@/components/ThemeMenu";
 import { Button } from "@/components/ui/button";
 import { Countdown, Frame, LinkUnusable, Title, useSecondsLeft } from "@/components/InstallFrame";
 import { repairClient, sessionClient } from "@/lib/serverSettings";
@@ -97,6 +98,7 @@ function Repair({ state }: { state: RepairState }) {
 function Wide({ footer, children }: { footer: ReactNode; children: ReactNode }) {
   return (
     <main className="flex min-h-dvh justify-center bg-background px-4 py-10">
+      <ThemeCorner />
       <div className="w-full max-w-3xl min-w-0">
         <div className="mb-8 flex justify-center"><Wordmark className="text-5xl" /></div>
         {children}

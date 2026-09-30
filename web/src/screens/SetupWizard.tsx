@@ -8,6 +8,7 @@ import { Check, Phone, X } from "lucide-react";
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
 import { Wordmark } from "@/components/brand";
+import { ThemeCorner, ThemeMenu } from "@/components/ThemeMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,9 +73,12 @@ function StepShell({ step, title, lead, canSkip, nextLabel, nextDisabled, busy, 
           <Wordmark className="text-2xl" />
           <h1 className="hidden font-display text-lg font-semibold sm:block">Set up Linx</h1>
         </div>
-        <button type="button" className="text-sm text-link underline-offset-4 hover:underline" onClick={onFinishLater}>
-          Finish later →
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="button" className="text-sm text-link underline-offset-4 hover:underline" onClick={onFinishLater}>
+            Finish later →
+          </button>
+          <ThemeMenu />
+        </div>
       </header>
       <div className="border-b bg-card px-4 py-3 md:px-8">
         <Progress step={step} />
@@ -527,6 +531,7 @@ function TestStep(outer: StepProps & { heard: boolean | null; onHeard: (v: boole
 function DoneStep({ onGoHome }: { onGoHome: () => void }) {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-background px-4 text-center">
+      <ThemeCorner />
       <Wordmark className="text-3xl" />
       <div>
         <h1 className="font-display text-2xl font-semibold">Linx is ready</h1>

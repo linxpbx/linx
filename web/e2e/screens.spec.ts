@@ -73,12 +73,51 @@ async function savePicture(page: Page, name: string, png: Buffer) {
   writeFileSync(file, Buffer.from(webp, "base64"));
 }
 
+// Every page has the Light / Dark / Match device switch (owner, 2026-09-30).
+async function hasThemeSwitch(page: Page, name: string) {
+  expect(await page.locator('[aria-label="Appearance"]').count(), `${name} has no Appearance switch`).toBeGreaterThan(0);
+}
+
 const shot = async (page: Page, name: string) => {
   await noSidewaysScroll(page, name);
+  await hasThemeSwitch(page, name);
   const png = await page.screenshot({ path: `e2e/screenshots/${name}.png`, animations: "disabled", caret: "hide", timeout: 15_000 });
   const picture = name.replace(/^(light|dark)-/, "");
   if (picture !== name && guidePictures.has(picture)) await savePicture(page, name, png);
 };
+
+test.describe("appearance", () => {
+  test.use({ colorScheme: "light" });
+
+  test("Light / Dark / Match this device, kept in this browser", async ({ page }) => {
+    await fakeServer(page);
+    await page.goto("/");
+    const html = page.locator("html");
+    await expect(html).toHaveAttribute("data-theme", "light");
+    await page.getByRole("button", { name: "Appearance" }).click();
+    await expect(page.getByRole("menuitemradio", { name: "Match this device" })).toBeChecked();
+    await shot(page, "appearance-menu");
+    await page.getByRole("menuitemradio", { name: "Dark" }).click();
+    await expect(html).toHaveAttribute("data-theme", "dark");
+    await page.reload();
+    await expect(html).toHaveAttribute("data-theme", "dark");
+    await shot(page, "appearance-dark-on-light-device");
+    await page.getByRole("button", { name: "Appearance" }).click();
+    await page.getByRole("menuitemradio", { name: "Match this device" }).click();
+    await expect(html).toHaveAttribute("data-theme", "light");
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(html).toHaveAttribute("data-theme", "dark");
+  });
+
+  test("signed in: the switch is in the top bar", async ({ page }) => {
+    await fakeServer(page, { signedIn: true });
+    await page.goto("/");
+    await page.locator("header").getByRole("button", { name: "Appearance" }).click();
+    await page.getByRole("menuitemradio", { name: "Dark" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await shot(page, "appearance-signed-in-dark");
+  });
+});
 
 for (const scheme of ["light", "dark"] as const) {
   test.describe(scheme, () => {

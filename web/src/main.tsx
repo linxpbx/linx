@@ -11,9 +11,12 @@ import "@fontsource/instrument-sans/latin-700.css";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import { App } from "./App";
+import { startTheme } from "./lib/theme";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root element missing");
+
+startTheme();
 
 createRoot(root).render(
   <StrictMode>

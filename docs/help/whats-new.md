@@ -9,6 +9,10 @@ screens: []
 
 The newest changes come first. Each Linx update brings its own help pages, so these guides always match the version your server runs.
 
+## Light or dark, by hand
+
+- The **Appearance** button at the top right of every page: **Light**, **Dark** or **Match this device**, kept in this browser. See [My account](my-account#light-or-dark).
+
 ## Written answers in Help
 
 - Help can **write an answer** to a question, from the guides only, if an admin turns it on with a provider: Anthropic (Claude), Ollama on your own network, or another OpenAI-compatible service. See [Written answers in Help](help-answers).

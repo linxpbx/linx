@@ -2,7 +2,7 @@
 title: My account
 audience: everyone
 section: everyday
-keywords: [account, profile, change password, change email, passkeys, sign out, signed-in browsers, devices, sessions, company account, google]
+keywords: [account, profile, dark mode, light mode, appearance, theme, change password, change email, passkeys, sign out, signed-in browsers, devices, sessions, company account, google]
 screens: [/account]
 ---
 # My account
@@ -35,3 +35,7 @@ Link your Google or Microsoft account to sign in with it instead of a password, 
 Every browser and phone where you're signed in. **Sign out** one you don't recognise or no longer use, or **Sign out everywhere else**.
 
 Some changes ask you to **Confirm it's you** first: your password and second step, or your passkey.
+
+## Light or dark
+
+The **Appearance** button at the top right of every page (a sun, moon or screen) picks **Light**, **Dark** or **Match this device**. It works before you sign in too, and this browser remembers it; other browsers and phones keep their own choice.

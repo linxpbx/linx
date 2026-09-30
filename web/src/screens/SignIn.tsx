@@ -13,6 +13,7 @@ import {
 import { navigate } from "@/hooks/useRoute";
 import { companyErrorMessage, goToCompany, takeCompanyResult, type CompanyButton } from "@/lib/company";
 import { Wordmark } from "@/components/brand";
+import { ThemeCorner } from "@/components/ThemeMenu";
 import { CODE_LENGTH, CodeBoxes } from "@/components/CodeBoxes";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -63,6 +64,7 @@ function Card({ title, lead, children }: { title: string; lead?: ReactNode; chil
   const aside = useContext(Aside);
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
+      <ThemeCorner />
       <div className="w-full max-w-sm">
         <div className="mb-8 flex justify-center">
           <Wordmark className="text-5xl" />
