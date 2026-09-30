@@ -5,8 +5,10 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
@@ -34,7 +36,7 @@ func HashPassword(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("hashing password: %w", err)
 	}
-	sum := argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
+	sum := idKey([]byte(password), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, argon2Memory, argon2Time, argon2Threads,
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(sum)), nil
@@ -65,9 +67,28 @@ func VerifyPassword(hash, password string) bool {
 	if err != nil {
 		return false
 	}
-	got := argon2.IDKey([]byte(password), salt, t, mem, p, uint32(len(want)))
+	got := idKey([]byte(password), salt, t, mem, p, uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
+
+// idKey is argon2.IDKey, then gives its memory back to the system: each
+// hash takes argon2Memory (64 MB), and Go would otherwise keep it for
+// minutes (measured: the control plane went from 28 to 92 MB after one
+// sign-in and stayed there; docs/RESOURCES.md, low-resource rule). The
+// clean-up runs after the answer, one at a time, so a sign-in isn't slower
+// and a burst of them doesn't queue clean-ups.
+func idKey(password, salt []byte, time, memory uint32, threads uint8, keyLen uint32) []byte {
+	key := argon2.IDKey(password, salt, time, memory, threads, keyLen)
+	if freeing.CompareAndSwap(false, true) {
+		go func() {
+			defer freeing.Store(false)
+			debug.FreeOSMemory()
+		}()
+	}
+	return key
+}
+
+var freeing atomic.Bool
 
 // PasswordPolicyError explains why a password was refused.
 type PasswordPolicyError struct{ Detail string }

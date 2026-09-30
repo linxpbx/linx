@@ -16,6 +16,9 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     environment:
+      # Go services: collect garbage harder near this, about 3/4 of mem_limit,
+      # rather than let the container be killed (docs/RESOURCES.md).
+      GOMEMLIMIT: 48MiB
       LINX_DOMAIN: ${LINX_DOMAIN:?set by linx setup}
       LINX_DNS_PROVIDER: ${LINX_DNS_PROVIDER:?set by linx setup}
       LINX_ACME_EMAIL: ${LINX_ACME_EMAIL:-}
@@ -100,6 +103,9 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     environment:
+      # Go services: collect garbage harder near this, about 3/4 of mem_limit,
+      # rather than let the container be killed (docs/RESOURCES.md).
+      GOMEMLIMIT: 200MiB
       LINX_DB_HOST: postgres
       LINX_DB_PORT: "5432"
       LINX_DB_NAME: linx
@@ -361,6 +367,10 @@ services:
       - wireguard:/var/lib/linx/wireguard:ro
       - wireguard-status:/var/lib/linx/wireguard-status
     depends_on: [asterisk]
+    environment:
+      # Go services: collect garbage harder near this, about 3/4 of mem_limit,
+      # rather than let the container be killed (docs/RESOURCES.md).
+      GOMEMLIMIT: 48MiB
     mem_limit: 64m
     pids_limit: 32
 
@@ -424,6 +434,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    environment:
+      # Go services: collect garbage harder near this, about 3/4 of mem_limit,
+      # rather than let the container be killed (docs/RESOURCES.md).
+      GOMEMLIMIT: 96MiB
     mem_limit: 128m
     pids_limit: 64
 
