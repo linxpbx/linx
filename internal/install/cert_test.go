@@ -89,8 +89,11 @@ func certRig(t *testing.T, fake *fakeCert) (*rig, string) {
 	r := newRig(t)
 	r.host.Cert, r.host.Poll = fake, 5*time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go r.host.runCert(ctx)
+	done := make(chan struct{})
+	// Wait for runCert to stop before the temp folder is removed: it may be
+	// writing the state file there when the test ends.
+	t.Cleanup(func() { cancel(); <-done })
+	go func() { defer close(done); r.host.runCert(ctx) }()
 	cookie := r.claim(t)
 	body := `{"where":"rented","front_door":"linx-443","domain":"example.com","name":"Owner","email":"o@example.com","admin_email":"o@example.com","agreed_to_terms":true}`
 	if rec := r.do("POST", "/install/api/check", cookie, body, jsonFromPage...); rec.Code != http.StatusOK {
