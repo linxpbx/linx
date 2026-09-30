@@ -44,7 +44,9 @@ services:
 
   # Application data (ADR-026), never reachable from outside linx-private.
   postgres:
-    image: postgres:18@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae
+    # Alpine for new installs, Debian kept where the database was made on it
+    # (linx setup decides; docs/RESOURCES.md §3).
+    image: ${LINX_POSTGRES_IMAGE:?set by linx setup}
     # Short names are Linx's own services only: never completed with the
     # host's search domain (a wildcard DNS record there would send them to
     # the internet; found in the install demo).
@@ -62,6 +64,9 @@ services:
       POSTGRES_DB: linx
       POSTGRES_PASSWORD_FILE: /run/secrets/linx_db_password
       PGDATA: /var/lib/postgresql/data/pgdata
+      # A new database uses Postgres's own locale, not the C library's
+      # (internal/db.InitDBArgs); ignored once the data exists.
+      POSTGRES_INITDB_ARGS: "--locale-provider=builtin --builtin-locale=C.UTF-8"
     secrets: [linx_db_password]
     volumes:
       - postgres-data:/var/lib/postgresql/data

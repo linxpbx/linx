@@ -122,6 +122,7 @@ func (w *webApply) rows(ctx context.Context, in install.ApplyInput) ([]applyRow,
 	if err != nil {
 		return nil, err
 	}
+	installer.DecideDatabaseImage(ctx, w.env.runner, &cfg)
 	token, err := w.token(in)
 	if err != nil {
 		return nil, err

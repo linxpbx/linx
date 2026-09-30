@@ -28,6 +28,7 @@ import (
 
 	"linxpbx.com/linx/deploy/compose"
 	"linxpbx.com/linx/internal/certs"
+	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/installer"
 	"linxpbx.com/linx/internal/ops"
 )
@@ -378,7 +379,7 @@ func (h *harness) start() {
 	must(t, os.WriteFile(filepath.Join(h.dir, "compose.yaml"), []byte(y), 0o644))
 	must(t, os.WriteFile(filepath.Join(h.dir, "override.yaml"), []byte(override(h.door)), 0o644))
 	env := fmt.Sprintf("LINX_IMAGE_PREFIX=%s\nLINX_VERSION=test\nLINX_DOMAIN=%s\nLINX_DNS_PROVIDER=cloudflare\n"+
-		"LINX_SIP_ADDRESS=127.0.0.1\nLINX_SIP_NETWORKS=%s\n", imagePrefix, domain, publicSubnet)
+		"LINX_SIP_ADDRESS=127.0.0.1\nLINX_SIP_NETWORKS=%s\nLINX_POSTGRES_IMAGE=%s\n", imagePrefix, domain, publicSubnet, db.PostgresImage)
 	services := []string{"postgres", "step-ca", "control-plane", "asterisk", "coturn"}
 	linx := netip.MustParseAddr("192.0.2.1") // replaced by container names below
 	switch h.door {

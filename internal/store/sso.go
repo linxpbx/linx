@@ -57,7 +57,7 @@ func (s *Store) SSOProvider(ctx context.Context, tenant, id uuid.UUID) (sso.Prov
 
 func (s *Store) ListSSOProviders(ctx context.Context, tenant uuid.UUID) ([]sso.Provider, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+ssoProviderColumns+` FROM sso_provider
-		WHERE tenant_id = $1 ORDER BY position, name`, tenant)
+		WHERE tenant_id = $1 ORDER BY position, name COLLATE "unicode"`, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (s *Store) CompanyLinkBySubject(ctx context.Context, tenant, provider uuid.
 func (s *Store) CompanyLinks(ctx context.Context, tenant, user uuid.UUID) ([]auth.CompanyLinkInfo, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+companyLinkColumns+`
 		FROM user_sso_link l JOIN sso_provider p ON p.id = l.provider_id
-		WHERE l.tenant_id = $1 AND l.user_id = $2 ORDER BY p.position, p.name`, tenant, user)
+		WHERE l.tenant_id = $1 AND l.user_id = $2 ORDER BY p.position, p.name COLLATE "unicode"`, tenant, user)
 	if err != nil {
 		return nil, err
 	}

@@ -38,6 +38,14 @@ type Config struct {
 	TimeZone string `yaml:"time_zone,omitempty"`
 	// Install is set by the web-first install (docs/INSTALL.md).
 	Install InstallConfig `yaml:"install,omitempty"`
+	// Database: which image the database runs on (DecideDatabaseImage).
+	Database DatabaseConfig `yaml:"database,omitempty"`
+}
+
+// DatabaseConfig is the database's image: "alpine" (new installs) or
+// "debian" (installs whose database was made before Alpine, database.go).
+type DatabaseConfig struct {
+	Image string `yaml:"image,omitempty"`
 }
 
 // DomainConfig is the base domain and where its DNS is managed. The DNS
@@ -109,6 +117,9 @@ func ParseConfig(r io.Reader) (Config, error) {
 // Validate checks every field.
 func (c Config) Validate() error {
 	var errs []error
+	if err := validateDatabase(c.Database); err != nil {
+		errs = append(errs, err)
+	}
 	if c.Version != 1 {
 		errs = append(errs, fmt.Errorf("version: must be 1, got %d", c.Version))
 	}

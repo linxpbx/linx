@@ -90,7 +90,7 @@ func (s *Store) UpdateMove(ctx context.Context, m moved.Move) error {
 func (s *Store) Facts(ctx context.Context, tenant uuid.UUID) (moved.Facts, error) {
 	var f moved.Facts
 	rows, err := s.pool.Query(ctx, `SELECT id, name, kind, wireguard_profile_id IS NOT NULL FROM trunk
-		WHERE tenant_id = $1 AND enabled ORDER BY name`, tenant)
+		WHERE tenant_id = $1 AND enabled ORDER BY name COLLATE "unicode"`, tenant)
 	if err != nil {
 		return f, err
 	}
@@ -116,7 +116,7 @@ func (s *Store) Facts(ctx context.Context, tenant uuid.UUID) (moved.Facts, error
 	if err := rows.Err(); err != nil {
 		return f, err
 	}
-	rows, err = s.pool.Query(ctx, `SELECT id, name FROM wireguard_profile WHERE tenant_id = $1 ORDER BY name`, tenant)
+	rows, err = s.pool.Query(ctx, `SELECT id, name FROM wireguard_profile WHERE tenant_id = $1 ORDER BY name COLLATE "unicode"`, tenant)
 	if err != nil {
 		return f, err
 	}

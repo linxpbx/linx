@@ -14,10 +14,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresImage is the image compose.yaml runs, pinned by digest (multi-arch
-// index). Kept here so the Docker integration test uses the same image; a
-// test keeps this constant and compose.yaml from drifting apart.
-const PostgresImage = "postgres:18@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae"
+// The database's images, pinned by digest (multi-arch index): Alpine for new
+// installs, Debian kept for installs whose database was made on it
+// (installer.DecideDatabaseImage, docs/RESOURCES.md §3). Both Postgres 18.6.
+const (
+	PostgresImageAlpine = "postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
+	PostgresImageDebian = "postgres:18@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae"
+)
+
+// PostgresImage is what the Docker integration tests run: a new install's.
+const PostgresImage = PostgresImageAlpine
+
+// InitDBArgs make a new database use Postgres's own built-in C.UTF-8
+// locale, never the C library's (glibc and musl sort text differently), so
+// a database can later move between images without its text indexes going
+// stale. compose.yaml passes them; they only matter when the data volume is
+// new.
+const InitDBArgs = "--locale-provider=builtin --builtin-locale=C.UTF-8"
 
 // Config is control-plane's database connection, read from LINX_DB_*
 // environment variables that compose.yaml sets. The password is never an

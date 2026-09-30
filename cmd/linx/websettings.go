@@ -260,6 +260,8 @@ func (w webSettings) Preview(ctx context.Context, ch install.ServerChange) (inst
 // rows are the change's steps, as the page shows them.
 func (w webSettings) rows(ctx context.Context, ch install.ServerChange, x change) ([]applyRow, error) {
 	next, token := x.next, x.token
+	// An install from before the Alpine database keeps Debian (database.go).
+	installer.DecideDatabaseImage(ctx, w.env.runner, &next)
 	var rows []applyRow
 	if recs := w.records(ctx, x); len(recs) > 0 {
 		// A new domain without a token: its first certificate through port

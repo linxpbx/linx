@@ -308,6 +308,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	fdFiles, fdDNS := installer.FrontDoorPlan(cfg, lan)
 	sniRestart := installer.SNIRestartPlan(cfg, lan, env.readFile) // before the new settings are written
 	plan = append(plan, fdFiles...)
+	installer.DecideDatabaseImage(ctx, env.runner, &cfg)
 	stack := installer.StackPlan(cfg, token, imageTag, lan)
 	plan = append(plan, stack.Plan...)
 	plan = append(plan, sniRestart...)

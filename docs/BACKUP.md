@@ -34,7 +34,7 @@ More than one destination just means more than one restic repository configured;
 
 ## 4. Restore (owner decision — web setup wizard, ADR-055)
 
-Restoring puts back *everything*: every person, every session ended, every setting overwritten. It has to happen before there's a normal admin session to protect — which is exactly the state the web setup wizard already runs in (docs/ADMIN.md §4), so that's where it lives, as its first screen for a system admin on a fresh install: **"Set up fresh" or "Restore from a backup"**.
+Restoring puts back *everything*: every person, every session ended, every setting overwritten. It has to happen before there's a normal admin session to protect — which is exactly the state the web setup wizard already runs in (docs/ADMIN.md §4), so that's where it lives, as its first screen for a system admin on a fresh install: **"Set up fresh" or "Restore from a backup"**. A restore onto a fresh install is also how an install from before 2026-09-30 moves its database from the Debian image to the smaller Alpine one (`docs/RESOURCES.md` §2): the dump and reload rebuilds every index for the new install's own locale.
 
 *As built (step 4, owner decision 2026-09-27: "the browser asks, the server does it").* The first draft split restore in two (the keys by a command over SSH, the database from the browser, restored by the control plane itself). Step 3 settled that only host programs ever touch a backup — the control plane never has restic, a repository or its files — so the owner chose a third way: **the browser asks and the server's backup helper does all of it, keys and database together.** One step, all in the browser:
 

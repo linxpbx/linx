@@ -17,7 +17,16 @@ import (
 	"linxpbx.com/linx/internal/db"
 )
 
-// Start runs db.PostgresImage in a container named name and returns a pool
+// image is the database image the tests run: a new install's (Alpine), or
+// LINX_TEST_POSTGRES=debian for the one older installs keep.
+func image() string {
+	if os.Getenv("LINX_TEST_POSTGRES") == "debian" {
+		return db.PostgresImageDebian
+	}
+	return db.PostgresImage
+}
+
+// Start runs the database image in a container named name and returns a pool
 // connected to it (not migrated). It skips the test unless
 // LINX_DOCKER_TESTS=1, and removes the container when the test ends.
 func Start(t *testing.T, ctx context.Context, name string) *pgxpool.Pool {
@@ -38,7 +47,7 @@ func Start(t *testing.T, ctx context.Context, name string) *pgxpool.Pool {
 
 	docker("run", "--detach", "--name", name, "--publish", "127.0.0.1::5432",
 		"--env", "POSTGRES_USER=linx", "--env", "POSTGRES_PASSWORD=test-password", "--env", "POSTGRES_DB=linx",
-		db.PostgresImage)
+		"--env", "POSTGRES_INITDB_ARGS="+db.InitDBArgs, image())
 
 	// "127.0.0.1:PORT"
 	_, portStr, ok := strings.Cut(docker("port", name, "5432/tcp"), ":")

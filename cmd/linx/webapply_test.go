@@ -387,7 +387,10 @@ func TestWebSettingsNewDomainNoToken(t *testing.T) {
 		"docker compose --file /etc/linx/compose.yaml run --rm --no-TTY --env LINX_DOMAIN=pbx.example.org certd -bootstrap staging",
 		"docker compose --file /etc/linx/compose.yaml run --rm --no-TTY --env LINX_DOMAIN=pbx.example.org certd -bootstrap real",
 	}
-	if !slices.Equal(ran, want) {
+	// Only the certificate commands matter here, not setup's read-only
+	// look for an existing database (installer.DecideDatabaseImage).
+	certRuns := slices.DeleteFunc(slices.Clone(ran), func(c string) bool { return strings.HasPrefix(c, "docker volume inspect ") })
+	if !slices.Equal(certRuns, want) {
 		t.Errorf("ran %q", ran)
 	}
 	// The repair page stays open through the restart.

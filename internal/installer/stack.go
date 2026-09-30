@@ -192,10 +192,14 @@ LINX_FRONT_DOOR=%s
 # there (the services otherwise run on UTC): setup.yaml's time_zone, or this
 # server's own when that's empty.
 LINX_TZ=%s
+# The database's image: %s (docs/RESOURCES.md §3; an install whose database
+# was made on Debian keeps it, a new one gets Alpine).
+LINX_POSTGRES_IMAGE=%s
 `, ConfigPath, imageTag, c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Email, c.Certificates.Staging, c.Certificates.Wildcard, certChallenge(c),
 		lan.BindAddress(), asteriskconf.FormatSIPNetworks(lan.Networks()),
 		c.FrontDoor.Kind, fd.TrustedProxies, fd.ProxyProtocol, fd.WebAddress, fd.TURNUDPAddress, fd.TURNUDPPort, fd.TURNURLs,
-		fd.SNIAddress, fd.ComposeProfiles, DNSRecords(c, lan), fd.DNSAddress, ServerIDPath, ServerID(), c.FrontDoor.Kind, c.Zone())
+		fd.SNIAddress, fd.ComposeProfiles, DNSRecords(c, lan), fd.DNSAddress, ServerIDPath, ServerID(), c.FrontDoor.Kind, c.Zone(),
+		c.databaseName(), c.PostgresImage())
 }
 
 // certChallenge is LINX_CERT_CHALLENGE.

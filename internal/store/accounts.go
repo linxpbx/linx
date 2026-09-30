@@ -33,7 +33,7 @@ const userColumns = `id, tenant_id, email, name, role, extension_id, password_ha
 	failure_window_start, failure_window_count, disabled_at, version, created_at, updated_at, presence, mfa_last_step,
 	password_only_accepted_at, (SELECT count(*) FROM user_passkey pk WHERE pk.user_id = app_user.id)::int,
 	ARRAY(SELECT p.name FROM user_sso_link l JOIN sso_provider p ON p.id = l.provider_id
-		WHERE l.user_id = app_user.id ORDER BY p.position, p.name)`
+		WHERE l.user_id = app_user.id ORDER BY p.position, p.name COLLATE "unicode")`
 
 func scanUser(row pgx.Row) (auth.User, error) {
 	var u auth.User
