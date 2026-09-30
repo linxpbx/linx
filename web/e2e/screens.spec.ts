@@ -982,7 +982,11 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
 
       await expect(page.getByRole("heading", { name: "Who's setting this up?" })).toBeVisible();
       await page.getByLabel("Your name").fill("Mohammed AlMudharreb");
-      await page.getByLabel("Your email").fill("mohammed@example.com");
+      await page.getByLabel("Email you'll sign in with").fill("mohammed@example.com");
+      // The certificate email follows until changed; it may differ.
+      await expect(page.getByLabel("Email for certificate notices")).toHaveValue("mohammed@example.com");
+      await page.getByLabel("Email for certificate notices").fill("it@example.com");
+      await expect(page.getByText("This is the system admin account, the highest authority over Linx.")).toBeVisible();
       // The browser's zone, and the rented server's own UTC clock named.
       await expect(page.getByLabel("Your time zone")).toContainText("Asia/Dubai");
       await expect(page.getByText("This server's own clock is set to Etc/UTC")).toBeVisible();

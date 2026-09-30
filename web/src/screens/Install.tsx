@@ -6,7 +6,7 @@
 // and the certificate page follows (InstallCertificate.tsx). On
 // https://<domain> the same address is the secure page.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Building2, ChevronDown, House } from "lucide-react";
+import { Building2, ChevronDown, House, ShieldAlert } from "lucide-react";
 import { Choice, Countdown, FieldMessage, Frame, LinkUnusable, Nav, submit, Title, useSecondsLeft } from "@/components/InstallFrame";
 import { CertificateStep, SecureInstall } from "@/screens/InstallCertificate";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -293,6 +293,8 @@ function YouStep({ answers, set, errorFor, facts, onBack, onRefused, onAccepted,
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const nameErr = nameProblem(answers.name);
+  const adminEmail = answers.admin_email ?? "";
+  const adminEmailErr = emailProblem(adminEmail);
   const emailErr = emailProblem(answers.email);
   const termsErr = answers.agreed_to_terms ? "" : "Tick the box to agree. Linx can't get a certificate without it.";
   const zones = timeZones();
@@ -302,11 +304,11 @@ function YouStep({ answers, set, errorFor, facts, onBack, onRefused, onAccepted,
   const send = async () => {
     setTouched(true);
     setProblem("");
-    if (nameErr || emailErr || termsErr) return;
+    if (nameErr || adminEmailErr || emailErr || termsErr) return;
     setBusy(true);
     try {
       const r = await checkAnswers({
-        ...answers, domain: answers.domain.trim().toLowerCase(), name: answers.name.trim(), email: answers.email.trim(),
+        ...answers, domain: answers.domain.trim().toLowerCase(), name: answers.name.trim(), email: answers.email.trim(), admin_email: adminEmail.trim(),
         turn_udp_port: answers.turn_udp_port === 443 ? undefined : answers.turn_udp_port,
       });
       if (r.ok) onAccepted();
@@ -329,8 +331,25 @@ function YouStep({ answers, set, errorFor, facts, onBack, onRefused, onAccepted,
           <FieldMessage message={(touched && nameErr) || errorFor("name")} />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="email">Your email</Label>
-          <Input id="email" type="email" autoComplete="email" value={answers.email} onChange={(e) => set({ email: e.target.value })} aria-invalid={touched && !!emailErr} />
+          <Label htmlFor="admin-email">Email you'll sign in with</Label>
+          {/* The certificate email follows this one until it's changed. */}
+          <Input id="admin-email" type="email" autoComplete="email" value={adminEmail}
+            onChange={(e) => set(answers.email === adminEmail ? { admin_email: e.target.value, email: e.target.value } : { admin_email: e.target.value })}
+            aria-invalid={touched && !!adminEmailErr} aria-describedby="admin-account-note" />
+          <FieldMessage message={(touched && adminEmailErr) || errorFor("admin_email")} />
+          <div id="admin-account-note" className="flex gap-3 rounded-md border p-4 text-sm">
+            <ShieldAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-away" />
+            <p>
+              <span className="font-medium">This is the system admin account, the highest authority over Linx.</span>{" "}
+              It can change the server's settings, restore backups, add and remove admins, and see everything.
+              Use an address only you read, and keep it well protected.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="email">Email for certificate notices</Label>
+          <Input id="email" type="email" value={answers.email} onChange={(e) => set({ email: e.target.value })} aria-invalid={touched && !!emailErr} />
+          <p className="text-sm text-muted-foreground">Let's Encrypt writes here if the certificate ever needs attention. It can be a different address, like a shared IT inbox.</p>
           <FieldMessage message={(touched && emailErr) || errorFor("email")} />
         </div>
         <div className="flex flex-col gap-2">
@@ -349,7 +368,7 @@ function YouStep({ answers, set, errorFor, facts, onBack, onRefused, onAccepted,
         </div>
       </div>
       <p className="mt-6 text-sm text-muted-foreground">
-        You'll be the first admin, with full control. Let's Encrypt also uses this email for certificate notices.
+        Linx gets its certificate from Let's Encrypt, which asks you to agree to its terms.
       </p>
       <div className="mt-4 flex items-start gap-3">
         <Checkbox id="terms" checked={answers.agreed_to_terms} onCheckedChange={(c) => set({ agreed_to_terms: c === true })} className="mt-0.5" />

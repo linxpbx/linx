@@ -214,7 +214,7 @@ func TestWebCertificateInstall(t *testing.T) {
 		}
 		return r
 	}
-	answers := `{"where":"rented","front_door":"linx-443","domain":"linx.test","name":"Owner","email":"owner@example.com","time_zone":"UTC","agreed_to_terms":true}`
+	answers := `{"where":"rented","front_door":"linx-443","domain":"linx.test","name":"Owner","email":"owner@example.com","admin_email":"owner@example.com","time_zone":"UTC","agreed_to_terms":true}`
 	if r := post(plain, base+"/install/api/check", base, answers); r.StatusCode != http.StatusOK {
 		t.Fatalf("check: %d", r.StatusCode)
 	}

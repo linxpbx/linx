@@ -73,10 +73,10 @@ func newApplyRig(t *testing.T, a install.Answers, lan installer.LAN) *applyRig {
 }
 
 var rentedAnswers = install.Answers{Where: install.WhereRented, FrontDoor: installer.FrontDoorLinx443, Domain: "pbx.example.com",
-	Name: "Sam Lee", Email: "sam@example.com", TimeZone: "Asia/Dubai", AgreedToTerms: true}
+	Name: "Sam Lee", Email: "certs@example.com", AdminEmail: "sam@example.com", TimeZone: "Asia/Dubai", AgreedToTerms: true}
 
 var homeAnswers = install.Answers{Where: install.WhereHome, FrontDoor: installer.FrontDoorPangolin, ProxyAddress: "192.168.1.30",
-	Domain: "pbx.example.com", Name: "Sam Lee", Email: "sam@example.com", TimeZone: "Asia/Dubai", AgreedToTerms: true}
+	Domain: "pbx.example.com", Name: "Sam Lee", Email: "certs@example.com", AdminEmail: "sam@example.com", TimeZone: "Asia/Dubai", AgreedToTerms: true}
 
 var homeLAN = installer.LAN{Address: netip.MustParseAddr("192.168.1.20"), Network: netip.MustParsePrefix("192.168.1.0/24")}
 
@@ -103,7 +103,7 @@ func TestWebApplyHome(t *testing.T) {
 	}
 	want := []string{"Save your settings", "Firewall and phone ports on 192.168.1.20", "Internal certificate authority",
 		"Portainer (home network only)", "Download Linx's services", "Certificate for pbx.example.com and *.pbx.example.com",
-		"Start Linx (this setup page closes)", "Your account (sam@example.com)", "Phone system and call audio",
+		"Start Linx (this setup page closes)", "Your system admin account (sam@example.com)", "Phone system and call audio",
 		"pbx.example.com, turn.pbx.example.com at this network's public address; sip.pbx.example.com at 192.168.1.20 (for desk phones at home)",
 		"Helpers: backups, status, firewall sync", "Finish"}
 	if !slices.Equal(titles, want) {
@@ -129,6 +129,10 @@ func TestWebApplyHome(t *testing.T) {
 	}
 	if len(r.execs) != 2 || !strings.HasSuffix(r.execs[1], "service suggest-site home") {
 		t.Errorf("commands: %q", r.execs)
+	}
+	// The admin signs in with their own email, not the certificate's.
+	if len(r.execs) > 0 && (!strings.Contains(r.execs[0], "--email sam@example.com") || strings.Contains(r.execs[0], "certs@")) {
+		t.Errorf("first admin made with %q", r.execs[0])
 	}
 	first := planText(r.plans[0])
 	last := planText(r.plans[len(r.plans)-1])

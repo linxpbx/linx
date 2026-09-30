@@ -19,7 +19,7 @@ var (
 
 func goodAnswers() install.Answers {
 	return install.Answers{Where: install.WhereRented, FrontDoor: FrontDoorLinx443, Domain: " Example.COM ",
-		Name: "Owner", Email: "owner@example.com", TimeZone: "Asia/Dubai", AgreedToTerms: true}
+		Name: "Owner", Email: "owner@example.com", AdminEmail: "me@example.com", TimeZone: "Asia/Dubai", AgreedToTerms: true}
 }
 
 func TestWebConfig(t *testing.T) {

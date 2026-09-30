@@ -200,7 +200,7 @@ func TestDraftAndCheck(t *testing.T) {
 		}
 		return nil
 	}
-	body := `{"where":"rented","front_door":"linx-443","domain":"co.uk","name":"Owner","email":"o@example.com","agreed_to_terms":true}`
+	body := `{"where":"rented","front_door":"linx-443","domain":"co.uk","name":"Owner","email":"o@example.com","admin_email":"o@example.com","agreed_to_terms":true}`
 	rec := r.do("POST", "/install/api/check", cookie, body, jsonFromPage...)
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "shared by everyone") {
 		t.Errorf("refused check: %d %s", rec.Code, rec.Body.String())

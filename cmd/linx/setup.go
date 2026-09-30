@@ -337,7 +337,15 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	email, name := *ownerEmail, *ownerName
 	if ask {
 		var err error
-		if email, err = p.text("Your email? (to sign in as the first admin)", email); err != nil {
+		// Its own question (owner, Phase 1E demo): the certificate email is
+		// only a suggestion, and the account's authority is said plainly.
+		if email == "" {
+			email = cfg.Certificates.Email
+		}
+		fmt.Fprintln(stdout, "\nThe first admin is the system admin account, the highest authority over Linx:")
+		fmt.Fprintln(stdout, "it can change the server's settings, restore backups, add and remove admins, and see everything.")
+		fmt.Fprintln(stdout, "Use an address only you read, and keep it well protected. It needn't be the certificate's email.")
+		if email, err = p.text("Email you'll sign in with (system admin)", email); err != nil {
 			return inputError(stderr, err)
 		}
 		if name, err = p.text("Your name?", name); err != nil {

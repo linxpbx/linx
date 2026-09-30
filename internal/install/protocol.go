@@ -167,7 +167,11 @@ type Answers struct {
 	TURNUDPPort  int    `json:"turn_udp_port,omitempty"`
 	Domain       string `json:"domain"`
 	Name         string `json:"name"`
-	Email        string `json:"email"`
+	// Email is Let's Encrypt's contact for certificate notices.
+	Email string `json:"email"`
+	// AdminEmail signs in to the first system admin account. Asked on its
+	// own (owner, Phase 1E demo: it needn't be the certificate's).
+	AdminEmail string `json:"admin_email"`
 	// TimeZone is the time zone for schedules (the browser's, unless
 	// changed), e.g. Asia/Dubai.
 	TimeZone string `json:"time_zone"`

@@ -92,7 +92,7 @@ func certRig(t *testing.T, fake *fakeCert) (*rig, string) {
 	t.Cleanup(cancel)
 	go r.host.runCert(ctx)
 	cookie := r.claim(t)
-	body := `{"where":"rented","front_door":"linx-443","domain":"example.com","name":"Owner","email":"o@example.com","agreed_to_terms":true}`
+	body := `{"where":"rented","front_door":"linx-443","domain":"example.com","name":"Owner","email":"o@example.com","admin_email":"o@example.com","agreed_to_terms":true}`
 	if rec := r.do("POST", "/install/api/check", cookie, body, jsonFromPage...); rec.Code != http.StatusOK {
 		t.Fatalf("check: %d %s", rec.Code, rec.Body.String())
 	}
@@ -123,7 +123,7 @@ func TestCertificateThroughPort443(t *testing.T) {
 		t.Errorf("page state: %s", rec.Body.String())
 	}
 	// A second check can't change the answers under the certificate.
-	body := `{"where":"rented","front_door":"linx-443","domain":"other.example","name":"Owner","email":"o@example.com","agreed_to_terms":true}`
+	body := `{"where":"rented","front_door":"linx-443","domain":"other.example","name":"Owner","email":"o@example.com","admin_email":"o@example.com","agreed_to_terms":true}`
 	if rec := r.do("POST", "/install/api/check", cookie, body, jsonFromPage...); rec.Code == http.StatusOK || r.host.State().View.Accepted.Domain != "example.com" {
 		t.Errorf("second check: %d", rec.Code)
 	}

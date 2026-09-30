@@ -25,7 +25,10 @@ export interface Answers {
   turn_udp_port?: number;
   domain: string;
   name: string;
+  /** Let's Encrypt's contact for certificate notices. */
   email: string;
+  /** Signs in to the first system admin account; needn't be the certificate's. */
+  admin_email: string;
   /** The time zone for schedules (backups, office hours), e.g. Asia/Dubai. */
   time_zone: string;
   agreed_to_terms: boolean;
@@ -253,7 +256,7 @@ export async function redeemHandoff(handoff: string): Promise<void> {
   await post("/install/api/redeem", { handoff });
 }
 
-export const emptyAnswers: Answers = { where: "", front_door: "", domain: "", name: "", email: "", time_zone: "", agreed_to_terms: false };
+export const emptyAnswers: Answers = { where: "", front_door: "", domain: "", name: "", email: "", admin_email: "", time_zone: "", agreed_to_terms: false };
 
 /** This browser's time zone: where the person setting up is. */
 export function browserTimeZone(): string {
@@ -325,7 +328,7 @@ export function nameProblem(n: string): string {
 }
 
 export function emailProblem(e: string): string {
-  if (!e.trim()) return "Give your email address.";
+  if (!e.trim()) return "Give an email address.";
   if (!EMAIL.test(e.trim())) return "That doesn't look like an email address.";
   return "";
 }

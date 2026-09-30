@@ -179,7 +179,7 @@ func (w *webApply) rows(ctx context.Context, in install.ApplyInput) ([]applyRow,
 		applyRow{title: certTitle, plan: installer.Plan{getCert}},
 		applyRow{title: "Start Linx (this setup page closes)", switching: true,
 			plan: installer.Plan{installer.StartServicesStep("Start the control plane", "control-plane")}},
-		applyRow{title: "Your account (" + a.Email + ")", run: func(ctx context.Context) error {
+		applyRow{title: "Your system admin account (" + a.AdminEmail + ")", run: func(ctx context.Context) error {
 			return w.firstAdmin(ctx, a, in.SetupToken)
 		}},
 		applyRow{title: "Phone system and call audio", plan: installer.Plan{up}},
@@ -208,10 +208,10 @@ func (w *webApply) rows(ctx context.Context, in install.ApplyInput) ([]applyRow,
 func (w *webApply) firstAdmin(ctx context.Context, a install.Answers, token string) error {
 	name := strings.TrimSpace(a.Name)
 	if name == "" {
-		name = a.Email
+		name = a.AdminEmail
 	}
 	out, code, err := w.exec(ctx, []byte(token+"\n"), "docker", "exec", "-i", controlPlaneContainer, controlPlaneBinary,
-		"user", "create", "--first-admin", "--setup-token-stdin", "--role", "system_admin", "--email", a.Email, "--name", name)
+		"user", "create", "--first-admin", "--setup-token-stdin", "--role", "system_admin", "--email", a.AdminEmail, "--name", name)
 	if err != nil && code != exitFirstAdminExists {
 		return errors.New(lastLines(string(out), err))
 	}

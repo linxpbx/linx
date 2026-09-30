@@ -175,16 +175,23 @@ The front-door choices of today's `linx setup`, filtered by §2.2. One card per 
 ```
   Who's setting this up?
 
-  Your name    [ Mohammed AlMudharreb ]
-  Your email   [ mohammed@example.com ]
+  Your name                       [ Mohammed AlMudharreb ]
+  Email you'll sign in with       [ mohammed@example.com ]
+  ┌ ⛉ This is the system admin account, the highest authority over Linx.
+  │   It can change the server's settings, restore backups, add and remove
+  │   admins, and see everything. Use an address only you read, and keep
+  └   it well protected.
+  Email for certificate notices   [ it@example.com ]
+    Let's Encrypt writes here if the certificate ever needs attention.
+    It can be a different address, like a shared IT inbox.
 
-  You'll be the first admin, with full control.
-  Let's Encrypt also uses this email for certificate notices.
+  Linx gets its certificate from Let's Encrypt, which asks you to agree to its terms.
   ☐ I agree to Let's Encrypt's Subscriber Agreement ↗
 
                          [ Back ]  [ Check and get a certificate ]
 ```
 
+- **Two emails** (owner, Phase 1E demo, `docs/INSTALL.md` §16): the sign-in email makes the first system admin (answer `admin_email`); the certificate email (`email`) goes to Let's Encrypt only. The certificate email follows the sign-in email as it's typed, until it's changed.
 - **Your time zone** (owner addition, `docs/INSTALL.md` §11): a drop-down between email and the note, pre-set to the browser's zone, "For schedules, like backups at 03:00 your time." plus "This server's own clock is set to Etc/UTC; Linx doesn't change it." when they differ.
 - **Every plain page** also has a countdown under the card: "This link closes in 47:12. Need more time? Run sudo linx setup --new-link on the server for a new link. Your answers so far are kept." (a warning for the last 5 minutes).
 - The Let's Encrypt agreement tick is required (today's terminal setup accepts it silently; the web page asks, as Let's Encrypt expects).

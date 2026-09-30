@@ -136,7 +136,7 @@ func TestInstallModeDocker(t *testing.T) {
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", base+"/install/api/check",
-		strings.NewReader(`{"where":"rented","front_door":"linx-443","domain":"example.com","name":"Owner","email":"o@example.com","agreed_to_terms":true}`))
+		strings.NewReader(`{"where":"rented","front_door":"linx-443","domain":"example.com","name":"Owner","email":"o@example.com","admin_email":"o@example.com","agreed_to_terms":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", base)
 	req.AddCookie(&http.Cookie{Name: CookieName, Value: cookie})

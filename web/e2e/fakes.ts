@@ -1019,7 +1019,7 @@ export function fakeCert(over: FakeCert = {}): FakeCert {
 }
 
 const acceptedAnswers = {
-  where: "rented", front_door: "linx-443", domain: "example.com", name: "Mohammed AlMudharreb", email: "mohammed@example.com",
+  where: "rented", front_door: "linx-443", domain: "example.com", name: "Mohammed AlMudharreb", email: "mohammed@example.com", admin_email: "mohammed@example.com",
   time_zone: "Asia/Dubai", agreed_to_terms: true,
 };
 

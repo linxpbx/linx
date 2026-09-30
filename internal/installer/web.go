@@ -118,9 +118,15 @@ func WebConfig(base Config, a install.Answers, lan LAN, now time.Time) (Config, 
 	email := strings.TrimSpace(a.Email)
 	switch {
 	case email == "":
-		add(install.StepYou, "email", "Give your email address.")
+		add(install.StepYou, "email", "Give an email for certificate notices.")
 	case !emailRE.MatchString(email):
 		add(install.StepYou, "email", "That doesn't look like an email address.")
+	}
+	switch adminEmail := strings.TrimSpace(a.AdminEmail); {
+	case adminEmail == "":
+		add(install.StepYou, "admin_email", "Give the email you'll sign in with.")
+	case !emailRE.MatchString(adminEmail):
+		add(install.StepYou, "admin_email", "That doesn't look like an email address.")
 	}
 	zone := strings.TrimSpace(a.TimeZone)
 	if zone == "" {
