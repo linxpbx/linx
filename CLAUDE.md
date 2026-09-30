@@ -38,7 +38,7 @@ Now (2026-09-30):
 - Owner's "speed up how we work" request (2026-09-30): measurements, this trim, the test guide below. **CI speed-ups approved and done 2026-09-30:** image builds and scans start at once; call suite, install suite and the browser suite (one job per front door, `TestCIRunsEveryFrontDoor` keeps that list complete) run side by side; publishing (`publish`, `asterisk-push` → `asterisk-publish`) waits for every test, scan and suite. Nothing removed.
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
-1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7, not started).
+1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Step 1 (guides in `docs/help/` + `internal/help` checks) done 2026-09-30; next: step 2, Help pages + search.
 2. Phase 1F: front doors + DNS (`docs/SIMPLER.md` §2–3), public port (advanced) (`docs/SIMPLER.md` §2.5, ADR-064; build after the front-door card), email (password reset, below), ring groups, office hours, full inbound wizard, voicemail, CDR, undo.
 3. Portainer note on the rented extras page.
 
@@ -109,6 +109,7 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - Keep replies short. Don't restate plans or summarise diffs unless asked.
 - Each phase ends with passing tests, `docker compose up` working on clean Ubuntu 24.04, updated docs, and `docs/DEMO_PHASE<N>.md`.
 - Turn repeated procedures into `make` targets or project skills.
+- Help guides (`docs/help/`, owner design 2026-09-28): a change people can see updates its guide in the same commit (`make test` fails on a renamed **bold** label, a new screen with no guide, a broken link or picture).
 - Batch related small fixes (owner, 2026-09-30): commit each separately described and tested, push them together, one CI run. Pushing a new commit while a run is going is fine: the new run tests everything.
 - Session hygiene (owner, 2026-09-30): suggest `/clear` after each finished item and `/compact` before context grows large; update "Now" and the work queue above whenever an item finishes, so a fresh session starts from CLAUDE.md alone.
 
