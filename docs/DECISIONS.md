@@ -696,6 +696,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** A server's help always matches its own version and works without reaching any outside site (China, closed networks). Writing and updating guides becomes part of every user-visible change. Without the AI provider, search finds sections by their words, not their meaning. No public site means nobody can read the guides before installing (a public copy can be added later from the same files).
 
+**As built, written answers (2026-09-30, `docs/HELP.md` §7 step 3).** All three providers are spoken directly over the SSRF-guarded HTTPS client, with no provider library: the official Anthropic Go SDK added 6.7 MB (+23%) to the control plane for one call, against 0.1 MB for the direct code (owner decision, 2026-09-30, under the low-resource rule). Ollama is reached only over `https://` (the security rules forbid plain HTTP), behind the admin's proxy.
+
 ## ADR-061 — A PBX or gateway signs in to Linx (owner decision, approved 2026-09-29)
 
 **Context.** Adding the owner's UCM6304 as a phone line was painful: Linx reached out to it, so it needed a certificate for its IP address, pinning, a "LAN peer" mode and exact firmware settings (docs/DEMO_PHASE1D.md). Every other PBX or FXO gateway would need the same, differently.

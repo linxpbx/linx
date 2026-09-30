@@ -29,6 +29,10 @@ type Options struct {
 	Resolver Resolver
 	// RootCAs replaces the system roots (tests only).
 	RootCAs *x509.CertPool
+	// Timeout replaces the whole-request Timeout, for a response that's
+	// read as it's written (Help's written answers, docs/HELP.md §4).
+	// Connecting and the response's headers still get Timeout.
+	Timeout time.Duration
 }
 
 // URLError is a URL that can never be used, whatever it resolves to.
@@ -81,9 +85,13 @@ func NewClient(policy Policy, opts Options) *http.Client {
 		IdleConnTimeout:        30 * time.Second,
 		MaxResponseHeaderBytes: 64 << 10,
 	}
+	timeout := opts.Timeout
+	if timeout == 0 {
+		timeout = Timeout
+	}
 	return &http.Client{
 		Transport: httpsOnly{transport},
-		Timeout:   Timeout,
+		Timeout:   timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},

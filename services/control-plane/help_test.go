@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -15,7 +17,10 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/help"
+	"linxpbx.com/linx/internal/helpanswers"
+	"linxpbx.com/linx/internal/helpanswers/helpanswerstest"
 	controlplaneapi "linxpbx.com/linx/services/control-plane/api"
 )
 
@@ -49,16 +54,40 @@ func testHelpLibrary(t *testing.T) *help.Library {
 
 type helpEnv struct {
 	*testEnv
-	srv *httptest.Server
+	srv       *httptest.Server
+	answers   *helpanswerstest.Store
+	sealer    *dbsecret.Sealer
+	ollamaURL string
 }
 
 func newHelpEnv(t *testing.T) *helpEnv {
 	env := newTestEnv(t)
 	mux := http.NewServeMux()
-	registerHelpHandlers(mux, env.authn, testHelpLibrary(t))
+	lib := testHelpLibrary(t)
+	var key [32]byte
+	sealer := dbsecret.NewSealer(key)
+	store := helpanswerstest.New()
+	answers := &helpanswers.Service{Store: store, Sealer: sealer, Help: lib, Now: time.Now}
+	registerHelpHandlers(mux, env.authn, lib, answers, env.store.tenant, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &helpEnv{env, srv}
+	e := &helpEnv{testEnv: env, srv: srv, answers: store, sealer: sealer}
+	// A stand-in Ollama that answers every question the same way; turned
+	// on by turnOnAnswers.
+	ollama := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"message":{"content":"Look at the Team list."},"done":false}`+"\n")
+		fmt.Fprint(w, `{"message":{"content":"\nGuides: [team-guide], [admin-guide]"},"done":true}`+"\n")
+	}))
+	t.Cleanup(ollama.Close)
+	answers.Client = ollama.Client()
+	e.ollamaURL = ollama.URL
+	return e
+}
+
+func (e *helpEnv) turnOnAnswers() {
+	c := helpanswers.Defaults(e.store.tenant)
+	c.Enabled, c.Provider, c.BaseURL, c.Model = true, helpanswers.ProviderOllama, e.ollamaURL, "llama"
+	e.answers.Put(c)
 }
 
 // session stores a session for a person with role and returns its cookie.
@@ -302,5 +331,125 @@ func TestHelpRole(t *testing.T) {
 	}
 	if got := helpRole(t.Context()); got != "" {
 		t.Errorf("no principal: %q", got)
+	}
+}
+
+func (e *helpEnv) postAnswer(question string, cookie *http.Cookie, header ...string) (int, string, http.Header) {
+	e.t.Helper()
+	b, _ := json.Marshal(map[string]string{"question": question})
+	req, err := http.NewRequest(http.MethodPost, e.srv.URL+"/api/v1/help/answer", bytes.NewReader(b))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	for i := 0; i+1 < len(header); i += 2 {
+		req.Header.Set(header[i], header[i+1])
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body), resp.Header
+}
+
+func (e *helpEnv) answersBy(cookie *http.Cookie) string {
+	e.t.Helper()
+	_, body, _ := e.get("/api/v1/help/guides", cookie)
+	var list controlplaneapi.HelpGuideList
+	if err := json.Unmarshal(body, &list); err != nil {
+		e.t.Fatal(err)
+	}
+	return deref(list.AnswersBy)
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// Written answers (docs/HELP.md §4): only for a full session, with its
+// CSRF token, never an API key; streamed as lines of JSON; the guides named
+// are only those the person may read.
+func TestHelpAnswer(t *testing.T) {
+	e := newHelpEnv(t)
+	person := e.session(auth.RoleUser, true)
+	csrf := []string{auth.CSRFHeaderName, "csrf"}
+
+	if status, body, _ := e.postAnswer("who is here?", person, csrf...); status != http.StatusNotFound || !strings.Contains(body, "answers_off") {
+		t.Errorf("off: %d %s", status, body)
+	}
+	if by := e.answersBy(person); by != "" {
+		t.Errorf("answers_by %q while off", by)
+	}
+	e.turnOnAnswers()
+	if by := e.answersBy(person); by != "Ollama" {
+		t.Errorf("answers_by %q for a person", by)
+	}
+	if by := e.answersBy(nil); by != "" {
+		t.Errorf("answers_by %q without a session", by)
+	}
+
+	_, apiKey := e.newCredential(auth.TypeAPIKey, auth.RoleSystemAdmin, "all")
+	for _, tc := range []struct {
+		name   string
+		cookie *http.Cookie
+		header []string
+		status int
+	}{
+		{"no session", nil, csrf, http.StatusUnauthorized},
+		{"pending second step", e.session(auth.RoleUser, false), csrf, http.StatusUnauthorized},
+		{"API key", nil, []string{"Authorization", "Bearer " + apiKey}, http.StatusUnauthorized},
+		{"no CSRF token", person, nil, http.StatusForbidden},
+	} {
+		if status, body, _ := e.postAnswer("who is here?", tc.cookie, tc.header...); status != tc.status {
+			t.Errorf("%s: %d %s", tc.name, status, body)
+		}
+	}
+
+	status, body, h := e.postAnswer("who is here?", person, csrf...)
+	if status != http.StatusOK || h.Get("Content-Type") != "application/x-ndjson" {
+		t.Fatalf("%d %s %s", status, h.Get("Content-Type"), body)
+	}
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	want := []string{`{"text":"Look at the Team list."}`, `{"text":"\n"}`,
+		`{"done":true,"guides":[{"name":"team-guide","title":"The Team list"}],"by":"Ollama"}`}
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got\n%s\nwant\n%s", body, strings.Join(want, "\n"))
+	}
+}
+
+// System → Settings → Help answers (docs/HELP.md §4): settings:read to see
+// it, settings:write to change or test it; the key is never shown.
+func TestHelpAnswersSetting(t *testing.T) {
+	e := newTestEnv(t)
+	_, admin := e.newCredential(auth.TypeAPIKey, auth.RoleSystemAdmin, "all")
+	_, reader := e.newCredential(auth.TypeAPIKey, auth.RoleSystemAdmin, "settings:read")
+
+	r := e.do(http.MethodGet, "/api/v1/help-answers", reader, nil)
+	var got controlplaneapi.HelpAnswers
+	r.json(t, &got)
+	if r.status != http.StatusOK || got.Enabled || got.Provider != "anthropic" || got.Model != helpanswers.DefaultModel || got.ApiKeySet {
+		t.Fatalf("%d %s", r.status, r.body)
+	}
+	if r := e.patch("/api/v1/help-answers", reader, "", map[string]any{"enabled": true}); r.status != http.StatusForbidden {
+		t.Errorf("without settings:write: %d %s", r.status, r.body)
+	}
+	r = e.patch("/api/v1/help-answers", admin, got.Etag, map[string]any{"enabled": true, "api_key": "sk-ant-secret-key"})
+	r.json(t, &got)
+	if r.status != http.StatusOK || !got.Enabled || !got.ApiKeySet || strings.Contains(string(r.body), "sk-ant") || r.header.Get("ETag") != got.Etag {
+		t.Fatalf("%d %s", r.status, r.body)
+	}
+	if r := e.patch("/api/v1/help-answers", admin, `"0"`, map[string]any{"model": "claude-sonnet-5-5"}); r.status != http.StatusPreconditionFailed {
+		t.Errorf("stale etag: %d %s", r.status, r.body)
+	}
+	if r := e.do(http.MethodPost, "/api/v1/help-answers/test", reader, map[string]any{}); r.status != http.StatusForbidden {
+		t.Errorf("test without settings:write: %d %s", r.status, r.body)
 	}
 }

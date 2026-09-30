@@ -143,7 +143,6 @@ type Result struct {
 	Heading string   `json:"heading,omitempty"`
 	Anchor  string   `json:"anchor,omitempty"`
 	Lines   []string `json:"lines"`
-	score   float64
 }
 
 // Most results and lines a search gives back, and the longest question it
@@ -160,6 +159,54 @@ const (
 // Search ranks the sections of the guides allowed says a caller may read
 // for question. Nothing found is an empty list.
 func (ix *Index) Search(question string, allowed func(*Guide) bool) []Result {
+	out := []Result{}
+	for _, h := range ix.rank(question, allowed) {
+		s := h.section
+		out = append(out, Result{Guide: s.guide.Name, Title: s.guide.Title, Heading: s.heading, Anchor: s.anchor,
+			Lines: matchedLines(s.lines, h.terms)})
+		if len(out) == MaxResults {
+			break
+		}
+	}
+	return out
+}
+
+// Excerpt is one whole section, for a written answer (docs/HELP.md §4).
+type Excerpt struct {
+	Guide   string
+	Title   string
+	Heading string
+	Text    string
+}
+
+// Excerpts are the best sections for question, whole, best first, until
+// maxWords words: what a written answer is made from. A section that would
+// go over is left out, and later smaller ones may still fit.
+func (ix *Index) Excerpts(question string, allowed func(*Guide) bool, maxWords int) []Excerpt {
+	var out []Excerpt
+	words := 0
+	for _, h := range ix.rank(question, allowed) {
+		s := h.section
+		text := strings.Join(s.lines, "\n")
+		n := len(strings.Fields(text)) + len(strings.Fields(s.heading))
+		if words+n > maxWords {
+			continue
+		}
+		words += n
+		out = append(out, Excerpt{Guide: s.guide.Name, Title: s.guide.Title, Heading: s.heading, Text: text})
+	}
+	return out
+}
+
+type hit struct {
+	section *section
+	terms   map[string]float64
+	score   float64
+}
+
+// rank scores every section allowed lets through, best first, at most
+// maxPerGuide from one guide.
+func (ix *Index) rank(question string, allowed func(*Guide) bool) []hit {
 	if len(question) > MaxQuestionLen {
 		question = question[:MaxQuestionLen]
 	}
@@ -173,10 +220,10 @@ func (ix *Index) Search(question string, allowed func(*Guide) bool) []Result {
 		}
 	}
 	if len(terms) == 0 || len(terms) > 2*maxQuestionWord {
-		return []Result{}
+		return nil
 	}
 	n := float64(len(ix.sections))
-	var found []Result
+	var found []hit
 	for i := range ix.sections {
 		s := &ix.sections[i]
 		if !allowed(s.guide) {
@@ -193,22 +240,19 @@ func (ix *Index) Search(question string, allowed func(*Guide) bool) []Result {
 			score += qw * idf * f * (bm25K1 + 1) / (f + bm25K1*(1-bm25B+bm25B*s.length/ix.avgLen))
 		}
 		if score > 0 {
-			found = append(found, Result{Guide: s.guide.Name, Title: s.guide.Title, Heading: s.heading, Anchor: s.anchor,
-				Lines: matchedLines(s.lines, terms), score: score})
+			found = append(found, hit{section: s, terms: terms, score: score})
 		}
 	}
 	sort.SliceStable(found, func(a, b int) bool { return found[a].score > found[b].score })
-	out := []Result{}
+	var out []hit
 	perGuide := map[string]int{}
-	for _, r := range found {
-		if perGuide[r.Guide] == maxPerGuide {
+	for _, h := range found {
+		name := h.section.guide.Name
+		if perGuide[name] == maxPerGuide {
 			continue
 		}
-		perGuide[r.Guide]++
-		out = append(out, r)
-		if len(out) == MaxResults {
-			break
-		}
+		perGuide[name]++
+		out = append(out, h)
 	}
 	return out
 }
@@ -216,18 +260,18 @@ func (ix *Index) Search(question string, allowed func(*Guide) bool) []Result {
 // matchedLines are the section's lines with the most of the question's
 // words, in the order they're written.
 func matchedLines(lines []string, terms map[string]float64) []string {
-	type hit struct {
+	type lineHit struct {
 		i int
 		n float64
 	}
-	var hits []hit
+	var hits []lineHit
 	for i, l := range lines {
 		n := 0.0
 		for _, w := range Words(l) {
 			n += terms[w]
 		}
 		if n > 0 {
-			hits = append(hits, hit{i, n})
+			hits = append(hits, lineHit{i, n})
 		}
 	}
 	sort.SliceStable(hits, func(a, b int) bool { return hits[a].n > hits[b].n })

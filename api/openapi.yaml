@@ -3649,6 +3649,129 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/help/answer:
+    post:
+      operationId: answerHelpQuestion
+      summary: A written answer from the guides
+      description: >-
+        Where an admin turned written answers on (docs/HELP.md §4): the
+        question and the guide sections search finds for it go to the
+        provider the admin chose, and its answer comes back as it's
+        written, as newline-delimited JSON: `{"text": "…"}` pieces, then
+        `{"done": true, "guides": [{"name", "title"}], "by": "…"}` (with
+        `"cut": true` if it reached its length limit), or
+        `{"error": "…"}` if it fails part way. Shown as text, never HTML.
+        Needs a full session (not an API key); counted against 10 a minute
+        and the daily limits. A problem before anything is written (off,
+        limits, the provider refusing) comes back as usual. Hand-written
+        (services/control-plane/help.go): the answer streams.
+      tags: [help]
+      security:
+        - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              additionalProperties: false
+              properties:
+                question:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: The answer, as it's written.
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/help-answers:
+    get:
+      operationId: getHelpAnswers
+      summary: Help's written answers setting
+      description: The provider, address, model and limits (docs/HELP.md §4); the API key is never shown, only whether one is set.
+      tags: [help]
+      security:
+        - bearer: [settings:read]
+      responses:
+        "200":
+          description: The setting.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HelpAnswers"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateHelpAnswers
+      summary: Change Help's written answers setting
+      description: >-
+        JSON Merge Patch with If-Match. Needs a fresh "confirm it's you";
+        audited without the key. A new provider or address needs the API
+        key pasted again (a key only goes where it was given for).
+      tags: [help]
+      security:
+        - bearer: [settings:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/HelpAnswersPatch"
+      responses:
+        "200":
+          description: The setting as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HelpAnswers"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/help-answers/test:
+    post:
+      operationId: testHelpAnswers
+      summary: Ask one question with the saved setting
+      description: >-
+        Sends one question (by default "How do I add a desk phone?") with
+        the saved setting, on or off, and returns the whole answer. Counts
+        as one of the caller's questions.
+      tags: [help]
+      security:
+        - bearer: [settings:write]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                question:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: The answer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HelpAnswersTest"
+        default:
+          $ref: "#/components/responses/Problem"
+
 webhooks:
   webhook.test:
     post:
@@ -5718,10 +5841,99 @@ components:
       type: object
       required: [guides]
       properties:
+        answers_by:
+          type: string
+          description: >-
+            Who writes answers ("Anthropic (Claude)", "Ollama", or an
+            OpenAI-compatible service's host name), when written answers are
+            turned on and the caller is signed in; absent otherwise.
         guides:
           type: array
           items:
             $ref: "#/components/schemas/HelpGuideSummary"
+
+    HelpAnswers:
+      type: object
+      required: [enabled, provider, base_url, model, api_key_set, person_daily_limit, server_daily_limit, used_today, etag]
+      properties:
+        enabled:
+          type: boolean
+        provider:
+          type: string
+          enum: [anthropic, openai, ollama]
+        base_url:
+          type: string
+          description: Empty for Anthropic (its address is fixed).
+        model:
+          type: string
+        api_key_set:
+          type: boolean
+        person_daily_limit:
+          type: integer
+        server_daily_limit:
+          type: integer
+        used_today:
+          type: integer
+          description: Questions asked today (UTC) on this server.
+        etag:
+          type: string
+
+    HelpAnswersPatch:
+      description: JSON Merge Patch; fields not sent stay as they are. An empty api_key removes it.
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        provider:
+          type: string
+          enum: [anthropic, openai, ollama]
+        base_url:
+          type: string
+          maxLength: 500
+        model:
+          type: string
+          maxLength: 100
+        api_key:
+          type: string
+          maxLength: 1000
+        person_daily_limit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        server_daily_limit:
+          type: integer
+          minimum: 1
+          maximum: 100000
+
+    HelpAnswersTest:
+      type: object
+      required: [question, ok, by, guides]
+      properties:
+        question:
+          type: string
+        ok:
+          type: boolean
+        answer:
+          type: string
+        error:
+          type: string
+          description: Why there's no answer, in plain words, when ok is false.
+        by:
+          type: string
+        guides:
+          type: array
+          items:
+            $ref: "#/components/schemas/HelpGuideRef"
+
+    HelpGuideRef:
+      type: object
+      required: [name, title]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
 
     HelpGuideSummary:
       type: object

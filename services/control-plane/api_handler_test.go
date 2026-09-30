@@ -24,6 +24,8 @@ import (
 	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/dbsecret"
+	"linxpbx.com/linx/internal/helpanswers"
+	"linxpbx.com/linx/internal/helpanswers/helpanswerstest"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/settings"
@@ -140,6 +142,8 @@ func newTestEnv(t *testing.T) *testEnv {
 			apiServer = s
 			s.SetOps(fops, st.Audit, func() time.Time { return time.Time{} })
 			s.SetServerSettings(fss)
+			s.SetHelpAnswers(&helpanswers.Service{Store: helpanswerstest.New(), Sealer: sender.Sealer, Help: testHelpLibrary(t),
+				Policy: policy, Resolver: resolver, Now: time.Now})
 		})
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)

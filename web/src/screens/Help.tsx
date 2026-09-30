@@ -3,15 +3,17 @@
 // app's frame and shows what the person's role may read; signed out, it's
 // a page of its own with only the sign-in guides. The server decides what
 // each caller gets; this page only shows it. Guides arrive as blocks and
-// are drawn here as elements, never as HTML.
+// are drawn here as elements, never as HTML. Where an admin turned written
+// answers on (§4), a question can also get one, shown as text.
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
-import { ArrowLeft, FileText, Search } from "lucide-react";
+import { ArrowLeft, FileText, Search, Sparkles } from "lucide-react";
 import { api } from "@/api/client";
 import { Wordmark } from "@/components/brand";
+import { Button } from "@/components/ui/button";
 import { navigate } from "@/hooks/useRoute";
 import {
-  guideInPath, guidePath, HELP_PATH, HELP_SECTIONS, loadGuides,
-  type HelpBlock, type HelpGuide, type HelpGuideSummary, type HelpInline, type HelpSearchResult,
+  askHelp, guideInPath, guidePath, HELP_PATH, HELP_SECTIONS, loadAnswersBy, loadGuides,
+  type AnswerEnd, type HelpBlock, type HelpGuide, type HelpGuideSummary, type HelpInline, type HelpSearchResult,
 } from "@/lib/help";
 
 export default function HelpScreen({ path, signedIn }: { path: string; signedIn: boolean }) {
@@ -49,6 +51,7 @@ function Link({ href, children, className = "" }: { href: string; children: Reac
 function HelpHome({ signedIn }: { signedIn: boolean }) {
   const [guides, setGuides] = useState<HelpGuideSummary[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [answersBy, setAnswersBy] = useState("");
   useEffect(() => {
     let live = true;
     void loadGuides().then((g) => {
@@ -56,6 +59,7 @@ function HelpHome({ signedIn }: { signedIn: boolean }) {
       setGuides(g);
       setFailed(g.length === 0);
     });
+    void loadAnswersBy().then((by) => { if (live) setAnswersBy(by); });
     return () => { live = false; };
   }, []);
 
@@ -66,7 +70,7 @@ function HelpHome({ signedIn }: { signedIn: boolean }) {
         {signedIn ? "How-to guides for this Linx. Ask a question, or pick a guide below."
           : "Guides for signing in. Everything else is here once you've signed in."}
       </p>
-      <HelpSearch />
+      <HelpSearch answersBy={answersBy} />
       {failed && <p role="status" className="mt-8 text-sm">Help isn't available right now. Try again in a moment.</p>}
       {guides && guides.length > 0 && (
         <div className="mt-8 flex flex-col gap-8">
@@ -99,10 +103,15 @@ function HelpHome({ signedIn }: { signedIn: boolean }) {
 // isn't asked for every letter.
 const SEARCH_PAUSE_MS = 350;
 
-function HelpSearch() {
+type Written = { question: string; text: string; end: AnswerEnd | null };
+
+function HelpSearch({ answersBy }: { answersBy: string }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<{ q: string; results: HelpSearchResult[] } | null>(null);
+  const [written, setWritten] = useState<Written | null>(null);
   const asked = useRef("");
+  const answering = useRef<AbortController | null>(null);
+  useEffect(() => () => answering.current?.abort(), []);
 
   const search = async (question: string) => {
     const text = question.trim();
@@ -120,19 +129,44 @@ function HelpSearch() {
     return () => clearTimeout(t);
   }, [q]);
 
+  // A written answer only when asked for (each one is counted, and may
+  // cost the server's owner), never as the person types.
+  const answer = async () => {
+    const question = q.trim();
+    if (!question || !answersBy) return;
+    answering.current?.abort();
+    const ctl = new AbortController();
+    answering.current = ctl;
+    setWritten({ question, text: "", end: null });
+    const end = await askHelp(question, (piece) => {
+      if (!ctl.signal.aborted) setWritten((w) => (w ? { ...w, text: w.text + piece } : w));
+    }, ctl.signal);
+    if (!ctl.signal.aborted) setWritten((w) => (w ? { ...w, end } : w));
+  };
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void search(q);
+    void answer();
   };
+  const busy = written !== null && written.end === null;
 
   return (
     <div className="mt-6">
-      <form role="search" onSubmit={submit} className="relative">
-        <Search aria-hidden="true" className="pointer-events-none absolute inset-y-0 start-3 my-auto size-4 text-muted-foreground" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} maxLength={500} type="search"
-          placeholder="Ask a question, like “how do I add a desk phone?”" aria-label="Search the guides"
-          className="h-11 w-full rounded-md border bg-card ps-9 pe-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50" />
+      <form role="search" onSubmit={submit} className="flex flex-wrap gap-2">
+        <div className="relative min-w-0 grow basis-64">
+          <Search aria-hidden="true" className="pointer-events-none absolute inset-y-0 start-3 my-auto size-4 text-muted-foreground" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} maxLength={500} type="search"
+            placeholder="Ask a question, like “how do I add a desk phone?”" aria-label="Search the guides"
+            className="h-11 w-full rounded-md border bg-card ps-9 pe-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50" />
+        </div>
+        {answersBy && (
+          <Button type="submit" className="h-11" disabled={!q.trim() || busy} aria-busy={busy}>
+            <Sparkles aria-hidden="true" />Write an answer
+          </Button>
+        )}
       </form>
+      {written && <WrittenAnswer written={written} />}
       {results && (
         <section aria-label="Search results" aria-live="polite" className="mt-4">
           {results.results.length === 0 ? (
@@ -156,6 +190,38 @@ function HelpSearch() {
         </section>
       )}
     </div>
+  );
+}
+
+/** A written answer: plain text as it arrives, then the guides it used. */
+function WrittenAnswer({ written: w }: { written: Written }) {
+  const end = w.end;
+  const failed = end !== null && "error" in end;
+  return (
+    <section aria-label="Written answer" aria-live="polite" aria-busy={end === null}
+      className="mt-4 rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm">
+      <p className="font-medium [overflow-wrap:anywhere]">Answer to “{w.question}”</p>
+      {failed ? (
+        end.error && <p role="alert" className="mt-2">Linx couldn't write an answer: {end.error} The search results are below.</p>
+      ) : (
+        <>
+          <p className="mt-2 whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]">
+            {w.text.trim() || (end === null ? "Writing…" : "")}{end !== null && "cut" in end && end.cut ? "…" : ""}
+          </p>
+          {end !== null && "guides" in end && (
+            <>
+              {end.guides.length > 0 && (
+                <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
+                  <span className="text-muted-foreground">From:</span>
+                  {end.guides.map((g) => <Link key={g.name} href={guidePath(g.name)}>{g.title}</Link>)}
+                </p>
+              )}
+              <p className="mt-3 text-xs text-muted-foreground">Answers are written by {end.by} from Linx's guides.</p>
+            </>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

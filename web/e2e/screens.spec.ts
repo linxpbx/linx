@@ -267,6 +267,19 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByText("Nothing in the guides matches")).toBeVisible();
     });
 
+    test("help: a written answer", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupStep: 5, answers: true });
+      await page.goto("/help");
+      await page.getByLabel("Search the guides").fill("how do I add a desk phone?");
+      await page.getByRole("button", { name: "Write an answer" }).click();
+      const answer = page.getByRole("region", { name: "Written answer" });
+      await expect(answer.getByText("The phone signs in within a minute and shows as ready.")).toBeVisible();
+      await expect(answer.getByRole("link", { name: "Desk phones and phone apps" })).toBeVisible();
+      await expect(answer.getByText("Answers are written by Anthropic (Claude) from Linx's guides.")).toBeVisible();
+      await expect(page.getByRole("link", { name: "Desk phones and phone apps › Adding one" })).toBeVisible();
+      await shot(page, `${scheme}-help-answer`);
+    });
+
     test("help signing in, without a session", async ({ page }) => {
       await fakeServer(page);
       await page.goto("/");
@@ -507,6 +520,30 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-system-settings-add-provider`);
     });
 
+    test("system settings: Help answers", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
+      await page.goto("/admin/system/settings");
+      const card = page.getByRole("heading", { name: "Help answers" });
+      await card.scrollIntoViewIfNeeded();
+      await expect(page.getByText("Right now: off: Help shows search results only.")).toBeVisible();
+      // Ollama asks for its address; Anthropic's is fixed.
+      await page.getByRole("radio", { name: /Ollama/ }).click();
+      await expect(page.getByLabel("Address", { exact: true })).toBeVisible();
+      await page.getByRole("radio", { name: /Anthropic/ }).click();
+      await expect(page.getByLabel("Address", { exact: true })).toHaveCount(0);
+      await page.getByRole("switch", { name: "Written answers in Help" }).click();
+      await page.getByLabel("API key", { exact: true }).fill("sk-ant-example");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+      await page.getByLabel("Password").fill("correct horse battery");
+      await page.getByLabel("Code from your authenticator app").pressSequentially("123456");
+      await expect(page.getByText("Right now: on, written by Anthropic (Claude).")).toBeVisible();
+      await page.getByRole("button", { name: "Test" }).click();
+      await expect(page.getByText("2. Pick the person and the phone's model.")).toBeVisible();
+      await card.scrollIntoViewIfNeeded();
+      await shot(page, `${scheme}-system-settings-help-answers`);
+    });
+
     test("expert: webhooks and API keys", async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true });
       await page.goto("/admin/webhooks");
@@ -518,7 +555,7 @@ for (const scheme of ["light", "dark"] as const) {
       await page.keyboard.press("Escape");
       await page.getByRole("button", { name: "+ Add" }).click();
       await page.getByRole("button", { name: /Guide me/ }).click();
-      await page.getByLabel("Address").fill("https://erp.example.com/linx");
+      await page.getByLabel("Address", { exact: true }).fill("https://erp.example.com/linx");
       await page.getByRole("button", { name: "Next" }).click();
       await page.getByRole("button", { name: "Add and test" }).click();
       await expect(page.getByText("It answered 200 in 183 ms.")).toBeVisible();

@@ -17,6 +17,12 @@ Type a question in the search box, in your own words, like *how do I add a desk 
 
 If nothing matches, try other words, or pick a guide from the list.
 
+## Written answers
+
+If your admin turned them on, **Write an answer** next to the search box asks for a short answer in plain words, made only from the guides, with links to the guides it used. The search results stay under it. It's written by the provider your admin picked, and the page says which. Admins: see [Written answers in Help](help-answers).
+
+![A written answer](screen:help-answer)
+
 ## Help for the page you're on
 
 The question-mark button at the top right of every page, **Help for this page**, opens the guide about that page.

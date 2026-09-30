@@ -1,6 +1,7 @@
 // System → Settings (docs/ui/ADMIN_SCREENS_PHASE1E.md §10.5): numbers,
-// place, Simple mode, where admins may sign in from, company sign-in, and
-// running the setup wizard again.
+// place, Simple mode, where admins may sign in from, company sign-in,
+// Help's written answers (docs/HELP.md §4), and running the setup wizard
+// again.
 import { useCallback, useEffect, useState } from "react";
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
@@ -15,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { navigate } from "@/hooks/useRoute";
 import { goToCompany } from "@/lib/company";
 import { hasScope } from "@/lib/roles";
+import { HelpAnswersCard } from "@/screens/SystemHelpAnswers";
 
 type Settings = components["schemas"]["Settings"];
 type Provider = components["schemas"]["SsoProvider"];
@@ -359,6 +361,7 @@ export function SystemSettingsScreen({ me, onSimpleModeChange }: { me: Me; onSim
           </SystemCard>
         )}
         {error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}
+        <HelpAnswersCard me={me} />
       </div>
       <AddProvider me={me} open={adding} onOpenChange={setAdding} redirect={redirect} onDone={() => void load()} />
       {confirm.dialog}

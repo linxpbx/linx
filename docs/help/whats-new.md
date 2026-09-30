@@ -9,6 +9,10 @@ screens: []
 
 The newest changes come first. Each Linx update brings its own help pages, so these guides always match the version your server runs.
 
+## Written answers in Help
+
+- Help can **write an answer** to a question, from the guides only, if an admin turns it on with a provider: Anthropic (Claude), Ollama on your own network, or another OpenAI-compatible service. See [Written answers in Help](help-answers).
+
 ## Help pages
 
 - These guides, inside Linx. They cover installing and moving Linx, everyday calling, admin tasks and keeping Linx running.

@@ -2,6 +2,7 @@ package help
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -96,5 +97,29 @@ func TestStem(t *testing.T) {
 		if Stem(w) == "" {
 			t.Errorf("Stem(%q) is empty", w)
 		}
+	}
+}
+
+func TestExcerptsAreWholeSectionsWithinTheWordLimit(t *testing.T) {
+	g := func(name, title, body string) Guide {
+		t.Helper()
+		guide, err := Parse(name, "---\ntitle: "+title+"\naudience: everyone\nsection: everyday\nkeywords: []\nscreens: []\n---\n# "+title+"\n\n"+body+"\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return guide
+	}
+	ix := NewIndex([]Guide{
+		g("desk-phones", "Desk phones", "## Adding one\n\nScan the code on the desk phone.\n\n- Open the page\n- Press the button"),
+		g("voicemail", "Voicemail", "## Long\n\n"+strings.Repeat("desk ", 50)),
+	})
+	all := func(*Guide) bool { return true }
+	got := ix.Excerpts("desk phone", all, 30)
+	if len(got) != 1 || got[0].Guide != "desk-phones" || got[0].Heading != "Adding one" ||
+		got[0].Text != "Scan the code on the desk phone.\nOpen the page\nPress the button" {
+		t.Errorf("%+v", got)
+	}
+	if got := ix.Excerpts("desk phone", func(g *Guide) bool { return g.Name != "desk-phones" }, 3000); len(got) != 1 || got[0].Guide != "voicemail" {
+		t.Errorf("a guide the caller can't read was used: %+v", got)
 	}
 }

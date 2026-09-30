@@ -2353,6 +2353,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/help/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A written answer from the guides
+         * @description Where an admin turned written answers on (docs/HELP.md §4): the question and the guide sections search finds for it go to the provider the admin chose, and its answer comes back as it's written, as newline-delimited JSON: `{"text": "…"}` pieces, then `{"done": true, "guides": [{"name", "title"}], "by": "…"}` (with `"cut": true` if it reached its length limit), or `{"error": "…"}` if it fails part way. Shown as text, never HTML. Needs a full session (not an API key); counted against 10 a minute and the daily limits. A problem before anything is written (off, limits, the provider refusing) comes back as usual. Hand-written (services/control-plane/help.go): the answer streams.
+         */
+        post: operations["answerHelpQuestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/help-answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Help's written answers setting
+         * @description The provider, address, model and limits (docs/HELP.md §4); the API key is never shown, only whether one is set.
+         */
+        get: operations["getHelpAnswers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change Help's written answers setting
+         * @description JSON Merge Patch with If-Match. Needs a fresh "confirm it's you"; audited without the key. A new provider or address needs the API key pasted again (a key only goes where it was given for).
+         */
+        patch: operations["updateHelpAnswers"];
+        trace?: never;
+    };
+    "/api/v1/help-answers/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask one question with the saved setting
+         * @description Sends one question (by default "How do I add a desk phone?") with the saved setting, on or off, and returns the whole answer. Counts as one of the caller's questions.
+         */
+        post: operations["testHelpAnswers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface webhooks {
     "webhook.test": {
@@ -3515,7 +3579,47 @@ export interface components {
             passkeys_moved?: boolean;
         };
         HelpGuideList: {
+            /** @description Who writes answers ("Anthropic (Claude)", "Ollama", or an OpenAI-compatible service's host name), when written answers are turned on and the caller is signed in; absent otherwise. */
+            answers_by?: string;
             guides: components["schemas"]["HelpGuideSummary"][];
+        };
+        HelpAnswers: {
+            enabled: boolean;
+            /** @enum {string} */
+            provider: "anthropic" | "openai" | "ollama";
+            /** @description Empty for Anthropic (its address is fixed). */
+            base_url: string;
+            model: string;
+            api_key_set: boolean;
+            person_daily_limit: number;
+            server_daily_limit: number;
+            /** @description Questions asked today (UTC) on this server. */
+            used_today: number;
+            etag: string;
+        };
+        /** @description JSON Merge Patch; fields not sent stay as they are. An empty api_key removes it. */
+        HelpAnswersPatch: {
+            enabled?: boolean;
+            /** @enum {string} */
+            provider?: "anthropic" | "openai" | "ollama";
+            base_url?: string;
+            model?: string;
+            api_key?: string;
+            person_daily_limit?: number;
+            server_daily_limit?: number;
+        };
+        HelpAnswersTest: {
+            question: string;
+            ok: boolean;
+            answer?: string;
+            /** @description Why there's no answer, in plain words, when ok is false. */
+            error?: string;
+            by: string;
+            guides: components["schemas"]["HelpGuideRef"][];
+        };
+        HelpGuideRef: {
+            name: string;
+            title: string;
         };
         HelpGuideSummary: {
             name: string;
@@ -8000,6 +8104,111 @@ export interface operations {
                 };
                 content: {
                     "image/webp": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    answerHelpQuestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    question: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The answer, as it's written. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-ndjson": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getHelpAnswers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The setting. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelpAnswers"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateHelpAnswers: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["HelpAnswersPatch"];
+            };
+        };
+        responses: {
+            /** @description The setting as it now is. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelpAnswers"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    testHelpAnswers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    question?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelpAnswersTest"];
                 };
             };
             default: components["responses"]["Problem"];

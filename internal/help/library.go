@@ -119,6 +119,12 @@ func (l *Library) Search(role, question string) []Result {
 	return l.index(role).Search(question, readable(role))
 }
 
+// Excerpts are the best whole sections of the guides role may read for
+// question, up to maxWords words: what a written answer is made from.
+func (l *Library) Excerpts(role, question string, maxWords int) []Excerpt {
+	return l.index(role).Excerpts(question, readable(role), maxWords)
+}
+
 // Picture is a picture's bytes and ETag, if a guide role may read uses it.
 func (l *Library) Picture(role, file string) (data []byte, etag string, ok bool) {
 	if !PictureFile.MatchString(file) {

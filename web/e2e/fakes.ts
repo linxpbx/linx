@@ -63,6 +63,8 @@ export interface FakeOptions {
   // GET /numbering/next follows the saved people range (the setup wizard's
   // range-change test).
   followRanges?: boolean;
+  // Help's written answers (docs/HELP.md §4) turned on, with Anthropic.
+  answers?: boolean;
 }
 
 // Phone lines, numbers and routing (docs/ui/ADMIN_SCREENS_PHASE1E.md §6-9).
@@ -301,6 +303,8 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       { id: "0199k1", name: "CRM", prefix: "linx_0199k1", role: "admin", scopes: ["extensions:read", "calls:read", "users:read"], allowed_ips: [],
         created_by: "user:u1001", created_at: minsAgo(20000), expires_at: new Date(Date.now() + 60 * 86_400_000).toISOString(), last_used_at: minsAgo(40), last_used_ip: "203.0.113.9" },
     ] as Json[],
+    answers: { enabled: !!opts.answers, provider: "anthropic", base_url: "", model: "claude-haiku-4-5", api_key_set: !!opts.answers,
+      person_daily_limit: 200, server_daily_limit: 1000, used_today: opts.answers ? 14 : 0, etag: '"1"' } as Json,
     providers: [
       { id: "0199b1", kind: "google", name: "Google", issuer: "https://accounts.google.com", client_id: "1234.apps.googleusercontent.com",
         client_secret_set: true, enabled: true, shown: true, position: 0, redirect_uri: "https://example.com/api/v1/sso/callback",
@@ -795,7 +799,26 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     // Help (docs/HELP.md): the sign-in guides without a session, more with one.
     if (p === "/api/v1/help/guides") {
       const guides = opts.signedIn ? HELP_GUIDES : HELP_GUIDES.filter((g) => HELP_PUBLIC.includes(g.name));
-      return route.fulfill(json({ guides }));
+      return route.fulfill(json({ guides, ...(opts.signedIn && system.answers.enabled ? { answers_by: "Anthropic (Claude)" } : {}) }));
+    }
+    if (p === "/api/v1/help/answer" && method === "POST") {
+      const lines = [...HELP_ANSWER.map((text) => ({ text })),
+        { done: true, guides: [{ name: "desk-phones-and-phone-apps", title: "Desk phones and phone apps" }], by: "Anthropic (Claude)" }];
+      return route.fulfill({ status: 200, contentType: "application/x-ndjson", body: lines.map((l) => JSON.stringify(l)).join("\n") + "\n" });
+    }
+    if (p === "/api/v1/help-answers" && method === "GET") return route.fulfill(json(system.answers));
+    if (p === "/api/v1/help-answers" && method === "PATCH") {
+      if (!system.confirmed) {
+        return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
+      }
+      const body = route.request().postDataJSON() as Json;
+      const { api_key: key, ...rest } = body;
+      Object.assign(system.answers, rest, key !== undefined ? { api_key_set: key !== "" } : {}, { etag: '"2"' });
+      return route.fulfill(json(system.answers));
+    }
+    if (p === "/api/v1/help-answers/test" && method === "POST") {
+      return route.fulfill(json({ question: "How do I add a desk phone?", ok: true, answer: HELP_ANSWER.join(""), by: "Anthropic (Claude)",
+        guides: [{ name: "desk-phones-and-phone-apps", title: "Desk phones and phone apps" }] }));
     }
     if (p.startsWith("/api/v1/help/guides/")) {
       const name = p.slice("/api/v1/help/guides/".length);
@@ -1205,6 +1228,14 @@ const HELP_GUIDES: { name: string; title: string; section: string; screens: stri
 
 const text = (t: string) => ({ type: "text", text: t });
 const bold = (t: string) => ({ type: "bold", text: t });
+
+// A written answer, in the pieces it arrives in.
+const HELP_ANSWER = [
+  "1. Open Desk phones and press Add a phone.\n",
+  "2. Pick the person and the phone's model.\n",
+  "3. Scan the code on the next screen with the phone, or type the settings box into it.\n",
+  "The phone signs in within a minute and shows as ready.",
+];
 
 function helpBlocks(g: { name: string; title: string }): Json[] {
   if (g.name !== "extensions") {

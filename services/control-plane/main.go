@@ -37,6 +37,7 @@ import (
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/health"
 	"linxpbx.com/linx/internal/help"
+	"linxpbx.com/linx/internal/helpanswers"
 	"linxpbx.com/linx/internal/install"
 	"linxpbx.com/linx/internal/moved"
 	"linxpbx.com/linx/internal/numbering"
@@ -411,12 +412,24 @@ func main() {
 	// written at every start (the public address takes a moment to find).
 	movedSvc := &moved.Service{Store: st, Now: time.Now}
 	runBackground(func(ctx context.Context) { recordPlace(ctx, movedSvc, os.Getenv, phoneNetworks, log) })
+	// Help: the guides this release carries (docs/HELP.md). Without them
+	// Linx still runs; Help says it isn't available. Written answers
+	// (§4) go out through the same guard as webhooks, with room for a
+	// whole answer.
+	helpLib, err := help.Open(os.DirFS(envOr(os.Getenv, "LINX_HELP_DIR", help.DefaultDir)))
+	if err != nil {
+		log.Error("reading the help guides failed", "err", err)
+		helpLib = nil
+	}
+	helpAnswers := &helpanswers.Service{Store: st, Sealer: sealer, Policy: policy, Help: helpLib, Now: time.Now,
+		Client: safehttp.NewClient(policy, safehttp.Options{Timeout: helpanswers.AnswerTimeout + 5*time.Second})}
 	var apiServer *controlplaneapi.Server
 	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, backups,
 		func(s *controlplaneapi.Server) {
 			apiServer = s
 			s.SetServerSettings(serverSettings)
 			s.SetMoved(movedSvc)
+			s.SetHelpAnswers(helpAnswers)
 			s.SetOps(opsHub, st.Audit, func() time.Time {
 				if sec := certExpiry.Load(); sec > 0 {
 					return time.Unix(sec, 0)
@@ -436,14 +449,7 @@ func main() {
 	registerSessionHandlers(mux, authn, accounts, tenant)
 	registerCompanyHandlers(mux, authn, accounts, ssoSvc, tenant, movedSvc.PasskeysMoved, log)
 	registerBackupFileHandlers(mux, authn, backups)
-	// Help: the guides this release carries (docs/HELP.md). Without them
-	// Linx still runs; Help says it isn't available.
-	helpLib, err := help.Open(os.DirFS(envOr(os.Getenv, "LINX_HELP_DIR", help.DefaultDir)))
-	if err != nil {
-		log.Error("reading the help guides failed", "err", err)
-		helpLib = nil
-	}
-	registerHelpHandlers(mux, authn, helpLib)
+	registerHelpHandlers(mux, authn, helpLib, helpAnswers, tenant, log)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
 	// Everything else is the web client (ADR-037).
