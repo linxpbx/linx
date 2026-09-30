@@ -3,6 +3,7 @@
 // screens can be seen in every state without the real stack. The real
 // stack is exercised by the browser call suite (e2e/calls.spec.ts).
 import type { Page, WebSocketRoute } from "@playwright/test";
+import doorSetupFixture from "./door-setup.json" with { type: "json" };
 
 export const DOMAIN = "sip.linx.test";
 export const ME = { name: "Mohammed Al Mansoori", email: "mohammed@example.com", extension: "1001", username: "d_Web00001" };
@@ -178,7 +179,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     portainer: false, portainer_allowed: opts.serverSettings === "home", apply: { state: "" }, steps: [], keep: [],
     expires_at: new Date(Date.now() + 4 * 3600_000).toISOString(),
     proxy_address: opts.serverSettings === "home" ? "192.168.1.30" : undefined,
-    front_doors: opts.serverSettings === "home" ? ["pangolin", "nginx", "http-proxy", "linx-443", "home-only"] : ["linx-443", "nginx", "http-proxy"],
+    front_doors: opts.serverSettings === "home" ? ["linx-443", "proxy", "home-only", "http-proxy"] : ["linx-443", "proxy"],
     public_address: "203.0.113.5", lan_address: opts.serverSettings === "home" ? "192.168.1.212" : undefined,
     repair: !!opts.repair, no_sign_in: opts.repair === "no-sign-in",
     problem: opts.repair ? "x509: certificate has expired or is not yet valid" : undefined,
@@ -199,13 +200,9 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     const addRecords = body.domain && !serverSettings?.token_saved
       ? [{ type: "A", name: domain, value: "203.0.113.5" }, { type: "A", name: `turn.${domain}`, value: "203.0.113.5" }] : [];
     if (addRecords.length) warnings.push("Add the DNS records below at your DNS company first: Linx checks them before it asks Let's Encrypt.");
-    const door = body.front_door ?? serverSettings?.front_door;
-    const setup = (body.domain || body.front_door) && door === "pangolin" ? {
-      files: [{ title: "the block for Pangolin", path: "config/traefik/dynamic_config.yml",
-        text: `tcp:\n  routers:\n    linx-web:\n      rule: "HostSNI(\`${domain}\`)"\n      service: linx-web\n      tls:\n        passthrough: true` }],
-      steps: [`On the Pangolin machine (${body.proxy_address ?? "192.168.1.30"}), add the block below to the end of config/traefik/dynamic_config.yml. Traefik picks it up by itself.`,
-        "On your router, keep TCP port 443 going to Pangolin, and send UDP port 443 to this server (192.168.1.212)."],
-    } : undefined;
+    const door = String(body.front_door ?? serverSettings?.front_door ?? "");
+    const setup = (body.domain || body.front_door) && PASS_THROUGH.includes(door)
+      ? doorSetup(domain, body.proxy_address ?? String(serverSettings?.proxy_address ?? "192.168.1.30")) : undefined;
     if (setup) warnings.push("Until the steps below are done, Linx can't be reached from outside your network.");
     const steps = [
       ...(addRecords.length ? [`Check the DNS records for ${domain}`, `Test certificate for ${domain}, turn.${domain}`, `Certificate for ${domain}, turn.${domain}`] : []),
@@ -1269,3 +1266,13 @@ const HELP_DESK_RESULTS = [
     lines: ["An extension can ring a desk phone or a phone app as well as the browser."] },
   { guide: "phone-wont-register", title: "A phone won't register", lines: ["Check the server, port 5061, TLS, the username and the password on the desk phone."] },
 ];
+
+const PASS_THROUGH = ["proxy", "pangolin", "nginx"];
+
+/** The front door's steps as setup makes them (web/e2e/door-setup.json, kept in step by a Go test), for domain and proxy. */
+export function doorSetup(domain = "example.com", proxy = "192.168.1.20"): typeof doorSetupFixture {
+  // "192.168.1.212" (this server) never contains "192.168.1.20" (the proxy).
+  const text = JSON.stringify(doorSetupFixture).replaceAll("192.168.1.20", proxy)
+    .replaceAll("example-com", domain.replaceAll(".", "-")).replaceAll("example.com", domain);
+  return JSON.parse(text);
+}

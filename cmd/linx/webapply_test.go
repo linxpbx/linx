@@ -75,7 +75,7 @@ func newApplyRig(t *testing.T, a install.Answers, lan installer.LAN) *applyRig {
 var rentedAnswers = install.Answers{Where: install.WhereRented, FrontDoor: installer.FrontDoorLinx443, Domain: "pbx.example.com",
 	Name: "Sam Lee", Email: "certs@example.com", AdminEmail: "sam@example.com", TimeZone: "Asia/Dubai", AgreedToTerms: true}
 
-var homeAnswers = install.Answers{Where: install.WhereHome, FrontDoor: installer.FrontDoorPangolin, ProxyAddress: "192.168.1.30",
+var homeAnswers = install.Answers{Where: install.WhereHome, FrontDoor: installer.FrontDoorProxy, ProxyAddress: "192.168.1.30",
 	Domain: "pbx.example.com", Name: "Sam Lee", Email: "certs@example.com", AdminEmail: "sam@example.com", TimeZone: "Asia/Dubai", AgreedToTerms: true}
 
 var homeLAN = installer.LAN{Address: netip.MustParseAddr("192.168.1.20"), Network: netip.MustParsePrefix("192.168.1.0/24")}
@@ -283,7 +283,7 @@ func TestWebSettings(t *testing.T) {
 	r = newApplyRig(t, rentedAnswers, installer.LAN{})
 	delete(r.saved, installer.DNSTokenPath)
 	s = newWebSettings(r.w, false)
-	if v, _ := s.View(ctx); v.Token != "" || v.PortainerAllowed || slices.Contains(v.FrontDoors, installer.FrontDoorPangolin) {
+	if v, _ := s.View(ctx); v.Token != "" || v.PortainerAllowed || slices.Contains(v.FrontDoors, installer.FrontDoorHTTPProxy) {
 		t.Errorf("rented view %+v", v)
 	}
 	token := strings.Repeat("y", 40)
@@ -323,8 +323,8 @@ func TestWebSettingsNewDomainHome(t *testing.T) {
 	}
 	ch := install.ServerChange{Profile: "lite", Domain: " PBX.Example.ORG "}
 	p, err := s.Preview(ctx, ch)
-	if err != nil || len(p.Errors) > 0 || p.Address != "https://pbx.example.org" || p.Setup == nil || len(p.Setup.Files) == 0 ||
-		!strings.Contains(p.Setup.Files[0].Text, "pbx.example.org") || len(p.AddRecords) != 0 || !slices.Equal(asked, []string{"cloudflare pbx.example.org"}) {
+	if err != nil || len(p.Errors) > 0 || p.Address != "https://pbx.example.org" || p.Setup == nil || p.Setup.Card == nil ||
+		p.Setup.Card.Routes[0].Name != "pbx.example.org" || !strings.Contains(p.Setup.Card.Guides[0].Files[0].Text, "pbx.example.org") || len(p.AddRecords) != 0 || !slices.Equal(asked, []string{"cloudflare pbx.example.org"}) {
 		t.Fatalf("preview %+v %v, asked %v", p, err, asked)
 	}
 	for _, want := range []string{"Passkeys only work", "sip.pbx.example.org", "/api/v1/sso/callback"} {
@@ -405,7 +405,7 @@ func TestWebSettingsNewDomainNoToken(t *testing.T) {
 	}
 
 	// Without a token, only Linx's own port 443 works.
-	p, _ = s.Preview(ctx, install.ServerChange{Profile: "lite", FrontDoor: installer.FrontDoorNginx, ProxyAddress: "203.0.113.7"})
+	p, _ = s.Preview(ctx, install.ServerChange{Profile: "lite", FrontDoor: installer.FrontDoorProxy, ProxyAddress: "203.0.113.7"})
 	if len(p.Errors) == 0 {
 		t.Errorf("nginx without a token: %+v", p)
 	}

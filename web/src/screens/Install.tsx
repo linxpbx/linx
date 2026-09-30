@@ -6,9 +6,10 @@
 // and the certificate page follows (InstallCertificate.tsx). On
 // https://<domain> the same address is the secure page.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Building2, ChevronDown, House, ShieldAlert } from "lucide-react";
+import { Building2, ChevronDown, House, ShieldAlert, TriangleAlert } from "lucide-react";
 import { Choice, Countdown, FieldMessage, Frame, LinkUnusable, Nav, submit, Title, useSecondsLeft } from "@/components/InstallFrame";
 import { CertificateStep, SecureInstall } from "@/screens/InstallCertificate";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -169,39 +170,44 @@ function WhereStep({ answers, set, errorFor, facts, onNext }: StepProps & { fact
   );
 }
 
-const doorText: Record<FrontDoor, { title: string; hint: string }> = {
-  "linx-443": { title: "Directly — Linx answers on port 443 itself", hint: "Your server provider sends port 443 here. Nothing else on this server uses it." },
-  pangolin: { title: "Pangolin", hint: "Your router sends port 443 to Pangolin." },
-  nginx: { title: "nginx or HAProxy, already using port 443", hint: "It passes Linx's names through to it." },
-  "http-proxy": { title: "Caddy or Nginx Proxy Manager", hint: "Needs your DNS company's token on this unencrypted page." },
-  "home-only": { title: "Nothing — only at home", hint: "Linx works on this network only. No calls from outside. Needs your DNS company's token on this unencrypted page." },
+const doorText: Partial<Record<FrontDoor, { title: string; hint: string }>> = {
+  "linx-443": { title: "Nothing else uses port 443 — Linx takes it", hint: "Your router sends TCP and UDP port 443 straight to this server." },
+  proxy: { title: "Another program passes Linx through", hint: "Pangolin, nginx, HAProxy, Caddy, Nginx Proxy Manager or similar already uses port 443 and sends Linx's names here." },
+  "home-only": { title: "Nothing: only at home", hint: "Linx works on this network only. No calls from outside. Needs your DNS company's token on this unencrypted page." },
+  "http-proxy": { title: "My proxy must unlock the traffic itself", hint: "For a proxy that can't pass Linx through. Not recommended." },
 };
 
 function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepProps & { facts: Facts; onBack: () => void; onNext: () => void }) {
   const rented = answers.where === "rented";
   const noLAN = !facts.lan_address;
   const isProxy = proxyKinds.includes(answers.front_door as FrontDoor);
+  const unlocking = answers.front_door === "http-proxy";
   const [more, setMore] = useState(rented && isProxy);
+  const [advanced, setAdvanced] = useState(unlocking);
+  const [anyway, setAnyway] = useState(unlocking);
   const [portOpen, setPortOpen] = useState(!!answers.turn_udp_port && answers.turn_udp_port !== 443);
   const [touched, setTouched] = useState(false);
   const port = answers.turn_udp_port ?? 443;
   const addrProblem = isProxy ? proxyAddressProblem(answers.proxy_address ?? "") : "";
   const portErr = isProxy ? portProblem(port) : "";
   const needsLAN = (d: FrontDoor) => proxyKinds.includes(d) || d === "home-only";
-  const text = (d: FrontDoor) => d === "linx-443" && !rented
-    ? { title: "Nothing — Linx takes port 443 itself", hint: "Your router sends TCP and UDP port 443 straight to this server." }
-    : doorText[d];
+  const text = (d: FrontDoor) => d === "linx-443" && rented
+    ? { title: doorText["linx-443"]!.title, hint: "Your server provider sends port 443 here." }
+    : doorText[d]!;
   const choice = (d: FrontDoor, badge?: string) => (
     <Choice key={d} id={`door-${d}`} value={d} title={text(d).title} badge={badge} disabled={noLAN && needsLAN(d)}
       hint={noLAN && needsLAN(d) ? "Needs this server on a home network, and it isn't on one." : text(d).hint} />
   );
-  const home: FrontDoor[] = ["pangolin", "nginx", "http-proxy", "linx-443", "home-only"];
+  const choose = (d: FrontDoor) => {
+    if (d !== "http-proxy") setAnyway(false);
+    set({ front_door: d, ...(proxyKinds.includes(d) ? {} : { proxy_address: undefined, turn_udp_port: undefined }) });
+  };
+  const ready = !!answers.front_door && (!unlocking || anyway);
 
   return (
-    <form onSubmit={submit(() => { setTouched(true); if (answers.front_door && !addrProblem && !portErr) onNext(); })}>
+    <form onSubmit={submit(() => { setTouched(true); if (ready && !addrProblem && !portErr) onNext(); })}>
       <Title>{rented ? "How do people reach this server from the internet?" : "What's in front of Linx on the internet?"}</Title>
-      <RadioGroup value={answers.front_door} aria-label="What's in front of this server"
-        onValueChange={(v) => set({ front_door: v as FrontDoor, ...(proxyKinds.includes(v as FrontDoor) ? {} : { proxy_address: undefined, turn_udp_port: undefined }) })}>
+      <RadioGroup value={answers.front_door} aria-label="What's in front of this server" onValueChange={(v) => choose(v as FrontDoor)}>
         {rented ? (
           <>
             {choice("linx-443", "Recommended")}
@@ -211,15 +217,39 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
               <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", !more && "-rotate-90")} />
               Something else already uses port 443 here
             </button>
-            {more && (["nginx", "http-proxy"] as FrontDoor[]).map((d) => choice(d))}
+            {more && choice("proxy")}
           </>
         ) : (
-          home.map((d) => choice(d, d === "pangolin" ? "Recommended if you use it" : undefined))
+          <>
+            {(["linx-443", "proxy", "home-only"] as FrontDoor[]).map((d) => choice(d))}
+            <button type="button" aria-expanded={advanced} onClick={() => setAdvanced(!advanced)}
+              className="flex items-center gap-1 justify-self-start text-sm text-link hover:underline">
+              <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", !advanced && "-rotate-90")} />
+              Advanced
+            </button>
+            {advanced && choice("http-proxy")}
+          </>
         )}
       </RadioGroup>
+      {unlocking && !anyway && (
+        <div role="alert" className="mt-4 flex flex-col gap-3 rounded-md border border-status-away p-4 text-sm">
+          <p className="flex items-center gap-2 font-medium">
+            <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-status-away" />Not recommended
+          </p>
+          <p>
+            Your proxy will see everything that passes through it, and Linx needs your DNS company's token on this page before
+            it's encrypted. Calls need their own port for audio. Caddy (with its layer-4 add-on), nginx and HAProxy can pass Linx
+            through instead: choose “Another program passes Linx through” to see how.
+          </p>
+          <div className="flex flex-wrap justify-end gap-3">
+            <Button type="button" variant="outline" onClick={() => choose("proxy")}>Show me how</Button>
+            <Button type="button" onClick={() => setAnyway(true)}>Use it anyway</Button>
+          </div>
+        </div>
+      )}
       {isProxy && (
         <div className="mt-4 flex flex-col gap-2 rounded-md border p-4">
-          <Label htmlFor="proxy-address">Address of the machine {answers.front_door === "pangolin" ? "Pangolin" : "it"} runs on</Label>
+          <Label htmlFor="proxy-address">Address of the machine it runs on</Label>
           <Input id="proxy-address" inputMode="decimal" autoComplete="off" placeholder="192.168.1.20" className="max-w-56"
             value={answers.proxy_address ?? ""} onChange={(e) => set({ proxy_address: e.target.value })} aria-invalid={touched && !!addrProblem} />
           {facts.lan_address && <p className="text-sm text-muted-foreground">{facts.lan_address} if it's this server.</p>}
@@ -235,7 +265,7 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
               <Input id="udp-port" inputMode="numeric" className="max-w-28" value={String(port)}
                 onChange={(e) => set({ turn_udp_port: Number(e.target.value.replace(/\D/g, "")) || 0 })} aria-invalid={!!portErr} />
               <p className="text-sm text-muted-foreground">
-                443 works when your router can send UDP 443 to Linx while TCP 443 goes to {answers.front_door === "pangolin" ? "Pangolin" : "the proxy"}. Some (UniFi) can't: use 3478 then.
+                443 works when your router can send UDP 443 to Linx while TCP 443 goes to the other program. Some (UniFi) can't: use 3478 then.
               </p>
               <FieldMessage message={portErr || errorFor("turn_udp_port")} />
             </div>
@@ -246,7 +276,7 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
       <p className="mt-4 text-sm text-muted-foreground">
         Want no web address at all? Use <code className="font-mono">sudo linx setup --config</code> instead.
       </p>
-      <Nav onBack={onBack} disabled={!answers.front_door} />
+      <Nav onBack={onBack} disabled={!ready} />
     </form>
   );
 }

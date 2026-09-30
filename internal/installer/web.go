@@ -63,22 +63,24 @@ func (c Config) Installed() bool {
 	return c.Domain.Name != "" && (c.Install.Where == "" || c.Install.FinishedAt != "")
 }
 
-// FrontDoorsFor lists the front doors the install page offers for where
-// the server is (docs/ui/INSTALL_SCREENS.md §2.3): a rented server's
-// recommended one first. "none" isn't offered: a web install needs a web
-// address.
+// FrontDoorsFor lists the front doors the install page and Server
+// settings offer for where the server is (docs/ui/SCREENS_PHASE1F.md
+// §1.1): a rented server's recommended one first. "none" isn't offered: a
+// web install needs a web address. A proxy that decrypts is advanced and
+// home only (owner decision 2026-09-30).
 func FrontDoorsFor(where string) []string {
 	if where == install.WhereRented {
-		return []string{FrontDoorLinx443, FrontDoorNginx, FrontDoorHTTPProxy}
+		return []string{FrontDoorLinx443, FrontDoorProxy}
 	}
-	return []string{FrontDoorPangolin, FrontDoorNginx, FrontDoorHTTPProxy, FrontDoorLinx443, FrontDoorHomeOnly}
+	return []string{FrontDoorLinx443, FrontDoorProxy, FrontDoorHomeOnly, FrontDoorHTTPProxy}
 }
 
 // FrontDoorShort is each front door as the terminal's progress line says it.
 var FrontDoorShort = map[string]string{
+	FrontDoorProxy:     "another program passes Linx through",
 	FrontDoorPangolin:  "Pangolin",
 	FrontDoorNginx:     "nginx or HAProxy",
-	FrontDoorHTTPProxy: "Caddy or Nginx Proxy Manager",
+	FrontDoorHTTPProxy: "a proxy that unlocks the traffic",
 	FrontDoorLinx443:   "Linx takes port 443",
 	FrontDoorHomeOnly:  "only at home",
 }
@@ -172,7 +174,7 @@ func FrontDoorChoice(where, kind, proxyAddress string, turnUDPPort int, lan LAN)
 		add("front_door", "Choose what's in front of this server.")
 	case (NeedsProxyAddress(kind) || kind == FrontDoorHomeOnly) && !lan.OK():
 		add("front_door", "That needs this server on a home network, and it isn't on one. "+
-			"Choose “Directly — Linx answers on port 443 itself”, or run setup on the home server.")
+			"Choose “Nothing else uses port 443 — Linx takes it”, or run setup on the home server.")
 	case NeedsProxyAddress(kind):
 		fd.ProxyAddress = strings.TrimSpace(proxyAddress)
 		if err := ValidateProxyAddress(fd.ProxyAddress); err != nil {

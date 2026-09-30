@@ -59,9 +59,15 @@ export const repairClient: ServerSettingsClient = {
 
 /** Front doors as the page names them. */
 export const DOORS: Record<string, string> = {
-  "linx-443": "Linx takes port 443 itself", pangolin: "Pangolin", nginx: "nginx or HAProxy", "http-proxy": "Caddy or Nginx Proxy Manager",
-  "home-only": "Nothing: home network only", none: "Nothing yet",
+  "linx-443": "Nothing else uses port 443 — Linx takes it", proxy: "Another program passes Linx through",
+  pangolin: "Pangolin passes Linx through", nginx: "nginx or HAProxy passes Linx through",
+  "home-only": "Nothing: only at home", "http-proxy": "A proxy that unlocks the traffic (advanced)", none: "Nothing yet",
 };
 
 /** Front doors that are another program at an address on the home network. */
-export const PROXY_DOORS = ["pangolin", "nginx", "http-proxy"];
+export const PROXY_DOORS = ["proxy", "pangolin", "nginx", "http-proxy"];
+
+/** The choice an older setup's "pangolin" or "nginx" is now: "proxy". */
+export function doorChoice(kind: string): string {
+  return kind === "pangolin" || kind === "nginx" ? "proxy" : kind;
+}

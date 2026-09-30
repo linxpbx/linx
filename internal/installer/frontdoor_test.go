@@ -4,6 +4,8 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+
+	"linxpbx.com/linx/internal/install"
 )
 
 func TestFrontDoorConfigValidate(t *testing.T) {
@@ -19,6 +21,8 @@ func TestFrontDoorConfigValidate(t *testing.T) {
 		{FrontDoorConfig{Kind: FrontDoorHomeOnly, ProxyAddress: "192.168.1.30"}, false},
 		{FrontDoorConfig{Kind: FrontDoorLinx443}, true},
 		{FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30"}, true},
+		{FrontDoorConfig{Kind: FrontDoorProxy, ProxyAddress: "192.168.1.30"}, true},
+		{FrontDoorConfig{Kind: FrontDoorProxy}, false},
 		{FrontDoorConfig{Kind: FrontDoorPangolin}, false},
 		{FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "203.0.113.5"}, false}, // not at home
 		{FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "fd00::1"}, false},
@@ -59,9 +63,9 @@ func TestFrontDoorFor(t *testing.T) {
 		u.TURNURLs != "turn:turn.lab.example.com:3478?transport=udp,turns:turn.lab.example.com:443?transport=tcp" {
 		t.Errorf("pangolin, UDP 3478: %+v", u)
 	}
-	if steps := PangolinSteps("lab.example.com", lan.Address, 3478); !strings.Contains(steps, "UDP 3478 to this Linx server") ||
-		strings.Contains(steps, "remove the") {
-		t.Errorf("pangolin steps, UDP 3478:\n%s", steps)
+	if s := DoorSetup(cfg, lan); !strings.Contains(s.Steps[0], "UDP port 3478 to this server (192.168.1.20)") ||
+		strings.Contains(strings.Join(s.Card.Guides[0].Steps, "\n"), "http3") || strings.Contains(string(CaddyLayer4("x.example.com", lan.Address, 3478)), "protocols") {
+		t.Errorf("pangolin steps, UDP 3478: %+v", s)
 	}
 	for _, bad := range []FrontDoorConfig{
 		{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30", TURNUDPPort: 80},
@@ -129,12 +133,6 @@ func TestFrontDoorFiles(t *testing.T) {
 	if strings.Contains(tr, "insecureSkipVerify") {
 		t.Error("the Traefik file must never turn certificate checks off")
 	}
-	steps := PangolinSteps("lab.example.com", linx, 443)
-	for _, want := range []string{PangolinTraefikFile, "UDP 443 to this Linx server, 192.168.1.20", "http3", "sudo linx doctor"} {
-		if !strings.Contains(steps, want) {
-			t.Errorf("steps missing %q", want)
-		}
-	}
 	hp := string(HAProxyConfig("lab.example.com"))
 	for _, want := range []string{
 		"mode tcp", "bind :443", "req_ssl_sni -i turn.lab.example.com",
@@ -167,8 +165,16 @@ func TestFrontDoorFiles(t *testing.T) {
 	}
 	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30"}
 	files, dns := FrontDoorPlan(cfg, lan)
-	if len(files) != 2 || len(dns) != 1 || !strings.Contains(dns[0].Cmd.String(), "certd -records @,turn") {
+	if len(files) != 5 || len(dns) != 1 || !strings.Contains(dns[0].Cmd.String(), "certd -records @,turn") ||
+		files[4].File.Path != FrontDoorStepsFile {
 		t.Errorf("pangolin plan: %+v %+v", files, dns)
+	}
+	steps := string(files[4].File.Data)
+	for _, want := range []string{PangolinTraefikFile, CaddyLayer4File, "UDP port 443 to this server (192.168.1.20)", "http3",
+		"sudo linx doctor", "lab.example.com  ->  192.168.1.20:8443", "Linx only accepts it from 192.168.1.30"} {
+		if !strings.Contains(steps, want) {
+			t.Errorf("steps missing %q:\n%s", want, steps)
+		}
 	}
 	env := string(stackDotEnv(cfg, "abc", lan))
 	for _, want := range []string{"LINX_TRUSTED_PROXIES=192.168.1.30\n", "LINX_WEB_ADDRESS=192.168.1.20\n",
@@ -215,11 +221,53 @@ func TestFrontDoorFilesMore(t *testing.T) {
 	if len(files) != 1 || files[0].File.Path != HAProxyConfigFile || !strings.HasSuffix(dns[0].Cmd.String(), "-records @,turn,sip=192.168.1.20 -address 192.168.1.20") {
 		t.Errorf("home-only plan: %+v / %s", files, dns[0].Cmd)
 	}
-	for _, k := range []string{FrontDoorNginx, FrontDoorHTTPProxy} {
+	for _, k := range []string{FrontDoorProxy, FrontDoorNginx, FrontDoorHTTPProxy} {
 		cfg.FrontDoor = FrontDoorConfig{Kind: k, ProxyAddress: "192.168.1.30"}
 		files, _ := FrontDoorPlan(cfg, lan)
 		if len(files) < 2 || StepsFile(k) == "" || files[len(files)-1].File.Path != StepsFile(k) {
 			t.Errorf("%s plan: %+v", k, files)
+		}
+	}
+}
+
+// The front-door card (docs/ui/SCREENS_PHASE1F.md §1.2): the three facts,
+// and a guide per product, the same whichever product was chosen.
+func TestDoorCard(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Domain.Name = "lab.example.com"
+	lan := LAN{Address: netip.MustParseAddr("192.168.1.20"), Network: netip.MustParsePrefix("192.168.1.0/24")}
+	if DoorCard(cfg, lan) != nil {
+		t.Error("a card with no front door")
+	}
+	var ids []string
+	for _, k := range []string{FrontDoorProxy, FrontDoorPangolin, FrontDoorNginx} {
+		cfg.FrontDoor = FrontDoorConfig{Kind: k, ProxyAddress: "192.168.1.30"}
+		c := DoorCard(cfg, lan)
+		if len(c.Routes) != 2 || c.Routes[0] != (install.DoorRoute{Name: "lab.example.com", Address: "192.168.1.20:8443", ProxyProtocol: true}) ||
+			c.Routes[1] != (install.DoorRoute{Name: "turn.lab.example.com", Address: "192.168.1.20:5349"}) || c.Proxy != "192.168.1.30" {
+			t.Errorf("%s: facts %+v", k, c)
+		}
+		ids = ids[:0]
+		for _, g := range c.Guides {
+			ids = append(ids, g.ID)
+		}
+		if strings.Join(ids, ",") != "pangolin,nginx,haproxy,caddy,npm,router" {
+			t.Errorf("%s: guides %v", k, ids)
+		}
+		if want := map[string]string{FrontDoorPangolin: GuidePangolin, FrontDoorNginx: GuideNginx}[k]; c.Pick != want {
+			t.Errorf("%s: picks %q", k, c.Pick)
+		}
+	}
+	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorHTTPProxy, ProxyAddress: "192.168.1.30"}
+	if DoorCard(cfg, lan) != nil || DoorSetup(cfg, lan).Card != nil {
+		t.Error("a proxy that decrypts gets the pass-through card")
+	}
+
+	cd := string(CaddyLayer4("lab.example.com", lan.Address, 443))
+	for _, want := range []string{"listener_wrappers {", "layer4 {", "@linx_web tls sni lab.example.com", "proxy_protocol v2",
+		"upstream 192.168.1.20:8443", "@linx_turn tls sni turn.lab.example.com", "proxy 192.168.1.20:5349", "\t\t\ttls\n", "protocols h1 h2"} {
+		if !strings.Contains(cd, want) {
+			t.Errorf("Caddy layer4 block missing %q:\n%s", want, cd)
 		}
 	}
 }

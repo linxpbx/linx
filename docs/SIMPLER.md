@@ -53,10 +53,10 @@ Pangolin, nginx, HAProxy, Nginx Proxy Manager, Caddy, a router forwarding TCP 44
 ### 2.2 One "front door" card, the same everywhere
 Setup's front-door step and System → Server settings show one card with exactly those three facts, each with Copy, and under it **"How to do this in…"** with instructions generated from the same facts for:
 - **Linx takes port 443 itself** (nothing else to do; recommended on a rented server)
-- **Pangolin**: in its web page where the version allows it (to verify on the owner's Pangolin 1.23 EE first: its config already has PROXY transports, which its own resources use), else the lines for its config file, named after the domain so several Linx servers never clash (built 2026-09-28)
+- **Pangolin**: the lines for its Traefik config file, named after the domain so several Linx servers never clash (built 2026-09-28). *Checked 2026-09-30 on the owner's Pangolin 1.23 EE:* its web page's raw TCP resources can send PROXY v1/v2 but are routed by port (their own entry point, `HostSNI(*)`), not by name, so they can't share 443 with Pangolin's own sites; the web page isn't offered.
 - **nginx or HAProxy**: their stream (TCP) blocks
 - **Nginx Proxy Manager**: its "Streams" page (by port, since it can't route TCP by name: 443 to Linx only when nothing else needs 443)
-- **Caddy**: its layer-4 module
+- **Caddy**: its layer-4 module (caddy-l4 as a listener wrapper in front of Caddy's own TLS, so Caddy's sites keep 443)
 - **A router or firewall** forwarding TCP 443 straight to Linx (no proxy at all)
 
 Choosing a product only changes the instructions shown, not how Linx is set up: Linx's side is the same for every proxy (PROXY v2 required from the proxy's address, refused from anyone else). The front-door kinds collapse to three: **Linx takes 443**, **another program passes it through** (with its address), **home only**.

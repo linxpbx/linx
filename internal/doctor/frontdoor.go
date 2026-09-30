@@ -39,10 +39,10 @@ func FrontDoor(ctx context.Context, env Env, cfg installer.Config) []Result {
 	var entry netip.Addr
 	var door string
 	switch fd.Kind {
-	case installer.FrontDoorPangolin, installer.FrontDoorNginx, installer.FrontDoorHTTPProxy:
+	case installer.FrontDoorProxy, installer.FrontDoorPangolin, installer.FrontDoorNginx, installer.FrontDoorHTTPProxy:
 		entry, _ = netip.ParseAddr(fd.ProxyAddress)
-		door = map[string]string{installer.FrontDoorPangolin: "Pangolin", installer.FrontDoorNginx: "nginx/HAProxy",
-			installer.FrontDoorHTTPProxy: "your proxy"}[fd.Kind] + " (" + fd.ProxyAddress + ")"
+		door = map[string]string{installer.FrontDoorProxy: "your front door", installer.FrontDoorPangolin: "Pangolin",
+			installer.FrontDoorNginx: "nginx/HAProxy", installer.FrontDoorHTTPProxy: "your proxy"}[fd.Kind] + " (" + fd.ProxyAddress + ")"
 	case installer.FrontDoorLinx443, installer.FrontDoorHomeOnly:
 		service(ctx, env, &rs, sniContainer, "Linx's port 443 router")
 		entry = settings.SNIAddress
@@ -114,12 +114,12 @@ func FrontDoor(ctx context.Context, env Env, cfg installer.Config) []Result {
 // own placeholder certificate: it has no route for the name, because it
 // didn't load Linx's block (most often a second "tcp:" in its file).
 func traefikFix(err error, kind, fix string) string {
-	if kind != installer.FrontDoorPangolin || !strings.Contains(err.Error(), "traefik.default") {
+	if !installer.PassesThrough(kind) || !strings.Contains(err.Error(), "traefik.default") {
 		return fix
 	}
 	return "Pangolin's Traefik has no route for this name: it didn't load Linx's settings. On the Pangolin machine run " +
 		"docker logs traefik 2>&1 | grep -i dynamic_config (a \"tcp\" key \"already defined\" means the file has two tcp: sections: " +
-		"merge them as " + installer.PangolinStepsFile + " says). Then run linx doctor again."
+		"merge them as " + installer.FrontDoorStepsFile + " says under Pangolin). Then run linx doctor again."
 }
 
 func frontDoorFix(kind string) string {

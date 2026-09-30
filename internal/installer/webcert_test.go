@@ -30,8 +30,9 @@ func TestCertViewPerFrontDoor(t *testing.T) {
 	}{
 		{FrontDoorLinx443, "", LAN{}, install.CertPort443, 0, ""},
 		{FrontDoorLinx443, "", homeLAN, install.CertPort443, 0, "send TCP and UDP port 443 to this server (192.168.1.212)"},
-		{FrontDoorPangolin, "192.168.1.20", homeLAN, install.CertPort443, 1, "keep TCP port 443 going to Pangolin (192.168.1.20)"},
-		{FrontDoorNginx, "192.168.1.20", homeLAN, install.CertPort443, 2, "UDP port 443 to this server (192.168.1.212)"},
+		{FrontDoorProxy, "192.168.1.20", homeLAN, install.CertPort443, 0, "keep TCP port 443 going to your front door (192.168.1.20)"},
+		{FrontDoorPangolin, "192.168.1.20", homeLAN, install.CertPort443, 0, "keep TCP port 443 going to your front door (192.168.1.20)"},
+		{FrontDoorNginx, "192.168.1.20", homeLAN, install.CertPort443, 0, "UDP port 443 to this server (192.168.1.212)"},
 		{FrontDoorHTTPProxy, "192.168.1.20", homeLAN, install.CertToken, 1, "TCP port 5349"},
 		{FrontDoorHomeOnly, "", homeLAN, install.CertToken, 0, ""},
 	} {
@@ -54,9 +55,10 @@ func TestCertViewPerFrontDoor(t *testing.T) {
 			t.Errorf("%s: setup %+v", tc.kind, v.Setup)
 		}
 	}
-	// Pangolin's block is the one setup writes for it.
+	// Pangolin's block is the one setup writes for it, and an older
+	// "pangolin" setup opens on its tab.
 	v := CertView(webCertConfig(FrontDoorPangolin, "192.168.1.20"), homeLAN, facts)
-	if v.Setup.Files[0].Text != string(PangolinTraefik("example.com", homeLAN.Address)) {
+	if g := v.Setup.Card.Guides[0]; v.Setup.Card.Pick != GuidePangolin || g.Files[0].Text != string(PangolinTraefik("example.com", homeLAN.Address)) {
 		t.Error("Pangolin's block differs from PangolinTraefik")
 	}
 }

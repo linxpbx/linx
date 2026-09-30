@@ -4,7 +4,8 @@
 // link or its hour is over.
 
 export type Where = "home" | "rented";
-export type FrontDoor = "pangolin" | "nginx" | "http-proxy" | "linx-443" | "home-only";
+/** "pangolin" and "nginx" are older setups' names for "proxy" (ADR-062). */
+export type FrontDoor = "proxy" | "pangolin" | "nginx" | "http-proxy" | "linx-443" | "home-only";
 export type Step = "welcome" | "where" | "front_door" | "domain" | "you" | "checked";
 
 export interface Facts {
@@ -62,6 +63,14 @@ export interface SetupFile {
   text: string;
 }
 
+/** The front-door card (docs/ui/SCREENS_PHASE1F.md §1.2): the three facts and "How to do this in…". */
+export interface DoorCard {
+  routes: { name: string; address: string; proxy_protocol: boolean }[];
+  proxy: string;
+  pick?: string;
+  guides: { id: string; title: string; note?: string; steps: string[]; files?: SetupFile[] }[];
+}
+
 export type DNSState = "missing" | "wrong" | "ok" | "error";
 export interface DNSRecord { type: string; name: string; value: string }
 
@@ -72,7 +81,7 @@ export interface CertView {
   front_door: FrontDoor;
   /** The DNS records to add by hand: the domain itself and turn. */
   add_records?: DNSRecord[];
-  setup?: { files?: SetupFile[]; steps?: string[]; done?: boolean };
+  setup?: { files?: SetupFile[]; steps?: string[]; card?: DoorCard; done?: boolean };
   dns: { state?: DNSState; names?: { name: string; state: DNSState; seen?: string[] }[]; checked_at?: string };
   prepare: Stage;
   reach: Stage;
@@ -288,7 +297,7 @@ export function mmss(seconds: number): string {
 }
 
 /** Front doors that are another program at an address on the home network. */
-export const proxyKinds: FrontDoor[] = ["pangolin", "nginx", "http-proxy"];
+export const proxyKinds: FrontDoor[] = ["proxy", "pangolin", "nginx", "http-proxy"];
 
 // Plain-words checks next to each field, before anything goes to the
 // server (which checks everything again with setup.yaml's own rules).

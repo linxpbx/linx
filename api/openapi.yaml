@@ -6823,8 +6823,8 @@ components:
           description: A new domain (left out keeps it).
         front_door:
           type: string
-          enum: [pangolin, nginx, http-proxy, linx-443, home-only]
-          description: A new front door (left out keeps it).
+          enum: [linx-443, proxy, home-only, http-proxy]
+          description: A new front door (left out keeps it). `proxy` is another program passing Linx through by name (Pangolin, nginx, HAProxy, Caddy, ...); `http-proxy` a proxy that decrypts (advanced, home only).
         proxy_address:
           type: string
           maxLength: 253
@@ -6878,6 +6878,8 @@ components:
               type: array
               items:
                 type: string
+            card:
+              $ref: "#/components/schemas/FrontDoorCard"
         warnings:
           type: array
           items:
@@ -6889,6 +6891,60 @@ components:
         address:
           type: string
           description: The web address after the change.
+
+    FrontDoorCard:
+      type: object
+      description: >-
+        What a front door that passes Linx through does (the names, where each
+        goes, which gets a PROXY v2 header) and how to do it in each product.
+      required: [routes, proxy, guides]
+      properties:
+        routes:
+          type: array
+          items:
+            type: object
+            required: [name, address, proxy_protocol]
+            properties:
+              name:
+                type: string
+              address:
+                type: string
+              proxy_protocol:
+                type: boolean
+        proxy:
+          type: string
+          description: The front door's address, the only one Linx accepts PROXY headers from.
+        pick:
+          type: string
+          description: The guide to show first.
+        guides:
+          type: array
+          items:
+            type: object
+            required: [id, title, steps]
+            properties:
+              id:
+                type: string
+              title:
+                type: string
+              note:
+                type: string
+              steps:
+                type: array
+                items:
+                  type: string
+              files:
+                type: array
+                items:
+                  type: object
+                  required: [title, text]
+                  properties:
+                    title:
+                      type: string
+                    path:
+                      type: string
+                    text:
+                      type: string
 
     MovedChecklistState:
       type: object

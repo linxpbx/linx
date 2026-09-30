@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup } from "@/components/ui/radio-group";
+import { FrontDoorCard } from "@/components/FrontDoorCard";
 import {
   Choice, CopyBlock, Countdown, Detail, Disclosure, FieldMessage, Frame, LinkUnusable, RecordBox, Row, submit, Title, useSecondsLeft, type Mark,
 } from "@/components/InstallFrame";
@@ -210,8 +211,7 @@ function stageMark(s: Stage, later: boolean): Mark {
 
 function setupTitle(cert: CertView, facts: Facts): string {
   switch (cert.front_door) {
-    case "pangolin": return "Set up Pangolin";
-    case "nginx": return "Set up nginx or HAProxy";
+    case "proxy": case "pangolin": case "nginx": return "Set up your front door";
     case "http-proxy": return "Set up your proxy";
     default: return facts.lan_address ? "Set up your router" : "Set up port 443";
   }
@@ -219,6 +219,17 @@ function setupTitle(cert: CertView, facts: Facts): string {
 
 function SetupSteps({ cert, onDone }: { cert: CertView; onDone: () => void }) {
   const s = cert.setup!;
+  if (s.card) {
+    const card = (
+      <FrontDoorCard card={s.card} router={s.steps}>
+        <div className="flex items-start gap-3">
+          <Checkbox id="door-done" checked={!!s.done} disabled={!!s.done} onCheckedChange={(c) => { if (c === true) onDone(); }} className="mt-0.5" />
+          <Label htmlFor="door-done" className="font-normal leading-snug">I've done these steps</Label>
+        </div>
+      </FrontDoorCard>
+    );
+    return s.done ? <Disclosure label="Show the steps again">{card}</Disclosure> : card;
+  }
   return (
     <div className="flex flex-col gap-3">
       <ul className="list-disc space-y-1 ps-5 text-sm">
@@ -251,8 +262,8 @@ function problemWords(s: Stage, cert: CertView, facts: Facts): string {
   const name = cert.domain;
   const route = (() => {
     switch (cert.front_door) {
-      case "pangolin": return "Check that your router sends TCP port 443 to Pangolin, and that Pangolin has the block from step 1.";
-      case "nginx": return "Check that your router sends TCP port 443 to nginx or HAProxy, and that it has the block from step 1.";
+      case "proxy": case "pangolin": case "nginx":
+        return "Check that your router sends TCP port 443 to your front door, and that it does the three things in step 1.";
       case "linx-443":
         return facts.lan_address
           ? `Check that your router sends TCP port 443 to ${facts.lan_address}.`

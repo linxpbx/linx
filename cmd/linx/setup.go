@@ -785,18 +785,22 @@ var errSetupRefused = errors.New("setup refused")
 func askFrontDoor(p *prompter, cfg *installer.Config, ask bool, lan installer.LAN) error {
 	if ask {
 		fmt.Fprint(p.out, "\nPeople reach Linx in a browser at https://<domain>. From outside your home that goes through port 443.\n")
-		k, err := p.choose("What sits in front of Linx on the internet?", installer.FrontDoors, installer.FrontDoorDescription, cfg.FrontDoor.Kind)
+		// An older setup's "pangolin" or "nginx" is "proxy" now.
+		was := cfg.FrontDoor.Kind
+		if installer.PassesThrough(was) {
+			was = installer.FrontDoorProxy
+		}
+		k, err := p.choose("What sits in front of Linx on the internet?", installer.FrontDoors, installer.FrontDoorDescription, was)
 		if err != nil {
 			return err
 		}
-		if k != cfg.FrontDoor.Kind || !installer.NeedsProxyAddress(k) {
+		if k != was || !installer.NeedsProxyAddress(k) {
 			cfg.FrontDoor.ProxyAddress = ""
 			cfg.FrontDoor.TURNUDPPort = 0
 		}
 		cfg.FrontDoor.Kind = k
 		if installer.NeedsProxyAddress(k) && lan.OK() {
-			what := map[string]string{installer.FrontDoorPangolin: "Pangolin", installer.FrontDoorNginx: "nginx or HAProxy",
-				installer.FrontDoorHTTPProxy: "the proxy"}[k]
+			what := map[string]string{installer.FrontDoorProxy: "that program", installer.FrontDoorHTTPProxy: "the proxy"}[k]
 			def := cfg.FrontDoor.ProxyAddress
 			for {
 				a, err := p.text("The address of the machine "+what+" runs on, on your home network ("+lan.Address.String()+" if it's this one)", def)
@@ -846,9 +850,9 @@ func askFrontDoor(p *prompter, cfg *installer.Config, ask bool, lan installer.LA
 func printFrontDoor(w io.Writer, cfg installer.Config, lan installer.LAN) {
 	fd := cfg.FrontDoor
 	switch fd.Kind {
-	case installer.FrontDoorPangolin, installer.FrontDoorNginx, installer.FrontDoorHTTPProxy:
-		name := map[string]string{installer.FrontDoorPangolin: "Pangolin", installer.FrontDoorNginx: "nginx or HAProxy",
-			installer.FrontDoorHTTPProxy: "proxy"}[fd.Kind]
+	case installer.FrontDoorProxy, installer.FrontDoorPangolin, installer.FrontDoorNginx, installer.FrontDoorHTTPProxy:
+		name := map[string]string{installer.FrontDoorProxy: "front door", installer.FrontDoorPangolin: "Pangolin",
+			installer.FrontDoorNginx: "nginx or HAProxy", installer.FrontDoorHTTPProxy: "proxy"}[fd.Kind]
 		fmt.Fprintf(w, "\nCalls from outside go through your %s (%s). A few things to do there and on your router;\n"+
 			"the steps are in %s. Then check with: sudo linx doctor\n", name, fd.ProxyAddress, installer.StepsFile(fd.Kind))
 	case installer.FrontDoorLinx443:

@@ -3,7 +3,7 @@
 // CLAUDE.md). `npm run screens` writes them to e2e/screenshots/.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { fakeCert, fakeInstall, fakeSecureInstall, fakeServer } from "./fakes";
+import { doorSetup, fakeCert, fakeInstall, fakeSecureInstall, fakeServer } from "./fakes";
 
 // The account row says "Available" once the phone line has signed in.
 const lineReady = (page: Page) => expect(page.getByTestId("account-menu")).toContainText("Available");
@@ -964,7 +964,9 @@ test.describe("system: server settings", () => {
     await page.getByRole("button", { name: "Check" }).click();
     await expect(page.getByRole("heading", { name: "Before you apply" })).toBeVisible();
     await expect(page.getByText("Passkeys only work at the address")).toBeVisible();
-    await page.getByRole("button", { name: "Show the block for Pangolin" }).click();
+    await expect(page.getByRole("heading", { name: "Your front door needs to do three things" })).toBeVisible();
+    await expect(page.getByText("Linx only accepts it from 192.168.1.30, your front door.")).toBeVisible();
+    await expect(page.getByText("linx-pbx-example-org-web:")).toBeVisible();
     await expect(page.getByRole("button", { name: "Apply" })).toBeDisabled();
     await page.getByLabel("I've done these steps").click();
     await shot(page, "system-server-move");
@@ -978,7 +980,9 @@ test.describe("system: server settings", () => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
     await page.goto("/admin/system/server");
     await page.getByRole("button", { name: "Change" }).first().click();
-    await expect(page.getByRole("radio", { name: "Pangolin" })).toHaveCount(0);
+    await expect(page.getByRole("radio", { name: "Another program passes Linx through" })).toBeVisible();
+    // A proxy that unlocks the traffic is home only (decision 2026-09-30).
+    await expect(page.getByRole("button", { name: "Advanced" })).toHaveCount(0);
     await page.getByRole("button", { name: "Change" }).first().click();
     await page.getByLabel("New domain").fill("pbx.example.org");
     // The front door's editor is open too: its Check stays off until it changes.
@@ -1128,9 +1132,11 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.getByRole("button", { name: "Next" }).click();
 
       await expect(page.getByRole("heading", { name: "How do people reach this server from the internet?" })).toBeVisible();
-      await page.getByRole("radio", { name: /Directly/ }).click();
+      await page.getByRole("radio", { name: /Nothing else uses port 443/ }).click();
       await page.getByRole("button", { name: "Something else already uses port 443 here" }).click();
-      await expect(page.getByRole("radio", { name: /Caddy/ })).toBeDisabled();
+      // Needs a home network; unlocking proxies aren't offered on a rented server.
+      await expect(page.getByRole("radio", { name: /Another program passes Linx through/ })).toBeDisabled();
+      await expect(page.getByRole("radio", { name: /unlock the traffic/ })).toHaveCount(0);
       await shot(page, `install-front-door-rented-${label}`);
       await page.getByRole("button", { name: "Next" }).click();
 
@@ -1186,28 +1192,36 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await expect(page.getByText("Saved on the server.")).toBeVisible();
     });
 
-    test("certificate: Pangolin's block first", async ({ page }) => {
+    test("certificate: the front-door card first", async ({ page }) => {
       await fakeInstall(page, "home", {
-        accepted: { front_door: "pangolin", proxy_address: "192.168.1.20" },
+        accepted: { front_door: "proxy", proxy_address: "192.168.1.20" },
         cert: fakeCert({
-          front_door: "pangolin", dns: { state: "missing", names: [{ name: "example.com", state: "missing" }, { name: "turn.example.com", state: "missing" }] },
+          front_door: "proxy", dns: { state: "missing", names: [{ name: "example.com", state: "missing" }, { name: "turn.example.com", state: "missing" }] },
           add_records: [{ type: "A", name: "example.com", value: "5.36.12.4" }, { type: "A", name: "turn.example.com", value: "5.36.12.4" }],
-          setup: {
-            steps: ["On the Pangolin machine (192.168.1.20), add the block below to the end of config/traefik/dynamic_config.yml.",
-              "On your router, keep TCP port 443 going to Pangolin (192.168.1.20), and send UDP port 443 to this server (192.168.1.212)."],
-            files: [{ title: "the block for Pangolin", path: "config/traefik/dynamic_config.yml", text: "tcp:\n  routers:\n    linx-web:\n      entryPoints: [websecure]\n      rule: \"HostSNI(`example.com`) || HostSNI(`api.example.com`)\"\n" }],
-          },
+          setup: doorSetup(),
         }),
       });
       await page.goto("/install");
       await expect(page.getByRole("heading", { name: "Getting a certificate for example.com" })).toBeVisible();
       await expect(page.getByText("Not found yet.")).toHaveCount(2);
       await expect(page.getByText("once you've added your token on the next page")).toBeVisible();
-      await page.getByRole("button", { name: "Show the block for Pangolin" }).click();
-      await expect(page.getByText("linx-web:")).toBeVisible();
-      await shot(page, `install-waiting-pangolin-${label}`);
-      await page.getByLabel("I've done this").click();
-      await expect(page.getByLabel("I've done this")).toBeDisabled();
+      await expect(page.getByRole("heading", { name: "Your front door needs to do three things" })).toBeVisible();
+      // Pangolin's tab first: its Resources page can't pass by name, so it's Traefik's file.
+      await expect(page.getByText("Pangolin's Resources page can't do this")).toBeVisible();
+      await expect(page.getByText("linx-example-com-web:")).toBeVisible();
+      await shot(page, `install-waiting-proxy-${label}`);
+      if (label !== "phone") {
+        await page.getByRole("tab", { name: "Caddy" }).click();
+      } else {
+        await page.getByRole("combobox", { name: "How to do this in" }).click();
+        await page.getByRole("option", { name: "Caddy" }).click();
+      }
+      await expect(page.getByText("@linx_web tls sni example.com")).toBeVisible();
+      await shot(page, `install-waiting-proxy-caddy-${label}`);
+      await page.getByLabel("I've done these steps").click();
+      await expect(page.getByLabel("I've done these steps")).toHaveCount(0);
+      await page.getByRole("button", { name: "Show the steps again" }).click();
+      await expect(page.getByLabel("I've done these steps")).toBeDisabled();
     });
 
     test("certificate: Let's Encrypt couldn't reach port 443", async ({ page }) => {
@@ -1364,7 +1378,7 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       expect(page.url()).toBe("https://example.com/install/continue");
     });
 
-    test("at home, behind Pangolin", async ({ page }) => {
+    test("at home, behind another program", async ({ page }) => {
       await fakeInstall(page, "home");
       await page.goto("/install");
       await page.getByRole("button", { name: "Start" }).click();
@@ -1372,12 +1386,19 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.getByRole("button", { name: "Next" }).click();
       await expect(page.getByRole("heading", { name: "What's in front of Linx on the internet?" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
-      await page.getByRole("radio", { name: /Pangolin/ }).click();
-      await page.getByLabel("Address of the machine Pangolin runs on").fill("8.8.8.8");
+      // Advanced: a proxy that unlocks the traffic asks first.
+      await page.getByRole("button", { name: "Advanced" }).click();
+      await page.getByRole("radio", { name: /My proxy must unlock the traffic itself/ }).click();
+      await expect(page.getByRole("alert")).toContainText("Not recommended");
+      await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
+      await shot(page, `install-front-door-unlock-${label}`);
+      await page.getByRole("button", { name: "Show me how" }).click();
+      await expect(page.getByRole("radio", { name: /Another program passes Linx through/ })).toBeChecked();
+      await page.getByLabel("Address of the machine it runs on").fill("8.8.8.8");
       await page.getByRole("button", { name: /Call audio port: 443/ }).click();
       await page.getByRole("button", { name: "Next" }).click();
       await expect(page.getByRole("alert")).toHaveText("8.8.8.8 isn't a home-network address.");
-      await page.getByLabel("Address of the machine Pangolin runs on").fill("192.168.1.20");
+      await page.getByLabel("Address of the machine it runs on").fill("192.168.1.20");
       await shot(page, `install-front-door-home-${label}`);
       await page.getByRole("button", { name: "Next" }).click();
       await page.getByLabel("Domain").fill("pbx.example.com");

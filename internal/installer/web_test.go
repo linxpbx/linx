@@ -42,10 +42,10 @@ func TestWebConfig(t *testing.T) {
 	}
 
 	a := goodAnswers()
-	a.Where, a.FrontDoor, a.ProxyAddress, a.TURNUDPPort, a.Domain = install.WhereHome, FrontDoorPangolin, "192.168.1.30", 3478, "me.duckdns.org"
+	a.Where, a.FrontDoor, a.ProxyAddress, a.TURNUDPPort, a.Domain = install.WhereHome, FrontDoorProxy, "192.168.1.30", 3478, "me.duckdns.org"
 	c, errs = WebConfig(DefaultConfig(), a, webHome, webNow)
 	if len(errs) > 0 || c.Domain.DNSProvider != DNSDuckDNS || c.FrontDoor.ProxyAddress != "192.168.1.30" || c.FrontDoor.TURNUDPPort != 3478 {
-		t.Errorf("pangolin + duckdns: %+v %+v", errs, c)
+		t.Errorf("proxy + duckdns: %+v %+v", errs, c)
 	}
 	back, err = ParseConfig(bytes.NewReader(c.Marshal()))
 	if err != nil || back != c {
@@ -63,13 +63,14 @@ func TestWebConfigRefuses(t *testing.T) {
 	}{
 		{"where", func(a *install.Answers) { a.Where = "moon" }, LAN{}, "where", "Choose where"},
 		{"none isn't offered", func(a *install.Answers) { a.FrontDoor = FrontDoorNone }, LAN{}, "front_door", "Choose what's in front"},
-		{"pangolin on a rented server", func(a *install.Answers) { a.FrontDoor = FrontDoorPangolin }, LAN{}, "front_door", "Choose what's in front"},
+		{"pangolin isn't offered any more", func(a *install.Answers) { a.FrontDoor = FrontDoorPangolin }, LAN{}, "front_door", "Choose what's in front"},
+		{"unlocking proxy on a rented server", func(a *install.Answers) { a.FrontDoor = FrontDoorHTTPProxy }, LAN{}, "front_door", "Choose what's in front"},
 		{"home-only without a home network", func(a *install.Answers) { a.Where, a.FrontDoor = install.WhereHome, FrontDoorHomeOnly }, LAN{}, "front_door", "isn't on one"},
 		{"proxy address", func(a *install.Answers) {
-			a.Where, a.FrontDoor, a.ProxyAddress = install.WhereHome, FrontDoorNginx, "8.8.8.8"
+			a.Where, a.FrontDoor, a.ProxyAddress = install.WhereHome, FrontDoorProxy, "8.8.8.8"
 		}, webHome, "proxy_address", "isn't a home-network address"},
 		{"udp port", func(a *install.Answers) {
-			a.Where, a.FrontDoor, a.ProxyAddress, a.TURNUDPPort = install.WhereHome, FrontDoorPangolin, "192.168.1.30", 5061
+			a.Where, a.FrontDoor, a.ProxyAddress, a.TURNUDPPort = install.WhereHome, FrontDoorProxy, "192.168.1.30", 5061
 		}, webHome, "turn_udp_port", "Linx already uses that port"},
 		{"no domain", func(a *install.Answers) { a.Domain = "" }, LAN{}, "domain", "Give your domain"},
 		{"an address", func(a *install.Answers) { a.Domain = "203.0.113.5" }, LAN{}, "domain", "That's an address"},

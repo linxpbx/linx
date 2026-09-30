@@ -716,6 +716,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Adding support for another proxy is one more set of instructions, not a new mode. Pangolin's web page support is verified on the owner's Pangolin before it's promised. Built in Phase 1F.
 
+**As built (Phase 1F step 2, 2026-09-30).** New kind `proxy` ("Another program passes Linx through"); `pangolin` and `nginx` stay valid in older setup.yaml files and behave the same (no longer offered). Pangolin's web page checked on the owner's Pangolin 1.23 EE: its raw TCP resources are routed by port (`tcp-<port>` entry point, `HostSNI(*)`, with PROXY v1/v2 as an option), never by name, so they can't share 443 with Pangolin's own sites; the Pangolin guide stays Traefik's file. Nginx Proxy Manager and routers pass by port only, so their tabs say to let Linx take 443 or use another program. Caddy passes through with its layer-4 add-on (caddy-l4, listener wrapper, PROXY v2). The decrypting proxy is advanced and home only.
+
 ## ADR-063 — Any DNS company (owner decision, approved 2026-09-29)
 
 **Context.** Linx spoke to Cloudflare and DuckDNS only; the owner doesn't expect an integration per DNS company.

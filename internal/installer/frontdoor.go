@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
-	"strconv"
 	"strings"
 
 	"linxpbx.com/linx/internal/certs"
@@ -25,17 +24,28 @@ const (
 	// FrontDoorNone: nothing is published (the default until the owner
 	// picks one).
 	FrontDoorNone = "none"
+	// FrontDoorProxy: another program that already uses port 443 (Pangolin,
+	// nginx, HAProxy, Caddy with its layer-4 add-on, ...) passes <domain>
+	// and turn.<domain> through by name, without decrypting, and sends
+	// PROXY v2 for the first (docs/SIMPLER.md §2, ADR-062). Linx's side is
+	// the same whatever the product; the front-door card (DoorCard) shows
+	// how to do it in each. The router forwards UDP 443 (or turn_udp_port)
+	// straight to Linx.
+	FrontDoorProxy = "proxy"
 	// FrontDoorPangolin: Pangolin on the home network (the router forwards
 	// TCP 443 to it) passes <domain> and turn.<domain> through by name (a block
 	// for its Traefik that Linx generates). The router forwards UDP 443
 	// (or turn_udp_port) straight to Linx.
+	// Setups from before the card (ADR-062) name it; it works exactly like
+	// FrontDoorProxy and is no longer offered.
 	FrontDoorPangolin = "pangolin"
 	// FrontDoorNginx: nginx or HAProxy already on port 443, on this server
 	// or another one at home, passes the names through (generated stream
-	// config); the router forwards UDP 443 to Linx.
+	// config); the router forwards UDP 443 to Linx. Like FrontDoorPangolin,
+	// kept for older setups and no longer offered.
 	FrontDoorNginx = "nginx"
-	// FrontDoorHTTPProxy: a proxy that can only do HTTP (Caddy, Nginx Proxy
-	// Manager, ...) forwards <domain> to Linx over HTTPS; the router
+	// FrontDoorHTTPProxy: a proxy that decrypts (Caddy or Nginx Proxy
+	// Manager as a website proxy; advanced, home only since ADR-062) forwards <domain> to Linx over HTTPS; the router
 	// forwards TCP 5349 (TURN over TLS) and UDP 443 to Linx.
 	FrontDoorHTTPProxy = "http-proxy"
 	// FrontDoorLinx443: Linx's own HAProxy (linx-sni) owns TCP 443 (ADR-009)
@@ -48,20 +58,30 @@ const (
 )
 
 // FrontDoors lists the choices, as setup offers them.
-var FrontDoors = []string{FrontDoorPangolin, FrontDoorNginx, FrontDoorHTTPProxy, FrontDoorLinx443, FrontDoorHomeOnly, FrontDoorNone}
+var FrontDoors = []string{FrontDoorLinx443, FrontDoorProxy, FrontDoorHomeOnly, FrontDoorHTTPProxy, FrontDoorNone}
+
+// frontDoorsAccepted are FrontDoors and the older names setup.yaml may still have.
+var frontDoorsAccepted = append([]string{FrontDoorPangolin, FrontDoorNginx}, FrontDoors...)
 
 // FrontDoorDescription is each choice in plain words.
 var FrontDoorDescription = map[string]string{
+	FrontDoorProxy:     "another program already uses port 443 and passes Linx through (Pangolin, nginx, HAProxy, Caddy, ...)",
 	FrontDoorPangolin:  "Pangolin, on this home network (your router sends port 443 to it)",
 	FrontDoorNginx:     "nginx or HAProxy that already uses port 443, here or on another machine at home",
-	FrontDoorHTTPProxy: "another proxy that only does websites (Caddy, Nginx Proxy Manager, ...)",
+	FrontDoorHTTPProxy: "advanced: my proxy must unlock the traffic itself (Caddy or Nginx Proxy Manager as a website proxy; not recommended)",
 	FrontDoorLinx443:   "nothing: Linx takes port 443 itself (your router, or this VPS, sends port 443 here)",
 	FrontDoorHomeOnly:  "nothing, and only at home: Linx answers on this home network only",
 	FrontDoorNone:      "not now: no calls from outside, and no web address",
 }
 
 // proxyKinds are the front doors that are another program at ProxyAddress.
-var proxyKinds = []string{FrontDoorPangolin, FrontDoorNginx, FrontDoorHTTPProxy}
+var proxyKinds = []string{FrontDoorProxy, FrontDoorPangolin, FrontDoorNginx, FrontDoorHTTPProxy}
+
+// PassesThrough reports whether kind is another program passing Linx
+// through by name (FrontDoorProxy, or its older names).
+func PassesThrough(kind string) bool {
+	return kind == FrontDoorProxy || kind == FrontDoorPangolin || kind == FrontDoorNginx
+}
 
 // FrontDoorConfig is setup.yaml's front_door.
 type FrontDoorConfig struct {
@@ -106,7 +126,7 @@ func NeedsProxyAddress(kind string) bool { return slices.Contains(proxyKinds, ki
 
 // Validate checks the front door settings.
 func (f FrontDoorConfig) Validate() error {
-	if !slices.Contains(FrontDoors, f.Kind) {
+	if !slices.Contains(frontDoorsAccepted, f.Kind) {
 		return fmt.Errorf("kind: must be one of %v, got %q", FrontDoors, f.Kind)
 	}
 	if NeedsProxyAddress(f.Kind) {
@@ -188,7 +208,7 @@ var loopback = netip.AddrFrom4([4]byte{127, 0, 0, 1})
 func FrontDoorFor(c Config, lan LAN) FrontDoorSettings {
 	s := FrontDoorSettings{ProxyProtocol: true, WebAddress: loopback, TURNUDPAddress: loopback, TURNUDPPort: TURNUDPPort, SNIAddress: loopback}
 	switch c.FrontDoor.Kind {
-	case FrontDoorPangolin, FrontDoorNginx, FrontDoorHTTPProxy:
+	case FrontDoorProxy, FrontDoorPangolin, FrontDoorNginx, FrontDoorHTTPProxy:
 		p, _ := netip.ParseAddr(c.FrontDoor.ProxyAddress)
 		s.TrustedProxies = p.String()
 		s.WebAddress, s.WebClients = lan.BindAddress(), []netip.Addr{p}
@@ -234,11 +254,11 @@ func PublicNames(domain string) string { return dnsname.And(dnsname.Hosts(Public
 // Front door files setup writes.
 const (
 	FrontDoorDir        = StackDir + "/front-door"
+	FrontDoorStepsFile  = FrontDoorDir + "/FRONT-DOOR.txt"
 	PangolinTraefikFile = FrontDoorDir + "/pangolin-dynamic-config.yml"
-	PangolinStepsFile   = FrontDoorDir + "/PANGOLIN.txt"
 	NginxStreamFile     = FrontDoorDir + "/nginx-stream.conf"
 	HAProxySnippetFile  = FrontDoorDir + "/haproxy-linx.cfg"
-	NginxStepsFile      = FrontDoorDir + "/NGINX-HAPROXY.txt"
+	CaddyLayer4File     = FrontDoorDir + "/Caddyfile-layer4"
 	CaddyFile           = FrontDoorDir + "/Caddyfile"
 	HTTPProxyStepsFile  = FrontDoorDir + "/HTTP-PROXY.txt"
 	HAProxyConfigFile   = StackDir + "/haproxy.cfg"
@@ -246,7 +266,13 @@ const (
 
 // StepsFile is where a front door's plain-language steps are ("" if none).
 func StepsFile(kind string) string {
-	return map[string]string{FrontDoorPangolin: PangolinStepsFile, FrontDoorNginx: NginxStepsFile, FrontDoorHTTPProxy: HTTPProxyStepsFile}[kind]
+	switch {
+	case PassesThrough(kind):
+		return FrontDoorStepsFile
+	case kind == FrontDoorHTTPProxy:
+		return HTTPProxyStepsFile
+	}
+	return ""
 }
 
 // FrontDoorPlan returns the front door's files, to write before the stack
@@ -258,24 +284,22 @@ func FrontDoorPlan(c Config, lan LAN) (files, dns Plan) {
 	write := func(title, path string, data []byte) Step {
 		return fileStep(title+" ("+path+")", path, data, 0o644, 0o755)
 	}
-	switch c.FrontDoor.Kind {
-	case FrontDoorPangolin:
+	switch k := c.FrontDoor.Kind; {
+	case PassesThrough(k):
+		card := DoorCard(c, lan)
 		files = Plan{
 			write("Write the Pangolin settings to add", PangolinTraefikFile, PangolinTraefik(d, linx)),
-			write("Write the Pangolin steps", PangolinStepsFile, []byte(PangolinSteps(d, linx, udp))),
-		}
-	case FrontDoorNginx:
-		files = Plan{
 			write("Write the nginx settings to add", NginxStreamFile, NginxStream(d, linx)),
 			write("Write the HAProxy settings to add", HAProxySnippetFile, HAProxySnippet(d, linx)),
-			write("Write the nginx/HAProxy steps", NginxStepsFile, []byte(NginxSteps(d, linx, udp))),
+			write("Write the Caddy settings to add", CaddyLayer4File, CaddyLayer4(d, linx, udp)),
+			write("Write the front door's steps", FrontDoorStepsFile, []byte(DoorCardText(card, routerStep(c.FrontDoor.ProxyAddress, linx, udp)))),
 		}
-	case FrontDoorHTTPProxy:
+	case k == FrontDoorHTTPProxy:
 		files = Plan{
 			write("Write the Caddy settings to add", CaddyFile, CaddyConfig(d, linx)),
 			write("Write the proxy steps", HTTPProxyStepsFile, []byte(HTTPProxySteps(d, linx, udp))),
 		}
-	case FrontDoorLinx443, FrontDoorHomeOnly:
+	case k == FrontDoorLinx443, k == FrontDoorHomeOnly:
 		files = Plan{write("Write the port 443 router's settings", HAProxyConfigFile, HAProxyConfig(d))}
 	}
 	if DNSRecords(c, lan) != "" {
@@ -318,7 +342,7 @@ func RecordsTitle(c Config, lan LAN) string {
 func PangolinTraefik(domain string, linx netip.Addr) []byte {
 	name := PangolinName(domain)
 	return fmt.Appendf(nil, `# Linx at %[1]s, passed through Pangolin's Traefik (docs/WEB.md §3). Generated by linx setup.
-# Add this to Pangolin's config/traefik/dynamic_config.yml (see PANGOLIN.txt:
+# Add this to Pangolin's config/traefik/dynamic_config.yml (see FRONT-DOOR.txt:
 # if that file already has a "tcp:" line, merge into it; never add a second).
 # Traefik picks it up by itself; nothing needs restarting.
 tcp:
@@ -356,64 +380,6 @@ tcp:
 // with: "linx-" and its domain with dashes for dots (linx-pbx-example-com).
 func PangolinName(domain string) string {
 	return "linx-" + strings.ReplaceAll(strings.ToLower(domain), ".", "-")
-}
-
-// PangolinSteps is what the owner does on the Pangolin machine and the
-// router, in plain words.
-func PangolinSteps(domain string, linx netip.Addr, udpPort int) string {
-	http3 := `2. Recommended, in the same folder: in traefik_config.yml, remove the
-   "http3:" lines (and the "advertisedPort: 443" under them) from the
-   websecure entry point, then restart Traefik (docker restart traefik).
-   Otherwise browsers visiting your other Pangolin sites try UDP 443,
-   which your router now sends to Linx, and wait a moment before falling
-   back.`
-	if udpPort != PublicPort {
-		http3 = `2. Nothing to change for HTTP/3: call audio uses UDP ` + strconv.Itoa(udpPort) + `, not 443.`
-	}
-	return fmt.Sprintf(`Linx behind Pangolin: what to do (generated by linx setup)
-============================================================
-
-People reach Linx at https://%[1]s from anywhere. Pangolin passes that
-through to Linx without opening it: Linx uses its own certificate, and
-Pangolin tells Linx each visitor's real address.
-
-1. On the Pangolin machine, open Pangolin's config/traefik/dynamic_config.yml
-   and look for a line that is exactly "tcp:" (newer Pangolin versions have
-   one, with "serversTransports:" under it).
-
-   - No "tcp:" line: add the contents of
-     %[2]s
-     to the end of the file (copy it over, or paste it).
-   - There is one: don't add a second. Traefik ignores the whole file if
-     "tcp:" (or "serversTransports:" under it) appears twice. Put the
-     "routers:" and "services:" parts from that file under the existing
-     "tcp:", and the three "linx-proxy-protocol" lines under the existing
-     "serversTransports:" (unless another Linx already put them there),
-     keeping Pangolin's own entries there. Another Linx's routers and
-     services stay as they are: this one's are named %[6]s-….
-     A Linx set up before this version named its entries "linx-web" and
-     "linx-turn": if those route %[1]s, replace them with this file's.
-
-   Traefik picks it up by itself within a few seconds. Check it took it:
-       docker logs traefik --since 1m 2>&1 | grep -i error
-   should say nothing about dynamic_config.yml.
-
-   You don't create resources for Linx in Pangolin's dashboard: this file is
-   all Pangolin needs. (Pangolin's own resources keep working as before.)
-
-%[4]s
-
-3. On your router, keep TCP 443 going to the Pangolin machine, and forward
-   UDP %[5]d to this Linx server, %[3]s (same port on both sides). That's
-   how calls from outside send their audio when the network allows it
-   (otherwise it goes over TCP 443 through Pangolin, which works everywhere
-   but is a little less smooth).
-
-4. DNS: setup pointed %[1]s and turn.%[1]s at your home's public
-   address, and keeps them there if it changes.
-
-5. Check everything: sudo linx doctor ("Calls from outside").
-`, domain, PangolinTraefikFile, linx, http3, udpPort, PangolinName(domain))
 }
 
 // HAProxyConfig is linx-sni's configuration (Linx takes 443 and home-only, ADR-009): TCP
@@ -520,39 +486,6 @@ backend linx_turn
     mode tcp
     server linx %[2]s:%[4]d
 `, domain, linx, WebPort, TURNTLSPort)
-}
-
-// NginxSteps is what the owner does on the nginx/HAProxy machine and router.
-func NginxSteps(domain string, linx netip.Addr, udpPort int) string {
-	return fmt.Sprintf(`Linx behind nginx or HAProxy: what to do (generated by linx setup)
-=================================================================
-
-People reach Linx at https://%[1]s from anywhere. Your nginx or HAProxy
-passes that through to Linx without opening it (Linx uses its own
-certificate) and tells Linx each visitor's real address.
-
-nginx
-  1. Add %[2]s to nginx.conf at the top level (next to "http {",
-     not inside it). It takes over port 443.
-  2. Your own websites can't listen on 443 any more: in each "server" block
-     that has "listen 443 ssl", change it to
-         listen %[3]s ssl proxy_protocol;
-         set_real_ip_from 127.0.0.1;
-         real_ip_header proxy_protocol;
-     nginx then sends them their visitors (with real addresses) itself.
-  3. sudo nginx -t && sudo systemctl reload nginx
-
-HAProxy
-  1. Follow %[4]s: two use_backend lines and two backends.
-  2. Reload HAProxy.
-
-Then, either way:
-  4. On your router, keep TCP 443 going to that machine, and forward
-     UDP %[6]d to this Linx server, %[5]s (smoother call audio from outside).
-  5. DNS: setup pointed %[1]s and turn.%[1]s at your home's public
-     address, and keeps them there if it changes.
-  6. Check everything: sudo linx doctor ("Calls from outside").
-`, domain, NginxStreamFile, nginxSitesHop, HAProxySnippetFile, linx, udpPort)
 }
 
 // CaddyConfig is the site block for Caddy: HTTPS to Linx, checking Linx's

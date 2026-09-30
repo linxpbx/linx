@@ -61,10 +61,10 @@ func testEnv(stdin string, files map[string]string) setupEnv {
 }
 
 func TestSetupInteractiveDryRun(t *testing.T) {
-	// Answers: set up in the terminal, accept profile, install Docker, Pangolin in front (a bad then
+	// Answers: set up in the terminal, accept profile, install Docker, another program in front (a bad then
 	// a good address; a bad then a good UDP port), choose Portainer, a bad then a good domain, (token),
 	// keep test certificates, skip the email, skip the owner email and name.
-	env := testEnv("2\n\n\ny\n1\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n", nil)
+	env := testEnv("2\n\n\ny\n2\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n", nil)
 	var out, errOut bytes.Buffer
 	code := runSetup(context.Background(), []string{"--dry-run"}, &out, &errOut, env)
 	if code != 0 {
@@ -91,6 +91,7 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 		"some (UniFi) don't, so use 3478 then",
 		"Give a port number, like 443 or 3478.",
 		"Write the Pangolin settings to add (/etc/linx/front-door/pangolin-dynamic-config.yml)",
+		"Write the front door's steps (/etc/linx/front-door/FRONT-DOOR.txt)",
 		"Start the Linx services",
 		"Point lab.linxpbx.com, turn.lab.linxpbx.com at this network's public address; sip.lab.linxpbx.com at 192.168.1.20 (for desk phones at home) (DNS)",
 		"$ docker compose --file /etc/linx/compose.yaml run --rm certd -records @,turn",
@@ -108,7 +109,7 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 // (docs/TRUNKS.md §13 step 6) when it's built alongside linx, the same way
 // it installs linx itself.
 func TestSetupInstallsFirewallSync(t *testing.T) {
-	env := testEnv("2\n\n\ny\n1\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n", nil)
+	env := testEnv("2\n\n\ny\n2\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n", nil)
 	env.stat = func(p string) (os.FileInfo, error) {
 		if p == "/home/owner/linx-firewall-sync" {
 			return nil, nil

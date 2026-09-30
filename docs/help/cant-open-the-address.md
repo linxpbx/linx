@@ -17,7 +17,7 @@ screens: []
 
 - On the server: `sudo linx doctor` ([linx doctor](linx-doctor)). It checks DNS, the certificate, the front door and every service.
 - DNS: does your domain still point at the server (or the front door)? Did the domain lapse?
-- The front door: at home, does the router still send port 443 to the server or to Pangolin? On a rented server, does the provider's firewall allow TCP and UDP 443? See [Front doors](front-doors).
+- The front door: at home, does the router still send port 443 to the server, or to the program that passes Linx through? On a rented server, does the provider's firewall allow TCP and UDP 443? See [Front doors](front-doors).
 - A certificate warning: the certificate ran out or doesn't match. `linx doctor` says which.
 
 If the address can't be fixed from inside, use the [repair page](repair-page).

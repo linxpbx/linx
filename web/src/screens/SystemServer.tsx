@@ -17,11 +17,12 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
+import { FrontDoorCard } from "@/components/FrontDoorCard";
 import { CopyBlock, Disclosure, PortainerNote, RecordBox } from "@/components/InstallFrame";
 import { SystemCard as Card, SystemHeader } from "@/components/SystemPage";
 import { domainProblem, portProblem, proxyAddressProblem } from "@/lib/install";
 import {
-  DOORS, PROXY_DOORS, sessionClient,
+  doorChoice, DOORS, PROXY_DOORS, sessionClient,
   type FrontDoorKind, type ServerChange, type ServerPreview, type ServerSettings, type ServerSettingsClient,
 } from "@/lib/serverSettings";
 import { cn } from "@/lib/utils";
@@ -141,7 +142,8 @@ function Settings({ me, s, client, onChanged, onMoved }:
   const [editDomain, setEditDomain] = useState(false);
   const [domain, setDomain] = useState("");
   const [editDoor, setEditDoor] = useState(false);
-  const [door, setDoor] = useState<string>(s.front_door);
+  const [door, setDoor] = useState<string>(doorChoice(s.front_door));
+  const [advanced, setAdvanced] = useState(s.front_door === "http-proxy");
   const [proxy, setProxy] = useState(s.proxy_address ?? "");
   const [udp, setUdp] = useState(String(s.turn_udp_port || 443));
   const [preview, setPreview] = useState<ServerPreview | null>(null);
@@ -159,7 +161,7 @@ function Settings({ me, s, client, onChanged, onMoved }:
 
   const newDomain = editDomain ? domain.trim().toLowerCase() : "";
   const proxyDoor = PROXY_DOORS.includes(door);
-  const doorChanged = editDoor && (door !== s.front_door || (proxyDoor && (proxy.trim() !== (s.proxy_address ?? "") ||
+  const doorChanged = editDoor && (door !== doorChoice(s.front_door) || (proxyDoor && (proxy.trim() !== (s.proxy_address ?? "") ||
     Number(udp) !== (s.turn_udp_port || 443))));
   const moves = (newDomain !== "" && newDomain !== s.domain) || doorChanged;
   const changed = profile !== s.profile || portainer !== s.portainer || (addToken && token.trim() !== "") || moves;
@@ -174,7 +176,7 @@ function Settings({ me, s, client, onChanged, onMoved }:
       setEditDomain(false);
       setDomain("");
       setEditDoor(false);
-      setDoor(s.front_door);
+      setDoor(doorChoice(s.front_door));
       setProxy(s.proxy_address ?? "");
       setUdp(String(s.turn_udp_port || 443));
       setPreview(null);
@@ -271,13 +273,25 @@ function Settings({ me, s, client, onChanged, onMoved }:
             {editDoor && (
               <div className="mt-3 flex max-w-md flex-col gap-3">
                 <RadioGroup value={door} onValueChange={setDoor} aria-label="What's in front of this server" className="gap-2">
-                  {s.front_doors.map((d) => (
+                  {s.front_doors.filter((d) => d !== "http-proxy" || advanced).map((d) => (
                     <label key={d} htmlFor={`server-door-${d}`} className="flex items-center gap-2">
                       <RadioGroupItem id={`server-door-${d}`} value={d} />
                       <span>{DOORS[d] ?? d}</span>
                     </label>
                   ))}
                 </RadioGroup>
+                {s.front_doors.includes("http-proxy") && !advanced && (
+                  <Button variant="link" className="h-auto w-fit p-0" onClick={() => setAdvanced(true)}>Advanced</Button>
+                )}
+                {door === "http-proxy" && (
+                  <p className="flex items-start gap-2 text-sm">
+                    <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-away" />
+                    <span className="min-w-0">
+                      Not recommended: your proxy sees everything that passes through it, and calls need their own port for audio.
+                      Caddy (with its layer-4 add-on), nginx and HAProxy can pass Linx through instead (“Another program passes Linx through”).
+                    </span>
+                  </p>
+                )}
                 {proxyDoor && (
                   <>
                     <div className="flex flex-col gap-1.5">
@@ -297,7 +311,7 @@ function Settings({ me, s, client, onChanged, onMoved }:
                 <FieldError message={fieldErrors.front_door} />
                 <div className="flex flex-wrap items-center gap-3">
                   <CheckButton busy={checking} disabled={!doorChanged || running || !!preview} onClick={() => void check("door")} />
-                  <Button variant="link" className="h-auto w-fit p-0" onClick={() => { setEditDoor(false); setDoor(s.front_door); }}>Keep it as it is</Button>
+                  <Button variant="link" className="h-auto w-fit p-0" onClick={() => { setEditDoor(false); setDoor(doorChoice(s.front_door)); }}>Keep it as it is</Button>
                 </div>
               </div>
             )}
@@ -426,7 +440,15 @@ function Review({ preview, doorDone, onDoorDone, ready, running, onCancel, onApp
             {preview.add_records.map((r) => <RecordBox key={r.name} record={r} />)}
           </section>
         )}
-        {preview.setup && (
+        {preview.setup?.card && (
+          <FrontDoorCard card={preview.setup.card} router={preview.setup.steps}>
+            <div className="flex items-start gap-3">
+              <Checkbox id="server-door-done" checked={doorDone} onCheckedChange={(c) => onDoorDone(c === true)} className="mt-0.5" />
+              <Label htmlFor="server-door-done" className="font-normal leading-snug">I've done these steps</Label>
+            </div>
+          </FrontDoorCard>
+        )}
+        {preview.setup && !preview.setup.card && (
           <section className="flex flex-col gap-2">
             <h3 className="font-medium">What's in front of this server</h3>
             <ul className="list-disc space-y-1 ps-5">

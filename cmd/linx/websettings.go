@@ -225,7 +225,7 @@ func (w webSettings) Preview(ctx context.Context, ch install.ServerChange) (inst
 		return p, nil
 	}
 	p.AddRecords = w.records(ctx, x)
-	if s := installer.DoorSetup(x.next, w.lan); s != nil && (x.door || (x.domain && len(s.Files) > 0)) {
+	if s := installer.DoorSetup(x.next, w.lan); s != nil && (x.door || (x.domain && (len(s.Files) > 0 || s.Card != nil))) {
 		p.Setup = s
 	}
 	old, d := x.before.Domain.Name, x.next.Domain.Name

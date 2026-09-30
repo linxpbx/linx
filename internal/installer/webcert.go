@@ -42,26 +42,8 @@ func CertView(c Config, lan LAN, facts install.Facts) install.CertView {
 func DoorSetup(c Config, lan LAN) *install.DoorSetup {
 	d, linx, udp := c.Domain.Name, lan.BindAddress(), c.FrontDoor.UDPPort()
 	switch c.FrontDoor.Kind {
-	case FrontDoorPangolin:
-		p := c.FrontDoor.ProxyAddress
-		return &install.DoorSetup{
-			Files: []install.SetupFile{{Title: "the block for Pangolin", Path: "config/traefik/dynamic_config.yml", Text: string(PangolinTraefik(d, linx))}},
-			Steps: []string{
-				"On the Pangolin machine (" + p + "), add the block below to the end of config/traefik/dynamic_config.yml. If that file already has a line that is exactly “tcp:”, don't add a second one: put the routers and services under the existing one. Traefik picks it up by itself.",
-				fmt.Sprintf("On your router, keep TCP port 443 going to Pangolin (%s), and send UDP port %d to this server (%s).", p, udp, linx),
-			},
-		}
-	case FrontDoorNginx:
-		return &install.DoorSetup{
-			Files: []install.SetupFile{
-				{Title: "the block for nginx", Path: "nginx.conf, at the top level (next to http { }, not inside it)", Text: string(NginxStream(d, linx))},
-				{Title: "the block for HAProxy", Path: "your frontend on port 443", Text: string(HAProxySnippet(d, linx))},
-			},
-			Steps: []string{
-				"Add one of the blocks below to the program that uses port 443 (" + c.FrontDoor.ProxyAddress + "), then reload it. With nginx, your own websites move from port 443 to " + nginxSitesHop + ": see " + NginxStepsFile + " on this server.",
-				fmt.Sprintf("On your router, keep TCP port 443 going to that machine, and send UDP port %d to this server (%s).", udp, linx),
-			},
-		}
+	case FrontDoorProxy, FrontDoorPangolin, FrontDoorNginx:
+		return &install.DoorSetup{Card: DoorCard(c, lan), Steps: []string{routerStep(c.FrontDoor.ProxyAddress, linx, udp)}}
 	case FrontDoorHTTPProxy:
 		return &install.DoorSetup{
 			Files: []install.SetupFile{{Title: "the block for Caddy", Path: "your Caddyfile", Text: string(CaddyConfig(d, linx))}},

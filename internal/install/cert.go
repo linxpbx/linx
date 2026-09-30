@@ -87,7 +87,43 @@ type DoorSetup struct {
 	Files []SetupFile `json:"files,omitempty"`
 	// Steps are plain-words steps, one per line.
 	Steps []string `json:"steps,omitempty"`
-	Done  bool     `json:"done,omitempty"`
+	// Card is the front-door card (docs/ui/SCREENS_PHASE1F.md §1.2) for
+	// another program passing Linx through; Steps then holds what's left
+	// for the router.
+	Card *DoorCard `json:"card,omitempty"`
+	Done bool      `json:"done,omitempty"`
+}
+
+// DoorCard is what every front door that passes Linx through does (the
+// three facts, docs/SIMPLER.md §2.1), and how to do it in each product.
+type DoorCard struct {
+	// Routes are the names to pass through untouched and where each goes.
+	Routes []DoorRoute `json:"routes"`
+	// Proxy is the front door's own address, the only one Linx accepts
+	// PROXY headers from.
+	Proxy string `json:"proxy"`
+	// Guides are "How to do this in…", one per product.
+	Guides []DoorGuide `json:"guides"`
+	// Pick is the guide to show first ("" for the first).
+	Pick string `json:"pick,omitempty"`
+}
+
+// DoorRoute is one name passed through: to Address, with a PROXY v2
+// header or without one.
+type DoorRoute struct {
+	Name          string `json:"name"`
+	Address       string `json:"address"`
+	ProxyProtocol bool   `json:"proxy_protocol"`
+}
+
+// DoorGuide is one product's steps: a note to read first, numbered steps
+// and the blocks to paste.
+type DoorGuide struct {
+	ID    string      `json:"id"`
+	Title string      `json:"title"`
+	Note  string      `json:"note,omitempty"`
+	Steps []string    `json:"steps"`
+	Files []SetupFile `json:"files,omitempty"`
 }
 
 // SetupFile is a generated block to paste somewhere.

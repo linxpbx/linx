@@ -4060,10 +4060,10 @@ export interface components {
             /** @description A new domain (left out keeps it). */
             domain?: string;
             /**
-             * @description A new front door (left out keeps it).
+             * @description A new front door (left out keeps it). `proxy` is another program passing Linx through by name (Pangolin, nginx, HAProxy, Caddy, ...); `http-proxy` a proxy that decrypts (advanced, home only).
              * @enum {string}
              */
-            front_door?: "pangolin" | "nginx" | "http-proxy" | "linx-443" | "home-only";
+            front_door?: "linx-443" | "proxy" | "home-only" | "http-proxy";
             proxy_address?: string;
             turn_udp_port?: number;
             /** @description The front door's steps (the preview's `setup`) are done. */
@@ -4085,11 +4085,35 @@ export interface components {
                     text: string;
                 }[];
                 steps: string[];
+                card?: components["schemas"]["FrontDoorCard"];
             };
             warnings: string[];
             steps: string[];
             /** @description The web address after the change. */
             address: string;
+        };
+        /** @description What a front door that passes Linx through does (the names, where each goes, which gets a PROXY v2 header) and how to do it in each product. */
+        FrontDoorCard: {
+            routes: {
+                name: string;
+                address: string;
+                proxy_protocol: boolean;
+            }[];
+            /** @description The front door's address, the only one Linx accepts PROXY headers from. */
+            proxy: string;
+            /** @description The guide to show first. */
+            pick?: string;
+            guides: {
+                id: string;
+                title: string;
+                note?: string;
+                steps: string[];
+                files?: {
+                    title: string;
+                    path?: string;
+                    text: string;
+                }[];
+            }[];
         };
         MovedChecklistState: {
             checklist?: components["schemas"]["MovedChecklist"];
