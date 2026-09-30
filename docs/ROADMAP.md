@@ -72,6 +72,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - WhatsApp Business (messaging + calling) and Telegram bot.
 - Calendar and contacts sync, CRM lookup, n8n/Home Assistant/MQTT, MCP server.
 - Migration tools can be pulled forward if the 3CX cut-over is needed sooner.
+- **Owner decisions 2026-09-30 (kept in this phase):** migration assistant for **Grandstream UCM, 3CX, Yeastar and FreePBX** (FreePBX covers most Asterisk-based systems); **spreadsheet (CSV) exports first**, full backup files later per product (3CX first); a preview before anything is saved, re-runnable without duplicates, a "done by hand" report, invites sent in one go; switching over gradually with the old system signed in to Linx (`docs/SIMPLER.md` §1). Design for approval when this phase starts.
 
 ## Last task before production — `linx watch` (owner decision, 2026-09-25)
 A watcher on the server that spots problems and gets a fix proposed, which the owner approves. Built after everything else planned for the first production release.
