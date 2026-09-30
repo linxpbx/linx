@@ -3545,6 +3545,110 @@ paths:
               schema:
                 $ref: "#/components/schemas/OAuthError"
 
+  /api/v1/help/guides:
+    get:
+      operationId: listHelpGuides
+      summary: The help guides the caller may read
+      description: >-
+        The guide list (docs/HELP.md): every guide the caller may read, by
+        section, with the screens each is about (for the **?** button).
+        Without a session only the sign-in guides; with one, by role. Any
+        Authorization header is ignored: Help is for people, not API keys.
+        Served by a hand-written handler (one page for both the signed-in
+        and the signed-out).
+      tags: [help]
+      security: []
+      responses:
+        "200":
+          description: The guides.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HelpGuideList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/help/guides/{name}:
+    get:
+      operationId: getHelpGuide
+      summary: One help guide
+      description: >-
+        A guide as blocks the page draws itself (never HTML). A guide that
+        doesn't exist and one the caller may not read get the same 404.
+      tags: [help]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-z0-9-]{1,64}$"
+      responses:
+        "200":
+          description: The guide.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HelpGuide"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/help/search:
+    get:
+      operationId: searchHelp
+      summary: Search the help guides
+      description: >-
+        The sections of the guides the caller may read that best match a
+        plain question (docs/HELP.md §3), best first. Nothing found is an
+        empty list.
+      tags: [help]
+      security: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 500
+      responses:
+        "200":
+          description: The results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HelpSearchResults"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/help/pictures/{file}:
+    get:
+      operationId: getHelpPicture
+      summary: A picture in a help guide
+      description: >-
+        A screenshot a guide shows, `light-<name>.webp` or
+        `dark-<name>.webp`, only when a guide the caller may read uses it;
+        otherwise the same 404 as a picture that doesn't exist.
+      tags: [help]
+      security: []
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^(light|dark)-[a-z0-9-]{1,64}\\.webp$"
+      responses:
+        "200":
+          description: The picture.
+          content:
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: "#/components/responses/Problem"
+
 webhooks:
   webhook.test:
     post:
@@ -5609,6 +5713,136 @@ components:
           description: >-
             This server was restored from a backup made at another domain:
             passkeys from the old address don't work here (docs/INSTALL.md §8).
+
+    HelpGuideList:
+      type: object
+      required: [guides]
+      properties:
+        guides:
+          type: array
+          items:
+            $ref: "#/components/schemas/HelpGuideSummary"
+
+    HelpGuideSummary:
+      type: object
+      required: [name, title, section, screens]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+        section:
+          type: string
+          enum: [whats-new, install, everyday, admin, running]
+        screens:
+          type: array
+          items:
+            type: string
+          description: The app's addresses this guide is about.
+
+    HelpGuide:
+      type: object
+      required: [name, title, section, blocks]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+        section:
+          type: string
+          enum: [whats-new, install, everyday, admin, running]
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/HelpBlock"
+
+    HelpBlock:
+      type: object
+      required: [type]
+      description: >-
+        A heading (`level` 1 to 3, `text`, `anchor`), paragraph (`inlines`),
+        list (`items`, `ordered`, `start`), code block (`text`) or picture
+        (`picture`, the name of a light and a dark screenshot, and `alt`).
+      properties:
+        type:
+          type: string
+          enum: [heading, paragraph, list, code, picture]
+        level:
+          type: integer
+        anchor:
+          type: string
+        text:
+          type: string
+        inlines:
+          type: array
+          items:
+            $ref: "#/components/schemas/HelpInline"
+        ordered:
+          type: boolean
+        start:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/HelpListItem"
+        picture:
+          type: string
+        alt:
+          type: string
+
+    HelpListItem:
+      type: object
+      required: [inlines]
+      properties:
+        inlines:
+          type: array
+          items:
+            $ref: "#/components/schemas/HelpInline"
+        list:
+          $ref: "#/components/schemas/HelpBlock"
+
+    HelpInline:
+      type: object
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          enum: [text, bold, italic, code, link]
+        text:
+          type: string
+        guide:
+          type: string
+          description: A link's guide; empty for a heading in the same guide.
+        anchor:
+          type: string
+
+    HelpSearchResults:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/HelpSearchResult"
+
+    HelpSearchResult:
+      type: object
+      required: [guide, title, lines]
+      properties:
+        guide:
+          type: string
+        title:
+          type: string
+        heading:
+          type: string
+          description: The section's heading; none for the guide's opening part.
+        anchor:
+          type: string
+        lines:
+          type: array
+          items:
+            type: string
+          description: The section's lines with the most of the question's words.
 
     CompanyStart:
       type: object

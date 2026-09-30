@@ -2,7 +2,7 @@
 // screen, and the call panel on the right while a call is on.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  Activity, BarChart3, Check, CircleUser, Clock, FlaskConical, Grid3x3, Hash, IdCard, Inbox, KeyRound, LogOut, Network,
+  Activity, BarChart3, Check, CircleHelp, CircleUser, Clock, FlaskConical, Grid3x3, Hash, IdCard, Inbox, KeyRound, LogOut, Network,
   Phone, PhoneCall, PhoneIncoming, PhoneOutgoing, Search, Settings as SettingsIcon, Users, Video, Voicemail, Webhook,
   Home as HomeIcon,
 } from "lucide-react";
@@ -15,13 +15,14 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { navigate } from "@/hooks/useRoute";
 import { anyLineDown, type SystemStatus } from "@/hooks/useSystemStatus";
+import { guideForScreen, HELP_PATH, loadGuides } from "@/lib/help";
 import { hasScope, seesAdminArea } from "@/lib/roles";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
 import { cn } from "@/lib/utils";
 import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
-export type Screen = "dialer" | "team" | "settings" | "account" | "admin-home" | "admin-people" | "admin-extensions"
+export type Screen = "dialer" | "team" | "settings" | "account" | "help" | "admin-home" | "admin-people" | "admin-extensions"
   | "admin-system-status" | "admin-system-backups" | "admin-system-server"
   | "admin-lines" | "admin-incoming" | "admin-outgoing" | "admin-simulator" | "admin-connections"
   | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings" | "admin-webhooks" | "admin-api-keys";
@@ -210,6 +211,28 @@ function SearchBar({ members, query, setQuery, onTeam }: {
   );
 }
 
+/**
+ * The ? button (docs/HELP.md §3): the guide for the screen you're on, or
+ * Help's front page when no guide is about it.
+ */
+function ScreenHelp() {
+  const open = async () => {
+    const guide = guideForScreen(await loadGuides(), window.location.pathname);
+    navigate(guide ? `${HELP_PATH}/${guide.name}` : HELP_PATH);
+  };
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" onClick={() => void open()} aria-label="Help for this page"
+          className="ms-auto flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-card hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50">
+          <CircleHelp aria-hidden="true" className="size-5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Help for this page</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function AdminNav({ me, systemStatus, simpleMode, onSimpleModeChange, screen }: {
   me: Me; systemStatus: SystemStatus | null; simpleMode: boolean; onSimpleModeChange: (v: boolean) => void; screen: Screen;
 }) {
@@ -297,6 +320,7 @@ export function Shell({ me, screen, members, presence, systemStatus, simpleMode,
           <AdminNav me={me} systemStatus={systemStatus} simpleMode={simpleMode} onSimpleModeChange={onSimpleModeChange} screen={screen} />
         </div>
         <div className="mt-auto flex flex-col gap-2">
+          <NavItem label="Help" icon={CircleHelp} active={screen === "help"} onClick={() => navigate(HELP_PATH)} />
           <NavItem label="Settings" icon={SettingsIcon} active={screen === "settings"} onClick={() => navigate("/settings")} />
           <AccountMenu me={me} presence={presence} onPresence={onPresence} onSignOut={onSignOut} />
         </div>
@@ -305,6 +329,7 @@ export function Shell({ me, screen, members, presence, systemStatus, simpleMode,
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-16 shrink-0 items-center gap-3 border-b px-4 md:px-6">
           <SearchBar members={members} query={query} setQuery={setQuery} onTeam={() => { if (screen !== "team") navigate("/team"); }} />
+          {screen !== "help" && <ScreenHelp />}
         </header>
         {status === "elsewhere" && (
           <p role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-card px-4 py-2.5 text-sm md:px-6">

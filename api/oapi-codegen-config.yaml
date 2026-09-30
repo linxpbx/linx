@@ -12,11 +12,13 @@ output-options:
   # hand-written handler (internal/auth/oauth.go), documented in the spec only.
   # The session endpoints need to set two cookies each, which a typed JSON
   # response can't do, so they're hand-written too (services/control-plane/session.go,
-  # passkey.go).
+  # passkey.go). Help (services/control-plane/help.go) serves both the signed-in
+  # and the signed-out, and pictures that aren't JSON.
   exclude-operation-ids: [oauthToken, uploadRestoreFile, getBackupDownloadFile, getSignInOptions, startCompanySignIn, startCompanyConfirm, companyCallback, startMyCompanyLink, createSession, deleteSession, verifySessionMfa, confirmSession, checkSetupLink, completeSetupLink, watchTeam,
     createPasskeySessionOptions, createPasskeySession, verifySessionMfaPasskeyOptions, verifySessionMfaPasskey,
     confirmSessionPasskeyOptions, confirmSessionPasskey, addMyPasskeyOptions, addMyPasskey,
-    completeSetupLinkPasskeyOptions, completeSetupLinkPasskey]
+    completeSetupLinkPasskeyOptions, completeSetupLinkPasskey,
+    listHelpGuides, getHelpGuide, searchHelp, getHelpPicture]
   # WebhookMessage is only referenced from the spec's `webhooks:` section,
   # which pruning doesn't follow.
   skip-prune: true

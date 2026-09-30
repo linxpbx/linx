@@ -792,6 +792,24 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       return route.fulfill(json({ number: String(n) }));
     }
     if (p === "/api/v1/call-permission-levels" && method === "GET") return route.fulfill(json({ items: opts.setupCompleted ? [lines.level] : [] }));
+    // Help (docs/HELP.md): the sign-in guides without a session, more with one.
+    if (p === "/api/v1/help/guides") {
+      const guides = opts.signedIn ? HELP_GUIDES : HELP_GUIDES.filter((g) => HELP_PUBLIC.includes(g.name));
+      return route.fulfill(json({ guides }));
+    }
+    if (p.startsWith("/api/v1/help/guides/")) {
+      const name = p.slice("/api/v1/help/guides/".length);
+      const g = HELP_GUIDES.find((x) => x.name === name && (opts.signedIn || HELP_PUBLIC.includes(x.name)));
+      if (!g) return route.fulfill(json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "There's no such page in Help." }, 404));
+      return route.fulfill(json({ ...g, blocks: helpBlocks(g) }));
+    }
+    if (p === "/api/v1/help/search") {
+      const q = (url.searchParams.get("q") ?? "").toLowerCase();
+      return route.fulfill(json({ results: q.includes("desk") ? HELP_DESK_RESULTS : [] }));
+    }
+    if (p.startsWith("/api/v1/help/pictures/")) {
+      return route.fulfill({ path: `../docs/help/pictures/${p.slice("/api/v1/help/pictures/".length)}`, contentType: "image/webp" });
+    }
     if (p === "/api/v1/sign-in-options") {
       return route.fulfill(json({ company: opts.company ? [GOOGLE] : [], company_sign_in_required: !!opts.companyRequired, passkeys_available: true,
         ...(opts.moved ? { passkeys_moved: true } : {}) }));
@@ -1162,3 +1180,61 @@ export async function fakeSecureInstall(page: Page, base: string, opts: {
     },
   };
 }
+
+// Help's stand-in guides: real titles and screens, a short body each.
+const HELP_PUBLIC = ["signing-in", "passkeys-and-authenticator", "lost-authenticator", "locked-out", "set-password-link"];
+const HELP_GUIDES: { name: string; title: string; section: string; screens: string[] }[] = [
+  { name: "whats-new", title: "What's new", section: "whats-new", screens: [] },
+  { name: "signing-in", title: "Signing in", section: "everyday", screens: ["/"] },
+  { name: "passkeys-and-authenticator", title: "Passkeys and authenticator apps", section: "everyday", screens: [] },
+  { name: "lost-authenticator", title: "Lost your authenticator or passkey", section: "everyday", screens: [] },
+  { name: "locked-out", title: "Locked out", section: "everyday", screens: [] },
+  { name: "set-password-link", title: "Your invite or set-password link", section: "everyday", screens: ["/setup/<link>"] },
+  { name: "calls-in-the-browser", title: "Calls in the browser", section: "everyday", screens: ["/"] },
+  { name: "team-and-presence", title: "Team and presence", section: "everyday", screens: ["/team"] },
+  { name: "using-help", title: "Using Help", section: "everyday", screens: ["/help"] },
+  { name: "people-and-invites", title: "People and invite links", section: "admin", screens: ["/admin/people"] },
+  { name: "extensions", title: "Extensions", section: "admin", screens: ["/admin/extensions"] },
+  { name: "desk-phones-and-phone-apps", title: "Desk phones and phone apps", section: "admin", screens: [] },
+  { name: "phone-lines", title: "Phone lines", section: "admin", screens: ["/admin/lines"] },
+  { name: "backups", title: "Backups", section: "running", screens: ["/admin/system/backups"] },
+  { name: "system-status", title: "System status and Restart", section: "running", screens: ["/admin/system", "/admin/system/status"] },
+  { name: "phone-wont-register", title: "A phone won't register", section: "running", screens: [] },
+  { name: "install-linx", title: "Installing Linx", section: "install", screens: ["/install", "/install/continue"] },
+];
+
+const text = (t: string) => ({ type: "text", text: t });
+const bold = (t: string) => ({ type: "bold", text: t });
+
+function helpBlocks(g: { name: string; title: string }): Json[] {
+  if (g.name !== "extensions") {
+    return [
+      { type: "heading", level: 1, text: g.title, anchor: "title" },
+      { type: "paragraph", inlines: [text("A short guide in plain words, with the buttons named as they are on the screen, like "), bold("Sign in"), text(".")] },
+    ];
+  }
+  return [
+    { type: "heading", level: 1, text: "Extensions", anchor: "extensions" },
+    { type: "paragraph", inlines: [text("An extension is a number that rings a phone: for a person, or a shared one like a reception desk.")] },
+    { type: "picture", picture: "extensions", alt: "Extensions" },
+    { type: "heading", level: 2, text: "Adding one", anchor: "adding-one" },
+    { type: "paragraph", inlines: [bold("+ Add"), text(", then:")] },
+    { type: "list", items: [
+      { inlines: [bold("Quick add"), text(": just a name. It gets the next free number.")] },
+      { inlines: [bold("Guide me"), text(": number, name, person and a phone, step by step.")] },
+    ] },
+    { type: "heading", level: 2, text: "Phones on an extension", anchor: "phones-on-an-extension" },
+    { type: "paragraph", inlines: [text("An extension can ring a desk phone or a phone app as well as the browser. Open it and choose "),
+      bold("+ Add a desk phone or phone app"), text(". See "), { type: "link", text: "Desk phones and phone apps", guide: "desk-phones-and-phone-apps" }, text(".")] },
+    { type: "heading", level: 2, text: "From the server", anchor: "from-the-server" },
+    { type: "code", text: "sudo linx doctor" },
+  ];
+}
+
+const HELP_DESK_RESULTS = [
+  { guide: "desk-phones-and-phone-apps", title: "Desk phones and phone apps", heading: "Adding one", anchor: "adding-one",
+    lines: ["Open the extension, then + Add a desk phone or phone app.", "Choose the kind: a desk phone, or a phone app on a mobile or computer."] },
+  { guide: "extensions", title: "Extensions", heading: "Phones on an extension", anchor: "phones-on-an-extension",
+    lines: ["An extension can ring a desk phone or a phone app as well as the browser."] },
+  { guide: "phone-wont-register", title: "A phone won't register", lines: ["Check the server, port 5061, TLS, the username and the password on the desk phone."] },
+];

@@ -12,6 +12,8 @@ The newest changes come first. Each Linx update brings its own help pages, so th
 ## Help pages
 
 - These guides, inside Linx. They cover installing and moving Linx, everyday calling, admin tasks and keeping Linx running.
+- **Help** in the sidebar, with a search box that takes plain questions, and **Help for this page** at the top of every page. See [Using Help](using-help).
+- **Help signing in** on the sign-in page, for anyone who can't sign in.
 
 ## Admin portal and setup wizard
 

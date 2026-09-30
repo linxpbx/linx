@@ -5,7 +5,6 @@
 package help
 
 import (
-	"bufio"
 	"fmt"
 	"io/fs"
 	"path"
@@ -50,6 +49,7 @@ type Guide struct {
 	Keywords []string
 	Screens  []string
 	Body     string   // the Markdown after the front matter
+	Blocks   []Block  // Body as Help shows it
 	Headings []string // the anchors of its ## and ### headings
 }
 
@@ -133,20 +133,14 @@ func Parse(name, text string) (Guide, error) {
 	case !seen["keywords"] || !seen["screens"]:
 		return g, fmt.Errorf("keywords and screens are required (screens may be [])")
 	}
-	sc := bufio.NewScanner(strings.NewReader(body))
-	fence := false
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.HasPrefix(line, "```") {
-			fence = !fence
-		}
-		if fence {
-			continue
-		}
-		if h, ok := strings.CutPrefix(line, "## "); ok {
-			g.Headings = append(g.Headings, Anchor(h))
-		} else if h, ok := strings.CutPrefix(line, "### "); ok {
-			g.Headings = append(g.Headings, Anchor(h))
+	blocks, err := parseBlocks(body)
+	if err != nil {
+		return g, err
+	}
+	g.Blocks = blocks
+	for _, b := range blocks {
+		if b.Type == BlockHeading && b.Level > 1 {
+			g.Headings = append(g.Headings, b.Anchor)
 		}
 	}
 	return g, nil

@@ -174,6 +174,40 @@ func (a *Authenticator) serveWithSession(w http.ResponseWriter, r *http.Request,
 	a.finishAuthenticated(w, r, ctx, p, ip, now, next)
 }
 
+// OptionalSession is for pages anyone may open that show more to people
+// signed in (Help, docs/HELP.md §6): a valid session cookie puts its
+// Principal in the context; anything else (no cookie, an expired or unknown
+// one, an Authorization header) continues with none. A stale cookie isn't
+// counted as a failed sign-in, so reading Help after a session ends can't
+// use up the address's sign-in attempts. Only for safe methods: nothing
+// here checks CSRF.
+func (a *Authenticator) OptionalSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		now := a.Now()
+		ip := a.IPs.ClientIP(r)
+		ctx := WithClientIP(r.Context(), ip)
+		if !isSafeMethod(r.Method) {
+			apihttp.WriteProblem(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only GET works here.")
+			return
+		}
+		cookie, err := r.Cookie(SessionCookieName)
+		if a.Sessions == nil || err != nil || cookie.Value == "" {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		sess, f := a.authenticateSession(ctx, cookie.Value, now)
+		if f != nil {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		a.touchSession(ctx, sess, ip, now)
+		ctx = WithSession(ctx, sess)
+		p := sess.Principal()
+		a.restrictAdminNetwork(ctx, &p, ip)
+		a.finishAuthenticated(w, r, ctx, p, ip, now, next)
+	})
+}
+
 var errSessionInvalid = &apihttp.Error{Status: http.StatusUnauthorized, Code: "session_invalid",
 	Detail: "This session isn't valid. Sign in again."}
 var errSessionExpired = &apihttp.Error{Status: http.StatusUnauthorized, Code: "session_expired",

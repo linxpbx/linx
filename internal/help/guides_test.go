@@ -251,3 +251,34 @@ func TestCanRead(t *testing.T) {
 		}
 	}
 }
+
+// Every picture a guide shows is in docs/help/pictures, light and dark, and
+// nothing else is: make screens saves them (web/e2e/screens.spec.ts), and a
+// picture no guide uses any more is deleted.
+func TestGuidePicturesAreSaved(t *testing.T) {
+	used := map[string]bool{}
+	for _, g := range loadGuides(t) {
+		for _, p := range g.Pictures() {
+			used["light-"+p+".webp"], used["dark-"+p+".webp"] = true, true
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(repo, "docs/help", PicturesDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for _, e := range entries {
+		have[e.Name()] = true
+		if !used[e.Name()] {
+			t.Errorf("docs/help/pictures/%s: no guide uses it; delete it", e.Name())
+		}
+	}
+	for f := range used {
+		if !have[f] {
+			t.Errorf("docs/help/pictures/%s is missing: run make screens", f)
+		}
+	}
+	if _, err := Open(os.DirFS(filepath.Join(repo, "docs/help"))); err != nil {
+		t.Errorf("the control plane can't open the guides: %v", err)
+	}
+}

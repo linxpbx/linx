@@ -38,7 +38,7 @@ Now (2026-09-30):
 - Owner's "speed up how we work" request (2026-09-30): measurements, this trim, the test guide below. **CI speed-ups approved and done 2026-09-30:** image builds and scans start at once; call suite, install suite and the browser suite (one job per front door, `TestCIRunsEveryFrontDoor` keeps that list complete) run side by side; publishing (`publish`, `asterisk-push` → `asterisk-publish`) waits for every test, scan and suite. Nothing removed.
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
-1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Step 1 (guides in `docs/help/` + `internal/help` checks) done 2026-09-30; next: step 2, Help pages + search.
+1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Step 1 (guides in `docs/help/` + `internal/help` checks) and step 2 (Help screen, search, **?** button, public sign-in help) done 2026-09-30; next: step 3, AI answers.
 2. Phase 1F: front doors + DNS (`docs/SIMPLER.md` §2–3), public port (advanced) (`docs/SIMPLER.md` §2.5, ADR-064; build after the front-door card), email (password reset, below), ring groups, office hours, full inbound wizard, voicemail, CDR, undo.
 3. Portainer note on the rented extras page.
 
@@ -84,6 +84,7 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - `make tokens` after editing `design/tokens.json` (lint fails if generated files are stale; contrast is tested)
 - `make test-docker` (needs Docker: internal CA end to end, and real-Postgres tests for migrations, store, webhooks, alerts and doctor's query)
 - `make build` (bin/ + web/dist/). Go module path: `linxpbx.com/linx`
+- `make screens` also saves the pictures help guides use into `docs/help/pictures/` (WebP, committed; only when a screen really changed): commit them with the change.
 - `make test-calls` (phone call suite; needs `make image SERVICE=asterisk` and `SERVICE=wireguard`), `make test-browser` (browser call suite: needs `make image SERVICE=` control-plane, asterisk, coturn), `make screens` (web screenshots into `web/e2e/screenshots/`)
 - `make security` (govulncheck, npm audit, licence allowlist), `make image SERVICE=control-plane`
 - CI: `.github/workflows/ci.yml` (amd64+arm64 tests, gitleaks, SBOM, Trivy, cosign-signed images to ghcr.io on master). Actions pinned by SHA; Dependabot updates them. First external Go dep must add a Go licence check.

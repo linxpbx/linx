@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { HELP_PATH } from "@/lib/help";
 import { onRepairPage, signInHome } from "@/lib/repair";
 
 export type SignInStep = "password" | "code" | "enroll" | "choose-password";
@@ -72,6 +73,12 @@ function Card({ title, lead, children }: { title: string; lead?: ReactNode; chil
           <div className="mt-6">{children}</div>
         </section>
         {aside}
+        {!onRepairPage() && (
+          <p className="mt-6 text-center text-sm">
+            <a href={HELP_PATH} className="text-link underline-offset-4 hover:underline"
+              onClick={(e) => { e.preventDefault(); navigate(HELP_PATH); }}>Help signing in</a>
+          </p>
+        )}
       </div>
     </main>
   );

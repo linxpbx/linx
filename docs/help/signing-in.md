@@ -32,3 +32,4 @@ If your admin set it up, a button like *Sign in with Google* appears. Your Linx 
 - **Wrong email or password.** Check both. After several wrong tries, Linx makes you wait before the next one, even with the right password. See [Locked out](locked-out).
 - **Your sign-in timed out.** You took too long on the second step. Enter your password again.
 - Lost your phone or your passkey? See [Lost your authenticator or passkey](lost-authenticator).
+- More help: **Help signing in**, under the sign-in box, opens these guides without signing in.

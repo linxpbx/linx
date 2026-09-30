@@ -36,6 +36,7 @@ import (
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/health"
+	"linxpbx.com/linx/internal/help"
 	"linxpbx.com/linx/internal/install"
 	"linxpbx.com/linx/internal/moved"
 	"linxpbx.com/linx/internal/numbering"
@@ -435,6 +436,14 @@ func main() {
 	registerSessionHandlers(mux, authn, accounts, tenant)
 	registerCompanyHandlers(mux, authn, accounts, ssoSvc, tenant, movedSvc.PasskeysMoved, log)
 	registerBackupFileHandlers(mux, authn, backups)
+	// Help: the guides this release carries (docs/HELP.md). Without them
+	// Linx still runs; Help says it isn't available.
+	helpLib, err := help.Open(os.DirFS(envOr(os.Getenv, "LINX_HELP_DIR", help.DefaultDir)))
+	if err != nil {
+		log.Error("reading the help guides failed", "err", err)
+		helpLib = nil
+	}
+	registerHelpHandlers(mux, authn, helpLib)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
 	// Everything else is the web client (ADR-037).

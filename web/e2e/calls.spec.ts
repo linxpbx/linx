@@ -211,6 +211,25 @@ test("browsers call each other, one with UDP blocked", async () => {
   await expect(omar.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(aisha.getByTestId("team-102")).toHaveAttribute("data-status", "offline");
 
+  // Help comes inside the image (docs/HELP.md): signed out, Omar reads only
+  // the sign-in guides; Aisha reads hers, pictures and search included, and
+  // gets the same 404 as a missing guide for an admin one.
+  await omar.getByRole("link", { name: "Help signing in" }).click();
+  await expect(omar.getByRole("link", { name: "Lost your authenticator or passkey" })).toBeVisible();
+  await expect(omar.getByRole("link", { name: "Team and presence" })).toHaveCount(0);
+  await aisha.goto("/help");
+  await aisha.getByLabel("Search the guides").fill("who is on a call right now?");
+  await expect(aisha.getByRole("link", { name: /^Team and presence/ }).first()).toBeVisible();
+  await aisha.goto("/help/team-and-presence");
+  const picture = aisha.locator("article img").first();
+  await expect.poll(() => picture.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  const [adminGuide, missing] = await aisha.evaluate(() => Promise.all(["extensions", "no-such-guide"].map(async (name) => {
+    const r = await fetch(`/api/v1/help/guides/${name}`);
+    return `${r.status} ${await r.text()}`;
+  })));
+  expect(adminGuide).toMatch(/^404 /);
+  expect(adminGuide).toBe(missing);
+
   await a.close();
   await b.close();
 });

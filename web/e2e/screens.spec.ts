@@ -1,6 +1,7 @@
 // Screenshots of every Phase 1C screen against a stand-in server
 // (e2e/fakes.ts), for comparison with docs/ui (the front-end rule in
 // CLAUDE.md). `npm run screens` writes them to e2e/screenshots/.
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { fakeCert, fakeInstall, fakeSecureInstall, fakeServer } from "./fakes";
 
@@ -27,9 +28,56 @@ async function noSidewaysScroll(page: Page, name: string) {
   expect(offenders, `${name} scrolls sideways`).toEqual([]);
 }
 
+// The shots the help guides show (`![…](screen:<name>)` in docs/help) are
+// also saved small, as WebP, into docs/help/pictures, which the
+// control-plane image carries (docs/HELP.md §2). A picture is saved again
+// only when the screen really changed, not when just a clock or an "ago" on
+// it moved, so re-running make screens leaves git alone.
+const guidePictures = new Set(
+  readdirSync("../docs/help").filter((f) => f.endsWith(".md"))
+    .flatMap((f) => [...readFileSync(`../docs/help/${f}`, "utf8").matchAll(/\]\(screen:([a-z0-9-]+)\)/g)].map((m) => m[1])),
+);
+// The share of pixels that must differ before a picture is saved again.
+const PICTURE_CHANGED = 0.002;
+
+async function savePicture(page: Page, name: string, png: Buffer) {
+  const file = `../docs/help/pictures/${name}.webp`;
+  const before = existsSync(file) ? readFileSync(file).toString("base64") : "";
+  const { webp, changed } = await page.evaluate(async ([b64, old]) => {
+    const load = async (src: string) => {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+      ctx.drawImage(img, 0, 0);
+      return { canvas, pixels: ctx.getImageData(0, 0, canvas.width, canvas.height).data };
+    };
+    const now = await load(`data:image/png;base64,${b64}`);
+    const webp = now.canvas.toDataURL("image/webp", 0.8).split(",")[1] ?? "";
+    if (!old) return { webp, changed: 1 };
+    const was = await load(`data:image/webp;base64,${old}`);
+    if (was.canvas.width !== now.canvas.width || was.canvas.height !== now.canvas.height) return { webp, changed: 1 };
+    let differ = 0;
+    for (let i = 0; i < now.pixels.length; i += 4) {
+      if (Math.abs(now.pixels[i]! - was.pixels[i]!) > 48 || Math.abs(now.pixels[i + 1]! - was.pixels[i + 1]!) > 48
+        || Math.abs(now.pixels[i + 2]! - was.pixels[i + 2]!) > 48) differ++;
+    }
+    return { webp, changed: differ / (now.pixels.length / 4) };
+  }, [png.toString("base64"), before] as const);
+  if (process.env.LINX_E2E_DEBUG) console.log(`picture ${name}: ${(changed * 100).toFixed(3)}% changed`);
+  if (changed < PICTURE_CHANGED) return;
+  mkdirSync("../docs/help/pictures", { recursive: true });
+  writeFileSync(file, Buffer.from(webp, "base64"));
+}
+
 const shot = async (page: Page, name: string) => {
   await noSidewaysScroll(page, name);
-  await page.screenshot({ path: `e2e/screenshots/${name}.png`, animations: "disabled", caret: "hide", timeout: 15_000 });
+  const png = await page.screenshot({ path: `e2e/screenshots/${name}.png`, animations: "disabled", caret: "hide", timeout: 15_000 });
+  const picture = name.replace(/^(light|dark)-/, "");
+  if (picture !== name && guidePictures.has(picture)) await savePicture(page, name, png);
 };
 
 for (const scheme of ["light", "dark"] as const) {
@@ -193,6 +241,42 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
       await shot(page, `${scheme}-confirm-identity`);
+    });
+
+    test("help: the ? button, a guide, the guides, search", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupStep: 5 });
+      await page.goto("/admin/extensions");
+      await expect(page.getByRole("heading", { name: "Extensions" })).toBeVisible();
+      // The ? button opens the guide about the page you're on.
+      await page.getByRole("button", { name: "Help for this page" }).click();
+      await expect(page).toHaveURL(/\/help\/extensions$/);
+      await expect(page.getByRole("heading", { name: "Adding one" })).toBeVisible();
+      const picture = page.getByRole("img", { name: "Extensions" });
+      await picture.scrollIntoViewIfNeeded();
+      await expect.poll(() => picture.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+      await page.getByRole("link", { name: "All guides" }).scrollIntoViewIfNeeded();
+      await shot(page, `${scheme}-help-guide`);
+      await page.getByRole("link", { name: "All guides" }).click();
+      await expect(page.getByRole("heading", { name: "Help", exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Installing Linx" })).toBeVisible();
+      await shot(page, `${scheme}-help`);
+      await page.getByLabel("Search the guides").fill("how do I add a desk phone?");
+      await expect(page.getByRole("link", { name: "Desk phones and phone apps › Adding one" })).toBeVisible();
+      await shot(page, `${scheme}-help-search`);
+      await page.getByLabel("Search the guides").fill("xyzzy");
+      await expect(page.getByText("Nothing in the guides matches")).toBeVisible();
+    });
+
+    test("help signing in, without a session", async ({ page }) => {
+      await fakeServer(page);
+      await page.goto("/");
+      await page.getByRole("link", { name: "Help signing in" }).click();
+      await expect(page.getByRole("heading", { name: "Help signing in" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Lost your authenticator or passkey" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Extensions" })).toHaveCount(0);
+      await shot(page, `${scheme}-help-signed-out`);
+      await page.getByRole("link", { name: "Back to sign in" }).click();
+      await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
     });
 
     test("admin home", async ({ page }) => {
@@ -483,7 +567,7 @@ for (const scheme of ["light", "dark"] as const) {
       await sip.ring("Sara Haddad", "1024");
       await expect(page.getByTestId("incoming-call")).toBeVisible();
       await expect(page).toHaveTitle("Ringing: Sara Haddad · Linx");
-      await shot(page, `${scheme}-incoming`);
+      await shot(page, `${scheme}-incoming-call`);
       await page.getByRole("button", { name: "Decline" }).click();
 
       await page.goto("/settings");
@@ -660,6 +744,7 @@ test.describe("phone width", () => {
     ["/admin/system/alerts", "system-alerts", "Where alerts go"], ["/admin/system/activity", "system-activity", "System"],
     ["/admin/system/settings", "system-settings", "Admins can sign in from"],
     ["/admin/webhooks", "webhooks", "Webhooks"], ["/admin/api-keys", "api-keys", "API keys"],
+    ["/help", "help", "Help"], ["/help/extensions", "help-guide", "Extensions"],
     ["/repair", "repair", "Fix this server's address"],
   ] as const) {
     test(`no sideways scrolling: ${name}`, async ({ page }) => {

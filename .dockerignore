@@ -4,6 +4,8 @@ web/node_modules
 web/dist
 ios
 docs
+# …except the help guides, which the control plane serves (docs/HELP.md).
+!docs/help
 **/.DS_Store
 .env
 .env.*

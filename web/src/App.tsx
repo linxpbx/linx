@@ -6,6 +6,7 @@ import { navigate, usePath } from "@/hooks/useRoute";
 import { SignInScreen, type SecondStepMethod, type SignInStep } from "@/screens/SignIn";
 import { reportCompanyDone } from "@/lib/company";
 import { REPAIR_PATH } from "@/lib/repair";
+import { forgetGuides, guideInPath, HELP_PATH } from "@/lib/help";
 
 // Everything after sign-in (the phone line, JsSIP, the screens) loads
 // separately, so the sign-in page stays small (docs/WEB.md §6).
@@ -16,6 +17,8 @@ const SignedIn = lazy(() => import("@/screens/SignedIn"));
 const Install = lazy(() => import("@/screens/Install"));
 // The repair page on port 6464 (docs/INSTALL.md §7).
 const Repair = lazy(() => import("@/screens/Repair"));
+// Help without signing in: the sign-in guides (docs/HELP.md §8 item 3).
+const Help = lazy(() => import("@/screens/Help"));
 
 type Auth =
   | { state: "loading" }
@@ -36,12 +39,14 @@ async function finishSignIn(setupToken: string | undefined, loadMe: () => Promis
     if (me?.type === "user" && !me.pending && (me.role === "system_admin" || me.role === "admin")) {
       const { data: setup } = await api.GET("/api/v1/setup");
       if (setup && !setup.completed) {
+        forgetGuides();
         navigate("/setup", true);
         void loadMe();
         return;
       }
     }
   }
+  forgetGuides();
   navigate("/", true);
   void loadMe();
 }
@@ -98,6 +103,9 @@ function Main({ path }: { path: string }) {
 
   if (auth.state === "loading") return <div className="min-h-dvh" aria-busy="true" />;
   if (auth.state === "signed-out") {
+    if (path === HELP_PATH || guideInPath(path)) {
+      return <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}><Help path={path} signedIn={false} /></Suspense>;
+    }
     return (
       <SignInScreen key={setupToken ?? auth.step} initialStep={auth.step} initialMethods={auth.methods} setupToken={setupToken}
         onSignedIn={() => void finishSignIn(setupToken, loadMe)} />
@@ -105,7 +113,7 @@ function Main({ path }: { path: string }) {
   }
   return (
     <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}>
-      <SignedIn me={auth.me} path={path} onSignedOut={() => setAuth({ state: "signed-out", step: "password" })} />
+      <SignedIn me={auth.me} path={path} onSignedOut={() => { forgetGuides(); setAuth({ state: "signed-out", step: "password" }); }} />
     </Suspense>
   );
 }

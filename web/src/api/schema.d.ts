@@ -2273,6 +2273,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/help/guides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The help guides the caller may read
+         * @description The guide list (docs/HELP.md): every guide the caller may read, by section, with the screens each is about (for the **?** button). Without a session only the sign-in guides; with one, by role. Any Authorization header is ignored: Help is for people, not API keys. Served by a hand-written handler (one page for both the signed-in and the signed-out).
+         */
+        get: operations["listHelpGuides"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/help/guides/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One help guide
+         * @description A guide as blocks the page draws itself (never HTML). A guide that doesn't exist and one the caller may not read get the same 404.
+         */
+        get: operations["getHelpGuide"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/help/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the help guides
+         * @description The sections of the guides the caller may read that best match a plain question (docs/HELP.md §3), best first. Nothing found is an empty list.
+         */
+        get: operations["searchHelp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/help/pictures/{file}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A picture in a help guide
+         * @description A screenshot a guide shows, `light-<name>.webp` or `dark-<name>.webp`, only when a guide the caller may read uses it; otherwise the same 404 as a picture that doesn't exist.
+         */
+        get: operations["getHelpPicture"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface webhooks {
     "webhook.test": {
@@ -3433,6 +3513,62 @@ export interface components {
             passkeys_available: boolean;
             /** @description This server was restored from a backup made at another domain: passkeys from the old address don't work here (docs/INSTALL.md §8). */
             passkeys_moved?: boolean;
+        };
+        HelpGuideList: {
+            guides: components["schemas"]["HelpGuideSummary"][];
+        };
+        HelpGuideSummary: {
+            name: string;
+            title: string;
+            /** @enum {string} */
+            section: "whats-new" | "install" | "everyday" | "admin" | "running";
+            /** @description The app's addresses this guide is about. */
+            screens: string[];
+        };
+        HelpGuide: {
+            name: string;
+            title: string;
+            /** @enum {string} */
+            section: "whats-new" | "install" | "everyday" | "admin" | "running";
+            blocks: components["schemas"]["HelpBlock"][];
+        };
+        /** @description A heading (`level` 1 to 3, `text`, `anchor`), paragraph (`inlines`), list (`items`, `ordered`, `start`), code block (`text`) or picture (`picture`, the name of a light and a dark screenshot, and `alt`). */
+        HelpBlock: {
+            /** @enum {string} */
+            type: "heading" | "paragraph" | "list" | "code" | "picture";
+            level?: number;
+            anchor?: string;
+            text?: string;
+            inlines?: components["schemas"]["HelpInline"][];
+            ordered?: boolean;
+            start?: number;
+            items?: components["schemas"]["HelpListItem"][];
+            picture?: string;
+            alt?: string;
+        };
+        HelpListItem: {
+            inlines: components["schemas"]["HelpInline"][];
+            list?: components["schemas"]["HelpBlock"];
+        };
+        HelpInline: {
+            /** @enum {string} */
+            type: "text" | "bold" | "italic" | "code" | "link";
+            text: string;
+            /** @description A link's guide; empty for a heading in the same guide. */
+            guide?: string;
+            anchor?: string;
+        };
+        HelpSearchResults: {
+            results: components["schemas"]["HelpSearchResult"][];
+        };
+        HelpSearchResult: {
+            guide: string;
+            title: string;
+            /** @description The section's heading; none for the guide's opening part. */
+            heading?: string;
+            anchor?: string;
+            /** @description The section's lines with the most of the question's words. */
+            lines: string[];
         };
         CompanyStart: {
             /** Format: uuid */
@@ -7777,6 +7913,96 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthError"];
                 };
             };
+        };
+    };
+    listHelpGuides: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The guides. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelpGuideList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getHelpGuide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The guide. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelpGuide"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    searchHelp: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The results. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelpSearchResults"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getHelpPicture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The picture. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/webp": string;
+                };
+            };
+            default: components["responses"]["Problem"];
         };
     };
 }

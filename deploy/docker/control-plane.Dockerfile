@@ -39,6 +39,9 @@ LABEL org.opencontainers.image.source="https://github.com/linxpbx/linx" \
 COPY --from=build /out/service /usr/local/bin/service
 # The web client: read-only, owned by root.
 COPY --from=web /src/web/dist /usr/share/linx/web
+# The help guides and their pictures (docs/HELP.md): each release carries
+# its own, read-only, owned by root.
+COPY docs/help /usr/share/linx/help
 # Writable data dirs owned by nonroot, so named volumes mounted here inherit it.
 COPY --from=build --chown=nonroot:nonroot /out/data /var/lib/linx
 USER nonroot:nonroot
