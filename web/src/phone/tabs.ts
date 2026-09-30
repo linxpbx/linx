@@ -62,12 +62,29 @@ export function holdLine(line: PhoneLine, locks: LockManager | null = navigator.
     request(false);
   };
 
+  // Give the lock back as the page goes (reload, close, another page):
+  // Safari doesn't finish a reload while the old page still holds a Web
+  // Lock, so every reload hung on iPhone and iPad (owner, Phase 1E demo).
+  // A page Safari keeps and shows again (back/forward cache) asks again.
+  const onPageHide = () => {
+    gen++; // any request still in flight stands down
+    pending?.abort();
+    pending = null;
+    free?.();
+    free = null;
+  };
+  const onPageShow = (e: PageTransitionEvent) => { if (e.persisted && !released) request(false); };
+  window.addEventListener("pagehide", onPageHide);
+  window.addEventListener("pageshow", onPageShow);
+
   request(false);
   line.takeOverHere = () => { if (!released) request(true); };
   return {
     takeOver: () => { if (!released) request(true); },
     release: () => {
       released = true;
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
       pending?.abort();
       free?.();
       line.stop();

@@ -1206,3 +1206,22 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
     });
   });
 }
+
+// Safari (WebKit) must be able to reload a signed-in page: the tab lock for
+// the phone line used to block it, on every page (owner, Phase 1E demo,
+// iPhone and iPad).
+test.describe("safari", () => {
+  test("a signed-in page reloads", async ({ playwright, baseURL }) => {
+    const browser = await playwright.webkit.launch();
+    try {
+      const page = await (await browser.newContext({ baseURL })).newPage();
+      await fakeServer(page, { signedIn: true });
+      await page.goto("/");
+      await expect(page.getByTestId("account-menu")).toContainText("Available");
+      await page.reload({ waitUntil: "load", timeout: 10_000 });
+      await expect(page.getByTestId("account-menu")).toContainText("Available");
+    } finally {
+      await browser.close();
+    }
+  });
+});
