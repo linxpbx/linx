@@ -31,18 +31,20 @@ Finished (each demo passed and approved by the owner):
 - Pre-launch security audit: 2026-09-27, `docs/THREAT_MODEL.md`, `da9246b`
 - Backup and restore: 2026-09-27, `docs/DEMO_BACKUP.md`, `e0107b5`
 - Web-first install: 2026-09-29, `docs/DEMO_INSTALL.md`, `d5fd31f`
+- Help pages (guides, search, written answers): 2026-09-30, `docs/DEMO_HELP.md`, `d347363`
 - Phase 1E (admin portal, setup wizard, passkeys, company sign-in, phone-line screens): 2026-09-30, `docs/DEMO_PHASE1E.md`, `e9a9795`
 
 Now (2026-09-30):
 - Phase 1E demo fixes, all done and pushed: current password checked first + "type it again" everywhere (`8b53bbe`); emails changeable by admins and by each person (`37f7e06`); first admin's email asked on its own with the system-admin note (`e63a2b4`); certificate step about 80 s faster, wait counted on the page (`e04db9b`); Linx's own call messages in one open voice, ADR-065 (`b9b6a11`).
 - Help step 3, written answers (2026-09-30, `docs/HELP.md` §7 "As built"): **owner decision: no Anthropic SDK** (it added 6.7 MB, +23%, to the control plane; direct HTTPS adds 0.1 MB). Ollama only over `https://` (security rule), behind the admin's proxy.
-- Help step 4 (2026-09-30): security review done, 4 fixes (`docs/HELP.md` §7 step 4): the provider's own error text only for the admin's Test and the log, answers cut at 32 KB by Linx, a slow model gets the full 30 s before its first reply, no buffering at nginx front doors. **Next: the owner runs `docs/DEMO_HELP.md` on home.mym.ae** (needs an Anthropic API key for §6).
+- Help step 4 (2026-09-30): security review done, 4 fixes (`docs/HELP.md` §7 step 4): the provider's own error text only for the admin's Test and the log, answers cut at 32 KB by Linx, a slow model gets the full 30 s before its first reply, no buffering at nginx front doors. **Help (steps 1–4) complete, demo passed and approved by the owner 2026-09-30** (`docs/DEMO_HELP.md`).
 - Owner's "speed up how we work" request (2026-09-30): measurements, this trim, the test guide below. **CI speed-ups approved and done 2026-09-30:** image builds and scans start at once; call suite, install suite and the browser suite (one job per front door, `TestCIRunsEveryFrontDoor` keeps that list complete) run side by side; publishing (`publish`, `asterisk-push` → `asterisk-publish`) waits for every test, scan and suite. Nothing removed.
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
-1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Steps 1 (guides + checks), 2 (Help screen, search, **?** button, public sign-in help) and 3 (written answers: Anthropic/OpenAI-compatible/Ollama, sealed key, limits, System → Settings card) done 2026-09-30; step 4 review done 2026-09-30; next: the owner runs the demo, `docs/DEMO_HELP.md`.
+1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Steps 1 (guides + checks), 2 (Help screen, search, **?** button, public sign-in help) and 3 (written answers: Anthropic/OpenAI-compatible/Ollama, sealed key, limits, System → Settings card) done 2026-09-30; step 4 review done 2026-09-30; **demo passed and approved 2026-09-30**. Done.
 2. Phase 1F: front doors + DNS (`docs/SIMPLER.md` §2–3), public port (advanced) (`docs/SIMPLER.md` §2.5, ADR-064; build after the front-door card), email (password reset, below), ring groups, office hours, full inbound wizard, voicemail, CDR, undo.
 3. Portainer note on the rented extras page.
+4. Light/dark toggle on every page (owner, 2026-09-30, during the Help demo): switch the app's appearance by hand (Light / Dark / follow the device), not only via the device setting. Do after the Help demo.
 
 Open notes:
 - **Test VPS (64.177.45.141, `vps.mym.ae`, 1 core 1.9 GB):** kept for the next phases' demos; the owner is reinstalling it with **Debian 13** (same IP, user `linx`). Old host key removed from `~/.ssh/known_hosts`; check SSH key access and passwordless sudo again before using it (on Debian `sudo` may need installing).
