@@ -35,7 +35,7 @@ Finished (each demo passed and approved by the owner):
 
 Now (2026-09-30):
 - Phase 1E demo fixes, all done and pushed: current password checked first + "type it again" everywhere (`8b53bbe`); emails changeable by admins and by each person (`37f7e06`); first admin's email asked on its own with the system-admin note (`e63a2b4`); certificate step about 80 s faster, wait counted on the page (`e04db9b`); Linx's own call messages in one open voice, ADR-065 (`b9b6a11`).
-- Owner's "speed up how we work" request (2026-09-30): measurements, this trim, the test guide below; **CI speed-ups await owner approval** (don't change `.github/workflows/ci.yml` before).
+- Owner's "speed up how we work" request (2026-09-30): measurements, this trim, the test guide below. **CI speed-ups approved and done 2026-09-30:** image builds and scans start at once; call suite, install suite and the browser suite (one job per front door, `TestCIRunsEveryFrontDoor` keeps that list complete) run side by side; publishing (`publish`, `asterisk-push` → `asterisk-publish`) waits for every test, scan and suite. Nothing removed.
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
 1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7, not started).

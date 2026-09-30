@@ -77,14 +77,14 @@ jobs:
           format: spdx-json
           artifact-name: linx-source.spdx.json
 
+  # Builds and scans every image while the tests run (owner-approved CI
+  # speed-up, 2026-09-30). Nothing is pushed here: publishing is its own
+  # job at the end, which waits for every test, scan and suite.
   images:
-    needs: [test, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
-      packages: write # push to ghcr.io (master only)
-      id-token: write # keyless cosign signing (master only)
     strategy:
       fail-fast: false
       matrix:
@@ -95,9 +95,6 @@ jobs:
           - { service: coturn, dockerfile: deploy/docker/coturn.Dockerfile, build-args: "" }
           # Brings up WireGuard tunnels for phone lines (ADR-046).
           - { service: wireguard, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=wireguard" }
-    env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/linx-${{ matrix.service }}
-      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -125,25 +122,9 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-      - name: Image tags
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=sha,format=long
-            type=raw,value=edge,enable={{is_default_branch}}
-
-      - name: Log in to GitHub Container Registry
-        if: env.PUBLISH == 'true'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build multi-arch image (push on master)
-        id: build
+      # Both architectures on every push (arm64 still has to build on a
+      # branch); cached so the publish job below rebuilds nothing.
+      - name: Build multi-arch image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -153,57 +134,34 @@ jobs:
             ${{ matrix.build-args }}
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
-          push: ${{ env.PUBLISH == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          sbom: true
-          provenance: mode=max
-          cache-from: type=gha,scope=${{ matrix.service }}
-
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        if: env.PUBLISH == 'true'
-        with:
-          cosign-release: v3.1.3
-
-      - name: Sign image (keyless, by digest)
-        if: env.PUBLISH == 'true'
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+          push: false
+          cache-from: type=gha,scope=${{ matrix.service }}-all
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-all
 
   # linx-asterisk compiles Asterisk from source (deploy/docker/asterisk.Dockerfile);
   # QEMU-emulating that for arm64 on the amd64 runner above took 50+ minutes
   # for that leg alone. Each architecture instead builds natively on its own
-  # runner and the two are merged into one multi-arch manifest below.
+  # runner (here, and again from the cache in asterisk-push) and the two
+  # are merged into one multi-arch manifest by asterisk-publish.
   asterisk-build:
     name: images (asterisk, ${{ matrix.arch }})
-    needs: [test, security]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     permissions:
       contents: read
-      packages: write # push to ghcr.io by digest (master only)
     strategy:
       fail-fast: false
       matrix:
         include:
           - { runner: ubuntu-24.04, arch: amd64 }
           - { runner: ubuntu-24.04-arm, arch: arm64 }
-    env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/linx-asterisk
-      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # Always built for amd64 (Trivy needs a local image); for arm64 only
-      # on a PR/branch build, to check it still compiles — on master this
-      # arch goes straight to the push-by-digest build below instead of
-      # building it twice.
       - name: Build local image
-        if: matrix.arch == 'amd64' || env.PUBLISH != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -224,35 +182,78 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-      # The phone engine's call suite (docs/PBX.md §7) against the image just
-      # built: real Asterisk and Postgres, SIPp phones over TLS + SRTP, and
-      # the control plane's ARI app (internal/calltest). The test job's
-      # `make test-docker` skips it, having no Asterisk image.
+  # The phone engine's call suite (docs/PBX.md §7) against the Asterisk
+  # image asterisk-build just made (loaded here from its cache): real
+  # Asterisk and Postgres, SIPp phones over TLS + SRTP, and the control
+  # plane's ARI app (internal/calltest). The test job's `make test-docker`
+  # skips it, having no Asterisk image.
+  calls:
+    name: call suite
+    needs: [asterisk-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Load the Asterisk image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/asterisk.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: linx-asterisk:amd64
+          cache-from: type=gha,scope=asterisk-amd64
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: matrix.arch == 'amd64'
         with:
           go-version-file: go.mod
           cache-dependency-path: go.mod
       # The call suite's WireGuard lines (docs/TRUNKS.md §7): the agent's
       # image, and the kernel module a container can't load itself.
       - name: Build linx-wireguard for the call suite
-        if: matrix.arch == 'amd64'
         run: make image SERVICE=wireguard
       - name: Load WireGuard
-        if: matrix.arch == 'amd64'
         run: sudo modprobe wireguard
       - name: Call suite
-        if: matrix.arch == 'amd64'
         env:
           LINX_ASTERISK_IMAGE: linx-asterisk:amd64
         run: make test-calls
 
-      # The web client's browser call suite (docs/WEB.md §8 step 5): the
-      # whole compose stack with this Asterisk image and local builds of the
-      # control plane (with the web client) and coturn, two headless
-      # Chromiums in Playwright's container (internal/browsertest).
-      - name: Build control plane for the browser suite
-        if: matrix.arch == 'amd64'
+  # The web client's browser call suite (docs/WEB.md §8 step 5): the whole
+  # compose stack with the Asterisk, control plane (with the web client)
+  # and coturn images built above, two headless Chromiums in Playwright's
+  # container (internal/browsertest). One job per front door, side by
+  # side; TestCIRunsEveryFrontDoor fails if a door is missing here.
+  browser:
+    name: browser suite (${{ matrix.door }})
+    needs: [asterisk-build, images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        door: [pangolin, nginx, http-proxy, linx-443]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Load the Asterisk image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/asterisk.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: linx-asterisk:amd64
+          cache-from: type=gha,scope=asterisk-amd64
+      - name: Load the control plane image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -261,8 +262,7 @@ jobs:
           load: true
           tags: linx-control-plane:ci
           cache-from: type=gha,scope=control-plane
-      - name: Build coturn for the browser suite
-        if: matrix.arch == 'amd64'
+      - name: Load the coturn image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -271,43 +271,162 @@ jobs:
           load: true
           tags: linx-coturn:ci
           cache-from: type=gha,scope=coturn
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        if: matrix.arch == 'amd64'
         with:
           node-version-file: web/.nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Browser call suite
-        if: matrix.arch == 'amd64'
         env:
           LINX_ASTERISK_IMAGE: linx-asterisk:amd64
           LINX_CONTROL_PLANE_IMAGE: linx-control-plane:ci
           LINX_COTURN_IMAGE: linx-coturn:ci
+          LINX_FRONT_DOORS: ${{ matrix.door }}
         run: make setup-dev && make test-browser
 
-      # The web install (docs/INSTALL.md §4): the install page and the first
-      # certificate through port 443, with this control plane, a certd
-      # build and Pebble (Let's Encrypt's test server) in front of linx-sni.
+  # The web install (docs/INSTALL.md §4): the install page and the first
+  # certificate through port 443, with the control plane built above, a
+  # certd build and Pebble (Let's Encrypt's test server) in front of linx-sni.
+  install:
+    name: install suite
+    needs: [images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Load the control plane image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/control-plane.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: linx-control-plane:ci
+          cache-from: type=gha,scope=control-plane
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
       - name: Build certd for the install suite
-        if: matrix.arch == 'amd64'
         run: make image SERVICE=certd
       - name: Install suite
-        if: matrix.arch == 'amd64'
         env:
           LINX_CONTROL_PLANE_IMAGE: linx-control-plane:ci
         run: make test-install
 
+  # Publishing (master only) waits for everything above: tests, security,
+  # every scan and every suite. Images come from the builds' caches.
+  publish:
+    needs: [test, security, images, asterisk-build, calls, browser, install]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io
+      id-token: write # keyless cosign signing
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { service: control-plane, dockerfile: deploy/docker/control-plane.Dockerfile, build-args: "" }
+          - { service: certd, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=certd" }
+          - { service: coturn, dockerfile: deploy/docker/coturn.Dockerfile, build-args: "" }
+          - { service: wireguard, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=wireguard" }
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/linx-${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=edge,enable={{is_default_branch}}
+
       - name: Log in to GitHub Container Registry
-        if: env.PUBLISH == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push by digest (master only)
+      - name: Build and push multi-arch image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            ${{ matrix.build-args }}
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=${{ matrix.service }}-all
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Sign image (keyless, by digest)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+  # Asterisk's push, per architecture on its own runner, from asterisk-build's
+  # cache; also waits for everything.
+  asterisk-push:
+    name: push (asterisk, ${{ matrix.arch }})
+    needs: [test, security, images, asterisk-build, calls, browser, install]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io by digest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/linx-asterisk
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push by digest
         id: push
-        if: env.PUBLISH == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -322,14 +441,12 @@ jobs:
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
-        if: env.PUBLISH == 'true'
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.push.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
-        if: env.PUBLISH == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: asterisk-digest-${{ matrix.arch }}
@@ -338,10 +455,10 @@ jobs:
           retention-days: 1
 
   # Combines the two single-arch digests above into one multi-arch manifest
-  # and signs it — mirrors the "images" job's tag/sign steps for the other
+  # and signs it — mirrors the "publish" job's tag/sign steps for the other
   # services, just split because the build itself is split across runners.
   asterisk-publish:
-    needs: [asterisk-build]
+    needs: [asterisk-push]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
