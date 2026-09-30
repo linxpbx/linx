@@ -245,6 +245,14 @@ install:
   finished_at: %q
 `, c.Install.Where, c.Install.TermsAgreedAt, c.Install.FinishedAt)
 	}
+	if c.Database.Image != "" {
+		fmt.Fprintf(&b, `# The database's image, chosen by setup the first time: alpine (new installs)
+# or debian (a database made before Alpine; it moves by restoring a backup
+# onto a fresh install). Don't change it by hand: see docs/RESOURCES.md §2.
+database:
+  image: %s
+`, c.Database.Image)
+	}
 	return b.Bytes()
 }
 

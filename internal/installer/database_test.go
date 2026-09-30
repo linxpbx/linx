@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -34,6 +35,11 @@ func TestDecideDatabaseImage(t *testing.T) {
 	}
 	if env := string(stackDotEnv(old, "abc", LAN{})); !strings.Contains(env, "LINX_POSTGRES_IMAGE="+db.PostgresImageDebian+"\n") {
 		t.Errorf(".env doesn't name the Debian image:\n%s", env)
+	}
+	// Saved, and read back the same.
+	back, err := ParseConfig(bytes.NewReader(old.Marshal()))
+	if err != nil || back.Database.Image != DatabaseDebian {
+		t.Errorf("setup.yaml round trip: %+v, %v", back.Database, err)
 	}
 	bad := DefaultConfig()
 	bad.Database.Image = "ubuntu"
