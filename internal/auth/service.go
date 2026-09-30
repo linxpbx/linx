@@ -1197,17 +1197,8 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 	if !u.HasPassword() {
 		return a.addPassword(ctx, u, newPassword, now)
 	}
-	// A wrong current password draws on the same per-address budget as a
-	// wrong sign-in, so a borrowed session can't be used to guess it.
-	ipKey := IPKey(ClientIPFromContext(ctx))
-	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
-		return tooManyFailuresErr()
-	}
-	if !VerifyPassword(u.PasswordHash, currentPassword) {
-		if a.Failures != nil {
-			a.Failures.Allow(ipKey, now)
-		}
-		return &apihttp.Error{Status: http.StatusUnauthorized, Code: "password_invalid", Detail: "Your current password is incorrect."}
+	if err := a.verifyCurrentPassword(ctx, u, currentPassword, now); err != nil {
+		return err
 	}
 	if err := CheckPasswordPolicy(newPassword); err != nil {
 		return badRequest("password_invalid", err.Error())
@@ -1225,6 +1216,51 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 	}
 	a.sessionsEnded(ctx, u.ID, nil)
 	return nil
+}
+
+// verifyCurrentPassword checks the signed-in person's current password. A
+// wrong one draws on the same per-address budget as a wrong sign-in, so a
+// borrowed session can't be used to guess it.
+func (a *Accounts) verifyCurrentPassword(ctx context.Context, u User, password string, now time.Time) error {
+	ipKey := IPKey(ClientIPFromContext(ctx))
+	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
+		return tooManyFailuresErr()
+	}
+	if !VerifyPassword(u.PasswordHash, password) {
+		if a.Failures != nil {
+			a.Failures.Allow(ipKey, now)
+		}
+		return &apihttp.Error{Status: http.StatusUnauthorized, Code: "password_invalid", Detail: "Your current password is incorrect."}
+	}
+	return nil
+}
+
+// CheckCurrentPassword tells the Change password dialog whether the current
+// password is right before it asks for a new one (owner, Phase 1E demo).
+// It changes nothing; ChangePassword checks it again.
+func (a *Accounts) CheckCurrentPassword(ctx context.Context, password string) error {
+	caller, ok := PrincipalFromContext(ctx)
+	if !ok {
+		return errNoPrincipalAuth
+	}
+	if caller.Type != TypeUser {
+		return notASession()
+	}
+	if caller.Pending {
+		return mfaVerifyFirst()
+	}
+	uid, err := uuid.Parse(caller.ID)
+	if err != nil {
+		return err
+	}
+	u, err := a.Store.User(ctx, caller.TenantID, uid)
+	if err != nil {
+		return err
+	}
+	if !u.HasPassword() {
+		return badRequest("no_password", "You don't have a password yet: add one instead.")
+	}
+	return a.verifyCurrentPassword(ctx, u, password, a.Now().UTC())
 }
 
 // addPassword gives a passkey-only account a password ("Add a password" in

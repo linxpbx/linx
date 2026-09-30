@@ -568,6 +568,11 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     }
     if (p === "/api/v1/session/confirm" && method === "POST") { system.confirmed = true; return route.fulfill({ status: 204 }); }
     if (p === "/api/v1/audit-log" && method === "GET") return route.fulfill(json({ items: system.audit }));
+    if (p === "/api/v1/me/password/check" && method === "POST") {
+      const body = route.request().postDataJSON() as { password: string };
+      return route.fulfill(body.password === "correct horse battery" ? { status: 204 }
+        : json({ type: "about:blank", title: "Unauthorized", status: 401, code: "password_invalid", detail: "Your current password is incorrect." }, 401));
+    }
     if (p === "/api/v1/me/sessions" && method === "GET") return route.fulfill(json({ items: system.sessions }));
     if (p === "/api/v1/me/sessions/sign-out-others" && method === "POST") {
       system.sessions = system.sessions.filter((x) => x.current);

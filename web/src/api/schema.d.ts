@@ -1550,6 +1550,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/password/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check my current password
+         * @description Whether the current password is right, before the Change password dialog asks for a new one. Changes nothing; a wrong one counts toward the same guessing limit as a wrong sign-in (401 `password_invalid`, 429 when too many).
+         */
+        post: operations["checkMyPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/sessions": {
         parameters: {
             query?: never;
@@ -6738,6 +6758,31 @@ export interface operations {
         };
         responses: {
             /** @description Changed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    checkMyPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description It's right. */
             204: {
                 headers: {
                     [name: string]: unknown;

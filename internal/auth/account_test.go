@@ -1313,3 +1313,33 @@ func apiErrCode(err error) string {
 	}
 	return ""
 }
+
+// Change password asks for the current one first: right → nothing changes,
+// wrong → counted like a wrong sign-in.
+func TestCheckCurrentPassword(t *testing.T) {
+	a, st, _ := newTestAccounts(t)
+	tenant := uuid.New()
+	hash, err := HashPassword("the current passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := User{ID: uuid.New(), TenantID: tenant, Email: "p@example.com", Name: "P", Role: RoleUser, PasswordHash: hash}
+	st.users[u.ID] = u
+	sess := UserSession{ID: uuid.New(), TenantID: tenant, UserID: u.ID, Role: RoleUser, MFAVerified: true}
+	ctx := WithSession(WithPrincipal(context.Background(), sess.Principal()), sess)
+	if err := a.CheckCurrentPassword(ctx, "the current passphrase"); err != nil {
+		t.Fatalf("right password: %v", err)
+	}
+	if err := a.CheckCurrentPassword(ctx, "not it at all, sorry"); apiErrCode(err) != "password_invalid" {
+		t.Fatalf("wrong password: %v", err)
+	}
+	for i := 0; i < FailedAuthPerMinute+1; i++ {
+		_ = a.CheckCurrentPassword(ctx, "guess number something")
+	}
+	if err := a.CheckCurrentPassword(ctx, "the current passphrase"); err == nil {
+		t.Error("guessing wasn't limited: even the right password should wait now")
+	}
+	if st.users[u.ID].PasswordHash != hash {
+		t.Error("checking changed the password")
+	}
+}

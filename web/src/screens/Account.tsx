@@ -4,7 +4,7 @@
 // adding a password to a passkey-only account, and linking company
 // accounts. The rest of the page comes with step 8.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Building2, KeyRound, Smartphone, TriangleAlert } from "lucide-react";
+import { Building2, Check, KeyRound, Smartphone, TriangleAlert } from "lucide-react";
 import { api, problemCode, problemMessage, type Me } from "@/api/client";
 import { needsConfirm, useConfirmIdentity, type Outcome } from "@/components/ConfirmIdentity";
 import { Button } from "@/components/ui/button";
@@ -393,10 +393,24 @@ function RemoveDialog({ passkey, me, last, run, onClose, onDone }: {
 }
 
 function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+  // Step 1 checks the current password; only then does step 2 ask for the
+  // new one (owner, Phase 1E demo). The change checks it again.
   const [current, setCurrent] = useState("");
+  const [checked, setChecked] = useState(false);
   const [next, setNext] = useState("");
+  const [again, setAgain] = useState("");
+  const mismatch = again.length > 0 && again !== next;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const check = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const { response, error: err } = await api.POST("/api/v1/me/password/check", { body: { password: current } });
+    setBusy(false);
+    if (!response.ok) { setError(problemMessage(err)); return; }
+    setChecked(true);
+  };
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -414,17 +428,30 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
           <DialogTitle>Change your password</DialogTitle>
           <DialogDescription>Then you sign in again, everywhere, with the new one. Your passkeys and authenticator app don't change.</DialogDescription>
         </DialogHeader>
-        <form id="change-password" onSubmit={(e) => void submit(e)} className="flex flex-col gap-2">
-          <Label htmlFor="current-pw">Current password</Label>
-          <Input id="current-pw" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus disabled={busy} />
-          <Label htmlFor="changed-pw" className="mt-2">New password</Label>
-          <Input id="changed-pw" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} disabled={busy} />
-          <p className="text-sm text-muted-foreground">At least 12 characters. A few unrelated words work well.</p>
-          {error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}
-        </form>
+        {!checked ? (
+          <form id="change-password" onSubmit={(e) => void check(e)} className="flex flex-col gap-2">
+            <Label htmlFor="current-pw">Current password</Label>
+            <Input id="current-pw" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus disabled={busy} />
+            {error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}
+          </form>
+        ) : (
+          <form id="change-password" onSubmit={(e) => void submit(e)} className="flex flex-col gap-2">
+            <p className="flex items-center gap-2 text-sm text-status-available"><Check aria-hidden="true" className="size-4" /> Current password is right.</p>
+            <Label htmlFor="changed-pw" className="mt-2">New password</Label>
+            <Input id="changed-pw" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} autoFocus disabled={busy} />
+            <p className="text-sm text-muted-foreground">At least 12 characters. A few unrelated words work well.</p>
+            <Label htmlFor="changed-pw-again" className="mt-2">Type it again</Label>
+            <Input id="changed-pw-again" type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)}
+              disabled={busy} aria-invalid={mismatch || undefined} />
+            {mismatch && <p className="text-sm text-muted-foreground">The two passwords don't match yet.</p>}
+            {error && <p role="alert" className="text-sm font-medium text-destructive">{error}</p>}
+          </form>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button type="submit" form="change-password" disabled={busy || !current || next.length < 12}>Change password</Button>
+          {!checked
+            ? <Button type="submit" form="change-password" disabled={busy || !current}>Next</Button>
+            : <Button type="submit" form="change-password" disabled={busy || next.length < 12 || again !== next}>Change password</Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -482,9 +509,11 @@ function BrowsersSection() {
 function AddPasswordDialog({ run, onClose, onDone }:
   { run: (a: () => Promise<Outcome>) => Promise<void>; onClose: () => void; onDone: () => void }) {
   const [password, setPassword] = useState("");
+  const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const short = password.length < 12;
+  const mismatch = again.length > 0 && again !== password;
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void run(async () => {
@@ -510,11 +539,15 @@ function AddPasswordDialog({ run, onClose, onDone }:
           <Input id="new-pw" type="password" autoComplete="new-password" value={password}
             onChange={(e) => setPassword(e.target.value)} autoFocus disabled={busy} />
           <p className="text-sm text-muted-foreground">At least 12 characters. A few unrelated words work well.</p>
+          <Label htmlFor="new-pw-again" className="mt-2">Type it again</Label>
+          <Input id="new-pw-again" type="password" autoComplete="new-password" value={again}
+            onChange={(e) => setAgain(e.target.value)} disabled={busy} aria-invalid={mismatch || undefined} />
+          {mismatch && <p className="text-sm text-muted-foreground">The two passwords don't match yet.</p>}
           {error && <p role="alert" className="text-sm font-medium">{error}</p>}
         </form>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button type="submit" form="add-password" disabled={busy || short}>Save password</Button>
+          <Button type="submit" form="add-password" disabled={busy || short || again !== password}>Save password</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -148,6 +148,17 @@ func (s *Server) ChangeMyPassword(ctx context.Context, req ChangeMyPasswordReque
 	return ChangeMyPassword204Response{}, nil
 }
 
+func (s *Server) CheckMyPassword(ctx context.Context, req CheckMyPasswordRequestObject) (CheckMyPasswordResponseObject, error) {
+	if err := s.accounts.CheckCurrentPassword(ctx, req.Body.Password); err != nil {
+		e, err := apiError(err)
+		if e == nil {
+			return nil, err
+		}
+		return CheckMyPassworddefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	return CheckMyPassword204Response{}, nil
+}
+
 func (s *Server) ListMySessions(ctx context.Context, _ ListMySessionsRequestObject) (ListMySessionsResponseObject, error) {
 	list, err := s.accounts.MySessions(ctx)
 	if err != nil {

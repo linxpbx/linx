@@ -160,6 +160,20 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("status")).toHaveText("Linked.");
       await expect(page.getByText("Safari on iPhone")).toBeVisible();
       await shot(page, `${scheme}-account`);
+      // Change password: the current one is checked before the new one is asked.
+      await page.getByRole("button", { name: "Change", exact: true }).click();
+      await expect(page.getByLabel("New password")).toHaveCount(0);
+      await page.getByLabel("Current password").fill("a wrong guess here");
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByRole("alert")).toHaveText("Your current password is incorrect.");
+      await page.getByLabel("Current password").fill("correct horse battery");
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByLabel("New password").fill("a brand new passphrase");
+      await page.getByLabel("Type it again").fill("a brand new passfrase");
+      await expect(page.getByText("The two passwords don't match yet.")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Change password" })).toBeDisabled();
+      await shot(page, `${scheme}-account-change-password`);
+      await page.getByRole("button", { name: "Cancel" }).click();
       await page.getByRole("button", { name: "Remove" }).first().click();
       await expect(page.getByRole("dialog")).toBeVisible();
       await shot(page, `${scheme}-account-remove-passkey`);

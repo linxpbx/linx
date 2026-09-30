@@ -643,12 +643,14 @@ function PasskeyDone({ codes, onDone, offerPassword }: { codes?: string[]; onDon
 
 function AddPasswordForm({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState("");
+  const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const short = password.length < MIN_PASSWORD;
+  const mismatch = again.length > 0 && again !== password;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (short) return;
+    if (short || again !== password) return;
     setBusy(true);
     setError("");
     const { response, error: err } = await api.POST("/api/v1/me/password", { body: { new_password: password } });
@@ -665,8 +667,14 @@ function AddPasswordForm({ onDone }: { onDone: () => void }) {
             onChange={(e) => setPassword(e.target.value)} className="h-11" autoFocus disabled={busy} />
           <p className="text-sm text-muted-foreground">At least {MIN_PASSWORD} characters.</p>
         </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="add-password-again">Type it again</Label>
+          <Input id="add-password-again" type="password" autoComplete="new-password" value={again}
+            onChange={(e) => setAgain(e.target.value)} className="h-11" disabled={busy} aria-invalid={mismatch || undefined} />
+          {mismatch && <p className="text-sm text-muted-foreground">The two passwords don't match yet.</p>}
+        </div>
         <FormError message={error} />
-        <Submit busy={busy} disabled={short}>Save password</Submit>
+        <Submit busy={busy} disabled={short || again !== password}>Save password</Submit>
         <button type="button" className="text-sm text-link underline-offset-4 hover:underline" onClick={onDone}>Skip for now</button>
       </form>
     </Card>

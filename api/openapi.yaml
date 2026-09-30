@@ -2595,6 +2595,33 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/me/password/check:
+    post:
+      operationId: checkMyPassword
+      summary: Check my current password
+      description: >-
+        Whether the current password is right, before the Change password
+        dialog asks for a new one. Changes nothing; a wrong one counts
+        toward the same guessing limit as a wrong sign-in (401
+        `password_invalid`, 429 when too many).
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        "204":
+          description: It's right.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/me/sessions:
     get:
       operationId: listMySessions
