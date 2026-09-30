@@ -232,6 +232,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/dns-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The DNS records to add by hand, checked
+         * @description The DNS records this server needs (docs/SIMPLER.md §3.1): the domain and `turn.` at the address people outside reach (this network's public address; this server's own at home only), and `sip.` at this server's home-network address when it's at home. Each is checked at the domain's own name servers, so no cache is in the way. The DNS company is told from those name servers when it's one Linx knows. Takes up to about 10 s; runs only when asked.
+         */
+        get: operations["getDnsRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/reach-links": {
         parameters: {
             query?: never;
@@ -4056,6 +4076,34 @@ export interface components {
             /** Format: date-time */
             checked_at: string;
         };
+        DnsRecords: {
+            domain: string;
+            /** @description Where the records live ("example.com" for "pbx.example.com"); empty when its name servers couldn't be found. */
+            zone: string;
+            name_servers: string[];
+            /** @description The DNS company the name servers belong to; empty when Linx doesn't know it. */
+            company: string;
+            records: {
+                /**
+                 * @description web: the web app and sign-in; turn: call audio through firewalls; sip: desk phones and phone systems at home.
+                 * @enum {string}
+                 */
+                use: "web" | "turn" | "sip";
+                name: string;
+                /** @enum {string} */
+                type: "A";
+                /** @description The address it should point at; empty when this network's public address couldn't be found. */
+                value: string;
+                /** @enum {string} */
+                state: "ok" | "wrong" | "missing" | "error" | "unknown";
+                /** @description What the domain's name servers answer now. */
+                seen: string[];
+                /** @description Linx keeps this record right itself (a DNS token). */
+                kept: boolean;
+            }[];
+            /** Format: date-time */
+            checked_at: string;
+        };
         ReachLink: {
             /** Format: uuid */
             id: string;
@@ -4794,6 +4842,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReachCheck"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getDnsRecords: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The records. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DnsRecords"];
                 };
             };
             default: components["responses"]["Problem"];

@@ -45,6 +45,10 @@ func (f *fakeCert) Prepare(context.Context, CertView) error {
 	f.prepared++
 	return f.prepareErr
 }
+func (f *fakeCert) NameServers(context.Context, string) (string, []string, error) {
+	return "example.com", []string{"ada.ns.cloudflare.com", "bob.ns.cloudflare.com"}, nil
+}
+
 func (f *fakeCert) Lookup(context.Context, string) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -115,7 +119,7 @@ func TestCertificateThroughPort443(t *testing.T) {
 	r, cookie := certRig(t, fake)
 
 	waitFor(t, func() bool { return r.cert().DNS.State == DNSWrong })
-	if c := r.cert(); c.Prepare.State != StageOK || c.AddRecords[1].Value != "203.0.113.5" || c.Reach.State != "" || !c.DNS.CheckedAt.After(time.Time{}) {
+	if c := r.cert(); c.Prepare.State != StageOK || c.AddRecords[1].Value != "203.0.113.5" || c.Reach.State != "" || !c.DNS.CheckedAt.After(time.Time{}) || c.DNS.Company != "Cloudflare" || c.DNS.Zone != "example.com" {
 		t.Fatalf("waiting for DNS: %+v", c)
 	}
 	// The page sees it too.

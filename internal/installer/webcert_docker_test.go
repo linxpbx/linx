@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -344,6 +345,12 @@ func (d *dockerCertifier) Plan(_ context.Context, _ install.Answers, f install.F
 func (d *dockerCertifier) Prepare(context.Context, install.CertView) error { return nil }
 func (d *dockerCertifier) Lookup(ctx context.Context, name string) ([]string, error) {
 	return d.dns.LookupA(ctx, name)
+}
+
+// NameServers: the test's DNS server answers for every name, so there's no
+// company to tell.
+func (d *dockerCertifier) NameServers(context.Context, string) (string, []string, error) {
+	return "", nil, errors.New("no name servers in this test")
 }
 func (d *dockerCertifier) Obtain(ctx context.Context, staging bool) error {
 	mode := "real"

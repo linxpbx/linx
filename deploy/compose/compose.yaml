@@ -120,6 +120,9 @@ services:
       LINX_SIP_ADDRESS: ${LINX_SIP_ADDRESS:-}
       LINX_SERVER_ID: ${LINX_SERVER_ID:-}
       LINX_FRONT_DOOR: ${LINX_FRONT_DOOR:-}
+      # The records linx-certd keeps right, so the DNS records card says
+      # which ones need nothing (docs/SIMPLER.md §3.1).
+      LINX_DNS_RECORDS: ${LINX_DNS_RECORDS:-}
       # The front door (docs/WEB.md §3): the only peers that may, and must,
       # send the visitor's address in a PROXY protocol header on 8443
       # (Pangolin's address, or linx-sni); set by linx setup.

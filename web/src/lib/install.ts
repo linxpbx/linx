@@ -82,7 +82,11 @@ export interface CertView {
   /** The DNS records to add by hand: the domain itself and turn. */
   add_records?: DNSRecord[];
   setup?: { files?: SetupFile[]; steps?: string[]; card?: DoorCard; done?: boolean };
-  dns: { state?: DNSState; names?: { name: string; state: DNSState; seen?: string[] }[]; checked_at?: string };
+  dns: {
+    state?: DNSState; names?: { name: string; state: DNSState; seen?: string[] }[]; checked_at?: string;
+    /** Where the records go, told by the domain's name servers; company "" when Linx doesn't know it. */
+    zone?: string; name_servers?: string[]; company?: string;
+  };
   prepare: Stage;
   reach: Stage;
   records: Stage;

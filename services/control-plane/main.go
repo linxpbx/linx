@@ -425,7 +425,7 @@ func main() {
 		Client: safehttp.NewClient(policy, safehttp.Options{Timeout: helpanswers.AnswerTimeout + 5*time.Second})}
 	// linx-certd's certificate, for the HTTPS port below and Check it.
 	cert := &certs.ServingCert{Dir: envOr(os.Getenv, "LINX_CERTS_DIR", defaultCertsDir)}
-	reachCheck, reachLinks := newReach(os.Getenv, cert, turnIssuer, ips)
+	reachChecker, reachLinks := newReach(os.Getenv, cert, turnIssuer, ips)
 	var apiServer *controlplaneapi.Server
 	apiHandler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, st, tracker, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, backups,
 		func(s *controlplaneapi.Server) {
@@ -433,7 +433,8 @@ func main() {
 			s.SetServerSettings(serverSettings)
 			s.SetMoved(movedSvc)
 			s.SetHelpAnswers(helpAnswers)
-			s.SetReach(reachCheck, reachLinks)
+			s.SetReach(reachChecker.Run, reachLinks)
+			s.SetDNSRecords(reachChecker.Records)
 			s.SetOps(opsHub, st.Audit, func() time.Time {
 				if sec := certExpiry.Load(); sec > 0 {
 					return time.Unix(sec, 0)

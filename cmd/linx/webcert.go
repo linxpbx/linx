@@ -54,6 +54,10 @@ func (w *webCert) Lookup(ctx context.Context, name string) ([]string, error) {
 	return w.dns.LookupA(ctx, name)
 }
 
+func (w *webCert) NameServers(ctx context.Context, name string) (string, []string, error) {
+	return w.dns.NameServers(ctx, name)
+}
+
 func (w *webCert) Obtain(ctx context.Context, staging bool) error {
 	mode := "real"
 	if staging {

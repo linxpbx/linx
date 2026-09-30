@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"linxpbx.com/linx/internal/certs"
+	"linxpbx.com/linx/internal/dnscheck"
 )
 
 // The certificate page (docs/INSTALL.md §4, docs/ui/INSTALL_SCREENS.md
@@ -137,9 +138,14 @@ type SetupFile struct {
 // DNSCheck is the last look at the records to add: State is DNSOK once
 // every one points here, else the first one's that doesn't.
 type DNSCheck struct {
-	State     string      `json:"state,omitempty"`
-	Names     []NameCheck `json:"names,omitempty"`
-	CheckedAt time.Time   `json:"checked_at,omitzero"`
+	State string `json:"state,omitempty"`
+	// Zone, NameServers and Company: where the records go, found once
+	// (docs/SIMPLER.md §3.1); Company is "" when Linx doesn't know it.
+	Zone        string      `json:"zone,omitempty"`
+	NameServers []string    `json:"name_servers,omitempty"`
+	Company     string      `json:"company,omitempty"`
+	Names       []NameCheck `json:"names,omitempty"`
+	CheckedAt   time.Time   `json:"checked_at,omitzero"`
 }
 
 // NameCheck is what one name points at right now.
@@ -169,6 +175,8 @@ type Certifier interface {
 	// Lookup is name's addresses as the domain's own name servers give
 	// them (empty when there's no record).
 	Lookup(ctx context.Context, name string) ([]string, error)
+	// NameServers is the zone name is in and its name servers.
+	NameServers(ctx context.Context, name string) (zone string, servers []string, err error)
 	// Obtain gets the certificate through port 443: the test one only
 	// proves it works, the real one is deployed.
 	Obtain(ctx context.Context, staging bool) error
@@ -305,7 +313,12 @@ func (h *Host) certStep(ctx context.Context) {
 	}
 
 	// Port 443: DNS first, every name looked at on every step.
-	dns := DNSCheck{State: DNSOK}
+	dns := DNSCheck{State: DNSOK, Zone: c.DNS.Zone, NameServers: c.DNS.NameServers, Company: c.DNS.Company}
+	if dns.Zone == "" {
+		if zone, ns, err := h.Cert.NameServers(ctx, c.Domain); err == nil {
+			dns.Zone, dns.NameServers, dns.Company = zone, ns, dnscheck.Company(ns)
+		}
+	}
 	var names []string
 	for _, r := range c.AddRecords {
 		seen, err := h.Cert.Lookup(ctx, r.Name)

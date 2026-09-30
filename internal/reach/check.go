@@ -80,6 +80,12 @@ type Checker struct {
 	TURNSecret []byte
 	// Lookup asks the domain's own name servers (dnscheck.Resolver.LookupA).
 	Lookup func(ctx context.Context, name string) ([]string, error)
+	// NameServers finds the domain's zone and name servers
+	// (dnscheck.Resolver.NameServers).
+	NameServers func(ctx context.Context, name string) (zone string, servers []string, err error)
+	// Kept are the records Linx keeps right itself, by use (UseWeb…), from
+	// LINX_DNS_RECORDS.
+	Kept map[string]bool
 	// PublicIP is this network's public address (publicip.Lookup).
 	PublicIP func(ctx context.Context) (netip.Addr, error)
 	// Dial connects (net.Dialer.DialContext; tests replace it).

@@ -37,6 +37,8 @@ type Server struct {
 	reachCheck func(context.Context) []reach.Line
 	reachLinks *reach.Links
 	reachLimit *auth.Limiters
+	// The DNS records by hand (reach.go).
+	dnsRecords func(context.Context) reach.Records
 
 	spec      *openapi3.T
 	store     CredentialStore

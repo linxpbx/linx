@@ -726,6 +726,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Any DNS company works by hand; about 60 can be automated without Linx-specific code per company. Each added company adds a little to certd's image, so they're added on request, measured. Built in Phase 1F.
 
+**As built (by hand, Phase 1F step 4, 2026-09-30).** One records card (`DnsRecords.tsx`, `GET /system/dns-records`) in Server settings and Check it: each record checked at the domain's own name servers, the DNS company told from them (never asked), `sip.` only at home, and each record Linx already keeps right marked as such. The install page shows the company on its records step too.
+
 ## ADR-064 — Public port (advanced) behind a router or on a rented server (owner request and decisions 2026-09-29)
 
 **Context.** At home or in an office, public TCP 443 may already belong to something that can't pass Linx through by name, and there's no proxy. The router can forward another public port (e.g. 8443) to Linx's 443. docs/INSTALL.md §12 had parked this.

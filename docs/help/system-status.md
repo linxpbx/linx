@@ -29,7 +29,7 @@ When it runs out. It renews by itself 30 days before.
 
 **Check it** answers "can people outside reach Linx, and will their calls have audio?" in two halves:
 
-- **From this server**: your domain and `turn.` point at your address, your domain answers with Linx's own certificate through your front door, and `turn.` carries call audio through it. A ✗ line says what it means for people, with a link to the steps that fix it. Many home routers can't reach their own public address from inside; Linx then says so and leaves the rest to your phone.
+- **From this server**: your domain and `turn.` point at your address, your domain answers with Linx's own certificate through your front door, and `turn.` carries call audio through it. A ✗ line says what it means for people, with a link to the steps that fix it; for a name that points somewhere else, **Show the records** opens the list of DNS records to add, each checked at your domain's own name servers. Many home routers can't reach their own public address from inside; Linx then says so and leaves the rest to your phone.
 - **From outside**: scan the picture, or open the link, on your phone with Wi-Fi turned off. The phone's page shows the address Linx saw and tests call audio from there, and this page updates by itself: "Your phone reached Linx from …" and "Calls from outside will have audio". If Linx saw your own network's address, Wi-Fi was still on. If it saw your front door's address, the front door isn't telling Linx who's visiting (step 3 on the [front-door card](front-doors)).
 
 A link works once, for 10 minutes. **Check again** runs everything again with a new link. Only admins can use Check it. It's also in [Server settings](server-settings), under what's in front of the server.

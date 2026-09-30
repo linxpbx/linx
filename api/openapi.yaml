@@ -352,6 +352,31 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/system/dns-records:
+    get:
+      operationId: getDnsRecords
+      summary: The DNS records to add by hand, checked
+      description: >-
+        The DNS records this server needs (docs/SIMPLER.md §3.1): the domain
+        and `turn.` at the address people outside reach (this network's
+        public address; this server's own at home only), and `sip.` at this
+        server's home-network address when it's at home. Each is checked at
+        the domain's own name servers, so no cache is in the way. The DNS
+        company is told from those name servers when it's one Linx knows.
+        Takes up to about 10 s; runs only when asked.
+      tags: [settings]
+      security:
+        - bearer: [system:write]
+      responses:
+        "200":
+          description: The records.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DnsRecords"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/system/reach-links:
     post:
       operationId: createReachLink
@@ -6741,6 +6766,55 @@ components:
                 type: string
                 enum: [records, steps, router]
                 description: Which fix helps.
+        checked_at:
+          type: string
+          format: date-time
+
+    DnsRecords:
+      type: object
+      required: [domain, zone, name_servers, company, records, checked_at]
+      properties:
+        domain:
+          type: string
+        zone:
+          type: string
+          description: Where the records live ("example.com" for "pbx.example.com"); empty when its name servers couldn't be found.
+        name_servers:
+          type: array
+          items:
+            type: string
+        company:
+          type: string
+          description: The DNS company the name servers belong to; empty when Linx doesn't know it.
+        records:
+          type: array
+          items:
+            type: object
+            required: [use, name, type, value, state, seen, kept]
+            properties:
+              use:
+                type: string
+                enum: [web, turn, sip]
+                description: "web: the web app and sign-in; turn: call audio through firewalls; sip: desk phones and phone systems at home."
+              name:
+                type: string
+              type:
+                type: string
+                enum: [A]
+              value:
+                type: string
+                description: The address it should point at; empty when this network's public address couldn't be found.
+              state:
+                type: string
+                enum: [ok, wrong, missing, error, unknown]
+              seen:
+                type: array
+                items:
+                  type: string
+                description: What the domain's name servers answer now.
+              kept:
+                type: boolean
+                description: Linx keeps this record right itself (a DNS token).
         checked_at:
           type: string
           format: date-time

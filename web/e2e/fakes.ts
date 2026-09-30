@@ -51,7 +51,7 @@ export interface FakeOptions {
   phoneSystemDown?: boolean;
   // Check it (docs/SIMPLER.md §2.3): the phone link still waiting, or the
   // phone came (from outside, or with Wi-Fi still on) and tested the relay.
-  reach?: "waiting" | "reached" | "wifi";
+  reach?: "waiting" | "reached" | "wifi" | "wrong-dns";
   // System → Server settings (docs/INSTALL.md §7): open (sudo linx setup
   // has it open) at home or on a rented server; closed by default.
   serverSettings?: "home" | "rented";
@@ -454,12 +454,23 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     if (p === "/api/v1/system/reach-check" && method === "POST") {
       return route.fulfill(json({ checked_at: new Date().toISOString(), lines: [
         { state: "ok", text: "example.com points to 94.200.1.10 (your home's address)" },
-        { state: "ok", text: "turn.example.com points to 94.200.1.10 (your home's address)" },
+        opts.reach === "wrong-dns"
+          ? { state: "fail", text: "turn.example.com points to 94.200.1.9, not 94.200.1.10 (your home's address).",
+            meaning: "People outside are sent somewhere else.", fix: "records" }
+          : { state: "ok", text: "turn.example.com points to 94.200.1.10 (your home's address)" },
         { state: "ok", text: "example.com answers with Linx's certificate" },
         { state: "fail", text: "turn.example.com doesn't answer (connection refused).",
           meaning: "Your front door isn't sending turn.example.com to port 5349. Calls from outside will have no audio.", fix: "steps" },
         { state: "info", text: "Your router can't reach its own address from inside, so this server can't test the rest.", meaning: "Use your phone below." },
       ] }));
+    }
+    if (p === "/api/v1/system/dns-records" && method === "GET") {
+      return route.fulfill(json({ domain: "example.com", zone: "example.com", company: "Porkbun",
+        name_servers: ["curitiba.ns.porkbun.com", "maceio.ns.porkbun.com"], checked_at: new Date().toISOString(), records: [
+          { use: "web", name: "example.com", type: "A", value: "94.200.1.10", state: "ok", seen: ["94.200.1.10"], kept: false },
+          { use: "turn", name: "turn.example.com", type: "A", value: "94.200.1.10", state: "wrong", seen: ["94.200.1.9"], kept: false },
+          { use: "sip", name: "sip.example.com", type: "A", value: "192.168.1.212", state: "missing", seen: [], kept: false },
+        ] }));
     }
     const reachLink = (state: string, extra: object = {}) => ({ id: "0199d0c2-7a00-7000-8000-00000000c0de", url: "https://example.com/reach/7K2QHM4XRB",
       state, expires_at: new Date(Date.now() + 10 * 60_000).toISOString(), version: state === "waiting" ? 0 : 2, ...extra });
@@ -1081,7 +1092,8 @@ export function fakeCert(over: FakeCert = {}): FakeCert {
   return {
     mode: "port443", domain: "example.com", front_door: "linx-443",
     add_records: [{ type: "A", name: "example.com", value: "203.0.113.5" }, { type: "A", name: "turn.example.com", value: "203.0.113.5" }],
-    dns: { state: "wrong", checked_at: "2026-09-28T08:07:15Z", names: [
+    dns: { state: "wrong", checked_at: "2026-09-28T08:07:15Z", zone: "example.com", company: "Cloudflare",
+      name_servers: ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"], names: [
       { name: "example.com", state: "wrong", seen: ["198.51.100.7"] }, { name: "turn.example.com", state: "missing" }] },
     prepare: { state: "ok" }, reach: {}, records: {}, certificate: {},
     ...over,

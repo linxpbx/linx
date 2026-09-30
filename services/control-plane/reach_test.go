@@ -91,3 +91,30 @@ func TestReach(t *testing.T) {
 		}
 	})
 }
+
+func TestDNSRecords(t *testing.T) {
+	e := newTestEnv(t)
+	_, admin := e.newCredential(auth.TypeAPIKey, auth.RoleAdmin, "all")
+	_, reporter := e.newCredential(auth.TypeAPIKey, auth.RoleReporter, "all")
+	e.apiServer.SetDNSRecords(func(context.Context) reach.Records {
+		return reach.Records{Domain: "linx.example.com", Zone: "example.com", NameServers: []string{"ada.ns.cloudflare.com"}, Company: "Cloudflare",
+			Records:   []reach.Record{{Use: reach.UseWeb, Name: "linx.example.com", Type: "A", Value: "94.200.1.10", State: reach.RecordOK, Seen: []string{"94.200.1.10"}}},
+			CheckedAt: time.Now()}
+	})
+	r := e.do(http.MethodGet, "/api/v1/system/dns-records", admin, nil)
+	var got controlplaneapi.DnsRecords
+	r.json(t, &got)
+	if r.status != http.StatusOK || got.Company != "Cloudflare" || len(got.Records) != 1 || got.Records[0].State != "ok" || got.Records[0].Use != "web" {
+		t.Errorf("status %d: %s", r.status, r.body)
+	}
+	if r := e.do(http.MethodGet, "/api/v1/system/dns-records", reporter, nil); r.status == http.StatusOK {
+		t.Errorf("a reporter saw them: %d", r.status)
+	}
+}
+
+func TestKeptRecords(t *testing.T) {
+	got := keptRecords("@,turn,sip=192.168.1.212")
+	if !got[reach.UseWeb] || !got[reach.UseTURN] || !got[reach.UseSIP] || len(keptRecords("")) != 0 {
+		t.Errorf("kept %v", got)
+	}
+}

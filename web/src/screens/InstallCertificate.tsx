@@ -109,6 +109,12 @@ function Port443Rows({ cert, answers, facts, act }: RowsProps) {
       )}
       <Row n={++n} state={dnsOK ? "ok" : "waiting"} title={`Add these ${cert.add_records?.length ?? 2} records at your DNS company`}>
         <div className="flex flex-col gap-3">
+          {!!cert.dns.name_servers?.length && (
+            <p className="break-words text-sm text-muted-foreground">
+              {cert.domain}'s name servers: {cert.dns.name_servers.join(", ")}
+              {cert.dns.company && <> (so: <span className="font-medium text-foreground">{cert.dns.company}</span>)</>}
+            </p>
+          )}
           {cert.add_records?.map((r) => {
             const seen = cert.dns.names?.find((x) => x.name === r.name);
             return (

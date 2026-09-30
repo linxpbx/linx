@@ -41,20 +41,15 @@ func (r Resolver) LookupA(ctx context.Context, name string) ([]string, error) {
 	if r.Server != "" {
 		return r.ask(ctx, []string{r.Server}, fqdn, true)
 	}
-	zone, err := dns01.FindZoneByFqdn(fqdn)
-	if err != nil {
-		// No zone at all: the domain doesn't exist (yet) as far as DNS knows.
-		return nil, fmt.Errorf("finding %s's name servers: %w", strings.TrimSuffix(fqdn, "."), err)
-	}
 	ctx, cancel := context.WithTimeout(ctx, 3*r.timeout())
 	defer cancel()
-	nss, err := net.DefaultResolver.LookupNS(ctx, zone)
-	if err != nil || len(nss) == 0 {
-		return nil, fmt.Errorf("finding %s's name servers: %v", zone, err)
+	zone, nss, err := r.nameServers(ctx, fqdn)
+	if err != nil {
+		return nil, err
 	}
 	var servers []string
 	for _, ns := range nss {
-		addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip4", ns.Host)
+		addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip4", ns)
 		if err != nil {
 			continue
 		}
@@ -66,6 +61,71 @@ func (r Resolver) LookupA(ctx context.Context, name string) ([]string, error) {
 		return nil, fmt.Errorf("none of %s's name servers could be found", zone)
 	}
 	return r.ask(ctx, servers, fqdn, false)
+}
+
+// NameServers returns the zone name is in ("example.com" for
+// "pbx.example.com") and its name servers, sorted, without the final dot.
+func (r Resolver) NameServers(ctx context.Context, name string) (zone string, servers []string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*r.timeout())
+	defer cancel()
+	return r.nameServers(ctx, dns.Fqdn(strings.ToLower(name)))
+}
+
+func (r Resolver) nameServers(ctx context.Context, fqdn string) (string, []string, error) {
+	zone, err := dns01.FindZoneByFqdn(fqdn)
+	if err != nil {
+		// No zone at all: the domain doesn't exist (yet) as far as DNS knows.
+		return "", nil, fmt.Errorf("finding %s's name servers: %w", strings.TrimSuffix(fqdn, "."), err)
+	}
+	nss, err := net.DefaultResolver.LookupNS(ctx, zone)
+	if err != nil || len(nss) == 0 {
+		return "", nil, fmt.Errorf("finding %s's name servers: %v", zone, err)
+	}
+	var out []string
+	for _, ns := range nss {
+		out = append(out, strings.TrimSuffix(strings.ToLower(ns.Host), "."))
+	}
+	slices.Sort(out)
+	return strings.TrimSuffix(zone, "."), slices.Compact(out), nil
+}
+
+// companies tells a DNS company by the end of its name servers' names:
+// the ten Linx can keep records right at (docs/SIMPLER.md §3.2).
+var companies = []struct{ name, suffix string }{
+	{"Cloudflare", ".ns.cloudflare.com"},
+	{"DuckDNS", ".duckdns.org"},
+	{"Route 53", ".awsdns-"}, // ns-123.awsdns-45.com, .net, .org, .co.uk
+	{"GoDaddy", ".domaincontrol.com"},
+	{"Namecheap", ".registrar-servers.com"},
+	{"Porkbun", ".porkbun.com"},
+	{"DigitalOcean", ".digitalocean.com"},
+	{"Hetzner", ".hetzner.com"},
+	{"Hetzner", ".hetzner.de"},
+	{"deSEC", ".desec.io"},
+	{"deSEC", ".desec.org"},
+	{"OVH", ".ovh.net"},
+	{"OVH", ".anycast.me"},
+}
+
+// Company names the DNS company behind servers when they all belong to one
+// Linx knows; "" otherwise.
+func Company(servers []string) string {
+	found := ""
+	for _, ns := range servers {
+		ns = "." + strings.TrimSuffix(strings.ToLower(ns), ".")
+		name := ""
+		for _, c := range companies {
+			if strings.HasSuffix(ns, c.suffix) || (strings.HasSuffix(c.suffix, "-") && strings.Contains(ns, c.suffix)) {
+				name = c.name
+				break
+			}
+		}
+		if name == "" || (found != "" && name != found) {
+			return ""
+		}
+		found = name
+	}
+	return found
 }
 
 // ask tries each server in turn until one answers.

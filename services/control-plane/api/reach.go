@@ -55,6 +55,19 @@ func (s *Server) CheckReach(ctx context.Context, _ CheckReachRequestObject) (Che
 	return CheckReach200JSONResponse(out), nil
 }
 
+// SetDNSRecords connects the DNS records by hand. Without it, its endpoint
+// answers 503.
+func (s *Server) SetDNSRecords(records func(context.Context) reach.Records) { s.dnsRecords = records }
+
+func (s *Server) GetDnsRecords(ctx context.Context, _ GetDnsRecordsRequestObject) (GetDnsRecordsResponseObject, error) {
+	if s.dnsRecords == nil {
+		return GetDnsRecordsdefaultApplicationProblemPlusJSONResponse{StatusCode: errReachOff.Status, Body: problem(errReachOff)}, nil
+	}
+	var out DnsRecords
+	recast(s.dnsRecords(ctx), &out)
+	return GetDnsRecords200JSONResponse(out), nil
+}
+
 func (s *Server) reachLinkOut(k reach.Link) ReachLink {
 	var out ReachLink
 	recast(k, &out)

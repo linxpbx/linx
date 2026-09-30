@@ -8,6 +8,7 @@ import { Check, Info, LoaderCircle, TriangleAlert, X } from "lucide-react";
 import { navigate } from "@/hooks/useRoute";
 import { api, problemMessage } from "@/api/client";
 import type { components } from "@/api/schema";
+import { DnsRecords } from "@/components/DnsRecords";
 import { CopyButton } from "@/components/InstallFrame";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -20,10 +21,9 @@ function Link({ to, className, children }: { to: string; className?: string; chi
   return <a href={to} className={className} onClick={(e) => { e.preventDefault(); navigate(to); }}>{children}</a>;
 }
 
-/** Where each fix is explained. */
-const fixes: Record<NonNullable<Line["fix"]>, { to: string; label: string }> = {
+/** Where each fix is explained ("records" opens the records card here). */
+const fixes: Record<Exclude<NonNullable<Line["fix"]>, "records">, { to: string; label: string }> = {
   steps: { to: "/help/front-doors", label: "Show the steps" },
-  records: { to: "/help/cant-open-the-address", label: "Show what to check" },
   router: { to: "/help/front-doors", label: "Show the steps" },
 };
 
@@ -32,6 +32,7 @@ export function CheckIt({ className }: { className?: string }) {
   const [lines, setLines] = useState<Line[] | null>(null);
   const [link, setLink] = useState<ReachLink | null>(null);
   const [error, setError] = useState("");
+  const [records, setRecords] = useState(false);
   // Bumped to stop an older wait when a new check starts or the panel goes.
   const run = useRef(0);
 
@@ -58,6 +59,7 @@ export function CheckIt({ className }: { className?: string }) {
     setError("");
     setLines(null);
     setLink(null);
+    setRecords(false);
     const [server, phone] = await Promise.all([
       api.POST("/api/v1/system/reach-check"),
       api.POST("/api/v1/system/reach-links"),
@@ -92,8 +94,9 @@ export function CheckIt({ className }: { className?: string }) {
         <section aria-labelledby="check-server" className="flex flex-col gap-2">
           <h3 id="check-server" className="font-medium">From this server</h3>
           <ul className="flex flex-col gap-2">
-            {lines.map((l) => <CheckLine key={l.text} line={l} />)}
+            {lines.map((l) => <CheckLine key={l.text} line={l} records={records} onRecords={() => setRecords(true)} />)}
           </ul>
+          {records && <DnsRecords className="mt-2" />}
         </section>
       )}
       {link && lines && <Phone link={link} onNew={() => void check()} />}
@@ -117,8 +120,9 @@ function Mark({ state }: { state: Line["state"] | "wait" }) {
   }
 }
 
-function CheckLine({ line }: { line: Line }) {
-  const fix = line.fix && line.state !== "ok" ? fixes[line.fix] : undefined;
+function CheckLine({ line, records, onRecords }: { line: Line; records: boolean; onRecords: () => void }) {
+  const failed = line.state !== "ok";
+  const fix = line.fix && line.fix !== "records" && failed ? fixes[line.fix] : undefined;
   return (
     <li className="flex min-w-0 items-start gap-2">
       <Mark state={line.state} />
@@ -126,6 +130,9 @@ function CheckLine({ line }: { line: Line }) {
         <span className="break-words">{line.text}</span>
         {line.meaning && <span className="break-words text-muted-foreground">{line.meaning}</span>}
         {fix && <Link to={fix.to} className="w-fit text-link hover:underline">{fix.label}</Link>}
+        {line.fix === "records" && failed && !records && (
+          <button type="button" className="w-fit text-link hover:underline" onClick={onRecords}>Show the records</button>
+        )}
       </span>
     </li>
   );

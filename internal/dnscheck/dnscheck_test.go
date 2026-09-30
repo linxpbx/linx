@@ -73,3 +73,27 @@ func fmtList(l []string) string {
 	}
 	return s + "]"
 }
+
+func TestCompany(t *testing.T) {
+	for _, tc := range []struct {
+		servers []string
+		want    string
+	}{
+		{[]string{"ada.ns.cloudflare.com", "bob.ns.cloudflare.com."}, "Cloudflare"},
+		{[]string{"ns-1.awsdns-01.com", "ns-2.awsdns-02.co.uk"}, "Route 53"},
+		{[]string{"curitiba.ns.porkbun.com", "maceio.ns.porkbun.com"}, "Porkbun"},
+		{[]string{"hydrogen.ns.hetzner.com", "helium.ns.hetzner.de"}, "Hetzner"},
+		{[]string{"ns1.desec.io", "ns2.desec.org"}, "deSEC"},
+		{[]string{"NS1.DUCKDNS.ORG"}, "DuckDNS"},
+		{[]string{"dns1.registrar-servers.com"}, "Namecheap"},
+		{[]string{"ns1.example.net"}, ""},
+		{[]string{"ada.ns.cloudflare.com", "ns1.example.net"}, ""},
+		{[]string{"ada.ns.cloudflare.com", "ns1.porkbun.com"}, ""},
+		{[]string{"notcloudflare.com"}, ""},
+		{nil, ""},
+	} {
+		if got := Company(tc.servers); got != tc.want {
+			t.Errorf("Company(%v) = %q, want %q", tc.servers, got, tc.want)
+		}
+	}
+}

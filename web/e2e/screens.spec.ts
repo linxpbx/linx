@@ -133,6 +133,15 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-system-status-check-it`);
     });
 
+    test("server settings: dns records", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
+      await page.goto("/admin/system/server");
+      const card = page.getByRole("region", { name: "Records for example.com" });
+      await expect(card.getByText("(so: Porkbun)", { exact: false })).toBeVisible();
+      await card.scrollIntoViewIfNeeded();
+      await shot(page, `${scheme}-system-server-dns`);
+    });
+
     test("sign-in", async ({ page }) => {
       await fakeServer(page);
       await page.goto("/");
@@ -505,11 +514,11 @@ for (const scheme of ["light", "dark"] as const) {
       await page.goto("/admin/simulator");
       await expect(page.getByRole("heading", { name: "Call simulator" })).toBeVisible();
       await page.getByLabel("Number", { exact: true }).fill("050 123 4567");
-      await page.getByRole("button", { name: "Check" }).click();
+      await page.getByRole("button", { name: "Check", exact: true }).click();
       await expect(page.getByText("Goes out on")).toBeVisible();
       await shot(page, `${scheme}-simulator-allowed`);
       await page.getByLabel("Number", { exact: true }).fill("0044 20 7946 0958");
-      await page.getByRole("button", { name: "Check" }).click();
+      await page.getByRole("button", { name: "Check", exact: true }).click();
       await expect(page.getByRole("button", { name: "Change what phones can call" })).toBeVisible();
       await shot(page, `${scheme}-simulator-refused`);
 
@@ -966,12 +975,12 @@ test.describe("system: server settings", () => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
     await page.goto("/admin/system/server");
     await page.getByRole("button", { name: "Change" }).nth(1).click();
-    await expect(page.getByRole("button", { name: "Check" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Check", exact: true })).toBeDisabled();
     await page.getByLabel("New domain").fill("203.0.113.9");
-    await page.getByRole("button", { name: "Check" }).click();
+    await page.getByRole("button", { name: "Check", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("That's an address, not a domain");
     await page.getByLabel("New domain").fill("pbx.example.org");
-    await page.getByRole("button", { name: "Check" }).click();
+    await page.getByRole("button", { name: "Check", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Before you apply" })).toBeVisible();
     await expect(page.getByText("Passkeys only work at the address")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Your front door needs to do three things" })).toBeVisible();
@@ -996,8 +1005,8 @@ test.describe("system: server settings", () => {
     await page.getByRole("button", { name: "Change" }).first().click();
     await page.getByLabel("New domain").fill("pbx.example.org");
     // The front door's editor is open too: its Check stays off until it changes.
-    await expect(page.getByRole("button", { name: "Check" }).first()).toBeDisabled();
-    await page.getByRole("button", { name: "Check" }).last().click();
+    await expect(page.getByRole("button", { name: "Check", exact: true }).first()).toBeDisabled();
+    await page.getByRole("button", { name: "Check", exact: true }).last().click();
     await expect(page.getByText("DNS records to add")).toBeVisible();
     await expect(page.getByText("turn.pbx.example.org", { exact: true })).toBeVisible();
     await shot(page, "system-server-move-records");
@@ -1055,7 +1064,7 @@ test.describe("repair page (port 6464)", () => {
     await expect(page.getByRole("heading", { name: "Fix this server's address" })).toBeVisible();
     await page.getByRole("button", { name: "Change" }).nth(1).click();
     await page.getByLabel("New domain").fill("pbx.example.org");
-    await page.getByRole("button", { name: "Check" }).click();
+    await page.getByRole("button", { name: "Check", exact: true }).click();
     await expect(page.getByText("DNS records to add")).toBeVisible();
     await page.getByRole("button", { name: "Apply" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
@@ -1139,6 +1148,21 @@ test.describe("system status", () => {
     await expect(card.getByText("Waiting for your phone…", { exact: false })).toBeVisible();
     await card.scrollIntoViewIfNeeded();
     await shot(page, "system-status-check-it");
+  });
+
+  test("check it: a name points elsewhere, and its records", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, reach: "wrong-dns" });
+    await page.goto("/admin/system/status");
+    const card = page.locator("section", { has: page.getByRole("heading", { name: "Reachable from outside" }) });
+    await card.getByRole("button", { name: "Check it" }).click();
+    await card.getByRole("button", { name: "Show the records" }).click();
+    const records = card.getByRole("region", { name: "Records for example.com" });
+    await expect(records.getByText("Shows 94.200.1.9")).toBeVisible();
+    await expect(records.getByText("Not found yet")).toBeVisible();
+    await expect(records.getByText("sip.example.com")).toBeVisible();
+    await expect(card.getByRole("button", { name: "Show the records" })).toHaveCount(0);
+    await records.scrollIntoViewIfNeeded();
+    await shot(page, "system-status-check-it-records");
   });
 
   test("check it: the phone came", async ({ page }) => {

@@ -18,6 +18,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { CheckIt } from "@/components/CheckIt";
+import { DnsRecords } from "@/components/DnsRecords";
 import { FrontDoorCard } from "@/components/FrontDoorCard";
 import { CopyBlock, Disclosure, PortainerNote, RecordBox } from "@/components/InstallFrame";
 import { SystemCard as Card, SystemHeader } from "@/components/SystemPage";
@@ -337,7 +338,8 @@ function Settings({ me, s, client, onChanged, onMoved }:
             )}
             {preview && checkedAt === "domain" && review}
           </Row>
-          <Row label="DNS company">
+          <Row label="DNS">
+            {me && !editDomain && !running && <DnsRecords className="mb-3" />}
             {s.token_saved ? `${company} token added ✓` : "No token: the certificate renews through port 443, and DNS records are yours to keep."}
             <ChangeLink open={addToken} label={s.token_saved ? "Replace token" : "Add a token"} disabled={running} onClick={() => setAddToken(true)} />
             {addToken && (

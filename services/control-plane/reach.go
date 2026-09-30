@@ -13,6 +13,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/dnscheck"
+	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/publicip"
 	"linxpbx.com/linx/internal/reach"
 	"linxpbx.com/linx/internal/turn"
@@ -30,17 +31,19 @@ const sniAddress = "sni:443"
 // LINX_TRUSTED_PROXIES.
 var proxyDoors = []string{"proxy", "pangolin", "nginx", "http-proxy"}
 
-func newReach(getenv func(string) string, cert *certs.ServingCert, issuer *turn.Issuer, ips *auth.ClientIPResolver) (func(context.Context) []reach.Line, *reach.Links) {
+func newReach(getenv func(string) string, cert *certs.ServingCert, issuer *turn.Issuer, ips *auth.ClientIPResolver) (*reach.Checker, *reach.Links) {
 	domain, door := getenv("LINX_DOMAIN"), getenv("LINX_FRONT_DOOR")
 	home, _ := netip.ParseAddr(getenv("LINX_SIP_ADDRESS"))
 	public := &cachedPublicIP{}
 	c := &reach.Checker{Domain: domain, Door: door, SNI: sniAddress, Home: home,
-		Leaf:       cert.Current,
-		TURNSecret: issuer.Secret,
-		Lookup:     dnscheck.Resolver{}.LookupA,
-		PublicIP:   public.Get,
-		Dial:       (&net.Dialer{Timeout: reach.Timeout}).DialContext,
-		Now:        time.Now,
+		Leaf:        cert.Current,
+		TURNSecret:  issuer.Secret,
+		Lookup:      dnscheck.Resolver{}.LookupA,
+		NameServers: dnscheck.Resolver{}.NameServers,
+		Kept:        keptRecords(getenv("LINX_DNS_RECORDS")),
+		PublicIP:    public.Get,
+		Dial:        (&net.Dialer{Timeout: reach.Timeout}).DialContext,
+		Now:         time.Now,
 	}
 	for _, d := range proxyDoors {
 		if door == d {
@@ -51,7 +54,21 @@ func newReach(getenv func(string) string, cert *certs.ServingCert, issuer *turn.
 		c.TURNTLS = netip.AddrPortFrom(home, 5349).String()
 	}
 	links := &reach.Links{Domain: domain, Proxies: ips.Trusted, PublicIP: public.Get, TURN: issuer, Now: time.Now}
-	return c.Run, links
+	return c, links
+}
+
+// keptRecords are the records linx-certd keeps right, by use, from
+// LINX_DNS_RECORDS ("@,turn,sip=192.168.1.212").
+func keptRecords(v string) map[string]bool {
+	uses := map[string]string{dnsname.Apex: reach.UseWeb, "turn": reach.UseTURN, "sip": reach.UseSIP}
+	kept := map[string]bool{}
+	for _, item := range strings.Split(v, ",") {
+		host, _, _ := strings.Cut(strings.TrimSpace(item), "=")
+		if use, ok := uses[host]; ok {
+			kept[use] = true
+		}
+	}
+	return kept
 }
 
 // cachedPublicIP is this network's public address, asked of the internet

@@ -2,7 +2,7 @@
 title: Server settings and running setup again
 audience: system_admin
 section: install
-keywords: [server settings, domain, change domain, front door, dns token, size, performance, portainer, setup again, rerun]
+keywords: [server settings, domain, change domain, front door, dns, dns records, name servers, dns token, size, performance, portainer, setup again, rerun]
 screens: [/admin/system/server]
 ---
 # Server settings and running setup again
@@ -13,6 +13,20 @@ Server settings change how the server itself is set up: the domain, what's in fr
 
 - In the browser: System → **Server settings**.
 - From the server: `sudo linx setup`, then choose the browser. It checks that Linx's address works and prints the link to Server settings. Nothing else reopens.
+
+## DNS records
+
+The **DNS** row lists the records your domain needs, and checks each one at your domain's own name servers (so there's no waiting for other servers to catch up):
+
+- your domain itself, for the web app and signing in;
+- `turn.` in front of it, for call audio through firewalls;
+- at home, `sip.` in front of it, pointing at this server on your network, for desk phones and phone systems.
+
+It also names your DNS company, told from the name servers, so you know where to add them. Each record says **Right**, what it shows instead, or **Not found yet**; a record Linx keeps right itself (with your DNS token) says so. After changing a record, press **Check again**: changes can take a few minutes to show. At Cloudflare, keep Proxy off (grey cloud, "DNS only").
+
+In the name field, many DNS companies want only the first part (`turn`, `sip`), and `@` for the domain itself.
+
+![DNS records](screen:system-server-dns)
 
 ## Changing something
 
