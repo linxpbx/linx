@@ -1,6 +1,6 @@
 # Phase 1F — low-fidelity screen specs (step 1)
 
-*Drafted 2026-09-30 for the owner's review. Not approved yet.*
+*Drafted 2026-09-30; **approved by the owner 2026-09-30**, §16 items 2–6 as recommended. Item 1 changed: ring groups and office hours get **their own sidebar rows for now** (not tabs inside Incoming); the owner may revisit where they live later.*
 
 Layout only: no colour, type or icon decisions (those come from `linx-tokens.json` / `DESIGN_TOKENS.md` when each screen is built). This is for the owner to sign off on **what's on each screen and where** before any code is written. The design these screens follow is `docs/PHASE1F.md` (ADR-066 to 071) and `docs/SIMPLER.md` §2–3 and §2.5 (ADR-062 to 064).
 
@@ -393,24 +393,23 @@ Then **the second step, always** (the 1C code step or "Use my passkey"), with: "
 │ People       │
 │ Extensions   │
 │ Phone lines  │
-│ Incoming     │  ← now with tabs: Numbers · Ring groups · Office hours
+│ Incoming     │  ← the numbers and their wizard (§10)
+│ Ring groups  │  ← new (§8)
+│ Office hours │  ← new (§9)
 │ Outgoing     │
 │ Simulator    │
 │ Calls        │  ← new: everyone's call history (§13.2)
 │ System       │  ← new tab: Routing changes (§14)
 ```
 
-Ring groups and office hours sit inside **Incoming** as tabs rather than their own rows, because they only matter for incoming calls and the sidebar stays short (§16 item 1).
+Ring groups and office hours have their own rows, right under Incoming (owner, 2026-09-30, §16 item 1: for now; where they live may be decided again later, so keep them easy to move: each is its own screen and route, `/admin/ring-groups` and `/admin/office-hours`).
 
 ## 8. Ring groups (ADR-068)
 
-### 8.1 List (Incoming → Ring groups)
+### 8.1 List (Admin → Ring groups)
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Incoming calls                                              │
-│  [ Numbers ] [ Ring groups ] [ Office hours ]                │
-│                                                              │
 │  Ring groups        several phones ring for one call         │
 │                                          [ + Add ]           │
 │  NAME        NUMBER  RINGS                 IF NOBODY ANSWERS │
@@ -458,13 +457,10 @@ Empty state: "A ring group rings several people for one call: all at once, or on
 - A person who is in no ring group and has no phone connected shows ⚠ in People: "In Sales, but no phone or browser is set up."
 - A group with nobody who can ring right now shows "Nobody can ring (all offline)" in its status; calls go straight to "if nobody answers".
 
-## 9. Office hours and holidays (Incoming → Office hours)
+## 9. Office hours and holidays (Admin → Office hours)
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Incoming calls                                              │
-│  [ Numbers ] [ Ring groups ] [ Office hours ]                │
-│                                                              │
 │  Office hours                  Now: open (closes at 17:00)   │
 │  Times are Dubai time (UTC+4).                               │
 │                                                              │
@@ -493,14 +489,13 @@ Empty state: "A ring group rings several people for one call: all at once, or on
 - **Now: open / closed** is the same database answer calls use.
 - **More schedules**: collapsed by default; a second schedule has the same layout and appears in the wizard's picker only once it exists.
 
-## 10. "When someone calls" (Incoming → Numbers)
+## 10. "When someone calls" (Admin → Incoming)
 
 ### 10.1 The Numbers list
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Incoming calls                                              │
-│  [ Numbers ] [ Ring groups ] [ Office hours ]                │
 │                                                              │
 │  04 200 0100 · UCM                          [ Change ] [Try] │
 │   Rings Sales (all at once) Sun–Thu 08:00–17:00. If nobody   │
@@ -708,11 +703,11 @@ After any routing change (numbers, ring groups, office hours, holidays, outgoing
 Light and dark, desktop and phone width (phone sweep includes every signed-in one):
 `front-door-{what,card,card-npm,advanced-decrypt}`, `check-it{,-proxy-address,-phone}`, `dns-{records,automatic,automatic-kept}`, `public-port-{warning,rules,before-apply}`, `system-settings-email{,-setup-who,-setup-test}`, `people-invite-email`, `sign-in-forgot{,-sent,-new-password,-second-step,-done,-link-used}`, `incoming-{numbers,wizard-hours,wizard-after,wizard-check}`, `ring-groups{,-add-how,-detail}`, `office-hours{,-home}`, `destination-picker`, `simulator-after-hours`, `voicemail{,-empty,-settings,-record}`, `call-history{,-detail}`, `admin-calls{,-detail}`, `system-routing-changes{,-see}`, `undo-toast`.
 
-## 16. Questions for the owner (recommendation first)
+## 16. Owner decisions (2026-09-30)
 
-1. **Where ring groups and office hours live.** *Recommend:* tabs inside **Incoming** (Numbers · Ring groups · Office hours), keeping the admin sidebar to nine rows (only **Calls** is new). The alternative is two more rows.
-2. **Password reset for a password-only account** (an admin who chose no second step). Email alone would then be enough to take the account. *Recommend:* allow it, but for an admin also send an alert to the other admins ("Aisha reset her password by email") and put a line on the admin home; normal people all have a second step anyway.
-3. **Greeting length.** *Recommend* 30 seconds (short greetings keep callers on the line; a message stays 3 minutes).
-4. **Missed-call badge on Call history.** *Recommend yes*, cleared when the tab is opened (Voicemail's badge clears only when messages are heard).
-5. **Admin "Calls" page for reporters.** *Recommend yes* (that's what reporters are for); they can't play voicemail from it.
-6. **"Check it" from the phone also tests call audio** (a quick relay connection from the phone). *Recommend yes*: it's the one thing people can't test from inside the network, and it's what fails most often.
+1. **Where ring groups and office hours live.** Recommended: tabs inside **Incoming**. **Owner: two new sidebar rows for now** (Ring groups, Office hours, under Incoming); to be decided again later.
+2. **Password reset for a password-only account** (an admin who chose no second step). Email alone would then be enough to take the account. *Recommend:* allow it, but for an admin also send an alert to the other admins ("Aisha reset her password by email") and put a line on the admin home; normal people all have a second step anyway. **Approved.**
+3. **Greeting length.** *Recommend* 30 seconds (short greetings keep callers on the line; a message stays 3 minutes). **Approved.**
+4. **Missed-call badge on Call history.** *Recommend yes*, cleared when the tab is opened (Voicemail's badge clears only when messages are heard). **Approved.**
+5. **Admin "Calls" page for reporters.** *Recommend yes* (that's what reporters are for); they can't play voicemail from it. **Approved.**
+6. **"Check it" from the phone also tests call audio** (a quick relay connection from the phone). *Recommend yes*: it's the one thing people can't test from inside the network, and it's what fails most often. **Approved.**
