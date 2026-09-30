@@ -6,7 +6,7 @@
 # platform; Go cross-compiles natively (no QEMU).
 
 # node:26.9.0-bookworm-slim (matches web/.nvmrc)
-FROM --platform=$BUILDPLATFORM node:26.9.0-bookworm-slim@sha256:582460f614631b59b824ac6020533b9bf339c7fdf3a6d7db31abb6b4065f0212 AS web
+FROM --platform=$BUILDPLATFORM node:26.10.0-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
