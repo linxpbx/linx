@@ -22,13 +22,15 @@ export function gatewaySteps(product: GatewayProduct, l: GatewayLogin): string[]
   const hostPort = `${l.server}:${l.port}`;
   switch (product) {
     case "ucm":
+      // As done on a UCM6304 (firmware 1.0.33) in the Phase 1E demo.
       return [
-        "Extension/Trunk → VoIP Trunks → Add SIP Trunk.",
-        `Type: Register SIP Trunk. Provider name: Linx. Host name: ${hostPort}. Transport: TLS.`,
-        `Username and Auth ID: ${l.username}. Password: the one above.`,
-        "Advanced Settings: codecs PCMA then PCMU; SRTP: Enabled and forced; DTMF: RFC4733.",
-        "Inbound Routes for this trunk: send Linx's calls where they should go (for a landline: Dial Trunk, your analog trunk).",
-        "Outbound Routes: to send a landline's calls to Linx, add a route whose main trunk is this one.",
+        "Extension/Trunk → VoIP Trunks → Add SIP Trunk: Register SIP Trunk (if it asks for a provider template, any will do: you change the fields).",
+        `Host name: ${hostPort}. Transport: TLS. SIP URI scheme when using TLS: SIP. Need registration: on. NAT: off. TEL URI: disabled.`,
+        `Username and Auth ID: ${l.username}. Password: the one above. Keep original CID: on. Verify inbound request: off (Linx doesn't answer a password challenge).`,
+        "Advanced settings: codecs PCMA then PCMU; SRTP: Enabled and forced; DTMF: RFC4733.",
+        "Linx's calls out through your landline: Inbound Routes, trunk Linx → Add: pattern _X., Default Destination By DID, Strip 0, then Dial Trunk on with your analog trunk, privilege Local.",
+        "If the landline's outbound route has privilege Disable: add Linx's caller ID for this line (its number as Linx shows it, e.g. _+9714…) to its Source Caller ID Pattern.",
+        "Landline calls to Linx: Outbound Routes → Add To_Linx: pattern _*88X., privilege Internal, main trunk Linx, Strip 3. Then the analog trunk's inbound route: Default Destination External Number *88 followed by the landline number.",
       ];
     case "gxw":
       return [
