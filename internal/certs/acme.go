@@ -72,6 +72,13 @@ type Issuer interface {
 // Issuers returns the CAs to try, in order: Let's Encrypt staging alone, or
 // Let's Encrypt production then ZeroSSL.
 func Issuers(c Config, dns challenge.Provider) []Issuer {
+	if c.Directory != "" {
+		id := IssuerLE
+		if c.Staging {
+			id = IssuerLEStaging
+		}
+		return []Issuer{&acmeIssuer{id: id, dirURL: c.Directory, cfg: c, dns: dns}}
+	}
 	if c.Staging {
 		return []Issuer{&acmeIssuer{id: IssuerLEStaging, dirURL: lego.LEDirectoryStaging, cfg: c, dns: dns}}
 	}
@@ -90,7 +97,7 @@ func DNSProvider(c Config) (challenge.Provider, error) {
 		return nil, err
 	}
 	if !builtin(c.Provider) {
-		api, err := companyAPI(context.Background(), c.Provider, token, NewRecordsClient())
+		api, err := companyAPI(context.Background(), c.Provider, token, NewRecordsClientFor(c))
 		if err != nil {
 			return nil, err
 		}
@@ -172,7 +179,15 @@ func (a *acmeIssuer) Obtain(ctx context.Context, names []string) (*Issued, error
 	// default). Public resolvers are never asked: asking them before the
 	// record is everywhere makes them remember "no such record" for up to the
 	// zone's negative TTL (30 minutes on Cloudflare).
-	err = client.Challenge.SetDNS01Provider(a.dns, dns01.WrapPreCheck(settle(settleDelay, time.Now, time.Sleep)))
+	opts := []dns01.ChallengeOption{dns01.WrapPreCheck(settle(settleDelay, time.Now, time.Sleep))}
+	if a.cfg.DNSServer != "" {
+		// Tests only: the test's DNS server stands in for the domain's
+		// own name servers (it is the only one there is).
+		opts = []dns01.ChallengeOption{dns01.AddRecursiveNameservers([]string{a.cfg.DNSServer}),
+			dns01.DisableAuthoritativeNssPropagationRequirement(), dns01.RecursiveNSsPropagationRequirement(),
+			dns01.WrapPreCheck(settle(time.Second, time.Now, time.Sleep))}
+	}
+	err = client.Challenge.SetDNS01Provider(a.dns, opts...)
 	if err != nil {
 		return nil, err
 	}

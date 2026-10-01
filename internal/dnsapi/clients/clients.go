@@ -31,15 +31,21 @@ func New(ctx context.Context, id string, k dnsapi.Key, o dnsapi.Options) (dnsapi
 		hc = &http.Client{Timeout: 30 * time.Second}
 	}
 	ttl := int(c.TTL.Seconds())
+	base := func(real string) string {
+		if o.Endpoint != "" {
+			return o.Endpoint
+		}
+		return real
+	}
 	switch id {
 	case dnsapi.Cloudflare, dnsapi.DuckDNS:
 		return nil, dnsapi.ErrBuiltin
 	case dnsapi.Hetzner:
-		return &hetzner{http: hc, base: hetznerAPI, token: k["token"], ttl: ttl}, nil
+		return &hetzner{http: hc, base: base(hetznerAPI), token: k["token"], ttl: ttl}, nil
 	case dnsapi.DigitalOcean:
-		return &digitalOcean{http: hc, base: digitalOceanAPI, token: k["token"], ttl: ttl}, nil
+		return &digitalOcean{http: hc, base: base(digitalOceanAPI), token: k["token"], ttl: ttl}, nil
 	case dnsapi.Route53:
-		return &route53{http: hc, base: route53API, keyID: k["access_key_id"], secret: k["secret_access_key"], ttl: ttl, now: time.Now}, nil
+		return &route53{http: hc, base: base(route53API), keyID: k["access_key_id"], secret: k["secret_access_key"], ttl: ttl, now: time.Now}, nil
 	}
 	return newLibdns(ctx, c, k, o)
 }

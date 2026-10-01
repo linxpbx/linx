@@ -25,7 +25,7 @@ func addFrontDoor(f *fixture) {
 	phoneLeaf, phoneDNS := f.env.TLSLeaf, f.env.LookupIP
 	f.env.TLSLeaf = func(ctx context.Context, addr, name string, roots *x509.CertPool) (*x509.Certificate, error) {
 		switch addr {
-		case "192.168.1.30:443", "192.168.1.20:443", "192.168.1.20:5349": // proxy, linx-sni at home, coturn's TLS
+		case "192.168.1.30:443", "192.168.1.20:443", "192.168.1.20:8443", "192.168.1.20:5349": // proxy, linx-sni at home (443 or another public port), coturn's TLS
 		default:
 			return phoneLeaf(ctx, addr, name, roots)
 		}
@@ -169,5 +169,35 @@ func TestFrontDoorHomeOnly(t *testing.T) {
 	f.frontDoor.dnsAddr = "203.0.113.9"
 	if rs := FrontDoor(context.Background(), f.env, f.cfg); worst(rs) != installer.Fail {
 		t.Errorf("home only with public DNS:\n%s", dump(rs))
+	}
+}
+
+func TestFrontDoorPublicPort(t *testing.T) {
+	f := platformFixture(t, healthyState)
+	f.cfg.FrontDoor = installer.FrontDoorConfig{Kind: installer.FrontDoorPublicPort, PublicPort: 8443, TURNUDPPort: 3478}
+	f.runner[inspect+"linx-sni"] = "running \n"
+	rs := FrontDoor(context.Background(), f.env, f.cfg)
+	// It works, so nothing fails; the port itself is a warning, never a
+	// failure (docs/SIMPLER.md §2.5 item 8).
+	if worst(rs) != installer.Warn {
+		t.Fatalf("healthy public port:\n%s", dump(rs))
+	}
+	text := dump(rs)
+	for _, want := range []string{
+		"Linx uses public port 8443, not the standard 443.",
+		"lab.example.com reaches Linx through Linx's public port 8443, with Linx's own certificate.",
+		"The call relay works over TLS on port 8443 through Linx's public port 8443.",
+		"The call relay answers on UDP port 3478",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in:\n%s", want, text)
+		}
+	}
+	if f.frontDoor.turnAddr != "192.168.1.20:8443" || f.frontDoor.stunAddr != "192.168.1.20:3478" {
+		t.Errorf("relay checked at %s (TLS) and %s (UDP)", f.frontDoor.turnAddr, f.frontDoor.stunAddr)
+	}
+	f.frontDoor.turnErr = errors.New("TURN error 401")
+	if rs := FrontDoor(context.Background(), f.env, f.cfg); worst(rs) != installer.Fail {
+		t.Errorf("relay refused on the public port:\n%s", dump(rs))
 	}
 }

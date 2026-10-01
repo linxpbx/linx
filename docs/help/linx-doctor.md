@@ -25,3 +25,4 @@ Each line says ok, a warning, or a failure, with what to do in plain words. It e
 
 - *The root key backup is still on the server*: copy `/etc/linx/ca-backup` somewhere safe, then remove it from the server.
 - *No API key*: nothing to do unless your own software needs one.
+- *Linx uses public port 8443, not the standard 443*: expected when you chose [another public port](front-doors). It repeats what that trades away; to test from outside, use **Check it** on System → [Status](system-status).

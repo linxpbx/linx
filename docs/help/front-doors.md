@@ -57,6 +57,8 @@ Passkeys keep working if you change the port later: they belong to your domain, 
 
 People at the office use the same address. If it doesn't open there, turn on NAT loopback (sometimes called hairpin) on your router, or add your domain to your local DNS pointing at this server.
 
+To check it works, use **Check it** on [System → Status](system-status), then your phone on mobile data. Check it and [linx doctor](linx-doctor) test the port you chose, and both always add one warning that Linx isn't on port 443. That warning is expected and doesn't mean anything is broken.
+
 ## Advanced: my proxy must unlock the traffic itself
 
 Only for a proxy that can't pass Linx through, and only at home. The proxy opens the encrypted connection itself before passing it on, so it sees everything, Linx needs your DNS company's token on the first, unencrypted page, and calls need their own port (TCP 5349) for audio. The page warns first: **Show me how** goes back to passing Linx through, **Use it anyway** keeps this.

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-acme/lego/v4/challenge/dns01"
+
 	"linxpbx.com/linx/internal/dnsapi"
 	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/publicip"
@@ -43,6 +45,8 @@ type RecordsClient struct {
 	// NewAPI and Zone are overridable for tests (dnsapi.New, dnsapi.FindZone).
 	NewAPI func(ctx context.Context, provider string, k dnsapi.Key) (dnsapi.API, error)
 	Zone   func(domain string) (string, error)
+	// CompanyAPI is Config.CompanyAPI (tests only).
+	CompanyAPI string
 }
 
 // recordComment marks the Cloudflare records Linx made.
@@ -58,6 +62,20 @@ func NewRecordsClient() *RecordsClient {
 		// certificate names that address): the same company as the DNS.
 		TraceURL: "https://1.1.1.1/cdn-cgi/trace",
 	}
+}
+
+// NewRecordsClientFor is NewRecordsClient with c's test-only settings
+// (Config.DNSServer, Config.CompanyAPI); the real endpoints otherwise.
+func NewRecordsClientFor(c Config) *RecordsClient {
+	rc := NewRecordsClient()
+	rc.CompanyAPI = c.CompanyAPI
+	if c.DNSServer != "" {
+		rc.Zone = func(domain string) (string, error) {
+			z, err := dns01.FindZoneByFqdnCustom(dns01.ToFqdn(strings.ToLower(domain)), []string{c.DNSServer})
+			return strings.TrimSuffix(z, "."), err
+		}
+	}
+	return rc
 }
 
 // RecordResult says what happened to one name, in plain words.
@@ -113,7 +131,7 @@ func companyAPI(ctx context.Context, provider, secret string, c *RecordsClient) 
 	if Connect == nil {
 		return nil, errors.New("this program can't change DNS records")
 	}
-	return Connect(ctx, provider, k, dnsapi.Options{HTTP: c.HTTP, PublicAddress: func(ctx context.Context) (string, error) {
+	return Connect(ctx, provider, k, dnsapi.Options{HTTP: c.HTTP, Endpoint: c.CompanyAPI, PublicAddress: func(ctx context.Context) (string, error) {
 		a, err := c.PublicIPv4(ctx)
 		if err != nil {
 			return "", err

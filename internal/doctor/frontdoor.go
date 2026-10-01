@@ -43,13 +43,21 @@ func FrontDoor(ctx context.Context, env Env, cfg installer.Config) []Result {
 		entry, _ = netip.ParseAddr(fd.ProxyAddress)
 		door = map[string]string{installer.FrontDoorProxy: "your front door", installer.FrontDoorPangolin: "Pangolin",
 			installer.FrontDoorNginx: "nginx/HAProxy", installer.FrontDoorHTTPProxy: "your proxy"}[fd.Kind] + " (" + fd.ProxyAddress + ")"
-	case installer.FrontDoorLinx443, installer.FrontDoorHomeOnly:
+	case installer.FrontDoorLinx443, installer.FrontDoorHomeOnly, installer.FrontDoorPublicPort:
 		service(ctx, env, &rs, sniContainer, "Linx's port 443 router")
 		entry = settings.SNIAddress
 		if entry.IsUnspecified() {
 			entry = netip.AddrFrom4([4]byte{127, 0, 0, 1})
 		}
 		door = "Linx's own port 443"
+		if fd.Kind == installer.FrontDoorPublicPort {
+			door = fmt.Sprintf("Linx's public port %d", settings.SNIPort)
+			// Never a failure: it works, with what it trades away
+			// (docs/SIMPLER.md §2.5 item 8).
+			rs.warn(fmt.Sprintf("Linx uses public port %d, not the standard 443. %s", settings.SNIPort, strings.Join(installer.PublicPortWarnings, " ")),
+				"To keep port 443, put a front door on it that passes Linx through (sudo linx setup, or Server settings). "+
+					"To test from outside, open Check it on System → Status and use your phone on mobile data.")
+		}
 	default:
 		rs.warn("Linx has no web address and calls from outside your home aren't set up (no front door chosen).",
 			"When you want them, run: sudo linx setup, and pick what sits in front of Linx.")
@@ -61,7 +69,7 @@ func FrontDoor(ctx context.Context, env Env, cfg installer.Config) []Result {
 		return rs // reported under Certificates
 	}
 	fix := frontDoorFix(fd.Kind)
-	addr := netip.AddrPortFrom(entry, installer.PublicPort).String()
+	addr := netip.AddrPortFrom(entry, uint16(settings.SNIPort)).String()
 	web := installer.PublicHosts
 	turnAddr := addr
 	if fd.Kind == installer.FrontDoorHTTPProxy {
@@ -99,7 +107,7 @@ func FrontDoor(ctx context.Context, env Env, cfg installer.Config) []Result {
 			rs.ok(fmt.Sprintf("%s reaches Linx through %s, with Linx's own certificate.", name, door))
 		}
 	}
-	relayOverTLS(ctx, env, &rs, turnAddr, "turn."+cfg.Domain.Name, roots, door, fix)
+	relayOverTLS(ctx, env, &rs, turnAddr, "turn."+cfg.Domain.Name, roots, door, fix, cfg.FrontDoor.Port())
 	if fd.Kind != installer.FrontDoorHomeOnly {
 		relayUDP(ctx, env, &rs, settings, fd.Kind)
 	}
@@ -146,9 +154,10 @@ func deployedLeaf(ctx context.Context, env Env) (*x509.Certificate, *x509.CertPo
 	return chain[0], env.Roots
 }
 
-// relayOverTLS allocates a relay address over TLS on 443 through the front
-// door, as a browser on a network that allows only web traffic does.
-func relayOverTLS(ctx context.Context, env Env, rs *results, addr, name string, roots *x509.CertPool, door, fix string) {
+// relayOverTLS allocates a relay address over TLS on the public port
+// through the front door, as a browser on a network that allows only web
+// traffic does.
+func relayOverTLS(ctx context.Context, env Env, rs *results, addr, name string, roots *x509.CertPool, door, fix string, port int) {
 	secret, err := env.ReadFile(installer.TURNSecretPath)
 	if err != nil {
 		return // reported under Secrets
@@ -158,6 +167,10 @@ func relayOverTLS(ctx context.Context, env Env, rs *results, addr, name string, 
 	if err != nil {
 		rs.fail(fmt.Sprintf("The call relay doesn't work over TLS through %s (%v): calls from networks that allow only web traffic would have no audio.", door, err),
 			fix+" If the name is reached but relaying fails: "+relayLogs)
+		return
+	}
+	if port != installer.PublicPort {
+		rs.ok(fmt.Sprintf("The call relay works over TLS on port %d through %s.", port, door))
 		return
 	}
 	rs.ok("The call relay works over TLS on port 443 through " + door + " (for networks that allow only web traffic).")
@@ -175,7 +188,7 @@ func relayUDP(ctx context.Context, env Env, rs *results, s installer.FrontDoorSe
 		return
 	}
 	who := "your router's"
-	if kind == installer.FrontDoorLinx443 && !a.IsPrivate() && !a.IsLoopback() {
+	if (kind == installer.FrontDoorLinx443 || kind == installer.FrontDoorPublicPort) && !a.IsPrivate() && !a.IsLoopback() {
 		who = "the"
 	}
 	rs.ok(fmt.Sprintf("The call relay answers on UDP port %d (%s). Calls get their smoothest audio once %s forward of UDP %d lands here; Linx can't see the router from inside.",

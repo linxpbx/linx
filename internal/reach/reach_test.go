@@ -211,6 +211,24 @@ func TestChecker(t *testing.T) {
 		t.Errorf("home only:\n%s", got)
 	}
 
+	// Another public port: linx-sni still answers inside, the public
+	// address is tried on that port, and the port itself is a warning.
+	pp := *c
+	pp.Door, pp.Proxy, pp.SNI, pp.Port = "public-port", "", "sni:443", 8443
+	dns["example.com"], dns["turn.example.com"] = []string{"94.200.1.10"}, []string{"94.200.1.10"}
+	route["94.200.1.10:443"], route["94.200.1.10:8443"] = bad, good
+	got = texts(pp.Run(ctx))
+	for _, want := range []string{
+		"ok example.com answers with Linx's certificate",
+		"turn.example.com doesn't answer",
+		"ok example.com answers at your public address (94.200.1.10 port 8443)",
+		"warn People open Linx at port 8443, not the standard 443.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("public port: missing %q in\n%s", want, got)
+		}
+	}
+
 	// Nothing set up yet.
 	n := *c
 	n.Door = "none"

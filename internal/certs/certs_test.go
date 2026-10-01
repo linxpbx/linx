@@ -53,6 +53,10 @@ func TestConfigFromEnv(t *testing.T) {
 		{"duckdns suffix", map[string]string{"LINX_DNS_PROVIDER": "duckdns"}, "duckdns.org"},
 		{"duckdns ok", map[string]string{"LINX_DNS_PROVIDER": "duckdns", "LINX_DOMAIN": "mypbx.duckdns.org"}, ""},
 		{"zone token not cloudflare", map[string]string{"LINX_DNS_PROVIDER": "duckdns", "LINX_DOMAIN": "x.duckdns.org", "LINX_DNS_ZONE_TOKEN_FILE": "/x"}, "only used with Cloudflare"},
+		{"test directory over http", map[string]string{"LINX_ACME_TEST_DIRECTORY": "http://pebble:14000/dir"}, "LINX_ACME_TEST_DIRECTORY"},
+		{"test company API over http", map[string]string{"LINX_DNS_TEST_API": "http://fake"}, "LINX_DNS_TEST_API"},
+		{"test settings", map[string]string{"LINX_ACME_TEST_DIRECTORY": "https://pebble:14000/dir", "LINX_ACME_TEST_DNS": "dns:8053",
+			"LINX_DNS_TEST_API": "https://fake/v1"}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -405,5 +409,17 @@ func TestMetrics(t *testing.T) {
 	}
 	if strings.Contains(body, "last_renewal") {
 		t.Error("last renewal reported before any renewal")
+	}
+}
+
+// The test settings (the install suite's DNS-01 run): one certificate
+// authority, Pebble, instead of Let's Encrypt and ZeroSSL.
+func TestIssuersTestDirectory(t *testing.T) {
+	c := Config{Directory: "https://pebble:14000/dir"}
+	if is := Issuers(c, nil); len(is) != 1 || is[0].ID() != IssuerLE || is[0].(*acmeIssuer).dirURL != c.Directory {
+		t.Errorf("issuers %+v", is)
+	}
+	if is := Issuers(Config{}, nil); len(is) != 2 || is[0].(*acmeIssuer).dirURL == "" {
+		t.Errorf("real issuers %+v", is)
 	}
 }

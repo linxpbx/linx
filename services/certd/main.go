@@ -155,7 +155,7 @@ func pointRecords(cfg certs.Config, records, address string, log *slog.Logger) i
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	client := certs.NewRecordsClient()
+	client := certs.NewRecordsClientFor(cfg)
 	client.State = &certs.DNSState{Path: certs.StatePath(cfg.StateDir)}
 	f := &certs.Follower{Client: client, Config: cfg, Hosts: hosts, Fixed: fixed, Pinned: pinned, Log: log}
 	if err := f.Check(ctx); err != nil {
@@ -179,7 +179,7 @@ func followerFromEnv(cfg certs.Config, getenv func(string) string, log *slog.Log
 	if err != nil {
 		return nil, fmt.Errorf("LINX_DNS_ADDRESS: %w", err)
 	}
-	client := certs.NewRecordsClient()
+	client := certs.NewRecordsClientFor(cfg)
 	client.OwnOnly = true
 	client.State = &certs.DNSState{Path: certs.StatePath(cfg.StateDir)}
 	return &certs.Follower{Client: client, Config: cfg, Hosts: hosts, Fixed: fixed, Pinned: pinned, Log: log.With("component", "dns")}, nil

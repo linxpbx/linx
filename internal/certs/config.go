@@ -78,6 +78,13 @@ type Config struct {
 	// ChallengeDir is where ChallengeALPN leaves challenge certificates
 	// for the control plane.
 	ChallengeDir string
+
+	// Tests only, never set by setup (the install suite's DNS-01 run with
+	// Pebble, like Bootstrap.Directory): Directory replaces every
+	// certificate authority; DNSServer ("host:port") is asked for zones
+	// and the challenge record instead of the domain's own name servers;
+	// CompanyAPI is the DNS company's API address (Linx's own clients).
+	Directory, DNSServer, CompanyAPI string
 }
 
 // Challenge types.
@@ -98,6 +105,9 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		StateDir:      envOr(getenv, "LINX_STATE_DIR", "/var/lib/linx/state"),
 		Challenge:     envOr(getenv, "LINX_CERT_CHALLENGE", ChallengeDNS),
 		ChallengeDir:  envOr(getenv, "LINX_CHALLENGE_DIR", "/var/lib/linx/acme-challenge"),
+		Directory:     strings.TrimSpace(getenv("LINX_ACME_TEST_DIRECTORY")),
+		DNSServer:     strings.TrimSpace(getenv("LINX_ACME_TEST_DNS")),
+		CompanyAPI:    strings.TrimSpace(getenv("LINX_DNS_TEST_API")),
 	}
 	var errs []error
 	var err error
@@ -149,6 +159,12 @@ func (c Config) Validate() error {
 	}
 	if c.TokenFile == "" && c.Challenge != ChallengeALPN {
 		errs = append(errs, errors.New("LINX_DNS_TOKEN_FILE: required"))
+	}
+	if c.Directory != "" && !strings.HasPrefix(c.Directory, "https://") {
+		errs = append(errs, errors.New("LINX_ACME_TEST_DIRECTORY: must be an https:// URL"))
+	}
+	if c.CompanyAPI != "" && !strings.HasPrefix(c.CompanyAPI, "https://") {
+		errs = append(errs, errors.New("LINX_DNS_TEST_API: must be an https:// URL"))
 	}
 	if c.CertsDir == "" || c.StateDir == "" {
 		errs = append(errs, errors.New("LINX_CERTS_DIR and LINX_STATE_DIR: required"))

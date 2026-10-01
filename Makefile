@@ -61,8 +61,8 @@ test-docker: ## Run tests that need Docker (internal CA, real Postgres)
 	else echo "$$out" | grep -Ev '^(ok|\?) '; echo "docker tests: FAILED"; exit 1; fi
 
 .PHONY: test-install
-test-install: ## Web install suite: install page + first certificate through port 443 with Pebble (needs make image SERVICE=control-plane and SERVICE=certd)
-	@if out=$$(LINX_DOCKER_TESTS=1 go test -p 1 -count=1 -v -run "TestInstallModeDocker|TestWebCertificateInstall" ./internal/install/ ./internal/installer/ 2>&1); then \
+test-install: ## Web install suite: install page + first certificate with Pebble, through port 443 and by DNS-01 on port 8443 (needs make image SERVICE=control-plane and SERVICE=certd)
+	@if out=$$(LINX_DOCKER_TESTS=1 go test -p 1 -count=1 -v -timeout 20m -run "TestInstallModeDocker|TestWebCertificateInstall" ./internal/install/ ./internal/installer/ 2>&1); then \
 		if echo "$$out" | grep -q -- "--- SKIP"; then echo "$$out" | grep -A2 -- "--- SKIP"; echo "install suite: SKIPPED"; exit 1; fi; \
 		echo "install suite: ok"; \
 	else echo "$$out" | grep -Ev '^(ok|\?|=== RUN) ' | tail -80; echo "install suite: FAILED"; exit 1; fi

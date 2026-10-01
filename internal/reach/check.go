@@ -58,6 +58,14 @@ const (
 	doorHTTPProxy = "http-proxy"
 )
 
+// port is the public port people use.
+func (c *Checker) port() int {
+	if c.Port == 0 {
+		return 443
+	}
+	return c.Port
+}
+
 // Checker runs the checks from this server.
 type Checker struct {
 	Domain string
@@ -73,6 +81,9 @@ type Checker struct {
 	// TURNTLS is the relay's own TLS port for a proxy that decrypts
 	// ("192.168.1.212:5349"); the relay goes through the front door otherwise.
 	TURNTLS string
+	// Port is the public port people use (LINX_PUBLIC_PORT): 0 or 443,
+	// or another one (public-port; linx-sni still answers on SNI inside).
+	Port int
 
 	// Leaf is the certificate Linx serves now, with its chain.
 	Leaf func() (*tls.Certificate, error)
@@ -148,15 +159,22 @@ func (c *Checker) Run(ctx context.Context) []Line {
 	dnsLines = c.names(ctx, want, publicErr, home)
 
 	lines := append(dnsLines, webLine, turnLine)
-	if home || webLine.State != OK || publicErr != nil {
-		return lines
+	if !home && webLine.State == OK && publicErr == nil {
+		// Through the front door works: now the way people outside come
+		// in, this network's public address. Many home routers can't reach
+		// their own public address from inside ("hairpin"), so a failure
+		// here only sends the owner to the phone.
+		hair = c.hairpin(ctx, public, leaf, roots)
+		lines = append(lines, hair)
 	}
-	// Through the front door works: now the way people outside come in,
-	// this network's public address. Many home routers can't reach their
-	// own public address from inside ("hairpin"), so a failure here only
-	// sends the owner to the phone.
-	hair = c.hairpin(ctx, public, leaf, roots)
-	return append(lines, hair)
+	if c.port() != 443 {
+		// Never a failure: it works, with what it trades away
+		// (docs/SIMPLER.md §2.5 items 5, 6 and 8).
+		lines = append(lines, Line{State: Warn, Text: fmt.Sprintf("People open Linx at port %d, not the standard 443.", c.port()),
+			Meaning: "Networks that only allow standard web traffic (some hotels, workplaces, public Wi-Fi) may block calls, " +
+				"or even this page. A front door on port 443 avoids that.", Fix: FixSteps})
+	}
+	return lines
 }
 
 // chainOf is the serving certificate's leaf and a pool of the chain's
@@ -225,6 +243,8 @@ func (c *Checker) doorWords() string {
 		return "your front door (" + c.Proxy + ")"
 	case c.Door == doorHomeOnly:
 		return "Linx's port 443 at home"
+	case c.port() != 443:
+		return fmt.Sprintf("Linx's public port %d", c.port())
 	}
 	return "Linx's port 443"
 }
@@ -267,7 +287,7 @@ func (c *Checker) web(ctx context.Context, leaf *x509.Certificate, roots *x509.C
 func (c *Checker) relay(ctx context.Context, name string, roots *x509.CertPool) Line {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
-	addr, port := c.entry(), "443"
+	addr, port := c.entry(), strconv.Itoa(c.port())
 	if c.Door == doorHTTPProxy {
 		addr, port = c.TURNTLS, "5349"
 	}
@@ -290,9 +310,13 @@ func (c *Checker) relay(ctx context.Context, name string, roots *x509.CertPool) 
 func (c *Checker) hairpin(ctx context.Context, public netip.Addr, leaf *x509.Certificate, roots *x509.CertPool) Line {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	got, err := c.leafAt(ctx, netip.AddrPortFrom(public, 443).String(), c.Domain, roots)
+	got, err := c.leafAt(ctx, netip.AddrPortFrom(public, uint16(c.port())).String(), c.Domain, roots)
 	if err == nil && got.Equal(leaf) {
-		return Line{State: OK, Text: fmt.Sprintf("%s answers at your public address (%s)", c.Domain, public)}
+		at := public.String()
+		if c.port() != 443 {
+			at += " port " + strconv.Itoa(c.port())
+		}
+		return Line{State: OK, Text: fmt.Sprintf("%s answers at your public address (%s)", c.Domain, at)}
 	}
 	return Line{State: Info, Text: "Your router can't reach its own address from inside, so this server can't test the rest.",
 		Meaning: "Use your phone below."}

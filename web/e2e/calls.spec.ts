@@ -323,5 +323,19 @@ test("an admin sets up with a passkey and signs in with it", async () => {
   answered = passkeySignIn();
   await page.getByRole("button", { name: "Sign in with a passkey" }).click();
   await signedInWithPasskey(answered);
+
+  // Behind another public port, Linx also answers at its standard address
+  // (as before a port change): the passkey belongs to the name, not the
+  // port, so it signs in there too, and back (docs/SIMPLER.md §2.5 item 2).
+  const other = process.env.LINX_OTHER_URL ?? "";
+  for (const at of other ? [other, base] : []) {
+    await signOut();
+    await page.goto(`${at}/`);
+    await expect(page.getByRole("button", { name: "Sign in with a passkey" })).toBeVisible();
+    expect(new URL(page.url()).origin).toBe(new URL(at).origin);
+    answered = passkeySignIn();
+    await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+    await signedInWithPasskey(answered);
+  }
   await browser.close();
 });

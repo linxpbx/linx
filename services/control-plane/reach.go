@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +58,7 @@ func newReach(getenv func(string) string, cert *certs.ServingCert, issuer *turn.
 			c.Proxy = strings.TrimSpace(getenv("LINX_TRUSTED_PROXIES"))
 		}
 	}
+	c.Port, _ = strconv.Atoi(getenv(weburl.Env))
 	if home.IsValid() {
 		c.TURNTLS = netip.AddrPortFrom(home, 5349).String()
 	}

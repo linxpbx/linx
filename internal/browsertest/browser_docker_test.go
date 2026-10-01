@@ -58,9 +58,23 @@ const (
 )
 
 // Front doors the suite runs behind (docs/WEB.md §3), each with its own
-// stack: Pangolin's Traefik with the file linx setup generates, and Linx's
-// own port 443 router (linx-sni). LINX_FRONT_DOORS picks some.
-var frontDoors = []string{installer.FrontDoorPangolin, installer.FrontDoorNginx, installer.FrontDoorHTTPProxy, installer.FrontDoorLinx443}
+// stack: Pangolin's Traefik with the file linx setup generates, nginx,
+// Caddy decrypting, Linx's own port 443 router (linx-sni), and linx-sni on
+// another public port (docs/SIMPLER.md §2.5). LINX_FRONT_DOORS picks some.
+var frontDoors = []string{installer.FrontDoorPangolin, installer.FrontDoorNginx, installer.FrontDoorHTTPProxy, installer.FrontDoorLinx443,
+	installer.FrontDoorPublicPort}
+
+// publicPort is the public-port door's port: browsers open
+// https://linx.test:8443.
+const publicPort = 8443
+
+// baseURL is where the browsers open Linx behind door.
+func baseURL(door string) string {
+	if door == installer.FrontDoorPublicPort {
+		return fmt.Sprintf("https://%s:%d", domain, publicPort)
+	}
+	return "https://" + domain
+}
 
 // traefikImage is the Traefik Pangolin runs (its installer's traefik:v3.7).
 const traefikImage = "traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0"
@@ -83,8 +97,11 @@ const (
 // coturn's own 5349 behind an HTTP-only proxy); UDP straight to coturn (at
 // home, the router's UDP 443 forward).
 func relayURLs(door string) string {
-	if door == installer.FrontDoorHTTPProxy {
+	switch door {
+	case installer.FrontDoorHTTPProxy:
 		return "turn:coturn:3478?transport=udp,turns:turn.linx.test:5349?transport=tcp"
+	case installer.FrontDoorPublicPort:
+		return fmt.Sprintf("turn:coturn:3478?transport=udp,turns:turn.linx.test:%d?transport=tcp", publicPort)
 	}
 	return "turn:coturn:3478?transport=udp,turns:turn.linx.test:443?transport=tcp"
 }
@@ -139,7 +156,7 @@ func override(door string) string {
       linx-public:
         aliases: [turn.linx.test]
 `
-	case installer.FrontDoorLinx443:
+	case installer.FrontDoorLinx443, installer.FrontDoorPublicPort:
 		s += `  sni:
     networks:
       linx-public:
@@ -419,6 +436,18 @@ func (h *harness) start() {
 		must(t, os.WriteFile(filepath.Join(h.dir, "haproxy.cfg"), installer.HAProxyConfig(domain), 0o644))
 		env += "LINX_TRUSTED_PROXIES=" + installer.SNIContainerName + "\nCOMPOSE_PROFILES=" + installer.FrontDoorLinx443 + "\n"
 		services = append(services, "sni")
+	case installer.FrontDoorPublicPort:
+		// As setup writes it for public port 8443 (installer.StackPlan). On
+		// a real install the router's forward and Docker's publish bring
+		// port 8443 to linx-sni's 443 with the visitor's own address; here
+		// the browsers share its network, so linx-sni also listens on 8443
+		// itself, which keeps that address too. Port 443 stays open, so
+		// the passkey test can sign in at both addresses.
+		cfg := strings.Replace(string(installer.HAProxyConfig(domain)), "    bind :443\n", fmt.Sprintf("    bind :443\n    bind :%d\n", publicPort), 1)
+		must(t, os.WriteFile(filepath.Join(h.dir, "haproxy.cfg"), []byte(cfg), 0o644))
+		env += fmt.Sprintf("LINX_TRUSTED_PROXIES=%s\nCOMPOSE_PROFILES=%s\nLINX_PUBLIC_PORT=%d\nLINX_WEB_HOST_PORT=\n",
+			installer.SNIContainerName, installer.FrontDoorLinx443, publicPort)
+		services = append(services, "sni")
 	}
 	must(t, os.WriteFile(filepath.Join(h.dir, ".env"), []byte(env), 0o644))
 
@@ -542,8 +571,9 @@ func (h *harness) call(method, path string, body any, out any) {
 }
 
 var (
-	keyRe  = regexp.MustCompile(`linx_[A-Za-z0-9_-]{20,}`)
-	linkRe = regexp.MustCompile(`https://` + regexp.QuoteMeta(domain) + `/setup/([A-Za-z0-9_-]+)`)
+	keyRe = regexp.MustCompile(`linx_[A-Za-z0-9_-]{20,}`)
+	// With the public port when it isn't 443 (https://linx.test:8443/setup/…).
+	linkRe = regexp.MustCompile(`https://` + regexp.QuoteMeta(domain) + `(?::\d+)?/setup/([A-Za-z0-9_-]+)`)
 )
 
 func (h *harness) provision(t *testing.T) {
@@ -580,8 +610,8 @@ func (h *harness) provision(t *testing.T) {
 			"--email", email, "--name", name, "--role", role}, extra...)
 		out := h.docker(args...)
 		m := linkRe.FindStringSubmatch(out)
-		if m == nil {
-			t.Fatalf("no set-password link in:\n%s", out)
+		if m == nil || !strings.HasPrefix(m[0], baseURL(h.door)+"/") {
+			t.Fatalf("no set-password link at %s in:\n%s", baseURL(h.door), out)
 		}
 		return m[1]
 	}
@@ -627,12 +657,14 @@ func (h *harness) provision(t *testing.T) {
 
 	// The browsers: Playwright's own image on linx-public, running
 	// web/e2e/calls.spec.ts against https://linx.test, through the
-	// front door on 443.
+	// front door on 443 (or https://linx.test:8443 on the public port, and
+	// the passkey also at https://linx.test: one passkey for both).
 	web, _ := filepath.Abs("../../web")
 	cmd := exec.CommandContext(h.ctx, "docker", "run", "--rm", "--name", "linx-browser-test-playwright",
 		"--network", netPrefix+"public", "--ipc", "host", "--init",
 		"--volume", web+":/web", "--workdir", "/web",
-		"--env", "LINX_BASE_URL=https://"+domain,
+		"--env", "LINX_BASE_URL="+baseURL(h.door),
+		"--env", "LINX_OTHER_URL="+otherURL(h.door),
 		"--env", "LINX_TEST_SPKI="+os.Getenv("LINX_TEST_SPKI"),
 		"--env", "LINX_SETUP_A="+aisha, "--env", "LINX_SETUP_B="+omar, "--env", "LINX_SETUP_ADMIN="+owner,
 		"--env", "LINX_REACH_URL="+reachURL,
@@ -686,6 +718,15 @@ func (h *harness) provision(t *testing.T) {
 		out, _ := exec.Command("docker", "logs", "--tail", "40", "linx-browser-test-sipp-call").CombinedOutput()
 		t.Fatalf("the softphone's call to a browser failed (SIPp exit %s):\n%s", code, out)
 	}
+}
+
+// otherURL is a second address of the same Linx, for the passkey test:
+// behind the public port, the standard one (as before a port change).
+func otherURL(door string) string {
+	if door == installer.FrontDoorPublicPort {
+		return "https://" + domain
+	}
+	return ""
 }
 
 // softphoneCallMarker is the line web/e2e/calls.spec.ts prints when a
@@ -820,7 +861,7 @@ func (h *harness) serverHelper(t *testing.T) {
 	if s, _ := state(last, "postgres"); s != "running" {
 		t.Errorf("postgres: %q", s)
 	}
-	if s, _ := state(last, "sni"); s != ops.StateMissing && h.door != installer.FrontDoorLinx443 {
+	if s, _ := state(last, "sni"); s != ops.StateMissing && h.door != installer.FrontDoorLinx443 && h.door != installer.FrontDoorPublicPort {
 		t.Errorf("sni without its front door: %q", s)
 	}
 
@@ -867,19 +908,33 @@ func (h *harness) checkIt(t *testing.T) (url, id string) {
 	}
 	h.call(http.MethodPost, "/api/v1/system/reach-check", nil, &check)
 	t.Logf("Check it, from the server: %+v", check.Lines)
-	if h.door != installer.FrontDoorHTTPProxy {
-		for _, want := range []string{domain + " answers with Linx's certificate", "turn." + domain + " relays call audio over port 443"} {
-			found := false
-			for _, l := range check.Lines {
-				found = found || (l.State == "ok" && l.Text == want)
+	has := func(state, text string) bool {
+		for _, l := range check.Lines {
+			if l.State == state && l.Text == text {
+				return true
 			}
-			if !found {
+		}
+		return false
+	}
+	if h.door != installer.FrontDoorHTTPProxy {
+		port := 443
+		if h.door == installer.FrontDoorPublicPort {
+			port = publicPort
+		}
+		for _, want := range []string{domain + " answers with Linx's certificate", fmt.Sprintf("turn.%s relays call audio over port %d", domain, port)} {
+			if !has("ok", want) {
 				t.Errorf("Check it: no ok line %q", want)
 			}
 		}
 	}
+	if h.door == installer.FrontDoorPublicPort && !has("warn", fmt.Sprintf("People open Linx at port %d, not the standard 443.", publicPort)) {
+		t.Error("Check it: no warning about the public port")
+	}
 	var link struct{ ID, URL string }
 	h.call(http.MethodPost, "/api/v1/system/reach-links", nil, &link)
+	if !strings.HasPrefix(link.URL, baseURL(h.door)+"/reach/") {
+		t.Errorf("Check it: the phone link %s isn't at %s", link.URL, baseURL(h.door))
+	}
 	return link.URL, link.ID
 }
 

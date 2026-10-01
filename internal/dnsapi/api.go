@@ -39,6 +39,9 @@ type Options struct {
 	// PublicAddress is this network's public address: Namecheap wants it
 	// with every request.
 	PublicAddress func(ctx context.Context) (string, error)
+	// Endpoint replaces the company's API address for Linx's own clients
+	// (tests only: linx-certd's LINX_DNS_TEST_API).
+	Endpoint string
 }
 
 // ErrBuiltin: Cloudflare and DuckDNS are changed by internal/certs' own
