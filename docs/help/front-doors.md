@@ -52,6 +52,7 @@ What it trades away:
 
 - Browser calls from networks that only allow standard web traffic (some hotels, workplaces, public Wi-Fi and mobile networks) may fail or have no audio. Calls from normal home and mobile networks work.
 - Some company, school and public networks block any address with a port in it. There, even the page and signing in can fail. A front door on port 443, or a small rented server as your front door, keeps port 443.
+- Browsers don't tell sites apart by port, so whatever answers for your Linx address itself on port 443 (`https://pbx.example.com`, with no port) is treated as part of Linx. Keep it that way round: what holds port 443 serves its own names, never Linx's. A wildcard certificate there that also covers Linx's name makes this matter more.
 
 Passkeys keep working if you change the port later: they belong to your domain, not the port. Company sign-in needs its new return address (`https://pbx.example.com:8443/api/v1/sso/callback`) added at Google or Microsoft; Server settings shows it before you apply. Links already sent for the old address stop working, so send new invites.
 
