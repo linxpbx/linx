@@ -1071,6 +1071,15 @@ test.describe("system: server settings", () => {
     // Certificates can't be checked on port 443: the DNS key form opens.
     await expect(page.getByRole("heading", { name: "Keep the records right automatically" })).toBeVisible();
     await shot(page, "system-server-public-port-rented");
+    // The key's Check answers for the key, and the move's Check still
+    // works after it (Demo A: the tick never came, and Check stayed grey).
+    await page.getByLabel("API key", { exact: true }).fill("pk1_0123456789abcdef");
+    await page.getByLabel("Secret key", { exact: true }).fill("sk1_0123456789abcdef");
+    await page.getByRole("button", { name: "Check the key" }).click();
+    await expect(page.getByText("This key can change example.com's records.")).toBeVisible();
+    await page.getByRole("button", { name: "Check", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Before you apply" })).toBeVisible();
+    await expect(page.getByText("This key can change example.com's records.")).toBeVisible();
   });
 
   test("rented, no token: a new domain's DNS records to add first", async ({ page }) => {

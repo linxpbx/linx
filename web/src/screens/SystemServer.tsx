@@ -251,11 +251,13 @@ function Settings({ me, s, client, onChanged, onMoved }:
         setFieldErrors(Object.fromEntries(data.errors.map((e) => [e.field, e.message])));
         return;
       }
-      if (moves) {
+      // The key's own Check answers for the key, even with a move pending:
+      // the move's preview comes from its own row's Check.
+      if (at === "token") setTokenOK(true);
+      else if (moves) {
         setPreview(data);
         setCheckedAt(at === "apply" ? (newDomain && newDomain !== s.domain ? "domain" : "door") : at);
-      } else if (at === "token") setTokenOK(true);
-      else setAsking(true);
+      } else setAsking(true);
     } catch {
       setError("Linx didn't answer. Try again in a moment.");
     } finally {
