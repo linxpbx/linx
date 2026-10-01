@@ -8,3 +8,8 @@ c6ff8bac173ca2b108a4e8918019624791983c97:docs/DEMO_PHASE1A.md:curl-auth-header:6
 eb56ec1272c6ffe3d7d9bf28f5d6814fb34f6681:internal/auth/password.go:generic-api-key:106
 # False positive: a made-up backup password in the screenshot tests' stand-in server (replaced since).
 919111abfdaf7783fb805270a14dc1589d1d5439:web/e2e/fakes.ts:generic-api-key:266
+# False positives: made-up DNS keys in the DNS company tests (Phase 1F step 5), checking their form and that errors never show them.
+f2179fe15ea968c9c04275cfa0149187be513ece:internal/installer/stack_test.go:cloudflare-api-key:145
+f2179fe15ea968c9c04275cfa0149187be513ece:internal/dnsapi/dnsapi_test.go:generic-api-key:48
+f2179fe15ea968c9c04275cfa0149187be513ece:internal/dnsapi/clients/clients_test.go:generic-api-key:32
+f2179fe15ea968c9c04275cfa0149187be513ece:internal/dnsapi/clients/clients_test.go:generic-api-key:254
