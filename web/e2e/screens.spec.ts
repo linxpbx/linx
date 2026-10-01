@@ -1060,6 +1060,16 @@ test.describe("system: server settings", () => {
     await expect(page.getByRole("dialog", { name: "Move Linx to https://example.com:8443?" })).toBeVisible();
   });
 
+  test("a server that stops answering: the page says so", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
+    await page.goto("/admin/system/server");
+    await expect(page.getByRole("button", { name: "Change" }).first()).toBeVisible();
+    // A port a move closed can drop requests rather than refuse them: the
+    // page mustn't wait for ever (Demo A).
+    await page.route("**/api/v1/server-settings", () => new Promise(() => {}));
+    await expect(page.getByText("Linx is restarting with the new settings")).toBeVisible({ timeout: 25_000 });
+  });
+
   test("rented, no key: another public port asks for one", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
     await page.goto("/admin/system/server");

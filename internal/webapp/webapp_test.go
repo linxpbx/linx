@@ -57,6 +57,14 @@ func TestPoliciesStayStrict(t *testing.T) {
 			t.Errorf("CSP allows %s", bad)
 		}
 	}
+	if got := PolicyFor("vps.example.com"); !strings.Contains(got, "connect-src 'self' https://vps.example.com:*;") {
+		t.Errorf("PolicyFor: %s", got)
+	}
+	for _, bad := range []string{"", "*", "example.com; script-src *", "Example.com"} {
+		if got := PolicyFor(bad); got != ContentSecurityPolicy {
+			t.Errorf("PolicyFor(%q): %s", bad, got)
+		}
+	}
 	if !strings.Contains(PermissionsPolicy, "microphone=(self)") || !strings.Contains(PermissionsPolicy, "camera=()") {
 		t.Errorf("Permissions-Policy: %s", PermissionsPolicy)
 	}

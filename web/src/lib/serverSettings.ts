@@ -20,10 +20,24 @@ export interface ServerSettingsClient {
   change(c: ServerChange): Promise<Result<null>>;
 }
 
+// How long the page waits for the server before saying Linx is restarting:
+// a port a move closed may drop the request rather than refuse it, and
+// then nothing would ever answer (Demo A, the VPS back to 443).
+export const LOAD_TIMEOUT_MS = 8000;
+
+/** Whether the page can open movedTo by itself once it answers: the same
+ *  name on another port (the page's policy lets it check only that; a new
+ *  domain needs signing in again there anyway). */
+export function opensBySelf(movedTo: string, here: string): boolean {
+  if (!movedTo) return false;
+  const to = new URL(movedTo), at = new URL(here);
+  return to.hostname === at.hostname && to.origin !== at.origin;
+}
+
 /** Through the API, as the signed-in system admin. */
 export const sessionClient: ServerSettingsClient = {
   async load() {
-    const { data, error, response } = await api.GET("/api/v1/server-settings");
+    const { data, error, response } = await api.GET("/api/v1/server-settings", { signal: AbortSignal.timeout(LOAD_TIMEOUT_MS) });
     return { data, error, status: response.status };
   },
   async preview(body) {
@@ -40,7 +54,7 @@ export const sessionClient: ServerSettingsClient = {
 export const REPAIR_SETTINGS = "/repair/api/server-settings";
 
 async function repairFetch<T>(path: string, body?: ServerChange): Promise<Result<T>> {
-  const res = await fetch(path, body === undefined ? { credentials: "same-origin" } : {
+  const res = await fetch(path, body === undefined ? { credentials: "same-origin", signal: AbortSignal.timeout(LOAD_TIMEOUT_MS) } : {
     method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
   const text = await res.text();

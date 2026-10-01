@@ -469,7 +469,7 @@ func main() {
 	if _, err := cert.Current(); err != nil {
 		log.Warn("no TLS certificate yet; HTTPS connections fail until linx-certd deploys one", "err", err)
 	}
-	https := server.New(envOr(os.Getenv, "LINX_LISTEN_ADDR", ":8443"), webapp.Headers(legacyHosts(os.Getenv("LINX_DOMAIN"), weburl.FromEnv(os.Getenv), mux)))
+	https := server.New(envOr(os.Getenv, "LINX_LISTEN_ADDR", ":8443"), webapp.HeadersFor(os.Getenv("LINX_DOMAIN"), legacyHosts(os.Getenv("LINX_DOMAIN"), weburl.FromEnv(os.Getenv), mux)))
 	// Let's Encrypt's port 443 check is answered here too, for a server
 	// that renews without a DNS token (docs/INSTALL.md §5): only while
 	// certd has left a challenge for that name.

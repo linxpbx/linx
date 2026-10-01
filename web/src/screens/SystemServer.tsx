@@ -26,7 +26,7 @@ import { CopyBlock, Disclosure, PortainerNote, RecordBox } from "@/components/In
 import { SystemCard as Card, SystemHeader } from "@/components/SystemPage";
 import { domainProblem, portProblem, proxyAddressProblem, publicPortProblem } from "@/lib/install";
 import {
-  ADVANCED_DOORS, doorChoice, DOORS, PROXY_DOORS, sessionClient,
+  ADVANCED_DOORS, doorChoice, DOORS, LOAD_TIMEOUT_MS, opensBySelf, PROXY_DOORS, sessionClient,
   type FrontDoorKind, type ServerChange, type ServerPreview, type ServerSettings, type ServerSettingsClient,
 } from "@/lib/serverSettings";
 import { companyById, dnsKeyBody, dnsKeyFilled, startingCompany, type DnsKeyValue } from "@/lib/dnsCompanies";
@@ -80,6 +80,20 @@ export function ServerSettingsPanel({ me, client, afterMove = "" }: { me: Me | n
     return () => clearInterval(t);
   }, [load, running, unreachable]);
   const here = s && movedTo === (s.address || `https://${s.domain}`);
+  // Moved to another address: open it by itself once it answers (owner,
+  // Demo A). Only the same domain on another port can be checked from here
+  // (the page's policy); a new domain needs signing in again there anyway.
+  const samePlace = opensBySelf(movedTo, window.location.href);
+  useEffect(() => {
+    if (!samePlace) return;
+    let gone = false;
+    const t = setInterval(() => {
+      fetch(movedTo + "/healthz", { mode: "no-cors", cache: "no-store", signal: AbortSignal.timeout(LOAD_TIMEOUT_MS) })
+        .then(() => { if (!gone) window.location.assign(movedTo + afterMove); })
+        .catch(() => {});
+    }, 3000);
+    return () => { gone = true; clearInterval(t); };
+  }, [movedTo, samePlace, afterMove]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -89,8 +103,8 @@ export function ServerSettingsPanel({ me, client, afterMove = "" }: { me: Me | n
           <LoaderCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin text-primary" />
           <span>
             Linx is restarting with the new settings…
-            {movedTo && <> When it's done it answers at <a className="text-link underline-offset-4 hover:underline break-all" href={movedTo + afterMove}>{movedTo}</a>:
-              open it there and sign in again.</>}
+            {movedTo && <> When it's done it answers at <a className="text-link underline-offset-4 hover:underline break-all" href={movedTo + afterMove}>{movedTo}</a>
+              {samePlace ? ", and this page opens it by itself." : ": open it there and sign in again."}</>}
           </span>
         </p>
       )}

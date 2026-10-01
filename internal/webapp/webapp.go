@@ -27,20 +27,36 @@ const ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 
 const PermissionsPolicy = "microphone=(self), speaker-selection=(self), camera=(), geolocation=(), " +
 	"payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=(), display-capture=()"
 
+// PolicyFor is ContentSecurityPolicy that also lets the page connect to
+// its own domain on any port: after Server settings moves Linx to another
+// public port (or back to 443), the page checks the new address and opens
+// it by itself. Nothing but that one name is added.
+func PolicyFor(domain string) string {
+	if domain == "" || strings.Trim(domain, "abcdefghijklmnopqrstuvwxyz0123456789.-") != "" {
+		return ContentSecurityPolicy
+	}
+	return strings.Replace(ContentSecurityPolicy, "connect-src 'self'", "connect-src 'self' https://"+domain+":*", 1)
+}
+
 // Headers adds the security headers to every response.
-func Headers(next http.Handler) http.Handler { return headers(next, true) }
+func Headers(next http.Handler) http.Handler { return headers(next, true, ContentSecurityPolicy) }
+
+// HeadersFor is Headers with PolicyFor(domain).
+func HeadersFor(domain string, next http.Handler) http.Handler {
+	return headers(next, true, PolicyFor(domain))
+}
 
 // PlainHeaders is Headers for the install's plain-HTTP page (ADR-057):
 // the same policies, without HSTS, which means nothing over HTTP.
-func PlainHeaders(next http.Handler) http.Handler { return headers(next, false) }
+func PlainHeaders(next http.Handler) http.Handler { return headers(next, false, ContentSecurityPolicy) }
 
-func headers(next http.Handler, hsts bool) http.Handler {
+func headers(next http.Handler, hsts bool, csp string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		if hsts {
 			h.Set("Strict-Transport-Security", "max-age=63072000")
 		}
-		h.Set("Content-Security-Policy", ContentSecurityPolicy)
+		h.Set("Content-Security-Policy", csp)
 		h.Set("Permissions-Policy", PermissionsPolicy)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
