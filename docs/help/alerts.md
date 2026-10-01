@@ -13,7 +13,9 @@ Linx tells you when something needs you: a phone line down, a failed backup, som
 
 ## Where alerts go
 
-**+ Add** → **Guide me**, then choose where: **ntfy** (recommended for phones: a free app, alerts arrive as notifications), **Telegram**, **Slack**, **Microsoft Teams**, **Gotify** or a signed webhook for your own software.
+**+ Add** → **Guide me**, then choose where: **ntfy** (recommended for phones: a free app, alerts arrive as notifications), **Telegram**, **Slack**, **Microsoft Teams**, **Gotify**, a signed webhook for your own software, or **Email** to one or more addresses.
+
+**Email** is greyed until email is set up: see [Email](email). The **Email isn't sending** alert always goes to your other channels, never by email, so add at least one other channel too.
 
 ## Which alerts
 

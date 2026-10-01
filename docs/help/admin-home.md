@@ -9,7 +9,7 @@ screens: [/admin]
 
 Admin home is the first page of the Admin area. It shows:
 
-- **Getting started**, a short list of what's left to set up (add people, connect a phone line, and so on). **Hide this list** once you're done.
+- **Getting started**, a short list of what's left to set up (add people, connect a phone line, and so on). A system admin also sees **Set up email**, ticked once a test email has arrived ([Email](email)). **Hide this list** once you're done.
 - **Needs attention**: alerts that need you. *Nothing needs you right now* when all is well.
 - **On a call now**, **Phone lines** and **System** at a glance.
 

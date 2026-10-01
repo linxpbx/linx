@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { navigate } from "@/hooks/useRoute";
 import { hasScope } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +49,11 @@ const KINDS: { kind: Kind; label: string; hint: string; fields: { key: keyof Con
   { kind: "webhook", label: "Webhook", hint: "For your own software: a signed HTTPS request.", fields: [
     { key: "url", label: "Address", help: "An https:// address that accepts POST requests." },
   ] },
+  { kind: "email", label: "Email", hint: "An email to you or your team, through Linx's own email.", fields: [
+    { key: "to", label: "Send to", help: "One or more addresses, separated by commas. \"Email isn't sending\" always goes to your other channels instead." },
+  ] },
 ];
+const EMAIL_FIRST = "Set up email first (System → Settings).";
 const kindLabel = (k: string) => KINDS.find((x) => x.kind === k)?.label ?? k;
 
 const SEVERITY_CHOICES: { value: Severity; title: string; hint: string; badge?: string }[] = [
@@ -141,6 +146,11 @@ function AddChannel({ me, open, onOpenChange, quick, onGuideInstead, onDone }: {
   const [error, setError] = useState("");
   const confirm = useConfirmIdentity(me);
   const canAllow = hasScope(me, "outbound_allowlist:write");
+  // Email is offered greyed until it's set up (docs/ui/SCREENS_PHASE1F.md §0).
+  const [emailOn, setEmailOn] = useState(false);
+  useEffect(() => {
+    if (open) void api.GET("/api/v1/email").then(({ data }) => setEmailOn(!!data?.enabled));
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -195,18 +205,26 @@ function AddChannel({ me, open, onOpenChange, quick, onGuideInstead, onDone }: {
     <div className="flex flex-col gap-4">
       {step === 1 && (
         <RadioGroup value={kind} onValueChange={(v) => { setKind(v as Kind); setConfig({}); }}>
-          {KINDS.map((k) => (
-            <label key={k.kind} htmlFor={`kind-${k.kind}`} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[[data-state=checked]]:border-primary">
-              <RadioGroupItem id={`kind-${k.kind}`} value={k.kind} className="mt-0.5" />
-              <span className="flex flex-col gap-0.5">
-                <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                  {k.label}
-                  {k.kind === "ntfy" && <span className="rounded-sm bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">Recommended for phones</span>}
+          {KINDS.map((k) => {
+            const off = k.kind === "email" && !emailOn;
+            return (
+              <label key={k.kind} htmlFor={`kind-${k.kind}`}
+                className={`flex items-start gap-3 rounded-md border p-3 has-[[data-state=checked]]:border-primary ${off ? "opacity-60" : "cursor-pointer"}`}>
+                <RadioGroupItem id={`kind-${k.kind}`} value={k.kind} className="mt-0.5" disabled={off} />
+                <span className="flex flex-col gap-0.5">
+                  <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                    {k.label}
+                    {k.kind === "ntfy" && <span className="rounded-sm bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">Recommended for phones</span>}
+                  </span>
+                  <span className="text-sm text-muted-foreground">{k.hint}</span>
+                  {off && (
+                    <a className="text-sm text-link underline-offset-4 hover:underline" href="/admin/system/settings"
+                      onClick={(e) => { e.preventDefault(); navigate("/admin/system/settings"); }}>{EMAIL_FIRST}</a>
+                  )}
                 </span>
-                <span className="text-sm text-muted-foreground">{k.hint}</span>
-              </span>
-            </label>
-          ))}
+              </label>
+            );
+          })}
         </RadioGroup>
       )}
       {step === 2 && (
@@ -215,7 +233,8 @@ function AddChannel({ me, open, onOpenChange, quick, onGuideInstead, onDone }: {
             <Field label="Where" htmlFor="ch-kind">
               <select id="ch-kind" value={kind} onChange={(e) => { setKind(e.target.value as Kind); setConfig({}); }}
                 className="h-9 rounded-md border bg-background px-3 text-sm">
-                {KINDS.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                {KINDS.map((k) => <option key={k.kind} value={k.kind} disabled={k.kind === "email" && !emailOn}>
+                  {k.label}{k.kind === "email" && !emailOn ? ` (${EMAIL_FIRST})` : ""}</option>)}
               </select>
             </Field>
           )}

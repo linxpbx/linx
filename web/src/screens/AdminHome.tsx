@@ -129,6 +129,13 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
   const [settings, setSettings] = useState<Settings | null>(null);
   const [dids, setDids] = useState<Did[] | null>(null);
   const [active, setActive] = useState<ActiveCall[] | null>(null);
+  // Email (ADR-066): read once, not with the 15-second refresh; done once
+  // a test email arrived.
+  const canEmail = me.role === "system_admin" && canSettings;
+  const [emailDone, setEmailDone] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (canEmail) void api.GET("/api/v1/email").then(({ data }) => { if (data) setEmailDone(data.enabled && !!data.arrived_at); });
+  }, [canEmail]);
 
   const load = useCallback(async () => {
     const calls: Promise<void>[] = [];
@@ -173,6 +180,12 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
     id: "second-step", label: "Add a second way to sign in (passkey)",
     done: !!me.mfa_enabled || (me.passkeys ?? 0) > 0, action: "Add", onAction: () => navigate("/account"),
   });
+  if (canEmail && emailDone !== null) {
+    items.push({
+      id: "email", label: "Set up email (invites, password resets, alerts)", done: emailDone,
+      action: "Set up", onAction: () => navigate("/admin/system/settings"),
+    });
+  }
   items.push({
     id: "line", label: "Connect a phone line", done: hasLine,
     action: "Connect", onAction: () => navigate("/admin/lines"),

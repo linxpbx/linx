@@ -69,6 +69,9 @@ export interface FakeOptions {
   followRanges?: boolean;
   // Help's written answers (docs/HELP.md §4) turned on, with Anthropic.
   answers?: boolean;
+  // Email (ADR-066): "on" sends through Google Workspace; "failing" has
+  // emails waiting after the password was refused; absent: not set up.
+  email?: "on" | "failing";
 }
 
 // Phone lines, numbers and routing (docs/ui/ADMIN_SCREENS_PHASE1E.md §6-9).
@@ -330,6 +333,13 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       { id: "0199k1", name: "CRM", prefix: "linx_0199k1", role: "admin", scopes: ["extensions:read", "calls:read", "users:read"], allowed_ips: [],
         created_by: "user:u1001", created_at: minsAgo(20000), expires_at: new Date(Date.now() + 60 * 86_400_000).toISOString(), last_used_at: minsAgo(40), last_used_ip: "203.0.113.9" },
     ] as Json[],
+    email: (opts.email ? { enabled: true, preset: "google", host: "smtp.gmail.com", port: 465, security: "tls", username: "pbx@example.com",
+      from_address: "pbx@example.com", from_name: "Linx at Example Co", password_set: true, hourly_limit: 60, arrived_at: minsAgo(600), etag: '"1"',
+      status: opts.email === "failing"
+        ? { last_sent_at: minsAgo(300), sent_last_hour: 0, waiting: 3, last_error: "The mail server didn't accept the user name and password. (535 5.7.8 Username and Password not accepted.)" }
+        : { last_sent_at: minsAgo(25), sent_last_hour: 12, waiting: 0, last_error: "" } }
+      : { enabled: false, preset: "google", host: "", port: 465, security: "tls", username: "", from_address: "", from_name: "", password_set: false,
+        hourly_limit: 60, etag: '"0"', status: { sent_last_hour: 0, waiting: 0, last_error: "" } }) as Json,
     answers: { enabled: !!opts.answers, provider: "anthropic", base_url: "", model: "claude-haiku-4-5", api_key_set: !!opts.answers,
       person_daily_limit: 200, server_daily_limit: 1000, used_today: opts.answers ? 14 : 0, etag: '"1"' } as Json,
     providers: [
@@ -879,6 +889,27 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       const lines = [...HELP_ANSWER.map((text) => ({ text })),
         { done: true, guides: [{ name: "desk-phones-and-phone-apps", title: "Desk phones and phone apps" }], by: "Anthropic (Claude)" }];
       return route.fulfill({ status: 200, contentType: "application/x-ndjson", body: lines.map((l) => JSON.stringify(l)).join("\n") + "\n" });
+    }
+    if (p === "/api/v1/email" && method === "GET") return route.fulfill(json(system.email));
+    if (p === "/api/v1/email" && method === "PATCH") {
+      if (!system.confirmed) {
+        return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
+      }
+      const { password, arrived, ...rest } = route.request().postDataJSON() as Json;
+      if (rest.host === "mail.home.lan") {
+        return route.fulfill(json({ type: "about:blank", title: "Unprocessable Entity", status: 422, code: "host_blocked",
+          detail: "mail.home.lan resolves to 192.168.1.30, a private address. Add it to the outbound allowlist if it's a device on your network." }, 422));
+      }
+      Object.assign(system.email, rest, password !== undefined ? { password_set: password !== "" } : {},
+        arrived ? { arrived_at: new Date().toISOString() } : {}, { etag: '"2"' });
+      return route.fulfill(json(system.email));
+    }
+    if (p === "/api/v1/email/test" && method === "POST") {
+      const e = system.email as { host: string };
+      return route.fulfill(json(opts.email === "failing"
+        ? { to: "mohammed@example.com", ok: false, passed: ["connect", "encrypt", "certificate"], stage: "sign_in",
+          error: "The mail server didn't accept the user name and password. (535 5.7.8 Username and Password not accepted.)" }
+        : { to: "mohammed@example.com", ok: true, passed: ["connect", "encrypt", "certificate", "sign_in", "send"], host: e.host }));
     }
     if (p === "/api/v1/help-answers" && method === "GET") return route.fulfill(json(system.answers));
     if (p === "/api/v1/help-answers" && method === "PATCH") {

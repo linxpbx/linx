@@ -28,7 +28,8 @@ func loadGuides(t *testing.T) []Guide {
 	return guides
 }
 
-// webSource is the web app's own code (not its tests), file by file.
+// webSource is the web app's own code (not its tests), file by file, and
+// the lists its screens show (the DNS companies, the email presets).
 func webSource(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -37,7 +38,7 @@ func webSource(t *testing.T) map[string]string {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		if !(strings.HasSuffix(p, ".ts") || strings.HasSuffix(p, ".tsx")) || strings.Contains(p, ".test.") || strings.HasSuffix(p, ".d.ts") {
+		if !(strings.HasSuffix(p, ".ts") || strings.HasSuffix(p, ".tsx") || strings.HasSuffix(p, ".json")) || strings.Contains(p, ".test.") || strings.HasSuffix(p, ".d.ts") {
 			return nil
 		}
 		b, err := os.ReadFile(p)

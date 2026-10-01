@@ -588,6 +588,86 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-system-settings-add-provider`);
     });
 
+    test("system settings: Email", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupCompleted: true });
+      await page.goto("/admin/system/settings");
+      const card = page.getByRole("heading", { name: "Email", exact: true });
+      await card.scrollIntoViewIfNeeded();
+      await expect(page.getByText("Not set up.")).toBeVisible();
+      await page.getByRole("button", { name: "Set up email" }).click();
+      // Microsoft 365's warning comes with the choice.
+      await page.getByRole("radio", { name: /Microsoft 365/ }).click();
+      await expect(page.getByText("Microsoft is turning off password sign-in for sending mail.")).toBeVisible();
+      await page.getByRole("radio", { name: /Gmail or Google Workspace/ }).click();
+      await shot(page, `${scheme}-system-settings-email-who`);
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByText("make an app password at myaccount.google.com")).toBeVisible();
+      // A preset fills in the server; "Something else" asks for it.
+      await expect(page.getByLabel("Mail server")).toHaveCount(0);
+      await page.getByLabel("Send from this address").fill("pbx@example.com");
+      await page.getByLabel("App password").fill("abcd efgh ijkl mnop");
+      await page.getByLabel('"From" name').fill("Linx at Example Co");
+      await shot(page, `${scheme}-system-settings-email-sign-in`);
+      await page.getByRole("button", { name: "Save and send a test" }).click();
+      await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+      await page.getByLabel("Password", { exact: true }).fill("correct horse battery");
+      await page.getByLabel("Code from your authenticator app").pressSequentially("123456");
+      await expect(page.getByText("Connected to smtp.gmail.com")).toBeVisible();
+      await expect(page.getByText("Certificate checked")).toBeVisible();
+      await expect(page.getByText("Did it arrive?")).toBeVisible();
+      await shot(page, `${scheme}-system-settings-email-test`);
+      await page.getByRole("button", { name: "No, show me what to check" }).click();
+      await expect(page.getByText("Look in the spam or junk folder.")).toBeVisible();
+      await page.getByRole("button", { name: "It arrived now" }).click();
+      await expect(page.getByText("Email is on.")).toBeVisible();
+      await page.getByRole("button", { name: "Done" }).click();
+      await expect(page.getByText("Linx at Example Co <pbx@example.com>")).toBeVisible();
+      await page.getByRole("button", { name: "Send a test email" }).scrollIntoViewIfNeeded();
+      await shot(page, `${scheme}-system-settings-email`);
+    });
+
+    test("system alerts: an email channel", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
+      await page.goto("/admin/system/alerts");
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      // Greyed, with the reason, until email is set up.
+      await expect(page.getByRole("radio", { name: /^Email/ })).toBeDisabled();
+      await expect(page.getByText("Set up email first (System → Settings).")).toBeVisible();
+    });
+
+    test("system alerts: an email channel once email is on", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true, email: "on" });
+      await page.goto("/admin/system/alerts");
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      await page.getByRole("radio", { name: /^Email/ }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByLabel("Send to").fill("mohammed@example.com, ops@example.com");
+      await shot(page, `${scheme}-system-alerts-add-email`);
+    });
+
+    test("system settings: Email isn't sending", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupCompleted: true, email: "failing" });
+      await page.goto("/admin/system/settings");
+      const card = page.getByRole("heading", { name: "Email", exact: true });
+      await card.scrollIntoViewIfNeeded();
+      await expect(page.getByText(/3 waiting: The mail server didn't accept the user name and password/)).toBeVisible();
+      await page.getByRole("button", { name: "Send a test email" }).click();
+      await expect(page.getByText("Signed in")).toHaveCount(0);
+      await expect(page.getByText("Certificate checked")).toBeVisible();
+      await page.getByRole("button", { name: "Send a test email" }).scrollIntoViewIfNeeded();
+      await shot(page, `${scheme}-system-settings-email-failing`);
+    });
+
+    test("system settings: an admin sees Email read-only", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true, email: "on" });
+      await page.goto("/admin/system/settings");
+      await expect(page.getByText("Linx at Example Co <pbx@example.com>")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Send a test email" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Turn off" }).first()).toBeDisabled();
+    });
+
     test("system settings: Help answers", async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
       await page.goto("/admin/system/settings");

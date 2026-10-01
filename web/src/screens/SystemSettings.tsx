@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { navigate } from "@/hooks/useRoute";
 import { goToCompany } from "@/lib/company";
 import { hasScope } from "@/lib/roles";
+import { EmailCard } from "@/screens/SystemEmail";
 import { HelpAnswersCard } from "@/screens/SystemHelpAnswers";
 
 type Settings = components["schemas"]["Settings"];
@@ -318,6 +319,8 @@ export function SystemSettingsScreen({ me, onSimpleModeChange }: { me: Me; onSim
             </div>
           )}
         </SystemCard>
+
+        <EmailCard me={me} />
 
         {canSeeSso && (
           <SystemCard title="Company sign-in" action={
