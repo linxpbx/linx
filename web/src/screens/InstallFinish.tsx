@@ -8,12 +8,13 @@ import { useEffect, useRef, useState } from "react";
 import { CircleCheck, LoaderCircle, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
+import { DnsKeyFields } from "@/components/DnsKeyForm";
+import { companyById, dnsKeyBody, dnsKeyFilled, startingCompany, type DnsKeyValue } from "@/lib/dnsCompanies";
 import {
-  Choice, CopyButton, Countdown, Disclosure, FieldMessage, Frame, LinkUnusable, Nav, PortainerNote, Row, submit, Title, useSecondsLeft, type Mark,
+  Choice, CopyButton, Countdown, FieldMessage, Frame, LinkUnusable, Nav, PortainerNote, Row, submit, Title, useSecondsLeft, type Mark,
 } from "@/components/InstallFrame";
 import {
   getState, LinkClosed, linxAnswers, Problem, saveExtras, sendToken, setupLinkReady, skipToken, startInstall,
@@ -81,6 +82,7 @@ export function SecureFinish({ initial }: { initial: InstallState }) {
     <Frame at={step === "token" ? AT_DNS : AT_INSTALL} strip={false} footer={switching ? undefined : <Countdown left={left} secure />}>
       {step === "token" && (
         <TokenStep finish={f} domain={domain} home={home} problem={problem} act={act}
+          detected={state.cert?.dns.company} address={state.facts.public_address}
           onNext={() => { setProblem(""); setEditing(null); }} />
       )}
       {step === "extras" && (
@@ -99,14 +101,13 @@ export function SecureFinish({ initial }: { initial: InstallState }) {
 type Act = (fn: () => Promise<void>) => Promise<boolean>;
 
 /** §3.2: the DNS company's token, or Skip on a rented server where Linx takes 443. */
-function TokenStep({ finish, domain, home, problem, act, onNext }: {
-  finish: FinishView; domain: string; home: boolean; problem: string; act: Act; onNext: () => void;
+function TokenStep({ finish, domain, home, problem, act, onNext, detected, address }: {
+  finish: FinishView; domain: string; home: boolean; problem: string; act: Act; onNext: () => void; detected?: string; address?: string;
 }) {
-  const duck = finish.provider === "duckdns" || domain.endsWith(".duckdns.org");
-  const company = duck ? "DuckDNS" : "Cloudflare";
+  const duck = domain.endsWith(".duckdns.org");
+  const company = companyById(finish.provider)?.name ?? "your DNS company";
   const [replace, setReplace] = useState(false);
-  const [token, setToken] = useState("");
-  const [show, setShow] = useState(false);
+  const [key, setKey] = useState<DnsKeyValue>({ provider: startingCompany(domain, finish.token === "saved" ? finish.provider : undefined, detected), key: {} });
   const [busy, setBusy] = useState(false);
 
   const lead = (
@@ -123,10 +124,10 @@ function TokenStep({ finish, domain, home, problem, act, onNext }: {
           {finish.token === "saved" ? "Let Linx look after your DNS" : "No DNS token"}
         </Title>
         {finish.token === "saved"
-          ? <p className="flex items-center gap-2 text-sm"><CircleCheck aria-hidden="true" className="size-4 text-status-available" />{company} token added</p>
+          ? <p className="flex items-center gap-2 text-sm"><CircleCheck aria-hidden="true" className="size-4 text-status-available" />{company} key added</p>
           : <p className="text-sm text-muted-foreground">You chose to skip it.</p>}
         <div className="mt-8 flex flex-wrap items-center justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => setReplace(true)}>{finish.token === "saved" ? "Replace" : "Add a token"}</Button>
+          <Button type="button" variant="outline" onClick={() => setReplace(true)}>{finish.token === "saved" ? "Replace" : "Add a key"}</Button>
           <Button type="submit">Next</Button>
         </div>
       </form>
@@ -134,32 +135,17 @@ function TokenStep({ finish, domain, home, problem, act, onNext }: {
   }
   const save = () => {
     setBusy(true);
-    void act(() => sendToken(token.trim())).then((ok) => {
+    void act(() => sendToken(dnsKeyBody(key))).then((ok) => {
       setBusy(false);
-      setToken("");
+      setKey({ provider: key.provider, key: {} });
       if (ok) { setReplace(false); onNext(); }
     });
   };
   return (
     <form onSubmit={submit(save)}>
-      <Title lead={<>With a token from your DNS company, Linx:{lead}</>}>Let Linx look after your DNS</Title>
-      <p className="text-sm">DNS company: <span className="font-medium">{company}</span></p>
-      <div className="mt-4 flex flex-col gap-2">
-        <Label htmlFor="dns-token">Token</Label>
-        <div className="flex gap-2">
-          <Input id="dns-token" type={show ? "text" : "password"} autoComplete="off" spellCheck={false}
-            value={token} onChange={(e) => setToken(e.target.value)} className="min-w-0 flex-1" />
-          <Button type="button" variant="outline" onClick={() => setShow(!show)}>{show ? "Hide" : "Show"}</Button>
-        </div>
-        {duck
-          ? <p className="text-sm text-muted-foreground">Your token is at the top of duckdns.org once you've signed in.</p>
-          : <Disclosure label="How to make a Cloudflare token">
-            <p className="text-sm text-muted-foreground">
-              In Cloudflare: My Profile → API Tokens → Create Token → “Edit zone DNS”. Under Zone Resources choose only the zone {domain} is
-              in. Create it and copy it here. Linx checks it can see {domain} before saving it.
-            </p>
-          </Disclosure>}
-      </div>
+      <Title lead={<>With a key from your DNS company, Linx:{lead}</>}>Let Linx look after your DNS</Title>
+      <DnsKeyFields idPrefix="dns" domain={domain} address={address} detected={detected} value={key} onChange={setKey} disabled={busy} />
+      <p className="mt-3 text-sm text-muted-foreground">Linx checks the key can see {domain} before saving it.</p>
       {problem && <div className="mt-4"><FieldMessage message={problem} /></div>}
       <div className="mt-8 flex flex-wrap items-center justify-end gap-3">
         {finish.token && <Button type="button" variant="outline" onClick={() => setReplace(false)} disabled={busy}>Cancel</Button>}
@@ -167,7 +153,7 @@ function TokenStep({ finish, domain, home, problem, act, onNext }: {
           <Button type="button" variant="outline" disabled={busy}
             onClick={() => void act(skipToken).then((ok) => { if (ok) onNext(); })}>Skip</Button>
         )}
-        <Button type="submit" disabled={busy || !token.trim()}>
+        <Button type="submit" disabled={busy || !dnsKeyFilled(key)}>
           {busy && <LoaderCircle aria-hidden="true" className="animate-spin" />}Check and save
         </Button>
       </div>

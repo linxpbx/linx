@@ -19,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { CheckIt } from "@/components/CheckIt";
 import { DnsRecords } from "@/components/DnsRecords";
+import { BY_HAND, DnsKeyFields } from "@/components/DnsKeyForm";
 import { FrontDoorCard } from "@/components/FrontDoorCard";
 import { CopyBlock, Disclosure, PortainerNote, RecordBox } from "@/components/InstallFrame";
 import { SystemCard as Card, SystemHeader } from "@/components/SystemPage";
@@ -27,6 +28,7 @@ import {
   doorChoice, DOORS, PROXY_DOORS, sessionClient,
   type FrontDoorKind, type ServerChange, type ServerPreview, type ServerSettings, type ServerSettingsClient,
 } from "@/lib/serverSettings";
+import { companyById, dnsKeyBody, dnsKeyFilled, startingCompany, type DnsKeyValue } from "@/lib/dnsCompanies";
 import { cn } from "@/lib/utils";
 
 const SIZE_NAMES: Record<string, string> = { lite: "Lite", standard: "Standard", performance: "Performance" };
@@ -107,7 +109,7 @@ function Closed() {
   return (
     <Card title="Server settings">
       <p className="text-sm text-muted-foreground">
-        This server's domain, front door, size, Portainer and DNS token can be changed here only while setup on the server has this page
+        This server's domain, front door, size, Portainer and DNS key can be changed here only while setup on the server has this page
         open. On the server, run this and choose the Server settings page. It stays open for four hours:
       </p>
       <code className="mt-3 block w-fit rounded-md bg-muted px-3 py-2 font-mono text-sm">sudo linx setup</code>
@@ -139,8 +141,12 @@ function Settings({ me, s, client, onChanged, onMoved }:
   const confirm = useConfirmIdentity(me);
   const [profile, setProfile] = useState(s.profile);
   const [portainer, setPortainer] = useState(s.portainer);
-  const [token, setToken] = useState("");
+  // The DNS company's key (docs/ui/SCREENS_PHASE1F.md §3.2), and Stop /
+  // start again (null: unchanged).
+  const [detected, setDetected] = useState("");
+  const [dnsKey, setDnsKey] = useState<DnsKeyValue>({ provider: startingCompany(s.domain, s.provider), key: {} });
   const [addToken, setAddToken] = useState(false);
+  const [byHand, setByHand] = useState<boolean | null>(null);
   const [editDomain, setEditDomain] = useState(false);
   const [domain, setDomain] = useState("");
   const [editDoor, setEditDoor] = useState(false);
@@ -159,22 +165,24 @@ function Settings({ me, s, client, onChanged, onMoved }:
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState("");
   const running = s.apply.state === "running";
-  const company = s.provider === "duckdns" ? "DuckDNS" : "Cloudflare";
+  const company = companyById(s.provider)?.name ?? s.provider;
+  const keyGiven = addToken && dnsKeyFilled(dnsKey);
 
   const newDomain = editDomain ? domain.trim().toLowerCase() : "";
   const proxyDoor = PROXY_DOORS.includes(door);
   const doorChanged = editDoor && (door !== doorChoice(s.front_door) || (proxyDoor && (proxy.trim() !== (s.proxy_address ?? "") ||
     Number(udp) !== (s.turn_udp_port || 443))));
   const moves = (newDomain !== "" && newDomain !== s.domain) || doorChanged;
-  const changed = profile !== s.profile || portainer !== s.portainer || (addToken && token.trim() !== "") || moves;
+  const changed = profile !== s.profile || portainer !== s.portainer || keyGiven || byHand !== null || moves;
 
   // Back to what the server says once a change is done.
   useEffect(() => {
     if (s.apply.state === "ok") {
       setProfile(s.profile);
       setPortainer(s.portainer);
-      setToken("");
+      setDnsKey({ provider: startingCompany(s.domain, s.provider), key: {} });
       setAddToken(false);
+      setByHand(null);
       setEditDomain(false);
       setDomain("");
       setEditDoor(false);
@@ -184,13 +192,14 @@ function Settings({ me, s, client, onChanged, onMoved }:
       setPreview(null);
       setDoorDone(false);
     }
-  }, [s.apply.state, s.profile, s.portainer, s.front_door, s.proxy_address, s.turn_udp_port]);
+  }, [s.apply.state, s.profile, s.portainer, s.front_door, s.proxy_address, s.turn_udp_port, s.domain, s.provider]);
   // Anything edited after a preview needs a new one.
-  useEffect(() => { setPreview(null); setCheckedAt(null); setTokenOK(false); setDoorDone(false); }, [profile, portainer, token, domain, door, proxy, udp, editDomain, editDoor]);
+  useEffect(() => { setPreview(null); setCheckedAt(null); setTokenOK(false); setDoorDone(false); }, [profile, portainer, dnsKey, byHand, domain, door, proxy, udp, editDomain, editDoor]);
 
   const body = (): ServerChange => ({
     profile: profile as ServerChange["profile"], portainer,
-    ...(addToken && token.trim() ? { token: token.trim() } : {}),
+    ...(keyGiven ? { dns_key: dnsKeyBody(dnsKey) as ServerChange["dns_key"] } : {}),
+    ...(byHand !== null ? { dns_by_hand: byHand } : {}),
     ...(newDomain && newDomain !== s.domain ? { domain: newDomain } : {}),
     ...(doorChanged ? {
       front_door: door as FrontDoorKind,
@@ -339,24 +348,65 @@ function Settings({ me, s, client, onChanged, onMoved }:
             {preview && checkedAt === "domain" && review}
           </Row>
           <Row label="DNS">
-            {me && !editDomain && !running && <DnsRecords className="mb-3" />}
-            {s.token_saved ? `${company} token added ✓` : "No token: the certificate renews through port 443, and DNS records are yours to keep."}
-            <ChangeLink open={addToken} label={s.token_saved ? "Replace token" : "Add a token"} disabled={running} onClick={() => setAddToken(true)} />
+            {me && !editDomain && !running && (
+              <DnsRecords className="mb-3" onLoaded={(r) => setDetected(r.company)}
+                onAutomatic={!s.token_saved || s.dns_by_hand ? () => {
+                  setAddToken(!s.token_saved);
+                  setByHand(s.dns_by_hand ? false : null);
+                  setDnsKey({ provider: startingCompany(s.domain, s.token_saved ? s.provider : undefined, detected), key: {} });
+                } : undefined} />
+            )}
+            {s.token_saved
+              ? s.dns_by_hand
+                ? `${company} key added. You keep the records yourself.`
+                : `${company}, kept right automatically ✓`
+              : "No key: the certificate renews through port 443, and DNS records are yours to keep."}
+            {s.token_saved && s.dns_by_hand && byHand === null &&
+              <ChangeLink open={false} label="Let Linx keep them right" disabled={running} onClick={() => setByHand(false)} />}
+            <ChangeLink open={addToken} label={s.token_saved ? "Replace key" : "Set it up automatically"} disabled={running}
+              onClick={() => {
+                setAddToken(true);
+                if (!s.token_saved) setByHand(null);
+                setDnsKey({ provider: startingCompany(s.domain, s.token_saved ? s.provider : undefined, detected), key: {} });
+              }} />
+            {s.token_saved && !s.dns_by_hand && byHand === null &&
+              <ChangeLink open={false} label="Stop" disabled={running} onClick={() => setByHand(true)} />}
+            {byHand !== null && !addToken && (
+              <p role="status" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                {byHand
+                  ? "Linx stops changing the records; they stay as they are now. The key still renews the certificate. Press Apply."
+                  : `Linx keeps the records right again at ${company}. Press Apply.`}
+                <Button variant="link" className="h-auto p-0" onClick={() => setByHand(null)}>Cancel</Button>
+              </p>
+            )}
             {addToken && (
-              <div className="mt-2 flex max-w-md flex-col gap-2">
-                <Label htmlFor="server-token">New {newDomain.endsWith(".duckdns.org") ? "DuckDNS" : newDomain ? "Cloudflare" : company} token</Label>
-                <div className="flex gap-2">
-                  <Input id="server-token" type="password" autoComplete="off" spellCheck={false} value={token} className="min-w-0 flex-1"
-                    onChange={(e) => setToken(e.target.value)} aria-invalid={fieldErrors.token ? true : undefined} />
-                  <CheckButton busy={checking} disabled={!token.trim() || running} onClick={() => void check("token")} />
-                </div>
+              <div className="mt-3 flex max-w-md flex-col gap-3">
+                <h3 className="font-display text-base font-semibold">Keep the records right automatically</h3>
+                <DnsKeyFields idPrefix="server-dns" domain={newDomain || s.domain} address={s.public_address} detected={detected}
+                  value={dnsKey} onChange={setDnsKey} disabled={running} />
+                {dnsKey.provider !== BY_HAND && (
+                  <>
+                    <p className="text-muted-foreground">
+                      Linx changes only {newDomain || s.domain}'s own records, never one it didn't make. The key stays on this server, readable
+                      only by its certificate service.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button variant="outline" disabled={!dnsKeyFilled(dnsKey) || running || checking} onClick={() => void check("token")}>
+                        {checking && <LoaderCircle aria-hidden="true" className="animate-spin" />}Check the key
+                      </Button>
+                    </div>
+                  </>
+                )}
                 <FieldError message={fieldErrors.token} />
                 {tokenOK && (
                   <p role="status" className="flex items-center gap-2">
-                    <Check aria-hidden="true" className="size-4 shrink-0 text-status-available" />Linx can use this token. Press Apply to save it.
+                    <Check aria-hidden="true" className="size-4 shrink-0 text-status-available" />
+                    This key can change {newDomain || s.domain}'s records. Press Apply to save it.
                   </p>
                 )}
-                <p className="text-muted-foreground">Linx checks it can see {newDomain || s.domain} before using it.</p>
+                <Button variant="link" className="h-auto w-fit p-0" onClick={() => { setAddToken(false); setByHand(null); }}>
+                  {s.token_saved ? "Keep the key there is" : "Not now"}
+                </Button>
               </div>
             )}
             {!addToken && <FieldError message={fieldErrors.token} />}

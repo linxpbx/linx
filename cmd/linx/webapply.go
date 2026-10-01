@@ -290,17 +290,10 @@ func stepProblem(err error) string {
 	return err.Error()
 }
 
-func (w *webApply) SaveToken(ctx context.Context, token string) (string, error) {
-	token = strings.TrimSpace(token)
-	if refusal, err := w.tokenRefusal(ctx, token); refusal != "" || err != nil {
-		return refusal, err
-	}
-	return "", w.execute(ctx, installer.SaveDNSTokenPlan(token))
-}
-
-// tokenRefusal checks a DNS token, changing nothing: its form, then
-// whether the DNS company lets it see the domain. A refusal is plain words.
-func (w *webApply) tokenRefusal(ctx context.Context, token string) (string, error) {
+// SaveToken checks a DNS company's key, changing nothing (its form, then
+// whether the company lets it see the domain), and keeps it, and the
+// company, if it's good. A refusal is plain words.
+func (w *webApply) SaveToken(ctx context.Context, key install.DNSKey) (string, error) {
 	b, err := w.env.savedConfig()
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", installer.ConfigPath, err)
@@ -309,13 +302,20 @@ func (w *webApply) tokenRefusal(ctx context.Context, token string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	return w.tokenRefusalFor(ctx, c.Domain.DNSProvider, c.Domain.Name, token)
+	provider, secret, refusal := key.Secret(c.Domain.DNSProvider)
+	if refusal != "" {
+		return refusal, nil
+	}
+	if refusal, err := w.tokenRefusalFor(ctx, provider, c.Domain.Name, secret); refusal != "" || err != nil {
+		return refusal, err
+	}
+	return "", w.execute(ctx, installer.SaveDNSKeyPlan(c, provider, secret))
 }
 
-// tokenRefusalFor is tokenRefusal for a domain at a DNS company.
+// tokenRefusalFor checks a key for a domain at a DNS company.
 func (w *webApply) tokenRefusalFor(ctx context.Context, provider, domain, token string) (string, error) {
-	if err := installer.ValidateDNSToken(token); err != nil {
-		return upper(err.Error()) + ".", nil
+	if refusal := keyFormRefusal(domain, provider, token); refusal != "" {
+		return refusal, nil
 	}
 	if err := w.checkToken(ctx, provider, domain, token); err != nil {
 		if errors.Is(err, certs.ErrTokenRefused) {

@@ -73,11 +73,13 @@ func ParseRecords(s string, allowed []string) (hosts []string, pinned []PinnedRe
 // errPinnedDuckDNS: DuckDNS gives every name under a domain one address.
 var errPinnedDuckDNS = errors.New("DuckDNS can't give one name its own address")
 
-// FollowerStats is what /metrics reports.
+// FollowerStats is what /metrics and /dns report.
 type FollowerStats struct {
 	Address     netip.Addr
 	LastSuccess time.Time
 	Failures    int
+	// LastError is the last failure's reason, cleared by a success.
+	LastError string
 }
 
 const (
@@ -98,9 +100,15 @@ func (f *Follower) now() time.Time {
 	return time.Now()
 }
 
+// checkTimeout bounds one Check: some DNS companies' libraries have no time
+// limit of their own, and a hung one mustn't stop the follower for good.
+const checkTimeout = 2 * time.Minute
+
 // Check points the records at the address if it changed, or if they
 // haven't been confirmed for reconfirmEvery.
 func (f *Follower) Check(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
 	if len(f.Hosts) > 0 {
 		if err := f.checkFollowed(ctx); err != nil {
 			return err
@@ -115,7 +123,7 @@ func (f *Follower) checkPinned(ctx context.Context) error {
 		return nil
 	}
 	if f.Config.Provider == ProviderDuckDNS {
-		f.fail()
+		f.fail(errPinnedDuckDNS)
 		return errPinnedDuckDNS
 	}
 	f.mu.Lock()
@@ -130,13 +138,13 @@ func (f *Follower) checkPinned(ctx context.Context) error {
 			f.Log.Info("DNS record", "name", r.Name, "result", r.Outcome)
 		}
 		if err != nil {
-			f.fail()
+			f.fail(err)
 			return err
 		}
 	}
 	f.mu.Lock()
 	f.pinnedChecked = f.now()
-	f.stats.LastSuccess = f.pinnedChecked
+	f.stats.LastSuccess, f.stats.LastError = f.pinnedChecked, ""
 	f.mu.Unlock()
 	return nil
 }
@@ -146,7 +154,7 @@ func (f *Follower) checkFollowed(ctx context.Context) error {
 	if !ip.IsValid() {
 		var err error
 		if ip, err = f.Client.PublicIPv4(ctx); err != nil {
-			f.fail()
+			f.fail(err)
 			return err
 		}
 	}
@@ -162,22 +170,26 @@ func (f *Follower) checkFollowed(ctx context.Context) error {
 		f.Log.Info("DNS record", "name", r.Name, "result", r.Outcome)
 	}
 	if err != nil {
-		f.fail()
+		f.fail(err)
 		return err
 	}
 	if previous.IsValid() && previous != ip {
 		f.Log.Info("this network's public address changed; DNS follows it", "from", previous, "to", ip)
 	}
+	if err := f.Client.State.Followed(ip.String(), f.now()); err != nil {
+		f.Log.Warn("couldn't save the DNS state", "err", err)
+	}
 	f.mu.Lock()
 	f.current, f.checked = ip, f.now()
-	f.stats.Address, f.stats.LastSuccess = ip, f.checked
+	f.stats.Address, f.stats.LastSuccess, f.stats.LastError = ip, f.checked, ""
 	f.mu.Unlock()
 	return nil
 }
 
-func (f *Follower) fail() {
+func (f *Follower) fail(err error) {
 	f.mu.Lock()
 	f.stats.Failures++
+	f.stats.LastError = err.Error()
 	f.mu.Unlock()
 }
 

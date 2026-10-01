@@ -13,19 +13,24 @@ import (
 	"strings"
 	"time"
 
+	"linxpbx.com/linx/internal/dnsapi"
 	"linxpbx.com/linx/internal/dnsname"
 )
 
-// DNS providers supported for DNS-01. More arrive with the Domain & DNS page.
+// DNS companies with Linx's (and lego's) own clients. The others go
+// through internal/dnsapi (ADR-063).
 const (
-	ProviderCloudflare = "cloudflare"
-	ProviderDuckDNS    = "duckdns"
+	ProviderCloudflare = dnsapi.Cloudflare
+	ProviderDuckDNS    = dnsapi.DuckDNS
 )
 
-// Providers lists the supported DNS providers.
-// deSEC is deferred: lego's deSEC client pulls in MPL-2.0 modules, which the
-// licence allowlist rejects (owner decision, 2026-09-23).
-var Providers = []string{ProviderCloudflare, ProviderDuckDNS}
+// Providers lists the supported DNS companies: the ten (docs/SIMPLER.md §3.2).
+var Providers = dnsapi.IDs()
+
+// builtin: Cloudflare and DuckDNS keep their own clients.
+func builtin(provider string) bool {
+	return provider == ProviderCloudflare || provider == ProviderDuckDNS
+}
 
 // Hostnames are Linx's names: the base domain itself (dnsname.Apex: the web
 // app and the API), and the names under it (ARCHITECTURE §2). They're used
@@ -55,7 +60,9 @@ type Config struct {
 	// Staging uses Let's Encrypt staging (untrusted certs, no rate-limit risk)
 	// and disables the ZeroSSL fallback, which has no staging environment.
 	Staging bool
-	// TokenFile holds the DNS provider API token (a Docker secret).
+	// TokenFile holds the DNS company's key (a Docker secret): the token
+	// itself, or a JSON object when the company asks for more than one
+	// thing (dnsapi.Company.Encode).
 	TokenFile string
 	// ZoneTokenFile optionally holds a separate Cloudflare zone-read token.
 	ZoneTokenFile string

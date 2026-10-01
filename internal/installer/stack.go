@@ -13,6 +13,7 @@ import (
 
 	"linxpbx.com/linx/deploy/compose"
 	"linxpbx.com/linx/internal/asteriskconf"
+	"linxpbx.com/linx/internal/dnsapi"
 	"linxpbx.com/linx/internal/turn"
 )
 
@@ -265,19 +266,19 @@ func certNames(c Config) string {
 	return c.Domain.Name + " and admin., provision., sip. and turn." + c.Domain.Name
 }
 
-// ValidateDNSToken does a basic sanity check; the provider checks the rest
-// when the first certificate is requested.
-func ValidateDNSToken(t string) error {
-	t = strings.TrimSpace(t)
-	switch {
-	case t == "":
-		return fmt.Errorf("the token is empty")
-	case strings.ContainsAny(t, " \t\r\n"):
-		return fmt.Errorf("the token can't contain spaces; copy just the token")
-	case len(t) < 20 || len(t) > 200:
-		return fmt.Errorf("that doesn't look like a DNS provider token (%d characters)", len(t))
+// ValidateDNSKey checks the form of a DNS company's key as the secret
+// file holds it (dnsapi.Company.Encode); the company checks the rest. The
+// error never includes any of it.
+func ValidateDNSKey(provider, secret string) error {
+	c, ok := dnsapi.Find(provider)
+	if !ok {
+		return fmt.Errorf("Linx can't use a key for %q", provider)
 	}
-	return nil
+	if strings.TrimSpace(secret) == "" {
+		return fmt.Errorf("the %s key is empty", c.Name)
+	}
+	_, err := c.Decode(secret)
+	return err
 }
 
 // existingOrNewTURNSecret returns the relay secret already saved at path,
@@ -307,17 +308,18 @@ func existingOrNewKeyBytes(path string, n int) []byte {
 // DNSRecords is LINX_DNS_RECORDS, and what setup's own certd -records
 // run points: the public names once there's a front door, and at home
 // sip.<domain> pinned to this server's home address for desk phones (owner
-// decision 2026-09-27; Cloudflare only, since DuckDNS gives every name one
-// address). "" without a DNS token: certd leaves DNS alone.
+// decision 2026-09-27; not at DuckDNS, which gives every name one
+// address). "" without a DNS token, or when the owner keeps the records
+// (domain.dns_by_hand): certd leaves DNS alone.
 func DNSRecords(c Config, lan LAN) string {
-	if c.Certificates.NoDNSToken {
+	if c.Certificates.NoDNSToken || c.Domain.DNSByHand {
 		return ""
 	}
 	var r []string
 	if c.FrontDoor.Kind != FrontDoorNone && c.FrontDoor.Kind != "" {
 		r = append(r, PublicHosts...)
 	}
-	if lan.OK() && c.Domain.DNSProvider == DNSCloudflare {
+	if co, _ := dnsapi.Find(c.Domain.DNSProvider); lan.OK() && !co.OneAddress {
 		r = append(r, SIPHost+"="+lan.BindAddress().String())
 	}
 	return strings.Join(r, ",")

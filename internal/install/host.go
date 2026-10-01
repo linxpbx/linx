@@ -476,10 +476,14 @@ func (h *Host) certRequest(ctx context.Context, m Message) Message {
 		secure := h.st.View.Secure
 		h.mu.Unlock()
 		var errs []FieldError
+		k := DNSKey{}
+		if m.Key != nil {
+			k = *m.Key
+		}
 		if secure && h.Apply != nil {
-			errs, err = h.secureToken(ctx, m.Token)
+			errs, err = h.secureToken(ctx, k)
 		} else {
-			errs, err = h.token(ctx, m.Token)
+			errs, err = h.token(ctx, k)
 		}
 		if err == nil && len(errs) > 0 {
 			return Message{Errors: errs}

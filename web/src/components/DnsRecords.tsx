@@ -2,13 +2,15 @@
 // §3.1): what to add, at which DNS company (told by the domain's name
 // servers, never asked), and what each name shows right now at those name
 // servers, so no cache is in the way. Checked when shown and on Check
-// again, never on a timer.
+// again, never on a timer. When Linx keeps them right itself (§3.2), it
+// says at which company and when the address last changed.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, CircleDashed, LoaderCircle, TriangleAlert, X } from "lucide-react";
 import { api, problemMessage } from "@/api/client";
 import type { components } from "@/api/schema";
 import { CopyButton } from "@/components/InstallFrame";
 import { Button } from "@/components/ui/button";
+import { companyByName } from "@/lib/dnsCompanies";
 import { cn } from "@/lib/utils";
 
 type Records = components["schemas"]["DnsRecords"];
@@ -26,11 +28,20 @@ export function relativeName(name: string, zone: string) {
   return name.endsWith("." + zone) ? name.slice(0, -zone.length - 1) : "";
 }
 
-export function DnsRecords({ className }: { className?: string }) {
+export function DnsRecords({ className, onLoaded, onAutomatic }: {
+  className?: string;
+  /** Each answer, for the page around it (the company the name servers show). */
+  onLoaded?: (r: Records) => void;
+  /** Shows "Set it up automatically" (Server settings only: the key is given there). */
+  onAutomatic?: () => void;
+}) {
   const [r, setR] = useState<Records | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const run = useRef(0);
+  // The latest onLoaded, without asking again whenever the page draws.
+  const loaded = useRef(onLoaded);
+  useEffect(() => { loaded.current = onLoaded; });
 
   const load = useCallback(async () => {
     const mine = ++run.current;
@@ -39,8 +50,10 @@ export function DnsRecords({ className }: { className?: string }) {
     const { data, error: err } = await api.GET("/api/v1/system/dns-records");
     if (run.current !== mine) return;
     setBusy(false);
-    if (data) setR(data);
-    else setError(problemMessage(err));
+    if (data) {
+      setR(data);
+      loaded.current?.(data);
+    } else setError(problemMessage(err));
   }, []);
 
   useEffect(() => {
@@ -63,11 +76,23 @@ export function DnsRecords({ className }: { className?: string }) {
 
   const where = r.zone || r.domain;
   const allKept = r.records.length > 0 && r.records.every((x) => x.kept);
+  const auto = r.automatic;
+  const ours = companyByName(r.company);
   return (
     <section aria-labelledby="dns-records" className={cn("flex min-w-0 flex-col gap-3 rounded-md border p-4 text-sm", className)}>
       <h3 id="dns-records" className="font-display text-base font-semibold break-words">Records for {r.domain}</h3>
       <div className="flex flex-col gap-1">
-        <p>{allKept ? "Linx keeps these right itself, with your DNS token." : `Add these at the company that runs ${where}'s DNS.`}</p>
+        <p>
+          {auto
+            ? `Linx keeps these right itself at ${auto.company}.`
+            : allKept ? "Linx keeps these right itself, with your DNS key." : `Add these at the company that runs ${where}'s DNS.`}
+        </p>
+        {auto && (auto.changed_at || auto.error) && (
+          <p className="break-words text-muted-foreground">
+            {auto.changed_at && <>Last change {ago(auto.changed_at)}{auto.previous && ` (${auto.previous} → ${auto.address})`}.</>}
+            {auto.error && <span className="ms-1 font-medium text-destructive">The last try failed: {auto.error}</span>}
+          </p>
+        )}
         {r.name_servers.length > 0 ? (
           <p className="break-words text-muted-foreground">
             Its name servers: {r.name_servers.join(", ")}{r.company && <> (so: <span className="font-medium text-foreground">{r.company}</span>)</>}
@@ -100,9 +125,27 @@ export function DnsRecords({ className }: { className?: string }) {
           Check again
         </Button>
       </div>
+      {onAutomatic && !auto && (
+        <div className="flex flex-col gap-2 border-t pt-3">
+          <p>Your address changes from time to time? Let Linx keep these right:</p>
+          <Button variant="outline" className="w-fit" onClick={onAutomatic}>
+            {ours ? `Let Linx keep these right at ${ours.name}` : "Set it up automatically"}
+          </Button>
+        </div>
+      )}
       {error && <p role="alert" className="font-medium text-destructive">{error}</p>}
     </section>
   );
+}
+
+/** "3 days ago", "5 minutes ago", in the browser's language. */
+function ago(iso: string) {
+  const s = Math.round((new Date(iso).getTime() - Date.now()) / 1000);
+  const f = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  for (const [unit, n] of [["day", 86400], ["hour", 3600], ["minute", 60]] as const) {
+    if (Math.abs(s) >= n) return f.format(Math.round(s / n), unit);
+  }
+  return f.format(s, "second");
 }
 
 function RecordRow({ rec, zone }: { rec: Rec; zone: string }) {

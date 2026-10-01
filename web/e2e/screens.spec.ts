@@ -134,12 +134,22 @@ for (const scheme of ["light", "dark"] as const) {
     });
 
     test("server settings: dns records", async ({ page }) => {
-      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
+      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
       await page.goto("/admin/system/server");
       const card = page.getByRole("region", { name: "Records for example.com" });
       await expect(card.getByText("(so: Porkbun)", { exact: false })).toBeVisible();
       await card.scrollIntoViewIfNeeded();
       await shot(page, `${scheme}-system-server-dns`);
+    });
+
+    test("server settings: dns kept right automatically", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
+      await page.goto("/admin/system/server");
+      const card = page.getByRole("region", { name: "Records for example.com" });
+      await expect(card.getByText("Linx keeps these right itself at Porkbun.")).toBeVisible();
+      await expect(card.getByText("(94.200.1.9 → 94.200.1.10)", { exact: false })).toBeVisible();
+      await card.scrollIntoViewIfNeeded();
+      await shot(page, `${scheme}-system-server-dns-automatic`);
     });
 
     test("sign-in", async ({ page }) => {
@@ -944,7 +954,7 @@ test.describe("system: server settings", () => {
   test("at home: size, Portainer, then the change's steps", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
     await page.goto("/admin/system/server");
-    await expect(page.getByText("Cloudflare token added ✓")).toBeVisible();
+    await expect(page.getByText("Porkbun, kept right automatically ✓")).toBeVisible();
     await expect(page.getByRole("button", { name: "Apply" })).toBeDisabled();
     await page.getByRole("radio", { name: /Standard/ }).click();
     await page.getByLabel("Portainer").click();
@@ -957,18 +967,46 @@ test.describe("system: server settings", () => {
     await shot(page, "system-server-changing");
   });
 
-  test("rented: no Portainer, a token to add", async ({ page }) => {
+  test("rented: no Portainer, DNS kept right automatically", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
     await page.goto("/admin/system/server");
-    await expect(page.getByText("No token: the certificate renews through port 443")).toBeVisible();
+    await expect(page.getByText("No key: the certificate renews through port 443")).toBeVisible();
     await expect(page.getByLabel("Portainer")).toHaveCount(0);
     await expect(page.getByText("Portainer is offered only on a server at home")).toBeVisible();
-    await page.getByRole("button", { name: "Add a token" }).click();
-    await page.getByLabel("New Cloudflare token").fill("short");
+    // The company the name servers show, named on the records card's button.
+    await page.getByRole("button", { name: "Let Linx keep these right at Porkbun" }).click();
+    await expect(page.getByLabel("DNS company")).toContainText("Porkbun");
+    await expect(page.getByText("(from its name servers)")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Check the key" })).toBeDisabled();
+    await page.getByLabel("API key", { exact: true }).fill("pk1_0123456789abcdef");
+    await page.getByLabel("Secret key", { exact: true }).fill("bad-key");
+    await page.getByRole("button", { name: "Check the key" }).click();
+    await expect(page.getByRole("alert")).toContainText("Porkbun: Invalid API key");
+    await page.getByLabel("Secret key", { exact: true }).fill("sk1_0123456789abcdef");
+    await page.getByRole("button", { name: "Check the key" }).click();
+    await expect(page.getByText("This key can change example.com's records.")).toBeVisible();
+    await page.getByRole("heading", { name: "Keep the records right automatically" }).scrollIntoViewIfNeeded();
+    await shot(page, "system-server-dns-key");
+    // Another company: only what it asks for.
+    await page.getByLabel("DNS company").click();
+    await page.getByRole("option", { name: "OVH" }).click();
+    await expect(page.getByLabel("Region")).toBeVisible();
+    await expect(page.getByLabel("Consumer key", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Secret key", { exact: true })).toHaveCount(0);
+    await page.getByLabel("DNS company").click();
+    await page.getByRole("option", { name: "Not in the list" }).click();
+    await expect(page.getByText("Linx can't change records there by itself.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Check the key" })).toHaveCount(0);
+  });
+
+  test("at home: stop keeping the records right", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
+    await page.goto("/admin/system/server");
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(page.getByText("Linx stops changing the records")).toBeVisible();
     await page.getByRole("button", { name: "Apply" }).click();
-    // Checked before anything is asked.
-    await expect(page.getByRole("alert")).toContainText("can't see example.com at Cloudflare");
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("dialog").getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("list", { name: "Change steps" }).getByRole("listitem").first()).toContainText("Save your settings");
   });
 
   test("at home: a new domain shows what it needs first", async ({ page }) => {
@@ -1054,7 +1092,7 @@ test.describe("repair page (port 6464)", () => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, repair: "sign-in", serverSettings: "home" });
     await page.goto("/repair");
     await expect(page.getByRole("heading", { name: "Fix this server's address" })).toBeVisible();
-    await expect(page.getByText("Cloudflare token added ✓")).toBeVisible();
+    await expect(page.getByText("Porkbun, kept right automatically ✓")).toBeVisible();
     await shot(page, "repair-settings");
   });
 
@@ -1294,7 +1332,7 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.getByRole("radio", { name: /With my DNS company's token/ }).click();
       await expect(page.getByText("Add these 2 records at your DNS company")).toHaveCount(0);
       await page.getByLabel("I checked the fingerprint, or I trust this network").click();
-      await page.getByLabel("Token", { exact: true }).fill("t".repeat(40));
+      await page.getByLabel("API token", { exact: true }).fill("t".repeat(40));
       await shot(page, `install-token-first-${label}`);
       await page.getByRole("button", { name: "Get the certificate" }).click();
       await expect(page.getByText("Linx points your names at this server")).toBeVisible();
@@ -1352,14 +1390,14 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.goto("/install");
       await expect(page.getByText("This page's certificate is temporary", { exact: true })).toBeVisible();
       await expect(page.getByRole("radio", { name: /With my DNS company's token/ })).toHaveCount(0);
-      await expect(page.getByLabel("Token")).toBeDisabled();
+      await expect(page.getByLabel("API token", { exact: true })).toBeDisabled();
       await page.getByLabel("I checked the fingerprint, or I trust this network").click();
-      await page.getByLabel("Token").fill("short");
+      await page.getByLabel("API token", { exact: true }).fill("short");
       await shot(page, `install-token-fallback-${label}`);
       await page.getByRole("button", { name: "Get the certificate" }).click();
       await expect(page.getByRole("alert")).toContainText("doesn't look like a DNS provider token");
-      await expect(page.getByLabel("Token")).toHaveValue("");
-      await page.getByLabel("Token").fill("t".repeat(40));
+      await expect(page.getByLabel("API token", { exact: true })).toHaveValue("");
+      await page.getByLabel("API token", { exact: true }).fill("t".repeat(40));
       await page.getByRole("button", { name: "Get the certificate" }).click();
       await expect(page.getByText("Saved on the server.")).toBeVisible();
     });
@@ -1404,7 +1442,7 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await page.getByRole("button", { name: "Continue" }).click();
       await expect(page.getByRole("heading", { name: "Let Linx look after your DNS" })).toBeVisible();
       await expect(page.getByText("sip.example.com")).toHaveCount(0);
-      await page.getByLabel("Token").fill("short-token");
+      await page.getByLabel("API token", { exact: true }).fill("short-token");
       await page.getByRole("button", { name: "Check and save" }).click();
       await expect(page.getByRole("alert")).toContainText("can't see example.com at Cloudflare");
       await shot(page, `install-dns-token-${label}`);
@@ -1428,13 +1466,13 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await expect(page.getByText("adds sip.example.com for your desk phones")).toBeVisible();
       await expect(page.getByRole("button", { name: "Skip" })).toHaveCount(0);
       await expect(page.getByText("At home your desk phones need sip.example.com")).toBeVisible();
-      await page.getByLabel("Token").fill("t".repeat(40));
+      await page.getByLabel("API token", { exact: true }).fill("t".repeat(40));
       await page.getByRole("button", { name: "Check and save" }).click();
       await expect(page.getByRole("heading", { name: "A few extras" })).toBeVisible();
       await page.getByLabel("Portainer").click();
       await expect(page.getByLabel("Portainer")).toBeChecked();
       await page.getByRole("button", { name: "Back" }).click();
-      await expect(page.getByText("Cloudflare token added")).toBeVisible();
+      await expect(page.getByText("Cloudflare key added")).toBeVisible();
     });
 
     test("the install stops", async ({ page, baseURL }) => {

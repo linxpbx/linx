@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"linxpbx.com/linx/internal/dnsapi/clients"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -33,6 +34,10 @@ import (
 )
 
 const service = "linx-certd"
+
+// The DNS companies' clients (internal/dnsapi/clients) are linked here, not
+// into every program that uses internal/certs.
+func init() { certs.Connect = clients.New }
 
 func main() {
 	once := flag.Bool("once", false, "check and renew once, then exit")
@@ -100,6 +105,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", health.Handler(service))
 	mux.Handle("/metrics", certs.MetricsHandler(m, follower))
+	mux.Handle("/dns", certs.DNSStatusHandler(cfg, follower))
 
 	addr := os.Getenv("LINX_LISTEN_ADDR")
 	if addr == "" {
@@ -116,7 +122,7 @@ func main() {
 // optionally pinned to its own address ("sip=192.168.1.212").
 func parseRecords(cfg certs.Config, s string) ([]string, []certs.PinnedRecord, error) {
 	hosts, pinned, err := certs.ParseRecords(s, slices.Concat(certs.Hostnames, certs.LegacyHosts))
-	if err == nil && len(pinned) > 0 && cfg.Provider == certs.ProviderDuckDNS {
+	if err == nil && len(pinned) > 0 && cfg.Provider == certs.ProviderDuckDNS { // dnsapi: DuckDNS is OneAddress
 		err = errors.New("DuckDNS gives every name one address, so no name can have its own")
 	}
 	return hosts, pinned, err
@@ -149,7 +155,9 @@ func pointRecords(cfg certs.Config, records, address string, log *slog.Logger) i
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	f := &certs.Follower{Client: certs.NewRecordsClient(), Config: cfg, Hosts: hosts, Fixed: fixed, Pinned: pinned, Log: log}
+	client := certs.NewRecordsClient()
+	client.State = &certs.DNSState{Path: certs.StatePath(cfg.StateDir)}
+	f := &certs.Follower{Client: client, Config: cfg, Hosts: hosts, Fixed: fixed, Pinned: pinned, Log: log}
 	if err := f.Check(ctx); err != nil {
 		log.Error("DNS records", "err", err)
 		return 1
@@ -173,6 +181,7 @@ func followerFromEnv(cfg certs.Config, getenv func(string) string, log *slog.Log
 	}
 	client := certs.NewRecordsClient()
 	client.OwnOnly = true
+	client.State = &certs.DNSState{Path: certs.StatePath(cfg.StateDir)}
 	return &certs.Follower{Client: client, Config: cfg, Hosts: hosts, Fixed: fixed, Pinned: pinned, Log: log.With("component", "dns")}, nil
 }
 

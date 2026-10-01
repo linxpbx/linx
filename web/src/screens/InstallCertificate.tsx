@@ -8,10 +8,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LoaderCircle, LockKeyhole, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup } from "@/components/ui/radio-group";
+import { DnsKeyFields } from "@/components/DnsKeyForm";
 import { FrontDoorCard } from "@/components/FrontDoorCard";
+import { dnsKeyBody, dnsKeyFilled, startingCompany, type DnsKeyValue } from "@/lib/dnsCompanies";
 import {
   Choice, CopyBlock, Countdown, Detail, Disclosure, FieldMessage, Frame, LinkUnusable, RecordBox, Row, submit, Title, useSecondsLeft, type Mark,
 } from "@/components/InstallFrame";
@@ -85,7 +86,7 @@ export function CertificateStep({ initial, answers, facts, onClosed }: {
       {cert.mode === "token"
         ? <TokenRows cert={cert} answers={answers} facts={facts} act={act} />
         : tokenFirst
-          ? <TokenForm domain={domain} act={act} chosen />
+          ? <TokenForm domain={domain} act={act} detected={cert.dns.company} address={facts.public_address} chosen />
           : <Port443Rows cert={cert} answers={answers} facts={facts} act={act} />}
       {problem && <div className="mt-4"><FieldMessage message={problem} /></div>}
       {ready && cert.secure_url && <MoveToSecure url={cert.secure_url} />}
@@ -159,7 +160,7 @@ function TokenRows({ cert, answers, facts, act }: RowsProps) {
       <Row n={++n} state={cert.token_saved ? "ok" : "todo"} title="Your DNS company's token">
         {cert.token_saved
           ? <p className="text-sm text-muted-foreground">Saved on the server.</p>
-          : <TokenForm domain={answers.domain.trim().toLowerCase()} act={act} />}
+          : <TokenForm domain={answers.domain.trim().toLowerCase()} act={act} detected={cert.dns.company} address={facts.public_address} />}
       </Row>
       <Row n={++n} state={stageMark(cert.records, !cert.token_saved)} title="Linx points your names at this server">
         {cert.records.state === "failed" && (
@@ -318,16 +319,16 @@ function Details({ cert }: { cert: CertView }) {
  * The token, on this unencrypted page (§2.6): only after the warning is
  * ticked, never remembered by the browser.
  */
-function TokenForm({ domain, act, chosen = false }: { domain: string; act: RowsProps["act"]; chosen?: boolean }) {
+function TokenForm({ domain, act, detected, address, chosen = false }: {
+  domain: string; act: RowsProps["act"]; detected?: string; address?: string; chosen?: boolean;
+}) {
   const [trusted, setTrusted] = useState(false);
-  const [token, setToken] = useState("");
-  const [show, setShow] = useState(false);
+  const [key, setKey] = useState<DnsKeyValue>({ provider: startingCompany(domain, undefined, detected), key: {} });
   const [busy, setBusy] = useState(false);
-  const duck = domain.endsWith(".duckdns.org");
   return (
     <form className="flex flex-col gap-4" onSubmit={submit(() => {
       setBusy(true);
-      void act(() => sendToken(token.trim())).finally(() => { setBusy(false); setToken(""); });
+      void act(() => sendToken(dnsKeyBody(key))).finally(() => { setBusy(false); setKey({ provider: key.provider, key: {} }); });
     })}>
       <div className="rounded-md border border-status-away p-4 text-sm">
         <p className="flex items-center gap-2 font-medium">
@@ -335,36 +336,20 @@ function TokenForm({ domain, act, chosen = false }: { domain: string; act: RowsP
         </p>
         <p className="mt-2">
           {chosen
-            ? "The token goes to this server encrypted. "
-            : "With what's in front of this server, Linx can't get its certificate through port 443, so it needs your DNS company's token here, before there's a secure page. It goes to this server encrypted. "}
+            ? "The key goes to this server encrypted. "
+            : "With what's in front of this server, Linx can't get its certificate through port 443, so it needs your DNS company's key here, before there's a secure page. It goes to this server encrypted. "}
           But your browser couldn't check this page's certificate: if you compared its fingerprint with the one setup printed on the server,
-          only this server can read the token. If you didn't, someone in the middle of your connection could. Make a token that can only
-          change {domain}'s DNS.
+          only this server can read the key. If you didn't, someone in the middle of your connection could. Make a key that can only
+          change {domain}'s DNS, where your DNS company allows that.
         </p>
         <div className="mt-3 flex items-start gap-3">
           <Checkbox id="trusted" checked={trusted} onCheckedChange={(c) => setTrusted(c === true)} className="mt-0.5" />
           <Label htmlFor="trusted" className="font-normal leading-snug">I checked the fingerprint, or I trust this network</Label>
         </div>
       </div>
-      <p className="text-sm">DNS company: <span className="font-medium">{duck ? "DuckDNS" : "Cloudflare"}</span></p>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="token">Token</Label>
-        <div className="flex gap-2">
-          <Input id="token" type={show ? "text" : "password"} autoComplete="off" spellCheck={false} disabled={!trusted}
-            value={token} onChange={(e) => setToken(e.target.value)} className="min-w-0 flex-1" />
-          <Button type="button" variant="outline" disabled={!trusted} onClick={() => setShow(!show)}>{show ? "Hide" : "Show"}</Button>
-        </div>
-        {duck
-          ? <p className="text-sm text-muted-foreground">Your token is at the top of duckdns.org once you've signed in.</p>
-          : <Disclosure label="How to make a Cloudflare token">
-            <p className="text-sm text-muted-foreground">
-              In Cloudflare: My Profile → API Tokens → Create Token → “Edit zone DNS”. Under Zone Resources choose only {domain}. Create it
-              and copy it here.
-            </p>
-          </Disclosure>}
-      </div>
+      <DnsKeyFields idPrefix="token" domain={domain} address={address} detected={detected} value={key} onChange={setKey} disabled={!trusted} />
       <div className="flex justify-end">
-        <Button type="submit" disabled={!trusted || !token.trim() || busy}>
+        <Button type="submit" disabled={!trusted || !dnsKeyFilled(key) || busy}>
           {busy && <LoaderCircle aria-hidden="true" className="animate-spin" />}Get the certificate
         </Button>
       </div>

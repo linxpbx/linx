@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -47,6 +48,8 @@ type ServerView struct {
 	// Token is "saved", or "" (none: the certificate renews through port
 	// 443 and DNS records are the owner's).
 	Token string `json:"token,omitempty"`
+	// DNSByHand: there's a key, but the owner keeps the records (Stop).
+	DNSByHand bool `json:"dns_by_hand,omitempty"`
 	// Profile is the size in use; Profiles, ProfilePick and ProfileReason
 	// as on the install's extras.
 	Profile       string          `json:"profile"`
@@ -79,8 +82,13 @@ type ServerChange struct {
 	// Profile is lite, standard or performance.
 	Profile   string `json:"profile"`
 	Portainer bool   `json:"portainer"`
-	// Token is a new DNS token ("" keeps the one there is, or none).
-	Token string `json:"token,omitempty"`
+	// Token is a new DNS token ("" keeps the one there is, or none); Key
+	// a new key from the DNS company form (Provider and its fields).
+	Token string  `json:"token,omitempty"`
+	Key   *DNSKey `json:"dns_key,omitempty"`
+	// DNSByHand, if set, stops (true) or starts again (false) Linx keeping
+	// the DNS records right.
+	DNSByHand *bool `json:"dns_by_hand,omitempty"`
 	// Domain is a new domain ("" keeps it).
 	Domain string `json:"domain,omitempty"`
 	// FrontDoor is a new front door ("" keeps it), with its own settings.
@@ -94,6 +102,17 @@ type ServerChange struct {
 // Moves reports whether c changes the domain or the front door: Linx's
 // web address, and what reaches it.
 func (c ServerChange) Moves() bool { return c.Domain != "" || c.FrontDoor != "" }
+
+// normalize puts an old-style Token into Key, and drops an empty Key.
+func (c *ServerChange) normalize() {
+	if c.Key == nil && strings.TrimSpace(c.Token) != "" {
+		c.Key = &DNSKey{Token: c.Token}
+	}
+	c.Token = ""
+	if c.Key != nil && c.Key.Empty() {
+		c.Key = nil
+	}
+}
 
 // ServerPreview is what a change needs before it can be made, and what it
 // will do (docs/ui/INSTALL_SCREENS.md §5.2).
@@ -357,6 +376,7 @@ func (h *SettingsHost) Serve(ctx context.Context, rw io.ReadWriter) error {
 // preview checks what the page may change, then asks setup what the
 // change needs.
 func (h *SettingsHost) preview(ctx context.Context, c ServerChange) (ServerPreview, error) {
+	c.normalize()
 	v := h.Snapshot()
 	switch {
 	case c.Portainer && !v.PortainerAllowed:
@@ -377,7 +397,10 @@ func (h *SettingsHost) preview(ctx context.Context, c ServerChange) (ServerPrevi
 	if c.FrontDoor == v.FrontDoor && c.ProxyAddress == v.ProxyAddress && c.TURNUDPPort == v.TURNUDPPort {
 		c.FrontDoor, c.ProxyAddress, c.TURNUDPPort = "", "", 0
 	}
-	if c.Profile == v.Profile && c.Portainer == v.Portainer && c.Token == "" && !c.Moves() {
+	if c.DNSByHand != nil && (*c.DNSByHand == v.DNSByHand || v.Token == "") {
+		c.DNSByHand = nil
+	}
+	if c.Profile == v.Profile && c.Portainer == v.Portainer && c.Key == nil && c.DNSByHand == nil && !c.Moves() {
 		return ServerPreview{}, errNoChange
 	}
 	return h.Apply.Preview(ctx, c)
@@ -388,6 +411,7 @@ func (h *SettingsHost) change(ctx context.Context, c *ServerChange) ([]FieldErro
 	if c == nil {
 		return nil, errNoChange
 	}
+	c.normalize()
 	if h.Snapshot().Apply.State == StageRunning {
 		return nil, errApplying
 	}

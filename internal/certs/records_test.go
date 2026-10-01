@@ -53,6 +53,18 @@ func (f *fakeCloudflare) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out = append(out, rec)
 		}
 		ok(out)
+	case r.Method == "PATCH":
+		b, _ := io.ReadAll(r.Body)
+		var patch cfRecord
+		json.Unmarshal(b, &patch)
+		for name, rec := range f.records {
+			if "/zones/zone1/dns_records/"+rec.ID == r.URL.Path {
+				rec.Comment = patch.Comment
+				f.records[name] = rec
+				f.writes = append(f.writes, "PATCH "+name)
+			}
+		}
+		ok(nil)
 	case r.Method == "POST" || r.Method == "PUT":
 		b, _ := io.ReadAll(r.Body)
 		var rec cfRecord
@@ -86,14 +98,18 @@ func TestPointRecordsCloudflare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"created", "changed", "left as is", "already points"}
+	want := []string{"created", "changed", "left as is", "already points at 203.0.113.9; Linx keeps it right"}
 	for i, r := range res {
 		if !strings.HasPrefix(r.Outcome, want[i]) {
 			t.Errorf("%s: %q, want %s…", r.Name, r.Outcome, want[i])
 		}
 	}
-	if got := strings.Join(cf.writes, ","); got != "POST meet.pbx.example.com,PUT api.pbx.example.com" {
+	// sip. was added by hand at the right address: marked as Linx's.
+	if got := strings.Join(cf.writes, ","); got != "POST meet.pbx.example.com,PUT api.pbx.example.com,PATCH sip.pbx.example.com" {
 		t.Errorf("writes = %s", got)
+	}
+	if c := cf.records["sip.pbx.example.com"].Comment; !strings.HasPrefix(c, recordComment) {
+		t.Errorf("sip comment %q", c)
 	}
 
 	// The background follower leaves a record it didn't make alone.

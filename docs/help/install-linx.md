@@ -2,7 +2,7 @@
 title: Installing Linx
 audience: system_admin
 section: install
-keywords: [setup, install, new server, link, fingerprint, certificate, domain, dns, token, cloudflare, duckdns, 6464]
+keywords: [setup, install, new server, link, fingerprint, certificate, domain, dns, token, dns key, dns company, cloudflare, duckdns, route 53, godaddy, namecheap, porkbun, digitalocean, hetzner, desec, ovh, 6464]
 screens: [/install, /install/continue]
 ---
 # Installing Linx
@@ -50,14 +50,14 @@ A certificate is what makes the padlock appear in your browser. Linx gets one fr
 
 **How should Linx get it?**
 
-- **With my DNS company's token** (Cloudflare or DuckDNS): Linx adds its DNS records itself and gets a certificate that also covers desk phones at home. This is the one to pick at home.
+- **With my DNS company's token** (Cloudflare, DuckDNS, Route 53, GoDaddy, Namecheap, Porkbun, DigitalOcean, Hetzner, deSEC or OVH): choose your **DNS company** (the page starts on the one your domain's name servers show) and fill in what it asks for. Linx adds its DNS records itself and gets a certificate that also covers desk phones at home. This is the one to pick at home.
 - **Not now: I'll add 2 records**: the page shows two records to add at your DNS company, for your domain and for `turn.` in front of it, both pointing at this server's address. On Cloudflare, set the proxy to *off (grey cloud)*. The page checks them every few seconds and says what each one shows.
 
 When the certificate is ready, the page moves itself to `https://<your domain>`, with no warning this time. From here on, everything you type is encrypted.
 
 ## 5. On the secure page
 
-- **Your DNS company's token**, if you didn't give it already. On a rented server you may skip it; the certificate still renews by itself.
+- **Let Linx look after your DNS**: choose the **DNS company**, then fill in what it asks for, if you didn't give it already. On a rented server you may skip it; the certificate still renews by itself.
 - **A few extras**: the size of this server (the suggested one is right almost every time) and, at home, Portainer (on a rented server a note says why it isn't offered).
 - **Install**. The page ticks through each step. Before Linx starts, a box shows things to **write down now**, like the certificate authority backup passphrase. Save them in your password manager, then tick **I've written these down**.
 

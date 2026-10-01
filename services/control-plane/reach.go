@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -12,6 +14,7 @@ import (
 
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/certs"
+	"linxpbx.com/linx/internal/dnsapi"
 	"linxpbx.com/linx/internal/dnscheck"
 	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/publicip"
@@ -45,6 +48,9 @@ func newReach(getenv func(string) string, cert *certs.ServingCert, issuer *turn.
 		Dial:        (&net.Dialer{Timeout: reach.Timeout}).DialContext,
 		Now:         time.Now,
 	}
+	if strings.TrimSpace(getenv("LINX_DNS_RECORDS")) != "" {
+		c.Automatic = certdAutomatic(&http.Client{Timeout: reach.Timeout}, certdDNSURL)
+	}
 	for _, d := range proxyDoors {
 		if door == d {
 			c.Proxy = strings.TrimSpace(getenv("LINX_TRUSTED_PROXIES"))
@@ -55,6 +61,32 @@ func newReach(getenv func(string) string, cert *certs.ServingCert, issuer *turn.
 	}
 	links := &reach.Links{Domain: domain, Proxies: ips.Trusted, PublicIP: public.Get, TURN: issuer, Now: time.Now}
 	return c, links
+}
+
+// certdDNSURL is linx-certd's word on the records it keeps right, on
+// linx-private (like certdMetricsURL).
+const certdDNSURL = "http://certd:8081/dns"
+
+// certdAutomatic asks linx-certd how it keeps the records right, only when
+// the records card is shown: nil when it doesn't, or didn't answer.
+func certdAutomatic(client *http.Client, url string) func(ctx context.Context) *reach.Automatic {
+	return func(ctx context.Context) *reach.Automatic {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil
+		}
+		defer resp.Body.Close()
+		var st certs.DNSStatus
+		if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&st) != nil || !st.Following {
+			return nil
+		}
+		return &reach.Automatic{Company: dnsapi.Name(st.Company), Address: st.Address, Previous: st.Previous,
+			ChangedAt: st.Changed, CheckedAt: st.Checked, Error: st.Error}
+	}
 }
 
 // keptRecords are the records linx-certd keeps right, by use, from

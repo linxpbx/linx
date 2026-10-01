@@ -86,6 +86,9 @@ type Checker struct {
 	// Kept are the records Linx keeps right itself, by use (UseWeb…), from
 	// LINX_DNS_RECORDS.
 	Kept map[string]bool
+	// Automatic, if set, asks linx-certd how it keeps them right (nil when
+	// it doesn't, or didn't answer).
+	Automatic func(ctx context.Context) *Automatic
 	// PublicIP is this network's public address (publicip.Lookup).
 	PublicIP func(ctx context.Context) (netip.Addr, error)
 	// Dial connects (net.Dialer.DialContext; tests replace it).

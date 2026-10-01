@@ -76,8 +76,8 @@ type Message struct {
 	// check
 	Answers *Answers `json:"answers,omitempty"`
 
-	// token: the DNS company's token (docs/INSTALL.md §4.3).
-	Token string `json:"token,omitempty"`
+	// token: the DNS company's key (docs/INSTALL.md §4.3).
+	Key *DNSKey `json:"dns_key,omitempty"`
 
 	// extras
 	Extras *Extras `json:"extras,omitempty"`

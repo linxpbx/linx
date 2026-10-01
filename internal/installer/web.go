@@ -3,6 +3,7 @@ package installer
 import (
 	"context"
 	"fmt"
+	"linxpbx.com/linx/internal/dnsname"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -217,7 +218,7 @@ func domainProblem(d, provider string) string {
 	if _, err := netip.ParseAddr(d); err == nil || digitsRE.MatchString(d[strings.LastIndexByte(d, '.')+1:]) {
 		return "That's an address, not a domain. It should look like example.com."
 	}
-	if ValidateDomain(d, DNSCloudflare) != nil {
+	if dnsname.ValidDomain(d) != nil {
 		return "That isn't a domain. It should look like example.com."
 	}
 	if _, err := publicsuffix.EffectiveTLDPlusOne(d); err != nil {

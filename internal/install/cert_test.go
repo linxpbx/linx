@@ -64,7 +64,11 @@ func (f *fakeCert) Obtain(_ context.Context, staging bool) error {
 	f.real++
 	return f.realErr
 }
-func (f *fakeCert) SaveToken(_ context.Context, _ CertView, token string) (string, error) {
+func (f *fakeCert) SaveToken(_ context.Context, _ CertView, key DNSKey) (string, error) {
+	_, token, refusal := key.Secret("cloudflare")
+	if refusal != "" {
+		return refusal, nil
+	}
 	if len(token) < 20 {
 		return "That doesn't look like a DNS token.", nil
 	}

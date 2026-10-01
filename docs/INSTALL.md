@@ -68,7 +68,7 @@ For the first two, the HTTP page asks for the DNS token instead and issues the w
 ## 5. On the secure page
 
 1. **Handoff.** The HTTP page redirects to `https://<domain>/install/continue#<handoff>`. The handoff is a one-time, 2-minute value that moves the claimed install session to the new address (browsers don't share cookies between the two). It's in the fragment, so it's never logged.
-2. **DNS provider + token** (Cloudflare or DuckDNS today). Saved as the `linx_dns_token` Docker secret by the host. Then certd, in the background:
+2. **DNS company + key** (any of the ten, ADR-063: the form asks only what that company needs). Saved as the `linx_dns_token` Docker secret by the host. Then certd, in the background:
    - issues the **wildcard** by DNS-01 and replaces the bootstrap certificate (consumers already reload, `docs/ops/CERT_RELOAD.md`);
    - creates the domain itself and `turn` at the public address **and `sip.<domain>` at the LAN address** (the owner's decision of 2026-09-27: setup no longer prints it for you to add). The IP follower keeps each record at its own address, and a LAN change still needs setup re-run.
    - *Skip* is allowed only on a rented server (§10 item 1). The certificate then keeps renewing through 443 by TLS-ALPN-01, with no phones on the LAN and no automatic DNS.

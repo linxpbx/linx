@@ -35,9 +35,15 @@ func TestWebCertObtain(t *testing.T) {
 }
 
 func TestWebCertTokenRefusal(t *testing.T) {
-	w := &webCert{env: setupEnv{runner: hostRunner{}}}
-	refusal, err := w.SaveToken(context.Background(), install.CertView{}, "has a space in it and is long enough")
-	if err != nil || !strings.HasPrefix(refusal, "The token can't contain spaces") {
+	w := &webCert{env: setupEnv{runner: hostRunner{}, savedConfig: func() ([]byte, error) {
+		return []byte("version: 1\ndomain:\n  name: pbx.example.com\n"), nil
+	}}}
+	refusal, err := w.SaveToken(context.Background(), install.CertView{}, install.DNSKey{Token: "has a space in it and is long enough"})
+	if err != nil || !strings.HasPrefix(refusal, "The Cloudflare API token can't contain spaces") {
 		t.Errorf("%q %v", refusal, err)
+	}
+	refusal, err = w.SaveToken(context.Background(), install.CertView{}, install.DNSKey{Provider: "porkbun", Token: "pk1_only-one-of-two"})
+	if err != nil || !strings.Contains(refusal, "Porkbun") {
+		t.Errorf("porkbun with one value: %q %v", refusal, err)
 	}
 }

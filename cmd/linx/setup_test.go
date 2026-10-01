@@ -63,8 +63,8 @@ func testEnv(stdin string, files map[string]string) setupEnv {
 func TestSetupInteractiveDryRun(t *testing.T) {
 	// Answers: set up in the terminal, accept profile, install Docker, another program in front (a bad then
 	// a good address; a bad then a good UDP port), choose Portainer, a bad then a good domain, (token),
-	// keep test certificates, skip the email, skip the owner email and name.
-	env := testEnv("2\n\n\ny\n2\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n", nil)
+	// the DNS company (Cloudflare), keep test certificates, skip the email, skip the owner email and name.
+	env := testEnv("2\n\n\ny\n2\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n\n", nil)
 	var out, errOut bytes.Buffer
 	code := runSetup(context.Background(), []string{"--dry-run"}, &out, &errOut, env)
 	if code != 0 {
@@ -109,7 +109,7 @@ func TestSetupInteractiveDryRun(t *testing.T) {
 // (docs/TRUNKS.md §13 step 6) when it's built alongside linx, the same way
 // it installs linx itself.
 func TestSetupInstallsFirewallSync(t *testing.T) {
-	env := testEnv("2\n\n\ny\n2\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n", nil)
+	env := testEnv("2\n\n\ny\n2\n8.8.8.8\n192.168.1.30\n5061\n3478\n2\n*.bad\nlab.linxpbx.com\n\n\n\n\n\n", nil)
 	env.stat = func(p string) (os.FileInfo, error) {
 		if p == "/home/owner/linx-firewall-sync" {
 			return nil, nil
@@ -215,7 +215,7 @@ func TestSetupConfigFile(t *testing.T) {
 func TestSetupKeepsSavedToken(t *testing.T) {
 	// Saved answers and token; the owner accepts every default.
 	// First: the terminal, not the Server settings page.
-	env := testEnv("2\n"+strings.Repeat("\n", 11), map[string]string{installer.DNSTokenPath: "saved-token-xxxxxxxxxxxxxxxxxxx\n"})
+	env := testEnv("2\n"+strings.Repeat("\n", 12), map[string]string{installer.DNSTokenPath: "saved-token-xxxxxxxxxxxxxxxxxxx\n"})
 	env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
 	env.readSecret = func() (string, error) { t.Error("asked for a token although one is saved"); return "", io.EOF }
 	var out, errOut bytes.Buffer
@@ -234,9 +234,9 @@ func TestAskDomainOffersSavedTokenForChangedDomain(t *testing.T) {
 		wantOffer, wantKeep                  bool
 	}{
 		// Corrected within the same zone: offered, and Enter keeps it.
-		{"same zone", "sip.lab.linxpbx.com", "lab.linxpbx.com", installer.DNSCloudflare, "\n\n\n", true, true},
+		{"same zone", "sip.lab.linxpbx.com", "lab.linxpbx.com", installer.DNSCloudflare, "\n\n\n\n", true, true},
 		// Another zone: offered, but Enter means paste a new one.
-		{"other zone", "lab.linxpbx.com", "pbx.example.com", installer.DNSCloudflare, "\n", true, false},
+		{"other zone", "lab.linxpbx.com", "pbx.example.com", installer.DNSCloudflare, "\n\n", true, false},
 		// Another provider: the token can't work there, so not offered.
 		{"other provider", "lab.linxpbx.com", "me.duckdns.org", installer.DNSCloudflare, "", false, false},
 	} {
@@ -294,7 +294,7 @@ func TestSetupChoosesBrowserOrTerminal(t *testing.T) {
 		want        string
 	}{
 		{"enter picks the browser", "\n", true, true, "Start the web install"},
-		{"terminal", "2\n\nMars/Olympus\nAsia/Dubai\ny\n5\n\nlab.linxpbx.com\n\n\n\n\n", true, true, "isn't a time zone this server knows"},
+		{"terminal", "2\n\nMars/Olympus\nAsia/Dubai\ny\n5\n\nlab.linxpbx.com\n\n\n\n\n\n", true, true, "isn't a time zone this server knows"},
 		{"no terminal", "", false, false, "Start the web install"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

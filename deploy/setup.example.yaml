@@ -12,9 +12,13 @@ domain:
   # Base domain. The web app answers at the domain itself (https://pbx.example.com);
   # Linx also uses admin., provision., sip. and turn. under it.
   name: pbx.example.com
-  # Where the domain's DNS is managed: cloudflare or duckdns (name.duckdns.org).
-  # The API token is never put here. Before running setup with this file, save it
-  # as /etc/linx/secrets/linx_dns_token (one line). Setup fixes its permissions.
+  # Where the domain's DNS is managed: cloudflare, duckdns (name.duckdns.org),
+  # route53, godaddy, namecheap, porkbun, digitalocean, hetzner, desec or ovh.
+  # The key is never put here. Before running setup with this file, save it as
+  # /etc/linx/secrets/linx_dns_token: the token (one line), or for a company that
+  # asks for more than one thing a JSON object, e.g. for porkbun
+  # {"api_key":"pk1_...","secret_api_key":"sk1_..."} (field names in
+  # web/src/lib/dns-companies.json). Setup fixes its permissions.
   dns_provider: cloudflare
 certificates:
   # true: Let's Encrypt test certificates (browsers warn). Set to false once

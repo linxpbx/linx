@@ -98,8 +98,9 @@ type ApplyInput struct {
 type Applier interface {
 	Steps(ctx context.Context, in ApplyInput) ([]string, error)
 	Run(ctx context.Context, in ApplyInput, report func(i int, state, detail string), keep func(KeepItem), switching func()) error
-	// SaveToken checks the DNS token and keeps it on the host.
-	SaveToken(ctx context.Context, token string) (refusal string, err error)
+	// SaveToken checks the DNS company's key and keeps it, and the
+	// company, on the host.
+	SaveToken(ctx context.Context, key DNSKey) (refusal string, err error)
 	// Profiles are the sizes offered, and setup's pick for this server
 	// with why.
 	Profiles(ctx context.Context) (options []ProfileOption, pick, reason string)
@@ -159,7 +160,7 @@ func (h *Host) setFinish(fn func(f *FinishView), progress ...Progress) {
 
 // secureToken is the secure page's DNS token (§3.2). In token mode it was
 // already asked on the plain page.
-func (h *Host) secureToken(ctx context.Context, token string) ([]FieldError, error) {
+func (h *Host) secureToken(ctx context.Context, token DNSKey) ([]FieldError, error) {
 	h.mu.Lock()
 	ok := h.canChangeLocked()
 	h.mu.Unlock()

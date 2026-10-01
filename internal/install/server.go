@@ -602,8 +602,8 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request, m Message, timeou
 	return res, true
 }
 
-// maxToken is the most a DNS token body may be.
-const maxToken = 1 << 10
+// maxToken is the most a DNS key's body may be (OVH's four fields fit).
+const maxToken = 4 << 10
 
 // token passes the DNS company's token to the host (docs/INSTALL.md §4.3:
 // the page warned it isn't encrypted). It's never logged or kept here.
@@ -612,16 +612,14 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusForbidden, "This change didn't come from the install page.")
 		return
 	}
-	var body struct {
-		Token string `json:"token"`
-	}
+	var body DNSKey
 	dec := json.NewDecoder(io.LimitReader(r.Body, maxToken))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "The token couldn't be read.")
+		writeProblem(w, http.StatusBadRequest, "The key couldn't be read.")
 		return
 	}
-	s.relay(w, r, Message{Type: TypeToken, Token: body.Token}, checkTimeout)
+	s.relay(w, r, Message{Type: TypeToken, Key: &body}, checkTimeout)
 }
 
 // handoff is a new one-time link to the secure page, for this browser.

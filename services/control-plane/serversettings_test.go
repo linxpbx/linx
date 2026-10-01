@@ -131,6 +131,23 @@ func TestServerSettingsEndpoints(t *testing.T) {
 	if code := problemCode(t, post(`{"profile":"lite","portainer":false,"front_door":"somewhere"}`)); code == "" {
 		t.Error("unknown front door accepted")
 	}
+	// Another DNS company's key, and Stop.
+	if resp := post(`{"profile":"lite","portainer":false,"dns_key":{"provider":"porkbun","key":{"api_key":"pk1_k","secret_api_key":"sk1_s"}},"dns_by_hand":true}`); resp.StatusCode != http.StatusAccepted {
+		t.Errorf("porkbun: %d", resp.StatusCode)
+	}
+	if code := problemCode(t, post(`{"profile":"lite","portainer":false,"dns_key":{"provider":"gandi","token":"x"}}`)); code == "" {
+		t.Error("unknown DNS company accepted")
+	}
+	if c := e.serverSettings.changes[len(e.serverSettings.changes)-1]; c.Key == nil || c.Key.Provider != "porkbun" || c.Key.Fields["secret_api_key"] != "sk1_s" ||
+		c.DNSByHand == nil || !*c.DNSByHand {
+		t.Errorf("porkbun change %+v", c)
+	}
+	e.serverSettings.changes = e.serverSettings.changes[:len(e.serverSettings.changes)-1]
+	for _, a := range e.store.audits {
+		if b, _ := json.Marshal(a.Detail); strings.Contains(string(b), "sk1_s") {
+			t.Errorf("the key is in the activity log: %s", b)
+		}
+	}
 	if len(e.serverSettings.changes) != 2 || !e.serverSettings.changes[0].Portainer || e.serverSettings.changes[1].Domain != "example.org" ||
 		e.serverSettings.changes[1].FrontDoor != "linx-443" {
 		t.Errorf("changes %+v", e.serverSettings.changes)
@@ -142,7 +159,7 @@ func TestServerSettingsEndpoints(t *testing.T) {
 			n++
 		}
 	}
-	if n != 5 {
+	if n != 6 { // the five above and the Porkbun key (the unknown company never reaches setup)
 		t.Errorf("%d audit entries", n)
 	}
 }

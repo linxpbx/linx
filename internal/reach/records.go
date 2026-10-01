@@ -49,11 +49,24 @@ type Records struct {
 	// Zone is where the records live ("example.com" for
 	// "pbx.example.com"); NameServers are its name servers, and Company
 	// the DNS company they belong to ("" when Linx doesn't know it).
-	Zone        string    `json:"zone"`
-	NameServers []string  `json:"name_servers"`
-	Company     string    `json:"company"`
-	Records     []Record  `json:"records"`
-	CheckedAt   time.Time `json:"checked_at"`
+	Zone        string   `json:"zone"`
+	NameServers []string `json:"name_servers"`
+	Company     string   `json:"company"`
+	Records     []Record `json:"records"`
+	// Automatic is how linx-certd keeps them right, when it does.
+	Automatic *Automatic `json:"automatic,omitempty"`
+	CheckedAt time.Time  `json:"checked_at"`
+}
+
+// Automatic is linx-certd's word on the records it keeps right
+// (certs.DNSStatus).
+type Automatic struct {
+	Company   string    `json:"company"`
+	Address   string    `json:"address"`
+	Previous  string    `json:"previous"`
+	ChangedAt time.Time `json:"changed_at,omitzero"`
+	CheckedAt time.Time `json:"checked_at,omitzero"`
+	Error     string    `json:"error,omitempty"`
 }
 
 // Records lists the records this server needs and checks each at the
@@ -78,6 +91,15 @@ func (c *Checker) Records(ctx context.Context) Records {
 		}
 		out.Company = dnscheck.Company(out.NameServers)
 	}()
+	if c.Automatic != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, Timeout)
+			defer cancel()
+			out.Automatic = c.Automatic(cctx)
+		}()
+	}
 	if wantKnown {
 		if c.Door == doorHomeOnly {
 			want = c.Home

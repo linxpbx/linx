@@ -6815,6 +6815,31 @@ components:
               kept:
                 type: boolean
                 description: Linx keeps this record right itself (a DNS token).
+        automatic:
+          type: object
+          description: How Linx keeps the records right itself, when it does (a DNS key, not stopped).
+          required: [company, address, previous]
+          properties:
+            company:
+              type: string
+              description: The DNS company's name, as Linx was set up with it ("Porkbun").
+            address:
+              type: string
+              description: The address the records last pointed at; empty before the first time.
+            previous:
+              type: string
+              description: The one before it; empty when it hasn't changed.
+            changed_at:
+              type: string
+              format: date-time
+              description: When the address last changed.
+            checked_at:
+              type: string
+              format: date-time
+              description: When the records were last written or confirmed.
+            error:
+              type: string
+              description: Why the last try failed, in the DNS company's own words; empty when it worked.
         checked_at:
           type: string
           format: date-time
@@ -7048,6 +7073,9 @@ components:
           type: string
         token_saved:
           type: boolean
+        dns_by_hand:
+          type: boolean
+          description: There's a DNS key, but the owner keeps the records (Linx was told to stop).
         profile:
           type: string
         profiles:
@@ -7119,7 +7147,12 @@ components:
         token:
           type: string
           maxLength: 1000
-          description: A new DNS token (left out keeps the one there is, or none).
+          description: A new DNS token for the DNS company there is (left out keeps the one there is, or none). `dns_key` is the newer form.
+        dns_key:
+          $ref: "#/components/schemas/DnsKey"
+        dns_by_hand:
+          type: boolean
+          description: "true: Linx stops keeping the DNS records right (they stay as they are; the key still gets the certificate). false: it starts again."
         domain:
           type: string
           maxLength: 253
@@ -7138,6 +7171,27 @@ components:
         door_done:
           type: boolean
           description: The front door's steps (the preview's `setup`) are done.
+
+    DnsKey:
+      type: object
+      description: A DNS company's key, as its form asks for it (docs/ui/SCREENS_PHASE1F.md §3.2).
+      additionalProperties: false
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          enum: [cloudflare, duckdns, route53, godaddy, namecheap, porkbun, digitalocean, hetzner, desec, ovh]
+        token:
+          type: string
+          maxLength: 1000
+          description: The key when the company asks for one thing (its form's one field).
+        key:
+          type: object
+          maxProperties: 8
+          additionalProperties:
+            type: string
+            maxLength: 300
+          description: The form's fields by their key (web/src/lib/dns-companies.json).
 
     ServerSettingsPreview:
       type: object

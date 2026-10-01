@@ -11,6 +11,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"linxpbx.com/linx/internal/dnsapi"
 	"linxpbx.com/linx/internal/dnsname"
 )
 
@@ -49,12 +50,16 @@ type DatabaseConfig struct {
 }
 
 // DomainConfig is the base domain and where its DNS is managed. The DNS
-// provider's API token is never in setup.yaml; it's a secret file (DNSTokenPath).
+// company's key is never in setup.yaml; it's a secret file (DNSTokenPath).
 type DomainConfig struct {
 	// Name is the base domain, e.g. pbx.example.com.
 	Name string `yaml:"name"`
-	// DNSProvider is "cloudflare" or "duckdns".
+	// DNSProvider is the DNS company: one of DNSProviders.
 	DNSProvider string `yaml:"dns_provider"`
+	// DNSByHand: Linx stops keeping the records right (Server settings'
+	// Stop): the key still gets the certificate, and the records stay as
+	// they are.
+	DNSByHand bool `yaml:"dns_by_hand,omitempty"`
 }
 
 // CertificateConfig controls the public certificate (linx-certd).
@@ -71,14 +76,14 @@ type CertificateConfig struct {
 	NoDNSToken bool `yaml:"no_dns_token,omitempty"`
 }
 
-// DNS providers setup offers. They must match internal/certs.Providers.
+// DNS companies setup offers (internal/dnsapi, the same list certd takes).
 const (
-	DNSCloudflare = "cloudflare"
-	DNSDuckDNS    = "duckdns"
+	DNSCloudflare = dnsapi.Cloudflare
+	DNSDuckDNS    = dnsapi.DuckDNS
 )
 
-// DNSProviders lists the valid DNS providers, default first.
-var DNSProviders = []string{DNSCloudflare, DNSDuckDNS}
+// DNSProviders lists the valid DNS companies, default first.
+var DNSProviders = dnsapi.IDs()
 
 // emailRE is deliberately strict: the address is written unquoted into the
 // Compose .env file, so quotes, $ and # must never reach it.
@@ -139,6 +144,9 @@ func (c Config) Validate() error {
 	if !slices.Contains(DNSProviders, c.Domain.DNSProvider) {
 		errs = append(errs, fmt.Errorf("domain.dns_provider: must be one of %v, got %q", DNSProviders, c.Domain.DNSProvider))
 	}
+	if c.Domain.DNSByHand && c.Certificates.NoDNSToken {
+		errs = append(errs, errors.New("domain.dns_by_hand: only with a DNS token (without one, DNS records are always yours)"))
+	}
 	if err := ValidateEmail(c.Certificates.Email, c.Certificates.Staging); err != nil {
 		errs = append(errs, fmt.Errorf("certificates.email: %w", err))
 	}
@@ -169,6 +177,9 @@ func ValidateDomain(name, provider string) error {
 	}
 	if provider == DNSDuckDNS && (!strings.HasSuffix(name, ".duckdns.org") || strings.Count(name, ".") != 2) {
 		return errors.New("DuckDNS names look like yourname.duckdns.org")
+	}
+	if provider != DNSDuckDNS && strings.HasSuffix(name, ".duckdns.org") {
+		return errors.New("a duckdns.org name's DNS is at DuckDNS: choose DuckDNS")
 	}
 	return nil
 }
@@ -202,10 +213,10 @@ domain:
   # Base domain. The web app answers at the domain itself (https://pbx.example.com);
   # Linx also uses admin., provision., sip. and turn. under it.
   name: %s
-  # Where the domain's DNS is managed: cloudflare or duckdns. The API token is
-  # kept in `+DNSTokenPath+`, not here.
+  # Where the domain's DNS is managed: `+strings.Join(DNSProviders, ", ")+`.
+  # Its key is kept in `+DNSTokenPath+`, not here.
   dns_provider: %s
-certificates:
+%scertificates:
   # true: Let's Encrypt test certificates (browsers warn). Set to false once
   # everything works to get trusted certificates.
   staging: %t
@@ -223,7 +234,7 @@ front_door:
   # machine it runs on (this server's own, if it runs here).
   proxy_address: %q
 `, c.Version, c.Docker.Install, c.ContainerUI, c.ResourceProfile,
-		c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Staging, c.Certificates.Wildcard, c.Certificates.Email,
+		c.Domain.Name, c.Domain.DNSProvider, dnsByHandYAML(c.Domain.DNSByHand), c.Certificates.Staging, c.Certificates.Wildcard, c.Certificates.Email,
 		noDNSTokenYAML(c.Certificates.NoDNSToken), c.FrontDoor.Kind, c.FrontDoor.ProxyAddress)
 	if c.FrontDoor.TURNUDPPort != 0 {
 		fmt.Fprintf(&b, `  # The UDP port the router forwards to Linx for call audio (443 if not set).
@@ -254,6 +265,16 @@ database:
 `, c.Database.Image)
 	}
 	return b.Bytes()
+}
+
+func dnsByHandYAML(on bool) string {
+	if !on {
+		return ""
+	}
+	return `  # The DNS records are kept by hand: Linx doesn't change them (the key
+  # still gets the certificate). Remove this line to let Linx keep them right.
+  dns_by_hand: true
+`
 }
 
 func noDNSTokenYAML(on bool) string {

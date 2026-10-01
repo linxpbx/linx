@@ -28,7 +28,7 @@ func (f *fakeSettings) View(context.Context) (ServerView, error) {
 }
 func (f *fakeSettings) Preview(_ context.Context, c ServerChange) (ServerPreview, error) {
 	p := ServerPreview{Steps: []string{"Save your settings", "Restart Linx with the new settings"}, Address: "https://example.com"}
-	if c.Token != "" && len(c.Token) < 20 {
+	if c.Key != nil && len(c.Key.Token) < 20 {
 		p.Errors = []FieldError{{Step: StepToken, Field: "token", Message: "That token can't see example.com at Cloudflare."}}
 	}
 	if c.Domain != "" {
@@ -60,7 +60,7 @@ func (f *fakeSettings) Run(_ context.Context, c ServerChange, report func(int, s
 	if c.Domain != "" {
 		f.view.Domain = c.Domain
 	}
-	if c.Token != "" {
+	if c.Key != nil {
 		f.view.Token = "saved"
 	}
 	f.mu.Unlock()

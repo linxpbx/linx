@@ -74,12 +74,31 @@ func (w *webCert) Obtain(ctx context.Context, staging bool) error {
 	return nil
 }
 
-func (w *webCert) SaveToken(ctx context.Context, cv install.CertView, token string) (string, error) {
-	token = strings.TrimSpace(token)
-	if err := installer.ValidateDNSToken(token); err != nil {
-		return upper(err.Error()) + ".", nil
+func (w *webCert) SaveToken(ctx context.Context, cv install.CertView, key install.DNSKey) (string, error) {
+	c, err := w.config()
+	if err != nil {
+		return "", err
 	}
-	return "", installer.SaveDNSTokenPlan(token).Execute(ctx, w.env.runner, func(installer.Step) {})
+	provider, secret, refusal := key.Secret(c.Domain.DNSProvider)
+	if refusal != "" {
+		return refusal, nil
+	}
+	if refusal := keyFormRefusal(c.Domain.Name, provider, secret); refusal != "" {
+		return refusal, nil
+	}
+	return "", installer.SaveDNSKeyPlan(c, provider, secret).Execute(ctx, w.env.runner, func(installer.Step) {})
+}
+
+// keyFormRefusal is what's wrong with a key's form for domain at provider,
+// in plain words ("" if nothing): the company itself is asked later.
+func keyFormRefusal(domain, provider, secret string) string {
+	if err := installer.ValidateDomain(domain, provider); err != nil {
+		return upper(err.Error()) + "."
+	}
+	if err := installer.ValidateDNSKey(provider, secret); err != nil {
+		return strings.TrimSuffix(upper(err.Error()), ".") + "."
+	}
+	return ""
 }
 
 func (w *webCert) Records(ctx context.Context) error {

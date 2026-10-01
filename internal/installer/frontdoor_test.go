@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"bytes"
 	"net/netip"
 	"strings"
 	"testing"
@@ -162,6 +163,22 @@ func TestFrontDoorFiles(t *testing.T) {
 	duck.Domain = DomainConfig{Name: "me.duckdns.org", DNSProvider: DNSDuckDNS}
 	if _, d := FrontDoorPlan(duck, lan); d != nil {
 		t.Errorf("DuckDNS, no front door: %+v", d)
+	}
+	// Any other of the ten can (ADR-063).
+	pork := cfg
+	pork.Domain.DNSProvider = "porkbun"
+	if got := DNSRecords(pork, lan); got != "sip=192.168.1.20" {
+		t.Errorf("Porkbun at home: %q", got)
+	}
+	// Stop: the records are the owner's, the key still gets the certificate.
+	pork.Domain.DNSByHand = true
+	if _, d := FrontDoorPlan(pork, lan); d != nil || DNSRecords(pork, lan) != "" ||
+		!strings.Contains(string(stackDotEnv(pork, "abc", lan)), "LINX_DNS_RECORDS=\n") {
+		t.Errorf("by hand: %+v %q", d, DNSRecords(pork, lan))
+	}
+	back, err := ParseConfig(bytes.NewReader(pork.Marshal()))
+	if err != nil || !back.Domain.DNSByHand || back.Domain.DNSProvider != "porkbun" {
+		t.Errorf("setup.yaml round trip: %+v %v", back.Domain, err)
 	}
 	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "192.168.1.30"}
 	files, dns := FrontDoorPlan(cfg, lan)

@@ -180,9 +180,10 @@ type Certifier interface {
 	// Obtain gets the certificate through port 443: the test one only
 	// proves it works, the real one is deployed.
 	Obtain(ctx context.Context, staging bool) error
-	// SaveToken checks the DNS company's token and keeps it as the host's
+	// SaveToken checks the DNS company's key (for the company it names, or
+	// setup.yaml's) and keeps it, and the company, as the host's
 	// secret file. A refusal is plain words for the page.
-	SaveToken(ctx context.Context, c CertView, token string) (refusal string, err error)
+	SaveToken(ctx context.Context, c CertView, key DNSKey) (refusal string, err error)
 	// Records points Linx's names in DNS with the saved token.
 	Records(ctx context.Context) error
 	// ObtainWithToken gets the certificate with the saved token.
@@ -498,7 +499,7 @@ func (h *Host) retry() error {
 // owner's other way (docs/INSTALL.md §14 item 1): the page moves to token
 // mode, where Linx adds every record itself and gets the full certificate
 // at once, unless Let's Encrypt is being asked right now.
-func (h *Host) token(ctx context.Context, token string) ([]FieldError, error) {
+func (h *Host) token(ctx context.Context, token DNSKey) ([]FieldError, error) {
 	c := h.cert()
 	h.mu.Lock()
 	ok := h.plainOpenLocked()

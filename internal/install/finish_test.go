@@ -53,7 +53,11 @@ func (f *fakeApplier) Run(_ context.Context, in ApplyInput, report func(int, str
 	}
 	return nil
 }
-func (f *fakeApplier) SaveToken(_ context.Context, token string) (string, error) {
+func (f *fakeApplier) SaveToken(_ context.Context, key DNSKey) (string, error) {
+	_, token, refusal := key.Secret("cloudflare")
+	if refusal != "" {
+		return refusal, nil
+	}
 	if len(token) < 20 {
 		return "That doesn't look like a DNS token.", nil
 	}

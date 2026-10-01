@@ -31,7 +31,7 @@ func TestFollower(t *testing.T) {
 			if content == "" {
 				ok([]any{})
 			} else {
-				ok([]map[string]any{{"id": "r", "type": "A", "name": r.URL.Query().Get("name"), "content": content}})
+				ok([]map[string]any{{"id": "r", "type": "A", "name": r.URL.Query().Get("name"), "content": content, "comment": "Linx (linx setup)"}})
 			}
 		default:
 			writes.Add(1)

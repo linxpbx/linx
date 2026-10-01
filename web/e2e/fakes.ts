@@ -172,7 +172,8 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     : opts.download === "failed" ? { status: "failed", mine: true, requested_at: ago(1), error: "backups don't go to a folder on this server, so there's nothing here to download." }
     : { status: "none", mine: false };
   let serverSettings: { portainer: boolean; [k: string]: unknown } | undefined = opts.serverSettings && {
-    where: opts.serverSettings, front_door: opts.serverSettings === "home" ? "pangolin" : "linx-443", domain: "example.com", provider: "cloudflare",
+    where: opts.serverSettings, front_door: opts.serverSettings === "home" ? "pangolin" : "linx-443", domain: "example.com",
+    provider: opts.serverSettings === "home" ? "porkbun" : "cloudflare", dns_by_hand: false,
     token_saved: opts.serverSettings === "home", profile: "lite", profile_pick: "lite", profile_reason: "4 processor cores and 8 GB memory",
     profiles: [
       { name: "lite", description: "audio first, small meetings, AI off, lighter monitoring" },
@@ -187,11 +188,14 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     repair: !!opts.repair, no_sign_in: opts.repair === "no-sign-in",
     problem: opts.repair ? "x509: certificate has expired or is not yet valid" : undefined,
   };
-  type Change = { profile: string; portainer: boolean; token?: string; domain?: string; front_door?: string; proxy_address?: string; door_done?: boolean };
+  type Change = { profile: string; portainer: boolean; token?: string; domain?: string; front_door?: string; proxy_address?: string; door_done?: boolean;
+    dns_key?: { provider: string; token?: string; key?: Record<string, string> }; dns_by_hand?: boolean };
+  const companyName = (id?: string) => ({ porkbun: "Porkbun", cloudflare: "Cloudflare", ovh: "OVH" } as Record<string, string>)[id ?? ""] ?? id;
   // What setup on the server says a change needs (docs/INSTALL.md §7).
   const settingsPreview = (body: Change) => {
-    const errors = body.token && body.token.length < 20
-      ? [{ field: "token", message: "That token can't see example.com at Cloudflare. It needs Zone → DNS → Edit on that zone." }] : [];
+    const key = body.dns_key;
+    const errors = key && Object.values(key.key ?? { token: key.token ?? "" }).some((v) => v === "bad-key" || v.length < 5)
+      ? [{ field: "token", message: `${companyName(key.provider)} didn't let this key read example.com's records (${companyName(key.provider)}: Invalid API key).` }] : [];
     const home = serverSettings?.where === "home";
     const domain = body.domain ?? "example.com";
     const warnings = body.domain ? [
@@ -209,10 +213,11 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     if (setup) warnings.push("Until the steps below are done, Linx can't be reached from outside your network.");
     const steps = [
       ...(addRecords.length ? [`Check the DNS records for ${domain}`, `Test certificate for ${domain}, turn.${domain}`, `Certificate for ${domain}, turn.${domain}`] : []),
-      "Save your settings", ...(body.token ? ["Your DNS company's token"] : []),
+      "Save your settings", ...(key ? [`Your ${companyName(key.provider)} key`] : []),
       ...(body.front_door ? [`Firewall for ${body.front_door}`] : []),
       ...(body.portainer && !serverSettings?.portainer ? ["Portainer (home network only)"] : []), "Restart Linx with the new settings",
-      ...(serverSettings?.token_saved && (body.domain || body.front_door) ? [`${domain}, turn.${domain} at this network's public address`] : []),
+      ...((serverSettings?.token_saved && (body.domain || body.front_door)) || key || body.dns_by_hand === false
+        ? [`${domain}, turn.${domain} at this network's public address`] : []),
     ];
     return { errors, add_records: addRecords, warnings, steps, address: `https://${domain}`, ...(setup ? { setup } : {}) };
   };
@@ -465,12 +470,19 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       ] }));
     }
     if (p === "/api/v1/system/dns-records" && method === "GET") {
+      // Kept right automatically when Server settings has a key (home), by hand otherwise.
+      const auto = !!serverSettings?.token_saved && !serverSettings?.dns_by_hand;
       return route.fulfill(json({ domain: "example.com", zone: "example.com", company: "Porkbun",
-        name_servers: ["curitiba.ns.porkbun.com", "maceio.ns.porkbun.com"], checked_at: new Date().toISOString(), records: [
+        name_servers: ["curitiba.ns.porkbun.com", "maceio.ns.porkbun.com"], checked_at: new Date().toISOString(), records: auto ? [
+          { use: "web", name: "example.com", type: "A", value: "94.200.1.10", state: "ok", seen: ["94.200.1.10"], kept: true },
+          { use: "turn", name: "turn.example.com", type: "A", value: "94.200.1.10", state: "ok", seen: ["94.200.1.10"], kept: true },
+          { use: "sip", name: "sip.example.com", type: "A", value: "192.168.1.212", state: "ok", seen: ["192.168.1.212"], kept: true },
+        ] : [
           { use: "web", name: "example.com", type: "A", value: "94.200.1.10", state: "ok", seen: ["94.200.1.10"], kept: false },
           { use: "turn", name: "turn.example.com", type: "A", value: "94.200.1.10", state: "wrong", seen: ["94.200.1.9"], kept: false },
           { use: "sip", name: "sip.example.com", type: "A", value: "192.168.1.212", state: "missing", seen: [], kept: false },
-        ] }));
+        ], ...(auto ? { automatic: { company: "Porkbun", address: "94.200.1.10", previous: "94.200.1.9",
+          changed_at: new Date(Date.now() - 3 * 86_400_000).toISOString(), checked_at: new Date().toISOString() } } : {}) }));
     }
     const reachLink = (state: string, extra: object = {}) => ({ id: "0199d0c2-7a00-7000-8000-00000000c0de", url: "https://example.com/reach/7K2QHM4XRB",
       state, expires_at: new Date(Date.now() + 10 * 60_000).toISOString(), version: state === "waiting" ? 0 : 2, ...extra });

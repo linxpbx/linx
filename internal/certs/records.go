@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"linxpbx.com/linx/internal/dnsapi"
 	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/publicip"
 )
@@ -36,6 +37,12 @@ type RecordsClient struct {
 	// overwritten behind their back; `linx setup` doesn't, since the owner
 	// just asked for these names.
 	OwnOnly bool
+	// State remembers which records Linx made at companies without
+	// Cloudflare's comments, and when the followed address changed.
+	State *DNSState
+	// NewAPI and Zone are overridable for tests (dnsapi.New, dnsapi.FindZone).
+	NewAPI func(ctx context.Context, provider string, k dnsapi.Key) (dnsapi.API, error)
+	Zone   func(domain string) (string, error)
 }
 
 // recordComment marks the Cloudflare records Linx made.
@@ -81,7 +88,100 @@ func (c *RecordsClient) PointRecords(ctx context.Context, cfg Config, hosts []st
 	case ProviderDuckDNS:
 		return c.duckdns(ctx, token, cfg.Domain, hosts, ip)
 	}
-	return nil, fmt.Errorf("unsupported DNS provider %q", cfg.Provider)
+	return c.company(ctx, cfg.Provider, token, cfg.Domain, hosts, ip)
+}
+
+// Connect makes a client for a company internal/dnsapi lists
+// (clients.New). linx-certd and the linx command set it; the control plane,
+// which only reads certificates, doesn't link the companies' libraries.
+var Connect func(ctx context.Context, provider string, k dnsapi.Key, o dnsapi.Options) (dnsapi.API, error)
+
+// companyAPI is the dnsapi client for provider with the key saved as
+// secret (dnsapi.Company.Encode).
+func companyAPI(ctx context.Context, provider, secret string, c *RecordsClient) (dnsapi.API, error) {
+	co, ok := dnsapi.Find(provider)
+	if !ok {
+		return nil, fmt.Errorf("unsupported DNS provider %q", provider)
+	}
+	k, err := co.Decode(secret)
+	if err != nil {
+		return nil, fmt.Errorf("the saved %s key: %w", co.Name, err)
+	}
+	if c.NewAPI != nil {
+		return c.NewAPI(ctx, provider, k)
+	}
+	if Connect == nil {
+		return nil, errors.New("this program can't change DNS records")
+	}
+	return Connect(ctx, provider, k, dnsapi.Options{HTTP: c.HTTP, PublicAddress: func(ctx context.Context) (string, error) {
+		a, err := c.PublicIPv4(ctx)
+		if err != nil {
+			return "", err
+		}
+		return a.String(), nil
+	}})
+}
+
+// company points hosts at ip at a company internal/dnsapi changes records
+// at, with the same rules as Cloudflare: an alias (CNAME) is left alone,
+// and so is an address someone else set, at the base domain always and
+// elsewhere for the follower (OwnOnly). Records can't carry a note there,
+// so which are Linx's is kept in State; one that already points at ip is
+// taken as Linx's (it's the one the records card asked for).
+func (c *RecordsClient) company(ctx context.Context, provider, secret, domain string, hosts []string, ip netip.Addr) ([]RecordResult, error) {
+	api, err := companyAPI(ctx, provider, secret, c)
+	if err != nil {
+		return nil, err
+	}
+	findZone := c.Zone
+	if findZone == nil {
+		findZone = dnsapi.FindZone
+	}
+	zone, err := findZone(domain)
+	if err != nil {
+		return nil, err
+	}
+	at := " (" + dnsapi.Name(provider) + ")"
+	var out []RecordResult
+	for _, h := range hosts {
+		name := dnsname.Host(h, domain)
+		rel := dnsapi.Relative(name, zone)
+		have, err := api.Get(ctx, zone, rel, dnsapi.TypeA)
+		if err != nil {
+			return out, err
+		}
+		ownOnly := c.OwnOnly || h == dnsname.Apex
+		mine := len(have) == 1 && c.State.Owner(name) == have[0]
+		switch {
+		case len(have) == 1 && have[0] == ip.String():
+			out = append(out, RecordResult{name, "already points at " + ip.String() + at})
+		case len(have) == 0:
+			alias, err := api.Get(ctx, zone, rel, "CNAME")
+			if err != nil {
+				return out, err
+			}
+			if len(alias) > 0 {
+				out = append(out, RecordResult{name, "left as is: it's an alias (CNAME) for " + alias[0]})
+				continue
+			}
+			if err := api.Set(ctx, zone, rel, dnsapi.TypeA, []string{ip.String()}); err != nil {
+				return out, err
+			}
+			out = append(out, RecordResult{name, "created, pointing at " + ip.String() + at})
+		case ownOnly && !mine:
+			out = append(out, RecordResult{name, "left as is: someone else made it (it points at " + strings.Join(have, ", ") + ")"})
+			continue
+		default:
+			if err := api.Set(ctx, zone, rel, dnsapi.TypeA, []string{ip.String()}); err != nil {
+				return out, err
+			}
+			out = append(out, RecordResult{name, "changed to " + ip.String() + at})
+		}
+		if err := c.State.Own(name, ip.String()); err != nil {
+			return out, fmt.Errorf("remembering %s is Linx's: %w", name, err)
+		}
+	}
+	return out, nil
 }
 
 func (c *RecordsClient) duckdns(ctx context.Context, token, domain string, hosts []string, ip netip.Addr) ([]RecordResult, error) {
@@ -149,8 +249,15 @@ func (c *RecordsClient) cloudflare(ctx context.Context, token, domain string, ho
 		switch {
 		case cname != "":
 			out = append(out, RecordResult{name, "left as is: it's an alias (CNAME) for " + cname})
-		case a != nil && a.Content == ip.String() && !a.Proxied:
+		case a != nil && a.Content == ip.String() && !a.Proxied && strings.HasPrefix(a.Comment, recordComment):
 			out = append(out, RecordResult{name, "already points at " + ip.String()})
+		case a != nil && a.Content == ip.String() && !a.Proxied:
+			// Added by hand from the records card: Linx's from now on, so
+			// it follows a new address.
+			if err := c.cf(ctx, token, http.MethodPatch, "/zones/"+zone+"/dns_records/"+a.ID, map[string]any{"comment": body["comment"]}, nil); err != nil {
+				return out, err
+			}
+			out = append(out, RecordResult{name, "already points at " + ip.String() + "; Linx keeps it right from now on"})
 		case a != nil && ownOnly && !strings.HasPrefix(a.Comment, recordComment):
 			out = append(out, RecordResult{name, "left as is: someone else made it (it points at " + a.Content + ")"})
 		case a != nil:
@@ -230,13 +337,25 @@ func (c *RecordsClient) cf(ctx context.Context, token, method, path string, body
 // ErrTokenRefused is CheckToken's answer when the DNS company says no.
 var ErrTokenRefused = errors.New("token refused")
 
-// CheckToken makes sure a Cloudflare token can see domain's zone and its
-// records, changing nothing (docs/ui/INSTALL_SCREENS.md §3.2); the error
-// says why in plain words and wraps ErrTokenRefused when it's the token.
-// DuckDNS has no way to check without changing the address: nil.
+// CheckToken makes sure a key can see domain's zone and its records,
+// changing nothing (docs/ui/INSTALL_SCREENS.md §3.2, SCREENS_PHASE1F.md
+// §3.2); the error says why in plain words and wraps ErrTokenRefused when
+// it's the key. DuckDNS has no way to check without changing the address:
+// nil.
 func (c *RecordsClient) CheckToken(ctx context.Context, provider, domain, token string) error {
-	if provider != ProviderCloudflare {
+	if provider == ProviderDuckDNS {
 		return nil
+	}
+	if provider != ProviderCloudflare {
+		api, err := companyAPI(ctx, provider, token, c)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrTokenRefused, err)
+		}
+		err = dnsapi.CheckWith(ctx, api, provider, domain, c.Zone)
+		if errors.Is(err, dnsapi.ErrKeyRefused) {
+			return fmt.Errorf("%w: %v", ErrTokenRefused, strings.TrimPrefix(err.Error(), dnsapi.ErrKeyRefused.Error()+": "))
+		}
+		return err
 	}
 	zone, err := c.cfZone(ctx, token, domain)
 	if err != nil {

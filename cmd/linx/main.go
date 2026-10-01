@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"linxpbx.com/linx/internal/certs"
+	"linxpbx.com/linx/internal/dnsapi/clients"
 	"os"
 
 	"linxpbx.com/linx/internal/version"
@@ -28,6 +30,10 @@ Commands:
   version       Show the Linx version
   help          Show this help
 `
+
+// The DNS companies' clients (internal/dnsapi/clients) are linked here, not
+// into every program that uses internal/certs.
+func init() { certs.Connect = clients.New }
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))

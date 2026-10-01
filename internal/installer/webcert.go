@@ -2,6 +2,7 @@ package installer
 
 import (
 	"fmt"
+	"linxpbx.com/linx/internal/dnsapi"
 	"net/netip"
 	"strings"
 
@@ -120,6 +121,18 @@ func RecordsArgs(c Config, lan LAN) []string {
 		args = append(args, "-address", a)
 	}
 	return args
+}
+
+// SaveDNSKeyPlan saves a DNS company's key (SaveDNSTokenPlan) and, when
+// it's for another company than c names, the company in setup.yaml.
+func SaveDNSKeyPlan(c Config, provider, secret string) Plan {
+	p := SaveDNSTokenPlan(secret)
+	if provider != c.Domain.DNSProvider {
+		c.Domain.DNSProvider = provider
+		p = append(p, Step{Title: "Save your DNS company (" + dnsapi.Name(provider) + ") to " + ConfigPath,
+			File: &File{Path: ConfigPath, Data: c.Marshal(), Mode: 0o600, DirMode: 0o755}})
+	}
+	return p
 }
 
 // SaveDNSTokenPlan saves the DNS token as linx_dns_token, readable by root

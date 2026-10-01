@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/term"
 
+	"linxpbx.com/linx/internal/dnsapi"
 	"linxpbx.com/linx/internal/hostinfo"
 	"linxpbx.com/linx/internal/installer"
 	"linxpbx.com/linx/internal/version"
@@ -500,8 +501,22 @@ func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (stri
 		cfg.Domain.Name, cfg.Domain.DNSProvider = d, provider
 		break
 	}
-	if cfg.Domain.DNSProvider == installer.DNSCloudflare {
-		fmt.Fprintln(p.out, "Linx proves you own the domain by adding a temporary DNS record, so your DNS must be managed at Cloudflare.")
+	if cfg.Domain.DNSProvider != installer.DNSDuckDNS {
+		fmt.Fprintln(p.out, "Linx proves you own the domain by adding a temporary DNS record, and keeps its records right, through\n"+
+			"the company that runs its DNS (where you change its records). Not in the list: use the web install instead.")
+		var ids []string
+		names := map[string]string{}
+		for _, c := range dnsapi.Companies {
+			if c.ID != dnsapi.DuckDNS {
+				ids = append(ids, c.ID)
+				names[c.ID] = c.Name
+			}
+		}
+		pick, err := p.choose("Where is "+cfg.Domain.Name+"'s DNS?", ids, names, cfg.Domain.DNSProvider)
+		if err != nil {
+			return "", err
+		}
+		cfg.Domain.DNSProvider = pick
 	}
 
 	// A changed domain can keep the token too (e.g. sip.lab.example.com
@@ -523,20 +538,52 @@ func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (stri
 			return saved, p.askCertificates(cfg)
 		}
 	}
-	fmt.Fprintln(p.out, dnsTokenHelp[cfg.Domain.DNSProvider])
+	co, _ := dnsapi.Find(cfg.Domain.DNSProvider)
+	fmt.Fprintln(p.out, keyHelp(co, cfg.Domain.Name))
 	for {
-		fmt.Fprint(p.out, "Paste the token (it won't be shown): ")
-		t, err := env.readSecret()
-		fmt.Fprintln(p.out)
-		if err != nil {
-			return "", err
+		k := dnsapi.Key{}
+		for _, f := range co.Fields {
+			var v string
+			var err error
+			switch {
+			case len(f.Options) > 0:
+				opts, labels := []string{}, map[string]string{}
+				for _, o := range f.Options {
+					opts = append(opts, o.Value)
+					labels[o.Value] = o.Label
+				}
+				v, err = p.choose(f.Label, opts, labels, opts[0])
+			case f.Secret:
+				fmt.Fprintf(p.out, "Paste the %s (it won't be shown): ", f.Label)
+				v, err = env.readSecret()
+				fmt.Fprintln(p.out)
+			default:
+				v, err = p.text(f.Label, "")
+			}
+			if err != nil {
+				return "", err
+			}
+			k[f.Key] = v
 		}
-		if err := installer.ValidateDNSToken(t); err != nil {
+		secret, err := co.Encode(k)
+		if err == nil {
+			err = installer.ValidateDNSKey(co.ID, secret)
+		}
+		if err != nil {
 			fmt.Fprintln(p.out, "  "+err.Error())
 			continue
 		}
-		return strings.TrimSpace(t), p.askCertificates(cfg)
+		return secret, p.askCertificates(cfg)
 	}
+}
+
+// keyHelp is where to make the company's key, for the terminal.
+func keyHelp(c dnsapi.Company, domain string) string {
+	s := strings.NewReplacer("{domain}", domain, "{address}", "this server's public address").Replace(c.Where)
+	if c.Note != "" {
+		s += "\n" + c.Note
+	}
+	return s
 }
 
 // baseDomain is a domain's last two labels ("lab.linxpbx.com" →
@@ -547,13 +594,6 @@ func baseDomain(d string) string {
 		return d
 	}
 	return strings.Join(labels[len(labels)-2:], ".")
-}
-
-var dnsTokenHelp = map[string]string{
-	installer.DNSCloudflare: "Create a Cloudflare API token: dash.cloudflare.com → My Profile → API Tokens → Create Token →\n" +
-		"\"Edit zone DNS\" template. Permissions: Zone · DNS · Edit and Zone · Zone · Read.\n" +
-		"Zone Resources: Include · Specific zone · your domain. Only this token is needed.",
-	installer.DNSDuckDNS: "Your DuckDNS token is shown at the top of duckdns.org after you sign in.",
 }
 
 // askCertificates asks whether to use test certificates and for a contact email.

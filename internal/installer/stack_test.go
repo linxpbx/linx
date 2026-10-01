@@ -137,16 +137,26 @@ func TestImageTag(t *testing.T) {
 	}
 }
 
-func TestValidateDNSToken(t *testing.T) {
-	for tok, ok := range map[string]bool{
-		"0123456789abcdef0123456789abcdef01234567": true,
-		"c0ffee00-1234-4abc-8def-0123456789ab":     true, // DuckDNS UUID
-		"":                                         false,
-		"short":                                    false,
-		"token with spaces 0123456789":             false,
+func TestValidateDNSKey(t *testing.T) {
+	for _, tc := range []struct {
+		provider, key string
+		ok            bool
+	}{
+		{DNSCloudflare, "0123456789abcdef0123456789abcdef01234567", true},
+		{DNSDuckDNS, "c0ffee00-1234-4abc-8def-0123456789ab", true},
+		{DNSCloudflare, "", false},
+		{DNSCloudflare, "abc12", false},
+		{DNSCloudflare, "token with spaces 0123456789", false},
+		{"porkbun", `{"api_key":"pk1_keykeykey","secret_api_key":"sk1_secretsecret"}`, true},
+		{"porkbun", "pk1_keykeykey", false}, // one value for a company that asks for two
+		{"gandi", "0123456789abcdef0123456789abcdef01234567", false},
 	} {
-		if err := ValidateDNSToken(tok); (err == nil) != ok {
-			t.Errorf("ValidateDNSToken(%q) = %v", tok, err)
+		err := ValidateDNSKey(tc.provider, tc.key)
+		if (err == nil) != tc.ok {
+			t.Errorf("ValidateDNSKey(%s, %q) = %v", tc.provider, tc.key, err)
+		}
+		if err != nil && tc.key != "" && strings.Contains(err.Error(), tc.key) {
+			t.Errorf("the error shows the key: %v", err)
 		}
 	}
 }

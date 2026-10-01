@@ -81,11 +81,20 @@ func Issuers(c Config, dns challenge.Provider) []Issuer {
 	}
 }
 
-// DNSProvider builds the DNS-01 provider, reading tokens from secret files.
+// DNSProvider builds the DNS-01 provider, reading the key from its secret
+// file: lego's own for Cloudflare and DuckDNS, dnsChallenge through
+// internal/dnsapi for the others.
 func DNSProvider(c Config) (challenge.Provider, error) {
 	token, err := readSecret(c.TokenFile)
 	if err != nil {
 		return nil, err
+	}
+	if !builtin(c.Provider) {
+		api, err := companyAPI(context.Background(), c.Provider, token, NewRecordsClient())
+		if err != nil {
+			return nil, err
+		}
+		return &dnsChallenge{api: api}, nil
 	}
 	switch c.Provider {
 	case ProviderCloudflare:

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"linxpbx.com/linx/internal/certs"
+	"linxpbx.com/linx/internal/dnsapi"
 	"linxpbx.com/linx/internal/dnscheck"
 	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/install"
@@ -105,6 +106,7 @@ func (w webSettings) View(ctx context.Context) (install.ServerView, error) {
 	}
 	if token != "" {
 		v.Token = "saved"
+		v.DNSByHand = c.Domain.DNSByHand
 	}
 	return v, nil
 }
@@ -114,8 +116,9 @@ func (w webSettings) View(ctx context.Context) (install.ServerView, error) {
 type change struct {
 	before, next installer.Config
 	token        string
-	// domain: the domain changes; door: the front door does.
-	domain, door bool
+	// domain: the domain changes; door: the front door does; key: a new
+	// DNS key; byHand: Linx stops or starts keeping the records right.
+	domain, door, key, byHand bool
 }
 
 // field is a refusal for the page, in plain words.
@@ -142,24 +145,42 @@ func (w webSettings) plan(ctx context.Context, ch install.ServerChange) (change,
 	if ch.Portainer && w.portainerAllowed(c) {
 		next.ContainerUI = installer.ContainerUIPortainer
 	}
-	newToken := strings.TrimSpace(ch.Token)
-	if newToken != "" {
-		x.token = newToken
-		next.Certificates.NoDNSToken = false
+	var errs []install.FieldError
+	key := ch.Key
+	if ch.Token != "" && key == nil {
+		key = &install.DNSKey{Token: ch.Token}
+	}
+	if key != nil && !key.Empty() {
+		provider, secret, refusal := key.Secret(c.Domain.DNSProvider)
+		if refusal != "" {
+			errs = append(errs, field(install.StepToken, "token", refusal))
+		} else {
+			x.token, x.key = secret, true
+			next.Domain.DNSProvider = provider
+			next.Certificates.NoDNSToken = false
+		}
+	}
+	if ch.DNSByHand != nil && *ch.DNSByHand != c.Domain.DNSByHand && x.token != "" {
+		next.Domain.DNSByHand, x.byHand = *ch.DNSByHand, true
 	}
 
-	var errs []install.FieldError
 	if ch.Domain != "" {
-		d, provider, msg := installer.DomainFor(ch.Domain)
+		d, guess, msg := installer.DomainFor(ch.Domain)
 		switch {
 		case msg != "":
 			errs = append(errs, field(install.StepDomain, "domain", msg))
 		case d != c.Domain.Name:
 			x.domain = true
+			// The new key's company, or the one there is, unless the
+			// domain moves to or from DuckDNS.
+			provider := next.Domain.DNSProvider
+			if !x.key && (guess == installer.DNSDuckDNS) != (provider == installer.DNSDuckDNS) {
+				provider = guess
+			}
 			next.Domain.Name, next.Domain.DNSProvider = d, provider
-			if provider != c.Domain.DNSProvider && newToken == "" && !next.Certificates.NoDNSToken {
-				errs = append(errs, field(install.StepToken, "token", fmt.Sprintf("%s is at %s, not %s: give a %s token below.",
-					d, providerName(provider), providerName(c.Domain.DNSProvider), providerName(provider))))
+			if provider != c.Domain.DNSProvider && !x.key && !next.Certificates.NoDNSToken {
+				errs = append(errs, field(install.StepToken, "token", fmt.Sprintf("%s is at %s, not %s: give a %s key below.",
+					d, dnsapi.Name(provider), dnsapi.Name(c.Domain.DNSProvider), dnsapi.Name(provider))))
 			}
 		}
 	}
@@ -184,7 +205,7 @@ func (w webSettings) plan(ctx context.Context, ch install.ServerChange) (change,
 	if len(errs) > 0 {
 		return x, errs, nil
 	}
-	if x.token != "" && !next.Certificates.NoDNSToken && (newToken != "" || x.domain) {
+	if x.token != "" && !next.Certificates.NoDNSToken && (x.key || x.domain) {
 		refusal, err := w.tokenRefusalFor(ctx, next.Domain.DNSProvider, next.Domain.Name, x.token)
 		if err != nil {
 			return x, nil, err
@@ -197,13 +218,6 @@ func (w webSettings) plan(ctx context.Context, ch install.ServerChange) (change,
 		return x, nil, err
 	}
 	return x, nil, nil
-}
-
-func providerName(p string) string {
-	if p == installer.DNSDuckDNS {
-		return "DuckDNS"
-	}
-	return "Cloudflare"
 }
 
 // records are the DNS records to add by hand before a new domain's first
@@ -279,8 +293,8 @@ func (w webSettings) rows(ctx context.Context, ch install.ServerChange, x change
 	}
 	rows = append(rows, applyRow{title: "Save your settings", plan: installer.Plan{{Title: "Save your answers to " + installer.ConfigPath,
 		File: &installer.File{Path: installer.ConfigPath, Data: next.Marshal(), Mode: 0o600, DirMode: 0o755}}}})
-	if ch.Token != "" {
-		rows = append(rows, applyRow{title: "Your DNS company's token", plan: installer.SaveDNSTokenPlan(token)})
+	if x.key {
+		rows = append(rows, applyRow{title: "Your " + dnsapi.Name(next.Domain.DNSProvider) + " key", plan: installer.SaveDNSTokenPlan(token)})
 	}
 	if x.door {
 		phones, err := installer.PhonesPlan(ctx, w.env.runner, w.lan, installer.FrontDoorFor(next, w.lan), w.env.readFile)
@@ -320,7 +334,7 @@ func (w webSettings) rows(ctx context.Context, ch install.ServerChange, x change
 	// it whenever they change (a new domain or front door, or new defaults).
 	restart = append(restart, installer.SNIRestartPlan(next, w.lan, w.env.readFile)...)
 	rows = append(rows, applyRow{title: "Restart Linx with the new settings", plan: restart})
-	if token != "" && !next.Certificates.NoDNSToken && (ch.Token != "" || x.domain || x.door) && len(dns) > 0 {
+	if token != "" && !next.Certificates.NoDNSToken && (x.key || x.byHand || x.domain || x.door) && len(dns) > 0 {
 		rows = append(rows, applyRow{title: strings.TrimSuffix(strings.TrimPrefix(dns[0].Title, "Point "), " (DNS)"), plan: dns})
 	}
 	if w.repair {

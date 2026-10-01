@@ -4101,6 +4101,27 @@ export interface components {
                 /** @description Linx keeps this record right itself (a DNS token). */
                 kept: boolean;
             }[];
+            /** @description How Linx keeps the records right itself, when it does (a DNS key, not stopped). */
+            automatic?: {
+                /** @description The DNS company's name, as Linx was set up with it ("Porkbun"). */
+                company: string;
+                /** @description The address the records last pointed at; empty before the first time. */
+                address: string;
+                /** @description The one before it; empty when it hasn't changed. */
+                previous: string;
+                /**
+                 * Format: date-time
+                 * @description When the address last changed.
+                 */
+                changed_at?: string;
+                /**
+                 * Format: date-time
+                 * @description When the records were last written or confirmed.
+                 */
+                checked_at?: string;
+                /** @description Why the last try failed, in the DNS company's own words; empty when it worked. */
+                error?: string;
+            };
             /** Format: date-time */
             checked_at: string;
         };
@@ -4221,6 +4242,8 @@ export interface components {
             domain: string;
             provider: string;
             token_saved: boolean;
+            /** @description There's a DNS key, but the owner keeps the records (Linx was told to stop). */
+            dns_by_hand?: boolean;
             profile: string;
             profiles: {
                 name: string;
@@ -4253,8 +4276,11 @@ export interface components {
             /** @enum {string} */
             profile: "lite" | "standard" | "performance";
             portainer: boolean;
-            /** @description A new DNS token (left out keeps the one there is, or none). */
+            /** @description A new DNS token for the DNS company there is (left out keeps the one there is, or none). `dns_key` is the newer form. */
             token?: string;
+            dns_key?: components["schemas"]["DnsKey"];
+            /** @description true: Linx stops keeping the DNS records right (they stay as they are; the key still gets the certificate). false: it starts again. */
+            dns_by_hand?: boolean;
             /** @description A new domain (left out keeps it). */
             domain?: string;
             /**
@@ -4266,6 +4292,17 @@ export interface components {
             turn_udp_port?: number;
             /** @description The front door's steps (the preview's `setup`) are done. */
             door_done?: boolean;
+        };
+        /** @description A DNS company's key, as its form asks for it (docs/ui/SCREENS_PHASE1F.md §3.2). */
+        DnsKey: {
+            /** @enum {string} */
+            provider: "cloudflare" | "duckdns" | "route53" | "godaddy" | "namecheap" | "porkbun" | "digitalocean" | "hetzner" | "desec" | "ovh";
+            /** @description The key when the company asks for one thing (its form's one field). */
+            token?: string;
+            /** @description The form's fields by their key (web/src/lib/dns-companies.json). */
+            key?: {
+                [key: string]: string;
+            };
         };
         ServerSettingsPreview: {
             errors: components["schemas"]["ServerSettingsFieldError"][];

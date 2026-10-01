@@ -1,0 +1,171 @@
+[
+  {
+    "id": "cloudflare",
+    "name": "Cloudflare",
+    "fields": [
+      {
+        "key": "token",
+        "label": "API token",
+        "secret": true
+      }
+    ],
+    "where": "In Cloudflare: My Profile → API Tokens → Create Token → “Edit zone DNS”. Under Zone Resources choose only {domain}. Create it and copy it here."
+  },
+  {
+    "id": "duckdns",
+    "name": "DuckDNS",
+    "fields": [
+      {
+        "key": "token",
+        "label": "Token",
+        "secret": true
+      }
+    ],
+    "where": "Your token is at the top of duckdns.org once you've signed in.",
+    "one_address": true
+  },
+  {
+    "id": "route53",
+    "name": "Route 53",
+    "fields": [
+      {
+        "key": "access_key_id",
+        "label": "Access key ID"
+      },
+      {
+        "key": "secret_access_key",
+        "label": "Secret access key",
+        "secret": true
+      }
+    ],
+    "where": "In the AWS console: IAM → Users → Create user, with a policy allowing route53:ListHostedZonesByName, route53:ListResourceRecordSets and route53:ChangeResourceRecordSets. Then Security credentials → Create access key."
+  },
+  {
+    "id": "godaddy",
+    "name": "GoDaddy",
+    "fields": [
+      {
+        "key": "api_key",
+        "label": "API key"
+      },
+      {
+        "key": "api_secret",
+        "label": "Secret",
+        "secret": true
+      }
+    ],
+    "where": "At developer.godaddy.com/keys: Create New API Key, choose Production.",
+    "note": "GoDaddy lets only some accounts use its API (larger accounts and its paid plans). If it refuses the key, add the records by hand."
+  },
+  {
+    "id": "namecheap",
+    "name": "Namecheap",
+    "fields": [
+      {
+        "key": "api_user",
+        "label": "User name"
+      },
+      {
+        "key": "api_key",
+        "label": "API key",
+        "secret": true
+      }
+    ],
+    "where": "In Namecheap: Profile → Tools → Business \u0026 Dev Tools → API Access → On. Under Whitelisted IPs add {address}.",
+    "note": "Namecheap turns its API on only for accounts with some spending or domains, and accepts Linx only from the addresses on its list: when your home address changes, add the new one there. It suits a fixed address best."
+  },
+  {
+    "id": "porkbun",
+    "name": "Porkbun",
+    "fields": [
+      {
+        "key": "api_key",
+        "label": "API key",
+        "secret": true
+      },
+      {
+        "key": "secret_api_key",
+        "label": "Secret key",
+        "secret": true
+      }
+    ],
+    "where": "In Porkbun: Account → API Access → Create API key. Then in Domain Management, turn on “API Access” for {domain}."
+  },
+  {
+    "id": "digitalocean",
+    "name": "DigitalOcean",
+    "fields": [
+      {
+        "key": "token",
+        "label": "Personal access token",
+        "secret": true
+      }
+    ],
+    "where": "In DigitalOcean: API → Generate New Token, with Custom Scopes: domain (read, create, update, delete)."
+  },
+  {
+    "id": "hetzner",
+    "name": "Hetzner",
+    "fields": [
+      {
+        "key": "token",
+        "label": "API token",
+        "secret": true
+      }
+    ],
+    "where": "In the Hetzner Console: your project → Security → API tokens → Generate API token, Read \u0026 Write.",
+    "note": "Your domain needs to be in the Hetzner Console's DNS. One still in the old DNS Console has to be moved there first."
+  },
+  {
+    "id": "desec",
+    "name": "deSEC",
+    "fields": [
+      {
+        "key": "token",
+        "label": "Token",
+        "secret": true
+      }
+    ],
+    "where": "At desec.io: Token management → +. You can limit it to {domain}.",
+    "note": "deSEC keeps records for at least an hour, so a new home address can take up to an hour to reach everyone."
+  },
+  {
+    "id": "ovh",
+    "name": "OVH",
+    "fields": [
+      {
+        "key": "endpoint",
+        "label": "Region",
+        "options": [
+          {
+            "value": "ovh-eu",
+            "label": "Europe"
+          },
+          {
+            "value": "ovh-ca",
+            "label": "Canada"
+          },
+          {
+            "value": "ovh-us",
+            "label": "United States"
+          }
+        ]
+      },
+      {
+        "key": "application_key",
+        "label": "Application key"
+      },
+      {
+        "key": "application_secret",
+        "label": "Application secret",
+        "secret": true
+      },
+      {
+        "key": "consumer_key",
+        "label": "Consumer key",
+        "secret": true
+      }
+    ],
+    "where": "At OVH's “create token” page for your region (eu.api.ovh.com/createToken for Europe), allow GET, POST, PUT and DELETE on /domain/zone/*."
+  }
+]

@@ -197,9 +197,9 @@ export async function retryCertificate(): Promise<void> {
   await post("/install/api/retry");
 }
 
-/** The DNS company's token (only when port 443 can't reach Linx, §2.6). */
-export async function sendToken(token: string): Promise<void> {
-  await post("/install/api/token", { token });
+/** The DNS company's key (dnsKeyBody), on either page. */
+export async function sendToken(key: { provider: string; token?: string; key?: Record<string, string> }): Promise<void> {
+  await post("/install/api/token", key);
 }
 
 /** A new one-time link to the secure page (two minutes). */

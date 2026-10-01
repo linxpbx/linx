@@ -1,9 +1,11 @@
 package certs
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // MetricsHandler serves the manager's (and, if f isn't nil, the DNS
@@ -45,5 +47,41 @@ func MetricsHandler(m *Manager, f *Follower) http.Handler {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write([]byte(b.String()))
+	})
+}
+
+// DNSStatus is what /dns says about the records linx-certd keeps right,
+// for the control plane's DNS records card (GET /system/dns-records). It
+// listens on linx-private only, like /metrics.
+type DNSStatus struct {
+	// Following: certd keeps records right (LINX_DNS_RECORDS is set).
+	Following bool   `json:"following"`
+	Company   string `json:"company,omitempty"`
+	DNSChange
+	// Checked is the last time the records were written or confirmed.
+	Checked  time.Time `json:"checked,omitzero"`
+	Failures int       `json:"failures,omitempty"`
+	// Error is the last try's reason when it failed: the DNS company's
+	// own words, for the admin.
+	Error string `json:"error,omitempty"`
+}
+
+// DNSStatusHandler serves DNSStatus as JSON.
+func DNSStatusHandler(c Config, f *Follower) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		st := DNSStatus{}
+		if f != nil {
+			fs := f.Snapshot()
+			st = DNSStatus{Following: true, Company: c.Provider, DNSChange: f.Client.State.LastChange(),
+				Checked: fs.LastSuccess, Failures: fs.Failures, Error: fs.LastError}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(st)
 	})
 }

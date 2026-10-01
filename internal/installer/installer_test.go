@@ -344,7 +344,7 @@ func TestParseConfigErrors(t *testing.T) {
 		"version: 1\nresource_profile: huge\n",
 		"version: 1\ncontainer-ui: none\n", // typo'd key
 		"version: 1\ndomain:\n  name: '*.example.com'\n",
-		"version: 1\ndomain:\n  name: example.com\n  dns_provider: route53\n",
+		"version: 1\ndomain:\n  name: example.com\n  dns_provider: gandi\n",
 		"version: 1\ndomain:\n  name: example.com\n  dns_provider: duckdns\n",
 		"version: 1\ndomain:\n  name: a.b.duckdns.org\n  dns_provider: duckdns\n",
 		"version: 1\ncertificates:\n  staging: false\n",                  // production needs an email

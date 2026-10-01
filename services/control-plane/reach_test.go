@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"strings"
 	"testing"
@@ -99,12 +101,14 @@ func TestDNSRecords(t *testing.T) {
 	e.apiServer.SetDNSRecords(func(context.Context) reach.Records {
 		return reach.Records{Domain: "linx.example.com", Zone: "example.com", NameServers: []string{"ada.ns.cloudflare.com"}, Company: "Cloudflare",
 			Records:   []reach.Record{{Use: reach.UseWeb, Name: "linx.example.com", Type: "A", Value: "94.200.1.10", State: reach.RecordOK, Seen: []string{"94.200.1.10"}}},
+			Automatic: &reach.Automatic{Company: "Porkbun", Address: "94.200.1.10", Previous: "94.200.1.9", ChangedAt: time.Now()},
 			CheckedAt: time.Now()}
 	})
 	r := e.do(http.MethodGet, "/api/v1/system/dns-records", admin, nil)
 	var got controlplaneapi.DnsRecords
 	r.json(t, &got)
-	if r.status != http.StatusOK || got.Company != "Cloudflare" || len(got.Records) != 1 || got.Records[0].State != "ok" || got.Records[0].Use != "web" {
+	if r.status != http.StatusOK || got.Company != "Cloudflare" || len(got.Records) != 1 || got.Records[0].State != "ok" || got.Records[0].Use != "web" ||
+		got.Automatic == nil || got.Automatic.Company != "Porkbun" || got.Automatic.Previous != "94.200.1.9" || got.Automatic.ChangedAt == nil {
 		t.Errorf("status %d: %s", r.status, r.body)
 	}
 	if r := e.do(http.MethodGet, "/api/v1/system/dns-records", reporter, nil); r.status == http.StatusOK {
@@ -116,5 +120,28 @@ func TestKeptRecords(t *testing.T) {
 	got := keptRecords("@,turn,sip=192.168.1.212")
 	if !got[reach.UseWeb] || !got[reach.UseTURN] || !got[reach.UseSIP] || len(keptRecords("")) != 0 {
 		t.Errorf("kept %v", got)
+	}
+}
+
+func TestCertdAutomatic(t *testing.T) {
+	body := `{"following":true,"company":"porkbun","address":"94.200.1.10","previous":"94.200.1.9","changed":"2026-09-28T10:00:00Z","error":"Porkbun: Invalid API key"}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/dns" {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, body)
+	}))
+	defer srv.Close()
+	a := certdAutomatic(srv.Client(), srv.URL+"/dns")(context.Background())
+	if a == nil || a.Company != "Porkbun" || a.Address != "94.200.1.10" || a.Previous != "94.200.1.9" || a.ChangedAt.IsZero() || a.Error == "" {
+		t.Fatalf("automatic %+v", a)
+	}
+	body = `{"following":false}`
+	if a := certdAutomatic(srv.Client(), srv.URL+"/dns")(context.Background()); a != nil {
+		t.Errorf("not following: %+v", a)
+	}
+	if a := certdAutomatic(srv.Client(), srv.URL+"/nothing")(context.Background()); a != nil {
+		t.Errorf("no answer: %+v", a)
 	}
 }

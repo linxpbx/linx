@@ -367,7 +367,7 @@ func (d *dockerCertifier) Obtain(ctx context.Context, staging bool) error {
 	}
 	return nil
 }
-func (d *dockerCertifier) SaveToken(context.Context, install.CertView, string) (string, error) {
+func (d *dockerCertifier) SaveToken(context.Context, install.CertView, install.DNSKey) (string, error) {
 	return "", nil
 }
 func (d *dockerCertifier) Records(context.Context) error         { return nil }

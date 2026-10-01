@@ -92,7 +92,7 @@ func serverSettingsView(v install.ServerView) (ServerSettingsView, error) {
 	b, err := json.Marshal(map[string]any{
 		"where": v.Where, "front_door": v.FrontDoor, "proxy_address": v.ProxyAddress, "turn_udp_port": v.TURNUDPPort, "front_doors": doors,
 		"public_address": v.PublicAddress, "lan_address": v.LANAddress, "problem": v.Problem, "repair": v.Repair, "no_sign_in": v.NoSignIn,
-		"domain": v.Domain, "provider": v.Provider, "token_saved": v.Token != "",
+		"domain": v.Domain, "provider": v.Provider, "token_saved": v.Token != "", "dns_by_hand": v.DNSByHand,
 		"profile": v.Profile, "profiles": profiles, "profile_pick": v.ProfilePick, "profile_reason": v.ProfileReason,
 		"portainer": v.Portainer, "portainer_allowed": v.PortainerAllowed,
 		"apply": map[string]string{"state": v.Apply.State, "detail": v.Apply.Detail}, "steps": steps, "keep": keep,
@@ -111,6 +111,17 @@ func serverChange(b ServerSettingsChange) install.ServerChange {
 	if b.Token != nil {
 		c.Token = *b.Token
 	}
+	if b.DnsKey != nil {
+		k := &install.DNSKey{Provider: string(b.DnsKey.Provider)}
+		if b.DnsKey.Token != nil {
+			k.Token = *b.DnsKey.Token
+		}
+		if b.DnsKey.Key != nil {
+			k.Fields = *b.DnsKey.Key
+		}
+		c.Key = k
+	}
+	c.DNSByHand = b.DnsByHand
 	if b.Domain != nil {
 		c.Domain = *b.Domain
 	}
@@ -250,7 +261,14 @@ func (s *Server) changeServerSettings(ctx context.Context, c install.ServerChang
 	if s.serverSettings == nil || s.serverSettings.ServerSettings() == nil {
 		return errServerSettingsClosed, nil
 	}
-	detail := map[string]any{"profile": c.Profile, "portainer": c.Portainer, "token_replaced": c.Token != ""}
+	// Never the key itself: only that one was given, and for which company.
+	detail := map[string]any{"profile": c.Profile, "portainer": c.Portainer, "token_replaced": c.Token != "" || c.Key != nil}
+	if c.Key != nil && c.Key.Provider != "" {
+		detail["dns_company"] = c.Key.Provider
+	}
+	if c.DNSByHand != nil {
+		detail["dns_by_hand"] = *c.DNSByHand
+	}
 	if c.Domain != "" {
 		detail["domain"] = c.Domain
 	}

@@ -231,15 +231,37 @@ func TestWebApplyFailures(t *testing.T) {
 func TestWebApplyToken(t *testing.T) {
 	r := newApplyRig(t, homeAnswers, homeLAN)
 	ctx := context.Background()
-	if msg, err := r.w.SaveToken(ctx, "short"); err != nil || msg == "" {
+	if msg, err := r.w.SaveToken(ctx, install.DNSKey{Token: "short"}); err != nil || msg == "" {
 		t.Errorf("short: %q %v", msg, err)
 	}
-	if msg, err := r.w.SaveToken(ctx, strings.Repeat("n", 40)); err != nil || msg == "" || strings.Contains(msg, "token refused") {
+	if msg, err := r.w.SaveToken(ctx, install.DNSKey{Token: strings.Repeat("n", 40)}); err != nil || msg == "" || strings.Contains(msg, "token refused") {
 		t.Errorf("refused: %q %v", msg, err)
 	}
-	if msg, err := r.w.SaveToken(ctx, " "+strings.Repeat("y", 40)+"\n"); err != nil || msg != "" || len(r.plans) != 1 ||
-		!strings.Contains(planText(r.plans[0]), "> "+installer.DNSTokenPath+"\n"+strings.Repeat("y", 40)+"\n") {
+	if msg, err := r.w.SaveToken(ctx, install.DNSKey{Token: " " + strings.Repeat("y", 40) + "\n"}); err != nil || msg != "" || len(r.plans) != 1 ||
+		!strings.Contains(planText(r.plans[0]), "> "+installer.DNSTokenPath+"\n"+strings.Repeat("y", 40)+"\n") ||
+		strings.Contains(planText(r.plans[0]), installer.ConfigPath) {
 		t.Errorf("good: %q %v %v", msg, err, r.plans)
+	}
+	// Another company: its fields kept as one JSON key, and the company in setup.yaml.
+	var asked string
+	r.w.checkToken = func(_ context.Context, provider, domain, token string) error {
+		asked = provider + " " + token
+		return nil
+	}
+	key := install.DNSKey{Provider: "porkbun", Fields: map[string]string{"api_key": "pk1_keykeykey", "secret_api_key": " sk1_secretsecret "}}
+	want := `{"api_key":"pk1_keykeykey","secret_api_key":"sk1_secretsecret"}`
+	if msg, err := r.w.SaveToken(ctx, key); err != nil || msg != "" || len(r.plans) != 2 || asked != "porkbun "+want ||
+		!strings.Contains(planText(r.plans[1]), want) || !strings.Contains(planText(r.plans[1]), "dns_provider: porkbun") {
+		t.Errorf("porkbun: %q %v %s", msg, err, planText(r.plans[len(r.plans)-1]))
+	}
+	for _, bad := range []install.DNSKey{
+		{Provider: "porkbun", Fields: map[string]string{"api_key": "pk1_keykeykey"}},
+		{Provider: "duckdns", Token: strings.Repeat("y", 40)}, // not a duckdns.org name
+		{Provider: "gandi", Token: strings.Repeat("y", 40)},
+	} {
+		if msg, err := r.w.SaveToken(ctx, bad); err != nil || msg == "" || len(r.plans) != 2 {
+			t.Errorf("%+v: %q %v", bad, msg, err)
+		}
 	}
 	opts, pick, reason := r.w.Profiles(ctx)
 	if len(opts) != 3 || pick != "lite" || reason == "" || opts[1].Description == "" {
@@ -288,11 +310,52 @@ func TestWebSettings(t *testing.T) {
 	}
 	token := strings.Repeat("y", 40)
 	titles = previewSteps(t, s, install.ServerChange{Profile: "lite", Token: token})
-	if !slices.Contains(titles, "Your DNS company's token") || !strings.HasPrefix(titles[len(titles)-1], "pbx.example.com, turn.pbx.example.com at") {
+	if !slices.Contains(titles, "Your Cloudflare key") || !strings.HasPrefix(titles[len(titles)-1], "pbx.example.com, turn.pbx.example.com at") {
 		t.Errorf("token rows %v", titles)
 	}
 	if p, _ := s.Preview(ctx, install.ServerChange{Profile: "lite", Token: strings.Repeat("n", 40)}); len(p.Errors) != 1 || p.Errors[0].Field != "token" {
 		t.Errorf("refused token accepted: %+v", p)
+	}
+
+	// Set it up automatically at another company, then Stop, then start again.
+	r = newApplyRig(t, homeAnswers, homeLAN)
+	s = newWebSettings(r.w, false)
+	pork := &install.DNSKey{Provider: "porkbun", Fields: map[string]string{"api_key": "pk1_keykeykey", "secret_api_key": "sk1_secretsecret"}}
+	titles = previewSteps(t, s, install.ServerChange{Profile: "lite", Key: pork})
+	if !slices.Contains(titles, "Your Porkbun key") || !strings.HasPrefix(titles[len(titles)-1], "pbx.example.com, turn.pbx.example.com") {
+		t.Errorf("porkbun rows %v", titles)
+	}
+	if err := s.Run(ctx, install.ServerChange{Profile: "lite", Key: pork}, func(int, string, string) {}, func(install.KeepItem) {}); err != nil {
+		t.Fatal(err)
+	}
+	if all := plansText(r.plans); !strings.Contains(all, "dns_provider: porkbun") || !strings.Contains(all, "LINX_DNS_PROVIDER=porkbun") ||
+		!strings.Contains(all, "LINX_DNS_RECORDS=@,turn,sip=192.168.1.20") {
+		t.Errorf("porkbun plans:\n%s", all)
+	}
+	stop := true
+	r.plans = nil
+	titles = previewSteps(t, s, install.ServerChange{Profile: "lite", DNSByHand: &stop})
+	if slices.ContainsFunc(titles, func(s string) bool { return strings.Contains(s, " at ") }) {
+		t.Errorf("stop points records: %v", titles)
+	}
+	if err := s.Run(ctx, install.ServerChange{Profile: "lite", DNSByHand: &stop}, func(int, string, string) {}, func(install.KeepItem) {}); err != nil {
+		t.Fatal(err)
+	}
+	if all := plansText(r.plans); !strings.Contains(all, "dns_by_hand: true") || !strings.Contains(all, "LINX_DNS_RECORDS=\n") {
+		t.Errorf("stop plans:\n%s", all)
+	}
+	// Stopped (as setup.yaml now says): the view says so, and Start again
+	// points the records once more.
+	byHand := []byte(strings.Replace(string(r.w.env.mustConfig(t)), "dns_provider: cloudflare\n", "dns_provider: porkbun\n  dns_by_hand: true\n", 1))
+	r.w.env.savedConfig = func() ([]byte, error) { return byHand, nil }
+	r.saved[installer.DNSTokenPath] = `{"api_key":"pk1_keykeykey","secret_api_key":"sk1_secretsecret"}`
+	if v, _ := s.View(ctx); !v.DNSByHand || v.Provider != "porkbun" {
+		t.Errorf("view after stop %+v", v)
+	}
+	again := false
+	titles = previewSteps(t, s, install.ServerChange{Profile: "lite", DNSByHand: &again})
+	if !strings.HasPrefix(titles[len(titles)-1], "pbx.example.com, turn.pbx.example.com") {
+		t.Errorf("start again rows %v", titles)
 	}
 
 	// Rented, but its own address is private (a cloud provider's network):
@@ -456,4 +519,21 @@ type recordRunner struct{ ran *[]string }
 func (r recordRunner) Run(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
 	*r.ran = append(*r.ran, name+" "+strings.Join(args, " "))
 	return nil, nil
+}
+
+func plansText(plans []installer.Plan) string {
+	var b strings.Builder
+	for _, p := range plans {
+		b.WriteString(planText(p))
+	}
+	return b.String()
+}
+
+func (e setupEnv) mustConfig(t *testing.T) []byte {
+	t.Helper()
+	b, err := e.savedConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
