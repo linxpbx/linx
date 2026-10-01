@@ -179,12 +179,20 @@ func relayOverTLS(ctx context.Context, env Env, rs *results, addr, name string, 
 // relayUDP checks coturn answers where the router's UDP forward lands.
 func relayUDP(ctx context.Context, env Env, rs *results, s installer.FrontDoorSettings, kind string) {
 	a := s.TURNUDPAddress
-	if a.IsUnspecified() {
+	// Published on every address: a server with its own public address
+	// (a rented one), with no router to forward through (Demo A).
+	everywhere := a.IsUnspecified()
+	if everywhere {
 		a = netip.AddrFrom4([4]byte{127, 0, 0, 1})
 	}
 	addr := netip.AddrPortFrom(a, uint16(s.TURNUDPPort)).String()
 	if err := env.STUNPing(ctx, addr); err != nil {
 		rs.fail("The call relay doesn't answer on UDP port "+strconv.Itoa(s.TURNUDPPort)+" here ("+err.Error()+").", relayLogs)
+		return
+	}
+	if everywhere {
+		rs.ok(fmt.Sprintf("The call relay answers on UDP port %d. Linx opens it on this server itself, so there's nothing to forward; "+
+			"a firewall in front (like your provider's) has to let UDP %d in.", s.TURNUDPPort, s.TURNUDPPort))
 		return
 	}
 	who := "your router's"

@@ -201,3 +201,23 @@ func TestFrontDoorPublicPort(t *testing.T) {
 		t.Errorf("relay refused on the public port:\n%s", dump(rs))
 	}
 }
+
+// A server with its own public address (a rented one): no router, so no
+// "forward" and no 127.0.0.1 in the words (Demo A, on the VPS).
+func TestFrontDoorRentedUDP(t *testing.T) {
+	f := platformFixture(t, healthyState)
+	f.cfg.FrontDoor = installer.FrontDoorConfig{Kind: installer.FrontDoorLinx443}
+	f.runner[inspect+"linx-sni"] = "running \n"
+	f.env.LAN = func() installer.LAN { return installer.LAN{} }
+	text := dump(FrontDoor(context.Background(), f.env, f.cfg))
+	var udp string
+	for _, l := range strings.Split(text, "\n") {
+		if strings.Contains(l, "UDP port") {
+			udp = l
+		}
+	}
+	if !strings.Contains(udp, "The call relay answers on UDP port 443. Linx opens it on this server itself, so there's nothing to forward") ||
+		strings.Contains(udp, "127.0.0.1") || strings.Contains(udp, "router") {
+		t.Fatalf("rented:\n%s", text)
+	}
+}
