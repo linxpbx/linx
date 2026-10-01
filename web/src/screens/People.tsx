@@ -1,7 +1,7 @@
 // People (docs/ui/ADMIN_SCREENS_PHASE1E.md §4): list, add (guided or quick),
 // and the person detail sheet.
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, Search, TriangleAlert } from "lucide-react";
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
 import { AddChooserDialog, useAlwaysQuickAdd } from "@/components/AddChooser";
@@ -9,6 +9,7 @@ import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { DataTable } from "@/components/DataTable";
 import { Dot } from "@/components/presence";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -81,7 +82,46 @@ function FormError({ message }: { message: string }) {
 
 // --- Add a person ---
 
-type NewPerson = { name: string; email: string; role: "user" | "reporter" | "admin"; number: string; giveExtension: boolean };
+type NewPerson = { name: string; email: string; role: "user" | "reporter" | "admin"; number: string; giveExtension: boolean; sendEmail: boolean };
+type InviteEmail = components["schemas"]["InviteEmail"];
+
+// Email (ADR-066): "Send by email" is offered once email is on, greyed
+// with the reason until then (docs/ui/SCREENS_PHASE1F.md §0, §5.2).
+function useEmailOn(): boolean | null {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => { void api.GET("/api/v1/email").then(({ data }) => setOn(!!data?.enabled)); }, []);
+  return on;
+}
+
+function EmailTheLink({ id, on, checked, onChange, to }: { id: string; on: boolean | null; checked: boolean; onChange: (v: boolean) => void; to: string }) {
+  if (on === null) return null;
+  return (
+    <div className="flex items-start gap-3 text-sm">
+      <Checkbox id={id} checked={on && checked} disabled={!on} onCheckedChange={(c) => onChange(c === true)} className="mt-0.5" />
+      <span className="flex flex-col gap-0.5">
+        <Label htmlFor={id} className={`font-normal leading-snug ${on ? "" : "text-muted-foreground"}`}>
+          Email this link to {to.trim() || "them"}
+        </Label>
+        {!on && (
+          <a className="text-link underline-offset-4 hover:underline" href="/admin/system/settings"
+            onClick={(e) => { e.preventDefault(); navigate("/admin/system/settings"); }}>Set up email first (System → Settings).</a>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function EmailSent({ email }: { email?: InviteEmail }) {
+  if (!email) return null;
+  return email.queued ? (
+    <p className="flex items-center gap-2 text-sm"><Check aria-hidden="true" className="size-4 shrink-0 text-status-available" />Emailed to {email.to}</p>
+  ) : (
+    <p className="flex items-start gap-2 text-sm">
+      <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-away" />
+      <span className="min-w-0 break-words">Email failed: {email.error} · Copy the link instead.</span>
+    </p>
+  );
+}
 
 // Re-fetches whenever `trigger` changes (each time an Add flow opens): the
 // next free number moves as people are added, so a value fetched once at
@@ -99,7 +139,7 @@ function useNextNumber(trigger: unknown) {
   return { digits, number };
 }
 
-async function createPerson(p: NewPerson, confirmRun: (a: () => Promise<{ confirm: boolean }>) => Promise<void>, onDone: (u: User, token: string) => void, onError: (m: string) => void) {
+async function createPerson(p: NewPerson, confirmRun: (a: () => Promise<{ confirm: boolean }>) => Promise<void>, onDone: (u: User, token: string, email?: InviteEmail) => void, onError: (m: string) => void) {
   let extensionId: string | undefined;
   if (p.giveExtension && p.number.trim()) {
     const ext = await api.POST("/api/v1/extensions", { body: { number: p.number.trim(), display_name: p.name.trim() } });
@@ -108,34 +148,36 @@ async function createPerson(p: NewPerson, confirmRun: (a: () => Promise<{ confir
   }
   await confirmRun(async () => {
     const { data, error: err } = await api.POST("/api/v1/users", {
-      body: { name: p.name.trim(), email: p.email.trim(), role: p.role, extension_id: extensionId },
+      body: { name: p.name.trim(), email: p.email.trim(), role: p.role, extension_id: extensionId, ...(p.sendEmail ? { send_email: true } : {}) },
     });
     if (needsConfirm(err)) return { confirm: true };
     if (!data) { onError(problemMessage(err)); return { confirm: false }; }
-    onDone(data.user, data.setup_link_token);
+    onDone(data.user, data.setup_link_token, data.email);
     return { confirm: false };
   });
 }
 
 function QuickAddPerson({ me, open, onOpenChange, onGuideInstead, always, onCreated }: {
   me: Me; open: boolean; onOpenChange: (o: boolean) => void; onGuideInstead: () => void; always: boolean;
-  onCreated: (u: User, token: string) => void;
+  onCreated: (u: User, token: string, email?: InviteEmail) => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const emailOn = useEmailOn();
+  const [send, setSend] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const next = useNextNumber(open);
   const confirm = useConfirmIdentity(me);
 
-  useEffect(() => { if (open) { setName(""); setEmail(""); setError(""); } }, [open]);
+  useEffect(() => { if (open) { setName(""); setEmail(""); setError(""); setSend(true); } }, [open]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError("");
-    await createPerson({ name, email, role: "user", number: next.number, giveExtension: true },
-      confirm.run, (u, token) => { onOpenChange(false); onCreated(u, token); }, setError);
+    await createPerson({ name, email, role: "user", number: next.number, giveExtension: true, sendEmail: !!emailOn && send },
+      confirm.run, (u, token, sent) => { onOpenChange(false); onCreated(u, token, sent); }, setError);
     setBusy(false);
   };
 
@@ -151,6 +193,7 @@ function QuickAddPerson({ me, open, onOpenChange, onGuideInstead, always, onCrea
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <Field label="Name" htmlFor="quick-person-name"><Input id="quick-person-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus /></Field>
           <Field label="Email" htmlFor="quick-person-email"><Input id="quick-person-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+          <EmailTheLink id="quick-person-send" on={emailOn} checked={send} onChange={setSend} to={email} />
           <p className="text-sm text-muted-foreground">Everything else uses safe defaults. You can change it any time.</p>
           <FormError message={error} />
           <DialogFooter>
@@ -176,14 +219,16 @@ function GuidedAddPerson({ me, open, onOpenChange, onCreated }: {
   const [number, setNumber] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<{ user: User; link: string } | null>(null);
+  const [result, setResult] = useState<{ user: User; link: string; email?: InviteEmail } | null>(null);
   const [phoneDone, setPhoneDone] = useState("");
+  const emailOn = useEmailOn();
+  const [send, setSend] = useState(true);
   const next = useNextNumber(open);
   const confirm = useConfirmIdentity(me);
 
   useEffect(() => {
     if (!open) return;
-    setStep(1); setName(""); setEmail(""); setRole("user"); setExtChoice("next"); setError(""); setResult(null); setPhoneDone("");
+    setStep(1); setName(""); setEmail(""); setRole("user"); setExtChoice("next"); setError(""); setResult(null); setPhoneDone(""); setSend(true);
   }, [open]);
   useEffect(() => { if (extChoice === "next") setNumber(next.number); }, [extChoice, next.number]);
 
@@ -200,9 +245,9 @@ function GuidedAddPerson({ me, open, onOpenChange, onCreated }: {
       return;
     }
     await createPerson(
-      { name, email, role: role === "admin" ? "admin" : "user", number, giveExtension: extChoice !== "none" },
+      { name, email, role: role === "admin" ? "admin" : "user", number, giveExtension: extChoice !== "none", sendEmail: !!emailOn && send },
       confirm.run,
-      (u, token) => setResult({ user: u, link: `${window.location.origin}/setup/${token}` }),
+      (u, token, sent) => setResult({ user: u, link: `${window.location.origin}/setup/${token}`, email: sent }),
       setError,
     );
     setBusy(false);
@@ -277,9 +322,12 @@ function GuidedAddPerson({ me, open, onOpenChange, onCreated }: {
             phoneDone ? (
               <p className="text-sm">Extension {phoneDone} ({name}) is ready. Add the phone itself (and get its login) under Extensions.</p>
             ) : result ? (
-              <InviteResult name={name} link={result.link} />
+              <InviteResult name={name} link={result.link} email={result.email} />
             ) : (
-              <p className="text-sm text-muted-foreground">Ready to create {name || (phone ? "this extension" : "this person")}.</p>
+              <>
+                <p className="text-sm text-muted-foreground">Ready to create {name || (phone ? "this extension" : "this person")}.</p>
+                {!phone && <EmailTheLink id="guided-person-send" on={emailOn} checked={send} onChange={setSend} to={email} />}
+              </>
             )
           )}
           <FormError message={error} />
@@ -309,12 +357,13 @@ function GuidedAddPerson({ me, open, onOpenChange, onCreated }: {
   );
 }
 
-function InviteResult({ name, link }: { name: string; link: string }) {
+function InviteResult({ name, link, email }: { name: string; link: string; email?: InviteEmail }) {
   const [qr, setQr] = useState("");
   useEffect(() => { void (async () => setQr(await (await import("qrcode")).default.toDataURL(link, { margin: 1, width: 160 })))(); }, [link]);
   return (
     <div className="flex flex-col items-center gap-3 rounded-md border bg-card p-4 text-center">
-      <p className="text-sm">Send this to {name}. It works once, for 24 hours.</p>
+      <EmailSent email={email} />
+      <p className="text-sm">{email?.queued ? `Or send this to ${name} yourself.` : `Send this to ${name}.`} It works once, for 24 hours.</p>
       {qr && <img src={qr} alt={`QR code to invite ${name}`} width={160} height={160} className="rounded-sm border" />}
       <p className="w-full truncate rounded-md bg-background p-2 font-mono text-xs">{link}</p>
       <Button type="button" variant="outline" onClick={() => void navigator.clipboard?.writeText(link)}>Copy link</Button>
@@ -333,7 +382,9 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
   const [role, setRole] = useState<Role>(user.role);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [invite, setInvite] = useState<{ link: string } | null>(null);
+  const [invite, setInvite] = useState<{ link: string; email?: InviteEmail } | null>(null);
+  const emailOn = useEmailOn();
+  const [sendLink, setSendLink] = useState(true);
   const [confirmDisable, setConfirmDisable] = useState(false);
   const confirm = useConfirmIdentity(me);
   const allowed = canAct(me, user);
@@ -360,10 +411,11 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
   const newInviteLink = async () => {
     setBusy(true);
     setError("");
-    const { data, error: err } = await api.POST("/api/v1/users/{id}/setup-link", { params: { path: { id: user.id } } });
+    const { data, error: err } = await api.POST("/api/v1/users/{id}/setup-link", { params: { path: { id: user.id } },
+      body: emailOn && sendLink ? { send_email: true } : {} });
     setBusy(false);
     if (!data) { setError(problemMessage(err)); return; }
-    setInvite({ link: `${window.location.origin}/setup/${data.setup_link_token}` });
+    setInvite({ link: `${window.location.origin}/setup/${data.setup_link_token}`, email: data.email });
   };
 
   const resetAuthenticator = () => confirm.run(async () => {
@@ -461,13 +513,17 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
             {(user.company_sign_in?.length ?? 0) > 0 && (
               <p className="mt-1 text-sm text-muted-foreground">Company account: {user.company_sign_in!.join(", ")}</p>
             )}
-            {allowed && (
-              <Button size="sm" variant="outline" className="mt-2" disabled={busy} onClick={() => void newInviteLink()}>
-                {status === "invited" ? "Copy new invite link" : "New invite link"}
-              </Button>
+            {allowed && !invite && (
+              <div className="mt-2 flex flex-col gap-2">
+                <EmailTheLink id="person-send-link" on={emailOn} checked={sendLink} onChange={setSendLink} to={user.email} />
+                <Button size="sm" variant="outline" className="self-start" disabled={busy} onClick={() => void newInviteLink()}>
+                  {status === "invited" ? "Copy new invite link" : "New invite link"}
+                </Button>
+              </div>
             )}
             {invite && (
               <div className="mt-2 flex flex-col gap-2 rounded-md border bg-card p-3">
+                <EmailSent email={invite.email} />
                 <p className="text-sm text-muted-foreground">Works once, for 24 hours. You won't see this again.</p>
                 <p className="truncate rounded-md bg-background p-2 font-mono text-xs">{invite.link}</p>
                 <div className="flex gap-2">
@@ -523,7 +579,7 @@ export function PeopleScreen({ me }: { me: Me }) {
   const [quickOpen, setQuickOpen] = useState(false);
   const [always, setAlways] = useAlwaysQuickAdd("people");
   const [selected, setSelected] = useState<User | null>(null);
-  const [justInvited, setJustInvited] = useState<{ user: User; link: string } | null>(null);
+  const [justInvited, setJustInvited] = useState<{ user: User; link: string; email?: InviteEmail } | null>(null);
   const readOnly = isReadOnlyAdmin(me);
 
   const load = useCallback(async () => {
@@ -587,7 +643,7 @@ export function PeopleScreen({ me }: { me: Me }) {
 
       {justInvited && (
         <div className="fixed inset-x-0 bottom-4 z-40 mx-auto w-full max-w-sm rounded-md border bg-card p-3 shadow-md">
-          <InviteResult name={justInvited.user.name} link={justInvited.link} />
+          <InviteResult name={justInvited.user.name} link={justInvited.link} email={justInvited.email} />
           <Button size="sm" variant="outline" className="mt-2 w-full" onClick={() => setJustInvited(null)}>Close</Button>
         </div>
       )}
@@ -598,7 +654,7 @@ export function PeopleScreen({ me }: { me: Me }) {
       <GuidedAddPerson me={me} open={guidedOpen} onOpenChange={setGuidedOpen}
         onCreated={() => { void load(); setGuidedOpen(false); }} />
       <QuickAddPerson me={me} open={quickOpen} onOpenChange={setQuickOpen} always={always} onGuideInstead={() => setGuidedOpen(true)}
-        onCreated={(u, token) => { void load(); setJustInvited(token ? { user: u, link: `${window.location.origin}/setup/${token}` } : null); }} />
+        onCreated={(u, token, sent) => { void load(); setJustInvited(token ? { user: u, link: `${window.location.origin}/setup/${token}`, email: sent } : null); }} />
       {selected && (
         <PersonSheet me={me} user={selected} onClose={() => setSelected(null)}
           onChanged={(u) => { setSelected(u); setUsers((list) => list?.map((x) => (x.id === u.id ? u : x)) ?? list); }}

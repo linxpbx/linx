@@ -155,7 +155,7 @@ func newTestEnv(t *testing.T) *testEnv {
 			s.SetEmail(&email.Service{Store: emailStore, Sealer: sender.Sealer, Policy: policy, Resolver: resolver, Now: time.Now,
 				Sender: &email.Sender{Now: time.Now, Dial: func(context.Context, string) (net.Conn, error) {
 					return nil, errors.New("no mail server in this test")
-				}}})
+				}}}, "https://pbx.example.com")
 		})
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)

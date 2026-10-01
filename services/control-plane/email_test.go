@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/email"
 	controlplaneapi "linxpbx.com/linx/services/control-plane/api"
 )
 
@@ -52,5 +53,41 @@ func TestEmailSetting(t *testing.T) {
 	// The test goes to the caller's own address: an API key has none.
 	if r := e.do(http.MethodPost, "/api/v1/email/test", sysAdmin, nil); r.status != http.StatusForbidden || !strings.Contains(string(r.body), "people_only") {
 		t.Errorf("test with an API key: %d %s", r.status, r.body)
+	}
+}
+
+// People → Add with "Send by email" (docs/ui/SCREENS_PHASE1F.md §5.2): the
+// link is made and shown either way; the email is queued when email is on,
+// and said not to be when it's off.
+func TestInviteByEmail(t *testing.T) {
+	e := newTestEnv(t)
+	_, admin := e.newCredential(auth.TypeAPIKey, auth.RoleSystemAdmin, "users:write")
+	add := func(addr string) controlplaneapi.UserCreated {
+		t.Helper()
+		r := e.do(http.MethodPost, "/api/v1/users", admin, map[string]any{"email": addr, "name": "Sara Haddad", "role": "user", "send_email": true})
+		var out controlplaneapi.UserCreated
+		r.json(t, &out)
+		if r.status != http.StatusCreated || out.SetupLinkToken == "" || out.Email == nil {
+			t.Fatalf("%d %s", r.status, r.body)
+		}
+		return out
+	}
+	if out := add("sara@example.com"); out.Email.Queued || out.Email.Error == nil || !strings.Contains(*out.Email.Error, "Set up email first") {
+		t.Fatalf("email off: %+v", out.Email)
+	}
+	c := email.Defaults(e.store.tenant)
+	c.Enabled, c.Host, c.FromAddress, c.PasswordEnc = true, "smtp.example.com", "pbx@example.com", []byte{1}
+	e.email.Put(c)
+	out := add("chen@example.com")
+	if !out.Email.Queued || out.Email.To != "chen@example.com" || len(e.email.Queued) != 1 || e.email.Queued[0].Kind != email.KindInvite ||
+		e.email.Queued[0].To[0] != "chen@example.com" {
+		t.Fatalf("email on: %+v %+v", out.Email, e.email.Queued)
+	}
+	// A new link, emailed too.
+	r := e.do(http.MethodPost, "/api/v1/users/"+out.User.Id.String()+"/setup-link", admin, map[string]any{"send_email": true})
+	var link controlplaneapi.SetupLinkIssued
+	r.json(t, &link)
+	if r.status != http.StatusOK || link.Email == nil || !link.Email.Queued || len(e.email.Queued) != 2 {
+		t.Fatalf("new link: %d %s", r.status, r.body)
 	}
 }

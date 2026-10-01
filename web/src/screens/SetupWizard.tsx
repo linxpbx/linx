@@ -10,6 +10,7 @@ import type { components } from "@/api/schema";
 import { Wordmark } from "@/components/brand";
 import { ThemeCorner, ThemeMenu } from "@/components/ThemeMenu";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -25,6 +26,7 @@ import { RestoreFromBackup, StartChoice, type RestoreStatus } from "./SetupResto
 
 type NumberCategory = components["schemas"]["NumberCategory"];
 type User = components["schemas"]["User"];
+type InviteEmail = components["schemas"]["InviteEmail"];
 
 const STEP_LABELS = ["Place", "Country", "Numbers", "People", "Line", "Calls", "Test"];
 const TOTAL_STEPS = STEP_LABELS.length;
@@ -283,9 +285,11 @@ export function rowProblems(row: PeopleRow, digits: number, people: Range, taken
 function PeopleStep(props: {
   me: Me; existing: User[]; rows: PeopleRow[]; onRows: (r: PeopleRow[]) => void; startNumber: number | null; digits: number;
   people: Range; taken: Set<string>; myNumber: string | null; onMyNumber: (n: string) => void;
-  results: { row: PeopleRow; link?: string; qr?: string }[]; onCreate: () => void; creating: boolean; createError: string;
+  results: { row: PeopleRow; link?: string; qr?: string; email?: InviteEmail }[]; onCreate: () => void; creating: boolean; createError: string;
+  emailOn: boolean | null; sendInvites: boolean; onSendInvites: (v: boolean) => void;
 } & StepProps) {
-  const { me, existing, rows, onRows, startNumber, digits, people, taken, myNumber, onMyNumber, results, onCreate, creating, createError, ...shell } = props;
+  const { me, existing, rows, onRows, startNumber, digits, people, taken, myNumber, onMyNumber, results, onCreate, creating, createError,
+    emailOn, sendInvites, onSendInvites, ...shell } = props;
   const addRow = () => {
     // After your own new extension (if you're getting one) and the rows
     // above, skipping numbers already used.
@@ -375,6 +379,15 @@ function PeopleStep(props: {
         <dt className="font-medium text-foreground">Admin</dt><dd>A person who can also manage Linx (people, extensions, phone lines).</dd>
         <dt className="font-medium text-foreground">Phone</dt><dd>An extension for a phone that isn't someone's, like a door phone or a meeting room. No email; add the phone itself under Extensions afterwards.</dd>
       </dl>
+      {emailOn !== null && (
+        <div className="mt-3 flex items-start gap-3 text-sm">
+          <Checkbox id="wizard-send-invites" checked={emailOn && sendInvites} disabled={!emailOn || creating} onCheckedChange={(c) => onSendInvites(c === true)} className="mt-0.5" />
+          <span className="flex flex-col gap-0.5">
+            <Label htmlFor="wizard-send-invites" className={`font-normal leading-snug ${emailOn ? "" : "text-muted-foreground"}`}>Email everyone their invite</Label>
+            {!emailOn && <span className="text-muted-foreground">Set up email first (System → Settings); until then, send the links below yourself.</span>}
+          </span>
+        </div>
+      )}
       <FormError message={createError} />
       {results.length > 0 && (
         <div className="mt-5 flex flex-col gap-3">
@@ -385,7 +398,7 @@ function PeopleStep(props: {
           <p className="text-sm text-muted-foreground">
             They've moved here from the rows above (change them later under People and Extensions). Send each person their invite link,
             or let them scan the QR code: it's the same link. Each works once, for 24 hours, and is shown only here; a new one is on
-            their page under People. Email invites come later. Then press Next.
+            their page under People. Then press Next.
           </p>
           {results.map((r) => r.link ? (
             <div key={r.row.number} className="flex items-center gap-3 rounded-md border bg-card p-3">
@@ -394,6 +407,11 @@ function PeopleStep(props: {
                 <p className="text-sm font-medium">{r.row.name} <span className="font-mono text-muted-foreground">· {r.row.number}</span></p>
                 <p className="truncate text-xs text-muted-foreground">{r.row.email} · {r.row.role === "admin" ? "Admin" : "Person"}</p>
                 <p className="truncate text-xs text-muted-foreground">{r.link}</p>
+                {r.email && (
+                  <p className={`text-xs ${r.email.queued ? "text-status-available" : "text-status-away"}`}>
+                    {r.email.queued ? `Emailed to ${r.email.to}` : `Email failed: ${r.email.error} · Copy the link instead.`}
+                  </p>
+                )}
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => void navigator.clipboard?.writeText(r.link ?? "")}>Copy</Button>
             </div>
@@ -566,7 +584,12 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   const [ranges, setRanges] = useState(defaultRanges(3));
   const [existingUsers, setExistingUsers] = useState<User[]>([]);
   const [rows, setRows] = useState<PeopleRow[]>([]);
-  const [results, setResults] = useState<{ row: PeopleRow; link?: string; qr?: string }[]>([]);
+  const [results, setResults] = useState<{ row: PeopleRow; link?: string; qr?: string; email?: InviteEmail }[]>([]);
+  // Email everyone their invite (docs/ui/SCREENS_PHASE1F.md §5.2), once
+  // email is on; sent as each person is made, with their link.
+  const [emailOn, setEmailOn] = useState<boolean | null>(null);
+  const [sendInvites, setSendInvites] = useState(true);
+  useEffect(() => { void api.GET("/api/v1/email").then(({ data }) => setEmailOn(data ? data.enabled : null)); }, []);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [categories, setCategories] = useState<Set<NumberCategory>>(new Set(["landline", "service", "mobile", "national", "toll_free"]));
@@ -700,7 +723,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
     return out;
   };
 
-  const createRow = async (row: PeopleRow): Promise<{ link?: string; qr?: string } | "confirm" | null> => {
+  const createRow = async (row: PeopleRow): Promise<{ link?: string; qr?: string; email?: InviteEmail } | "confirm" | null> => {
     const ext = await api.POST("/api/v1/extensions", { body: { number: row.number.trim(), display_name: row.name.trim() } });
     if (!ext.data) { setCreateError(problemMessage(ext.error)); return null; }
     if (row.role === "phone") {
@@ -709,7 +732,8 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
       return {};
     }
     const created = await api.POST("/api/v1/users", {
-      body: { email: row.email.trim(), name: row.name.trim(), role: row.role === "admin" ? "admin" : "user", extension_id: ext.data.id },
+      body: { email: row.email.trim(), name: row.name.trim(), role: row.role === "admin" ? "admin" : "user", extension_id: ext.data.id,
+        ...(emailOn && sendInvites ? { send_email: true } : {}) },
     });
     if (!created.data) {
       // Don't leave an extension without its person behind (found in the
@@ -722,7 +746,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
     setTaken((t) => new Set([...t, row.number.trim()]));
     const link = `${window.location.origin}/setup/${created.data.setup_link_token}`;
     const QRCode = (await import("qrcode")).default;
-    return { link, qr: await QRCode.toDataURL(link, { margin: 1, width: 128 }) };
+    return { link, qr: await QRCode.toDataURL(link, { margin: 1, width: 128 }), email: created.data.email };
   };
 
   // Your own extension, when you don't have one: made on the way to the
@@ -810,6 +834,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
         <PeopleStep me={{ ...me, extension: myExtension || me.extension }} existing={existingUsers} rows={rows} onRows={(r) => { setRows(r); setError(""); }}
           startNumber={nextNumber.current} digits={digits} people={ranges.people} taken={taken} myNumber={myNumber} onMyNumber={(n) => { myTyped.current = true; setMyNumber(n); }}
           results={results} onCreate={() => void onCreatePeople()} creating={creating} createError={createError}
+          emailOn={emailOn} sendInvites={sendInvites} onSendInvites={setSendInvites}
           {...shellProps(true, () => void leavePeople(5), () => void leavePeople(5))} />
       )}
       {step === 5 && (

@@ -65,8 +65,9 @@ type Server struct {
 	moved          *moved.Service
 	// Help's written answers (SetHelpAnswers).
 	helpAnswers *helpanswers.Service
-	// Email sending (SetEmail).
+	// Email sending (SetEmail), and Linx's own address for its links.
 	email      *email.Service
+	webAddress string
 	writeAudit func(context.Context, auth.AuditEntry) error
 	certExpiry func() time.Time
 }

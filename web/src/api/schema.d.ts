@@ -1601,7 +1601,7 @@ export interface paths {
         put?: never;
         /**
          * Issue a new set-password link
-         * @description A fresh one-time link (24 hours), for a new person or one who lost theirs.
+         * @description A fresh one-time link (24 hours), for a new person or one who lost theirs; send_email also emails it to them.
          */
         post: operations["createUserSetupLink"];
         delete?: never;
@@ -4542,6 +4542,8 @@ export interface components {
             role: components["schemas"]["Role"];
             /** Format: uuid */
             extension_id?: string;
+            /** @description Also email the link to the person (email must be on, ADR-066). */
+            send_email?: boolean;
         };
         /** @description JSON Merge Patch; fields not sent stay as they are. */
         UserPatch: {
@@ -4557,6 +4559,15 @@ export interface components {
             user: components["schemas"]["User"];
             /** @description Shown once; build the link as https://<domain>/setup/<token>. */
             setup_link_token: string;
+            email?: components["schemas"]["InviteEmail"];
+        };
+        /** @description The link sent by email, when send_email was asked for. */
+        InviteEmail: {
+            to: string;
+            /** @description Waiting to go out (the Email card shows whether it went). */
+            queued: boolean;
+            /** @description Why it wasn't queued (email off, say), in plain words. */
+            error?: string;
         };
         UserList: {
             items: components["schemas"]["User"][];
@@ -4565,6 +4576,7 @@ export interface components {
         SetupLinkIssued: {
             /** @description Shown once; build the link as https://<domain>/setup/<token>. */
             setup_link_token: string;
+            email?: components["schemas"]["InviteEmail"];
         };
         MySession: {
             /** Format: uuid */
@@ -7458,7 +7470,13 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    send_email?: boolean;
+                };
+            };
+        };
         responses: {
             /** @description A one-time set-password link token. */
             200: {

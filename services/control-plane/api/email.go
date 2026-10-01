@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -13,8 +16,49 @@ import (
 
 // Email (ADR-066): the Email card in System → Settings, and its test.
 
-// SetEmail adds email sending.
-func (s *Server) SetEmail(svc *email.Service) { s.email = svc }
+// SetEmail adds email sending; webAddress (https://<domain>[:port]) is
+// what links in emails start with.
+func (s *Server) SetEmail(svc *email.Service, webAddress string) {
+	s.email, s.webAddress = svc, webAddress
+}
+
+// inviteEmail queues u's set-password link, as asked for by People → Add or
+// New invite link (docs/ui/SCREENS_PHASE1F.md §5.2). Not queued is said in
+// the answer, never an error: the link itself was made and is shown.
+func (s *Server) inviteEmail(ctx context.Context, u auth.User, token string) *InviteEmail {
+	out := &InviteEmail{To: u.Email}
+	if s.email == nil {
+		msg := email.ErrOff.Detail
+		out.Error = &msg
+		return out
+	}
+	p, _ := auth.PrincipalFromContext(ctx)
+	who := "An admin"
+	if uid, err := uuid.Parse(p.ID); err == nil && p.Type == auth.TypeUser {
+		if me, err := s.accounts.GetUser(ctx, uid); err == nil && me.Name != "" {
+			who = me.Name
+		}
+	}
+	host := strings.TrimPrefix(s.webAddress, "https://")
+	c := email.Content{Subject: "Your Linx account at " + host,
+		Text: fmt.Sprintf("Hello %s,\n\n%s added you to Linx, the phone system at %s.\n\n"+
+			"Set up your account (the link works once, for 24 hours):\n%s/setup/%s\n\n"+
+			"If you weren't expecting this, you can ignore this email.", u.Name, who, host, s.webAddress, token)}
+	_, err := s.email.Enqueue(ctx, p.TenantID, email.KindInvite, []string{u.Email}, c,
+		auth.AuditEntry{Actor: p.Actor(), IP: auth.ClientIPFromContext(ctx), Action: "email.queue", Result: auth.ResultOK,
+			Detail: map[string]any{"user": u.ID.String()}})
+	if err != nil {
+		var e *apihttp.Error
+		msg := "Linx couldn't queue the email. Copy the link instead."
+		if errors.As(err, &e) {
+			msg = e.Detail
+		}
+		out.Error = &msg
+		return out
+	}
+	out.Queued = true
+	return out
+}
 
 func toEmail(c email.Config, st email.Status) Email {
 	out := Email{Enabled: c.Enabled, Preset: c.Preset, Host: c.Host, Port: c.Port, Security: EmailSecurity(c.Security),

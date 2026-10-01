@@ -401,7 +401,7 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("heading", { name: "Sara Haddad" })).toBeVisible();
       await shot(page, `${scheme}-people-detail`);
       await page.getByRole("button", { name: "Edit" }).click();
-      await page.getByLabel("Email").fill("sara.h@example.com");
+      await page.getByLabel("Email", { exact: true }).fill("sara.h@example.com");
       await expect(page.getByText("They'll sign in with the new email from now on.")).toBeVisible();
       await shot(page, `${scheme}-people-edit-email`);
       await page.getByRole("button", { name: "Cancel" }).click();
@@ -433,6 +433,38 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Next" }).click();
       await page.getByRole("button", { name: "Create" }).click();
       await expect(page.getByText("(Front door) is ready", { exact: false })).toBeVisible();
+    });
+
+    test("people: invites by email", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, email: "on" });
+      await page.goto("/admin/people");
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      await page.getByLabel("Name").fill("Priya Menon");
+      await page.getByLabel("Email").fill("priya@example.com");
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByLabel("Email this link to priya@example.com")).toBeChecked();
+      await page.getByRole("button", { name: "Create" }).click();
+      await expect(page.getByText("Emailed to priya@example.com")).toBeVisible();
+      await expect(page.getByText("Or send this to Priya Menon yourself.", { exact: false })).toBeVisible();
+      await shot(page, `${scheme}-people-add-emailed`);
+      await page.getByRole("button", { name: "Done" }).click();
+      // A new link for someone, emailed too.
+      await page.getByRole("row", { name: /Sara Haddad/ }).click();
+      await expect(page.getByLabel(/Email this link to/)).toBeChecked();
+      await page.getByRole("button", { name: /invite link/ }).click();
+      await expect(page.getByText(/Emailed to/)).toBeVisible();
+    });
+
+    test("people: email not set up", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true });
+      await page.goto("/admin/people");
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Quick add/ }).click();
+      await expect(page.getByLabel(/Email this link to/)).toBeDisabled();
+      await expect(page.getByText("Set up email first (System → Settings).")).toBeVisible();
     });
 
     test("extensions list and detail", async ({ page }) => {
@@ -874,7 +906,7 @@ test.describe("setup wizard", () => {
     // Checked as it's typed; Next doesn't skip a row that wasn't created
     // (install demo, 2026-09-29).
     await page.getByLabel("Name").last().fill("Sara Haddad");
-    await page.getByLabel("Email").last().fill("sara@");
+    await page.getByLabel("Email", { exact: true }).last().fill("sara@");
     await page.getByLabel("Extension").last().fill("99999");
     await expect(page.getByText("That doesn't look like an email address.", { exact: false })).toBeVisible();
     // One button: Next becomes "Create 1 extension", off until the row is right.
@@ -882,7 +914,7 @@ test.describe("setup wizard", () => {
     await page.getByRole("button", { name: "Skip for now" }).click();
     await expect(page.getByText("Create the extensions above first", { exact: false })).toBeVisible();
     await shot(page, "setup-wizard-people-problems");
-    await page.getByLabel("Email").last().fill("sara@example.com");
+    await page.getByLabel("Email", { exact: true }).last().fill("sara@example.com");
     await page.getByLabel("Extension").last().fill("102");
     await expect(page.getByRole("button", { name: "Create 1 extension" })).toBeEnabled();
     // A door phone: a name and a number, no email (an extension, no person).

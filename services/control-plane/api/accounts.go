@@ -52,7 +52,11 @@ func (s *Server) CreateUser(ctx context.Context, req CreateUserRequestObject) (C
 		}
 		return CreateUserdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
-	return CreateUser201JSONResponse{User: s.toUser(u), SetupLinkToken: token}, nil
+	out := CreateUser201JSONResponse{User: s.toUser(u), SetupLinkToken: token}
+	if deref(req.Body.SendEmail) {
+		out.Email = s.inviteEmail(ctx, u, token)
+	}
+	return out, nil
 }
 
 func (s *Server) GetUser(ctx context.Context, req GetUserRequestObject) (GetUserResponseObject, error) {
@@ -134,7 +138,13 @@ func (s *Server) CreateUserSetupLink(ctx context.Context, req CreateUserSetupLin
 		}
 		return CreateUserSetupLinkdefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
 	}
-	return CreateUserSetupLink200JSONResponse{SetupLinkToken: token}, nil
+	out := CreateUserSetupLink200JSONResponse{SetupLinkToken: token}
+	if req.Body != nil && deref(req.Body.SendEmail) {
+		if u, err := s.accounts.GetUser(ctx, req.Id); err == nil {
+			out.Email = s.inviteEmail(ctx, u, token)
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) ChangeMyPassword(ctx context.Context, req ChangeMyPasswordRequestObject) (ChangeMyPasswordResponseObject, error) {

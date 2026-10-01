@@ -2686,10 +2686,19 @@ paths:
     post:
       operationId: createUserSetupLink
       summary: Issue a new set-password link
-      description: A fresh one-time link (24 hours), for a new person or one who lost theirs.
+      description: A fresh one-time link (24 hours), for a new person or one who lost theirs; send_email also emails it to them.
       tags: [people]
       security:
         - bearer: [users:write]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                send_email:
+                  type: boolean
       responses:
         "200":
           description: A one-time set-password link token.
@@ -7662,6 +7671,9 @@ components:
         extension_id:
           type: string
           format: uuid
+        send_email:
+          type: boolean
+          description: Also email the link to the person (email must be on, ADR-066).
 
     UserPatch:
       description: JSON Merge Patch; fields not sent stay as they are.
@@ -7697,6 +7709,22 @@ components:
         setup_link_token:
           type: string
           description: Shown once; build the link as https://<domain>/setup/<token>.
+        email:
+          $ref: "#/components/schemas/InviteEmail"
+
+    InviteEmail:
+      description: The link sent by email, when send_email was asked for.
+      type: object
+      required: [to, queued]
+      properties:
+        to:
+          type: string
+        queued:
+          type: boolean
+          description: Waiting to go out (the Email card shows whether it went).
+        error:
+          type: string
+          description: Why it wasn't queued (email off, say), in plain words.
 
     UserList:
       type: object
@@ -7716,6 +7744,8 @@ components:
         setup_link_token:
           type: string
           description: Shown once; build the link as https://<domain>/setup/<token>.
+        email:
+          $ref: "#/components/schemas/InviteEmail"
 
     MySession:
       type: object

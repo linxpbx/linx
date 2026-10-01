@@ -21,7 +21,7 @@ After the first sign-in, the setup wizard walks you through the first choices. E
 1. **Place**: a business or a home. It sets sensible defaults.
 2. **Country**: for how phone numbers are written and which emergency numbers always work.
 3. **Numbers**: how many digits extension numbers have (3 digits, like 101, suits most offices), and which numbers are for people, for shared phones and so on. You can change the ranges, for example people from 200 to 499.
-4. **People**: add yourself and the people who'll use Linx. Each gets an invite link and a QR code. See [People and invite links](people-and-invites).
+4. **People**: add yourself and the people who'll use Linx. Each gets an invite link and a QR code; once email is set up, **Email everyone their invite** sends each person theirs too. See [People and invite links](people-and-invites).
 5. **Line**: connect a phone company or your own phone system now, or **Later**. See [Phone lines](phone-lines).
 6. **Calls**: what your phones may call. Calls abroad and premium-rate numbers are off until you turn them on. See [What phones can call](calling-permissions).
 7. **Test**: call `*43` from your browser. It plays back what you say, so you can hear your microphone works.

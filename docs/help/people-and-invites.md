@@ -30,6 +30,8 @@ Linx gives them the next free number in the people range.
 
 After **Create**, Linx shows an invite link and a QR code. It works once, for 24 hours. You won't see it again, so send it now (**Copy link**), then **I've saved it**. Lost it? Open the person and choose **New invite link**.
 
+Once email is set up ([Email](email)), Linx can send the link for you: **Email this link to** is ticked when you add someone or make a new link. Afterwards Linx says *Emailed to* their address, or why it couldn't, and you can still copy the link. Until email is set up, the box is greyed with *Set up email first*.
+
 What they do with it: [Your invite or set-password link](set-password-link).
 
 ## Changing someone

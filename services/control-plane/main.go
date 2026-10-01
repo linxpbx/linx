@@ -456,7 +456,7 @@ func main() {
 			s.SetServerSettings(serverSettings)
 			s.SetMoved(movedSvc)
 			s.SetHelpAnswers(helpAnswers)
-			s.SetEmail(emailSvc)
+			s.SetEmail(emailSvc, weburl.FromEnv(os.Getenv))
 			s.SetReach(reachChecker.Run, reachLinks)
 			s.SetDNSRecords(reachChecker.Records)
 			s.SetOps(opsHub, st.Audit, func() time.Time {

@@ -366,13 +366,14 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     }
     if (p === "/api/v1/users" && method === "GET") return route.fulfill(json({ items: people.users }));
     if (p === "/api/v1/users" && method === "POST") {
-      const body = route.request().postDataJSON() as { email: string; name: string; role: string; extension_id?: string };
+      const body = route.request().postDataJSON() as { email: string; name: string; role: string; extension_id?: string; send_email?: boolean };
       const id = `u${people.nextId++}`;
       people.users.push({
         id, email: body.email, name: body.name, role: body.role, extension_id: body.extension_id, mfa_enabled: false, passkeys: 0,
         has_password: false, password_only: false, company_sign_in: [], disabled: false, locked: false, created_at: now(), updated_at: now(), etag: '"1"',
       });
-      return route.fulfill(json({ user: people.users.at(-1), setup_link_token: "fake-invite-token" }, 201));
+      return route.fulfill(json({ user: people.users.at(-1), setup_link_token: "fake-invite-token",
+        ...(body.send_email ? { email: { to: body.email, queued: !!opts.email } } : {}) }, 201));
     }
     const patchUserId = idAfter(p, "/api/v1/users/");
     if (patchUserId && p === `/api/v1/users/${patchUserId}` && method === "PATCH") {
@@ -382,7 +383,9 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       return route.fulfill(json(u));
     }
     if (patchUserId && p === `/api/v1/users/${patchUserId}/setup-link` && method === "POST") {
-      return route.fulfill(json({ setup_link_token: "fake-invite-token" }));
+      const send = (route.request().postDataJSON() as { send_email?: boolean } | null)?.send_email;
+      const u = people.users.find((x) => x.id === patchUserId);
+      return route.fulfill(json({ setup_link_token: "fake-invite-token", ...(send && u ? { email: { to: u.email, queued: !!opts.email } } : {}) }));
     }
     if (patchUserId && p === `/api/v1/users/${patchUserId}/reset-mfa` && method === "POST") {
       const u = people.users.find((x) => x.id === patchUserId);
