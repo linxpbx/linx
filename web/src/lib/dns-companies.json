@@ -38,7 +38,7 @@
         "secret": true
       }
     ],
-    "where": "In the AWS console: IAM → Users → Create user, with a policy allowing route53:ListHostedZonesByName, route53:ListResourceRecordSets and route53:ChangeResourceRecordSets. Then Security credentials → Create access key."
+    "where": "In the AWS console: IAM → Users → Create user, with a policy allowing route53:ListHostedZonesByName, and route53:ListResourceRecordSets and route53:ChangeResourceRecordSets on your domain's hosted zone only. Then Security credentials → Create access key."
   },
   {
     "id": "godaddy",
@@ -55,7 +55,7 @@
       }
     ],
     "where": "At developer.godaddy.com/keys: Create New API Key, choose Production.",
-    "note": "GoDaddy lets only some accounts use its API (larger accounts and its paid plans). If it refuses the key, add the records by hand."
+    "note": "GoDaddy lets only some accounts use its API (larger accounts and its paid plans). If it refuses the key, add the records by hand. A GoDaddy key can do anything your account can, not only change DNS records."
   },
   {
     "id": "namecheap",
@@ -72,7 +72,7 @@
       }
     ],
     "where": "In Namecheap: Profile → Tools → Business \u0026 Dev Tools → API Access → On. Under Whitelisted IPs add {address}.",
-    "note": "Namecheap turns its API on only for accounts with some spending or domains, and accepts Linx only from the addresses on its list: when your home address changes, add the new one there. It suits a fixed address best."
+    "note": "Namecheap turns its API on only for accounts with some spending or domains, and accepts Linx only from the addresses on its list: when your home address changes, add the new one there. It suits a fixed address best. A Namecheap key can do anything your account can, buying domains with its balance too, not only change DNS records."
   },
   {
     "id": "porkbun",
@@ -113,7 +113,7 @@
         "secret": true
       }
     ],
-    "where": "In the Hetzner Console: your project → Security → API tokens → Generate API token, Read \u0026 Write.",
+    "where": "In the Hetzner Console, keep your domain's DNS in a project of its own, with no servers: a token can change everything in its project. In that project: Security → API tokens → Generate API token, Read \u0026 Write.",
     "note": "Your domain needs to be in the Hetzner Console's DNS. One still in the old DNS Console has to be moved there first."
   },
   {
@@ -166,6 +166,6 @@
         "secret": true
       }
     ],
-    "where": "At OVH's “create token” page for your region (eu.api.ovh.com/createToken for Europe), allow GET, POST, PUT and DELETE on /domain/zone/*."
+    "where": "At OVH's “create token” page for your region (eu.api.ovh.com/createToken for Europe), allow GET, POST, PUT and DELETE on /domain/zone/example.com/*, with your own domain as OVH lists it instead of example.com, so the key can't change your other domains."
   }
 ]

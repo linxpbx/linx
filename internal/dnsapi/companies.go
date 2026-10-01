@@ -82,16 +82,19 @@ var Companies = []Company{
 	{ID: Route53, Name: "Route 53", TTL: 5 * time.Minute,
 		Fields: []Field{{Key: "access_key_id", Label: "Access key ID"}, {Key: "secret_access_key", Label: "Secret access key", Secret: true}},
 		Where: "In the AWS console: IAM → Users → Create user, with a policy allowing route53:ListHostedZonesByName, " +
-			"route53:ListResourceRecordSets and route53:ChangeResourceRecordSets. Then Security credentials → Create access key."},
+			"and route53:ListResourceRecordSets and route53:ChangeResourceRecordSets on your domain's hosted zone only. " +
+			"Then Security credentials → Create access key."},
 	{ID: GoDaddy, Name: "GoDaddy", TTL: 10 * time.Minute,
 		Fields: []Field{{Key: "api_key", Label: "API key"}, {Key: "api_secret", Label: "Secret", Secret: true}},
 		Where:  "At developer.godaddy.com/keys: Create New API Key, choose Production.",
-		Note:   "GoDaddy lets only some accounts use its API (larger accounts and its paid plans). If it refuses the key, add the records by hand."},
+		Note: "GoDaddy lets only some accounts use its API (larger accounts and its paid plans). If it refuses the key, add the records by hand. " +
+			"A GoDaddy key can do anything your account can, not only change DNS records."},
 	{ID: Namecheap, Name: "Namecheap", TTL: 5 * time.Minute,
 		Fields: []Field{{Key: "api_user", Label: "User name"}, {Key: "api_key", Label: "API key", Secret: true}},
 		Where:  "In Namecheap: Profile → Tools → Business & Dev Tools → API Access → On. Under Whitelisted IPs add {address}.",
 		Note: "Namecheap turns its API on only for accounts with some spending or domains, and accepts Linx only from the addresses on its list: " +
-			"when your home address changes, add the new one there. It suits a fixed address best."},
+			"when your home address changes, add the new one there. It suits a fixed address best. " +
+			"A Namecheap key can do anything your account can, buying domains with its balance too, not only change DNS records."},
 	{ID: Porkbun, Name: "Porkbun", TTL: 10 * time.Minute,
 		Fields: []Field{{Key: "api_key", Label: "API key", Secret: true}, {Key: "secret_api_key", Label: "Secret key", Secret: true}},
 		Where:  "In Porkbun: Account → API Access → Create API key. Then in Domain Management, turn on “API Access” for {domain}."},
@@ -100,8 +103,9 @@ var Companies = []Company{
 		Where:  "In DigitalOcean: API → Generate New Token, with Custom Scopes: domain (read, create, update, delete)."},
 	{ID: Hetzner, Name: "Hetzner", TTL: 5 * time.Minute,
 		Fields: []Field{{Key: "token", Label: "API token", Secret: true}},
-		Where:  "In the Hetzner Console: your project → Security → API tokens → Generate API token, Read & Write.",
-		Note:   "Your domain needs to be in the Hetzner Console's DNS. One still in the old DNS Console has to be moved there first."},
+		Where: "In the Hetzner Console, keep your domain's DNS in a project of its own, with no servers: a token can change everything in its project. " +
+			"In that project: Security → API tokens → Generate API token, Read & Write.",
+		Note: "Your domain needs to be in the Hetzner Console's DNS. One still in the old DNS Console has to be moved there first."},
 	{ID: DeSEC, Name: "deSEC", TTL: time.Hour,
 		Fields: []Field{{Key: "token", Label: "Token", Secret: true}},
 		Where:  "At desec.io: Token management → +. You can limit it to {domain}.",
@@ -114,7 +118,8 @@ var Companies = []Company{
 			{Key: "consumer_key", Label: "Consumer key", Secret: true},
 		},
 		Where: "At OVH's “create token” page for your region (eu.api.ovh.com/createToken for Europe), " +
-			"allow GET, POST, PUT and DELETE on /domain/zone/*."},
+			"allow GET, POST, PUT and DELETE on /domain/zone/example.com/*, with your own domain as OVH lists it instead of example.com, " +
+			"so the key can't change your other domains."},
 }
 
 // IDs are the companies' IDs, in order.

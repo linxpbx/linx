@@ -47,6 +47,8 @@ Linx then looks at your address every five minutes and changes your domain, `tur
 
 Some companies have limits worth knowing: GoDaddy and Namecheap only let some accounts use their API, Namecheap only accepts the addresses on its own list, and deSEC keeps records for at least an hour, so a new address takes up to an hour to reach everyone.
 
+Give Linx the smallest key your company allows; the page says how for each. A GoDaddy or Namecheap key can do anything your account can, and a Hetzner token anything in its project (so keep your domain's DNS in a Hetzner project of its own, with no servers). Linx keeps the key in one file on the server, readable only by its certificate service and the server's root user.
+
 ## Changing something
 
 1. Change what you need: **What's in front of this server**, a **New domain**, **Replace key**, or the **Size of this server** (**Standard** or **Performance**).
