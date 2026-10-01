@@ -140,6 +140,15 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, line Line) {
 	defer up.CloseNow()
 	// Origin is checked by the caller against this server's own address;
 	// coder/websocket's own check (Origin host = Host) agrees with it.
+	// Registered before the browser's connection is accepted, so a sign-out
+	// or a disabled person from that moment on drops it at once (a sign-out
+	// landing between the two used to wait for the next recheck).
+	ctx, cancel := context.WithCancelCause(req.Context())
+	defer cancel(nil)
+	rc := &relayConn{line: line, cancel: cancel}
+	r.add(rc)
+	defer r.remove(rc)
+
 	down, err := websocket.Accept(w, req, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
 	if err != nil {
 		up.Close(websocket.StatusGoingAway, "")
@@ -153,12 +162,6 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, line Line) {
 	}
 	down.SetReadLimit(r.MaxMessage)
 	up.SetReadLimit(r.MaxMessage)
-
-	ctx, cancel := context.WithCancelCause(req.Context())
-	defer cancel(nil)
-	rc := &relayConn{line: line, cancel: cancel}
-	r.add(rc)
-	defer r.remove(rc)
 
 	s := &session{relay: r, line: line, up: up, down: down, limiter: rate.NewLimiter(r.Rate, r.Burst)}
 	var wg sync.WaitGroup
