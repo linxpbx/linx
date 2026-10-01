@@ -215,7 +215,11 @@ func previewServerSettings(ctx context.Context, src ServerSettingsSource, c inst
 		out.Steps = []string{}
 	}
 	if p.Setup != nil {
-		b, err := json.Marshal(map[string]any{"files": orEmpty(p.Setup.Files), "steps": orEmpty(p.Setup.Steps)})
+		setup := map[string]any{"files": orEmpty(p.Setup.Files), "steps": orEmpty(p.Setup.Steps)}
+		if p.Setup.Card != nil {
+			setup["card"] = p.Setup.Card
+		}
+		b, err := json.Marshal(setup)
 		if err != nil {
 			return out, err
 		}

@@ -35,6 +35,11 @@ func (f *fakeServerSettings) PreviewServerSettings(_ context.Context, c install.
 		p.AddRecords = []install.Record{{Type: "A", Name: c.Domain, Value: "203.0.113.5"}}
 		p.Setup = &install.DoorSetup{Files: []install.SetupFile{{Title: "the block for Pangolin", Text: "tcp:"}}}
 	}
+	if c.FrontDoor == "proxy" {
+		p.Setup = &install.DoorSetup{Steps: []string{"On your router, keep TCP port 443 going to your front door."},
+			Card: &install.DoorCard{Proxy: c.ProxyAddress, Routes: []install.DoorRoute{{Name: "example.com", Address: "192.168.1.10:8443", ProxyProtocol: true}},
+				Guides: []install.DoorGuide{{ID: "pangolin", Title: "Pangolin", Steps: []string{"Open Traefik's file."}}}}}
+	}
 	if c.Token == "bad" {
 		p.Errors = []install.FieldError{{Step: install.StepToken, Field: "token", Message: "That token can't see example.com at Cloudflare."}}
 	}
@@ -120,6 +125,17 @@ func TestServerSettingsEndpoints(t *testing.T) {
 	setup, _ := p["setup"].(map[string]any)
 	if resp.StatusCode != http.StatusOK || p["address"] != "https://example.org" || setup == nil || len(p["add_records"].([]any)) != 1 {
 		t.Errorf("preview: %d %v", resp.StatusCode, p)
+	}
+	// Another program in front: the front-door card comes through whole.
+	resp = e.do("POST", "/api/v1/server-settings/preview", "application/json",
+		strings.NewReader(`{"profile":"lite","portainer":false,"front_door":"proxy","proxy_address":"192.168.1.211"}`), true)
+	p = nil
+	_ = json.NewDecoder(resp.Body).Decode(&p)
+	resp.Body.Close()
+	setup, _ = p["setup"].(map[string]any)
+	card, _ := setup["card"].(map[string]any)
+	if guides, _ := card["guides"].([]any); resp.StatusCode != http.StatusOK || card["proxy"] != "192.168.1.211" || len(guides) != 1 {
+		t.Errorf("preview card: %d %v", resp.StatusCode, p)
 	}
 	e.become(auth.RoleSystemAdmin, 0)
 	if code := problemCode(t, post(`{"profile":"lite","portainer":false,"domain":"example.org"}`)); code != "server_settings_invalid" {
