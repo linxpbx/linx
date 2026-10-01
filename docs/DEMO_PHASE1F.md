@@ -45,7 +45,7 @@ Then the same with `vps.mym.ae`.
 - [ ] `sudo linx doctor` on each: nothing failing (the known warnings only: the CA backup still on the server, no API key).
 
 ### 4. Home: the front-door card
-Laptop, signed in as the admin at `https://home.mym.ae`: System → **Server settings** → **In front** → **Change**.
+On the server, `sudo ./linx setup` → **the Server settings page** (changes open only while setup has the page open, four hours). Laptop, signed in as the admin at `https://home.mym.ae`: System → **Server settings** → **In front** → **Change**. Nothing changes while the front door is the one you have: to see the card, change the address (say to `.212`) and press **Check**, then Cancel.
 - [ ] The choices: Linx takes 443, **Another program passes Linx through**, only at home; **Advanced** adds the decrypting proxy and **another public port (advanced)**. Choosing the decrypting proxy shows its "Not recommended" line.
 - [ ] Choose **Another program passes Linx through**, at `192.168.1.211` (your Pangolin), and **Apply**: **Before you apply** shows the card, with the three facts (your domain to this server's port 8443, `turn.` to its port 5349, PROXY protocol on, from Pangolin's address) and **How to do this in**: Pangolin, nginx, HAProxy, Caddy, Nginx Proxy Manager, a router.
 - [ ] Pangolin's steps match what's in your Pangolin today (Traefik's file; Pangolin's own web page can't pass Linx by name).
@@ -73,7 +73,7 @@ Laptop at `https://vps.mym.ae`, signed in as the VPS's admin.
 - [ ] Sign out, sign in again with the passkey: it works.
 
 ### 8. VPS: move to port 8443
-System → **Server settings** → **In front** → **Change** → **Advanced** → **another public port (advanced)**.
+On the VPS, `sudo ./linx setup` → **the Server settings page** (again for step 10). System → **Server settings** → **In front** → **Change** → **Advanced** → **another public port (advanced)**.
 - [ ] The warning comes first (port 443 is always recommended), with **Show me the front-door options** and **Use another port**. Choose **Use another port**.
 - [ ] **Public web port** 8443, **call audio (UDP)** 443. Try 5061 first: turned down with the reason. Then 8443.
 - [ ] It asks for the DNS company's key (no port 443 for Let's Encrypt's check): Cloudflare, paste the token, **Check the key** ✓.
@@ -100,4 +100,14 @@ Server settings → **In front** → **Change** → **Nothing else uses port 443
 - [ ] VPS: keep the Cloudflare token there (Linx now keeps `vps.mym.ae` and `turn.vps.mym.ae` right), or **Stop** and delete the token in Cloudflare. Remove TCP 8443 from the provider's firewall.
 
 ### Results
-- Not run yet.
+Run 2026-10-01 with the owner, at `344d0ae` (fixes below on top).
+- Steps 1–3 ✓: lint, test, screens, Linux build; CI green in all 23 jobs; both servers updated, doctor nothing failing (VPS: three more warnings that are the test VPS's own: no alert channel, no phone lines, public address).
+- Step 4: choices ✓. **Found:** Before you apply showed only the router line, without the card: the API dropped it (fixed, `bb2c585`). Owner: "Nothing: only at home" now says "(no internet)" (`a85c625`). Card itself: see below.
+- Steps 5–7 ✓ (Check it from the server and the phone with Wi-Fi off and on, the used link refused; DNS records, Replace key, Stop, start again, Activity without the token; passkey at 443).
+- Step 8 ✓ (5061 refused with its reason; Before you apply as listed). **Found:** with the move pending, **Check the key** showed no tick, and the move's Check stayed grey until an edit (fixed, `7b9a09b`).
+- Step 9 ✓: passkey from 443 at :8443, Check it with the one ⚠, phone link at :8443, doctor (the port warning only), DNS kept right, iPhone on mobile data with audio. At rest: about 1% processor; Docker shows about 226 MB for Linx's services (most is file cache: step-ca 43 MB shown, 17 MB its own), 1.2 GB of 2 GB available.
+- Step 10 ✓ (passkey, Check it without the port ⚠). **Found:** the page at :8443 spun for ever on the firewall step: the closed port's packets are dropped, so the page never noticed Linx had gone. Now it gives up after 8 s, and (owner) it opens the new address by itself after a move to another port (`6779005`).
+- Step 11 ✓: TCP 8443 removed at the provider; Cloudflare token kept on the VPS.
+- CI: `TestSIPRelay` failed twice on amd64: the relay registered a browser's connection just after accepting it, so a sign-out or a disabled person in between waited up to 15 s for the recheck. Now registered first (`internal/siprelay`).
+- Owner: re-test moving ports (key tick, the page following the move, no spinner) in Demo B, not now.
+- Parked for after the demo: doctor's UDP line on a rented server says "127.0.0.1" and "your router's forward"; a **Show the steps** link for the front door you have; "Let Linx keep them right" in plainer words, and whether Linx should also follow a changing home address (asked); `docs/RESOURCES.md` §1 re-measured as own memory, not cache; `make screens` re-saves six help pictures each run (timing only).
