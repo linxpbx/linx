@@ -179,6 +179,11 @@ LINX_TURN_UDP_ADDRESS=%s
 LINX_TURN_UDP_PORT=%d
 LINX_TURN_URLS=%s
 LINX_SNI_ADDRESS=%s
+# The public port browsers use (https://<domain>:<port> unless 443; Linx's
+# own port 443 router is published there), and the web port's own port on
+# this server (empty: one Docker picks, when the public port is 8443).
+LINX_PUBLIC_PORT=%d
+LINX_WEB_HOST_PORT=%s
 COMPOSE_PROFILES=%s
 # The public names linx-certd keeps pointed at this network's public address
 # (or at LINX_DNS_ADDRESS, when set), following it when it changes.
@@ -199,7 +204,7 @@ LINX_POSTGRES_IMAGE=%s
 `, ConfigPath, imageTag, c.Domain.Name, c.Domain.DNSProvider, c.Certificates.Email, c.Certificates.Staging, c.Certificates.Wildcard, certChallenge(c),
 		lan.BindAddress(), asteriskconf.FormatSIPNetworks(lan.Networks()),
 		c.FrontDoor.Kind, fd.TrustedProxies, fd.ProxyProtocol, fd.WebAddress, fd.TURNUDPAddress, fd.TURNUDPPort, fd.TURNURLs,
-		fd.SNIAddress, fd.ComposeProfiles, DNSRecords(c, lan), fd.DNSAddress, ServerIDPath, ServerID(), c.FrontDoor.Kind, c.Zone(),
+		fd.SNIAddress, fd.SNIPort, fd.WebHostPort, fd.ComposeProfiles, DNSRecords(c, lan), fd.DNSAddress, ServerIDPath, ServerID(), c.FrontDoor.Kind, c.Zone(),
 		c.databaseName(), c.PostgresImage())
 }
 

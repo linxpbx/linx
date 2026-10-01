@@ -183,18 +183,20 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     portainer: false, portainer_allowed: opts.serverSettings === "home", apply: { state: "" }, steps: [], keep: [],
     expires_at: new Date(Date.now() + 4 * 3600_000).toISOString(),
     proxy_address: opts.serverSettings === "home" ? "192.168.1.30" : undefined,
-    front_doors: opts.serverSettings === "home" ? ["linx-443", "proxy", "home-only", "http-proxy"] : ["linx-443", "proxy"],
+    front_doors: opts.serverSettings === "home" ? ["linx-443", "proxy", "home-only", "public-port", "http-proxy"] : ["linx-443", "proxy", "public-port"],
+    address: "https://example.com",
     public_address: "203.0.113.5", lan_address: opts.serverSettings === "home" ? "192.168.1.212" : undefined,
     repair: !!opts.repair, no_sign_in: opts.repair === "no-sign-in",
     problem: opts.repair ? "x509: certificate has expired or is not yet valid" : undefined,
   };
   type Change = { profile: string; portainer: boolean; token?: string; domain?: string; front_door?: string; proxy_address?: string; door_done?: boolean;
+    public_port?: number; turn_udp_port?: number;
     dns_key?: { provider: string; token?: string; key?: Record<string, string> }; dns_by_hand?: boolean };
   const companyName = (id?: string) => ({ porkbun: "Porkbun", cloudflare: "Cloudflare", ovh: "OVH" } as Record<string, string>)[id ?? ""] ?? id;
   // What setup on the server says a change needs (docs/INSTALL.md §7).
   const settingsPreview = (body: Change) => {
     const key = body.dns_key;
-    const errors = key && Object.values(key.key ?? { token: key.token ?? "" }).some((v) => v === "bad-key" || v.length < 5)
+    const errors: { field: string; message: string }[] = key && Object.values(key.key ?? { token: key.token ?? "" }).some((v) => v === "bad-key" || v.length < 5)
       ? [{ field: "token", message: `${companyName(key.provider)} didn't let this key read example.com's records (${companyName(key.provider)}: Invalid API key).` }] : [];
     const home = serverSettings?.where === "home";
     const domain = body.domain ?? "example.com";
@@ -204,12 +206,32 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       `If you use company sign-in, change its redirect address at Google or Microsoft to https://${domain}/api/v1/sso/callback.`,
       ...(home ? [`Desk phones and phone apps set up with sip.example.com need sip.${domain} as their server: change it on each one.`] : []),
     ] : [];
+    // Another public port (docs/ui/SCREENS_PHASE1F.md §4.3).
+    const port = body.front_door === "public-port" ? body.public_port ?? 0 : 0;
+    const address = port ? `https://${domain}:${port}` : `https://${domain}`;
+    if (port && !body.domain) {
+      warnings.push(
+        `Linx moves to ${address}. Links already sent for https://example.com (invites, setup links) stop working once nothing forwards it here: send new ones.`,
+        "Passkeys keep working: they belong to example.com, whatever the port.",
+        `If you use company sign-in, add ${address}/api/v1/sso/callback as a redirect address at Google or Microsoft. Until you do, “Continue with Google” or Microsoft shows “redirect URI mismatch”.`,
+        "Browser calls from networks that only allow standard web traffic, like some hotels, workplaces, public Wi-Fi and mobile networks, may fail or have no audio, because this setup can't use port 443 for them. Calls from normal home and mobile networks work.",
+      );
+    }
+    if (port && !serverSettings?.token_saved && !key) {
+      errors.push({ field: "token", message: "Without port 443, Let's Encrypt can only check your domain through your DNS company: add its key below." });
+    }
     const addRecords = body.domain && !serverSettings?.token_saved
       ? [{ type: "A", name: domain, value: "203.0.113.5" }, { type: "A", name: `turn.${domain}`, value: "203.0.113.5" }] : [];
     if (addRecords.length) warnings.push("Add the DNS records below at your DNS company first: Linx checks them before it asks Let's Encrypt.");
     const door = String(body.front_door ?? serverSettings?.front_door ?? "");
-    const setup = (body.domain || body.front_door) && PASS_THROUGH.includes(door)
-      ? doorSetup(domain, body.proxy_address ?? String(serverSettings?.proxy_address ?? "192.168.1.30")) : undefined;
+    const udp = body.turn_udp_port || 443;
+    const setup = port
+      ? { files: [], steps: home
+        ? [`On your router, forward TCP ${port} to 192.168.1.212 port ${port}.`, `On your router, forward UDP ${udp} to 192.168.1.212 port ${udp}.`,
+          "People at the office use the same address. If it doesn't open there, turn on NAT loopback (hairpin) on your router, or add the domain to your local DNS pointing at 192.168.1.212."]
+        : [`Linx opens TCP ${port} and UDP ${udp} on this server itself: there's nothing to forward. If your server provider has a firewall of its own, open those two there.`] }
+      : (body.domain || body.front_door) && PASS_THROUGH.includes(door)
+        ? doorSetup(domain, body.proxy_address ?? String(serverSettings?.proxy_address ?? "192.168.1.30")) : undefined;
     if (setup) warnings.push("Until the steps below are done, Linx can't be reached from outside your network.");
     const steps = [
       ...(addRecords.length ? [`Check the DNS records for ${domain}`, `Test certificate for ${domain}, turn.${domain}`, `Certificate for ${domain}, turn.${domain}`] : []),
@@ -219,7 +241,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       ...((serverSettings?.token_saved && (body.domain || body.front_door)) || key || body.dns_by_hand === false
         ? [`${domain}, turn.${domain} at this network's public address`] : []),
     ];
-    return { errors, add_records: addRecords, warnings, steps, address: `https://${domain}`, ...(setup ? { setup } : {}) };
+    return { errors, add_records: addRecords, warnings, steps, address, ...(setup ? { setup } : {}) };
   };
   const settingsChange = (body: Change) => {
     const p = settingsPreview(body);

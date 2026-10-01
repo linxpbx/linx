@@ -250,7 +250,7 @@ Reached only from §1.1 "Advanced: use another public port", on the install page
     ( ) Another: [      ]
 
   On your router, forward:
-    TCP 8443  →  192.168.1.212 port 443      [ Copy ]
+    TCP 8443  →  192.168.1.212 port 8443     [ Copy ]
     UDP 443   →  192.168.1.212 port 443      [ Copy ]
 
   People will open  https://example.com:8443

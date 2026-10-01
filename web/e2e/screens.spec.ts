@@ -1033,13 +1033,57 @@ test.describe("system: server settings", () => {
     await expect(page.getByRole("list", { name: "Change steps" }).getByRole("listitem").first()).toContainText("Save your settings");
   });
 
+  test("at home: another public port", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
+    await page.goto("/admin/system/server");
+    await page.getByRole("button", { name: "Change" }).first().click();
+    await page.getByRole("button", { name: "Advanced" }).click();
+    await page.getByRole("radio", { name: /public port/ }).click();
+    // The owner's warning comes first (docs/SIMPLER.md §2.5).
+    await expect(page.getByText("Linx is designed and tuned to work best on port 443")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Check", exact: true })).toBeVisible();
+    await shot(page, "system-server-public-port-warning");
+    await page.getByRole("button", { name: "Use another port" }).click();
+    await page.getByLabel("Public web port").fill("5061");
+    await page.getByRole("button", { name: "Check", exact: true }).click();
+    await expect(page.getByText("5061 is used by Linx itself: choose another, like 8443.")).toBeVisible();
+    await page.getByLabel("Public web port").fill("8443");
+    await page.getByRole("radio", { name: /^3478/ }).click();
+    await expect(page.getByText("192.168.1.212 port 3478")).toBeVisible();
+    await expect(page.getByText("https://example.com:8443", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Check", exact: true }).click();
+    await expect(page.getByText("Passkeys keep working: they belong to example.com, whatever the port.")).toBeVisible();
+    await expect(page.getByText("On your router, forward TCP 8443 to 192.168.1.212 port 8443.")).toBeVisible();
+    await shot(page, "system-server-public-port");
+    await page.getByLabel("I've done these steps").click();
+    await page.getByRole("button", { name: "Apply" }).click();
+    await expect(page.getByRole("dialog", { name: "Move Linx to https://example.com:8443?" })).toBeVisible();
+  });
+
+  test("rented, no key: another public port asks for one", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
+    await page.goto("/admin/system/server");
+    await page.getByRole("button", { name: "Change" }).first().click();
+    await page.getByRole("button", { name: "Advanced" }).click();
+    await page.getByRole("radio", { name: /public port/ }).click();
+    await page.getByRole("button", { name: "Use another port" }).click();
+    await expect(page.getByText("Linx will open TCP 8443 and UDP 443 on this server's firewall")).toBeVisible();
+    // Certificates can't be checked on port 443: the DNS key form opens.
+    await expect(page.getByRole("heading", { name: "Keep the records right automatically" })).toBeVisible();
+    await shot(page, "system-server-public-port-rented");
+  });
+
   test("rented, no token: a new domain's DNS records to add first", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
     await page.goto("/admin/system/server");
     await page.getByRole("button", { name: "Change" }).first().click();
     await expect(page.getByRole("radio", { name: "Another program passes Linx through" })).toBeVisible();
-    // A proxy that unlocks the traffic is home only (decision 2026-09-30).
-    await expect(page.getByRole("button", { name: "Advanced" })).toHaveCount(0);
+    // A proxy that unlocks the traffic is home only (decision 2026-09-30);
+    // another public port is offered on rented servers too (ADR-064).
+    await page.getByRole("button", { name: "Advanced" }).click();
+    await expect(page.getByRole("radio", { name: /public port/ })).toBeVisible();
+    await expect(page.getByRole("radio", { name: /unlocks the traffic/ })).toHaveCount(0);
+    await page.getByRole("radio", { name: "Nothing else uses port 443 — Linx takes it" }).click();
     await page.getByRole("button", { name: "Change" }).first().click();
     await page.getByLabel("New domain").fill("pbx.example.org");
     // The front door's editor is open too: its Check stays off until it changes.
@@ -1285,6 +1329,20 @@ for (const [label, opts] of [["light", { colorScheme: "light", timezoneId: "Asia
       await expect(page.getByRole("radio", { name: /Another program passes Linx through/ })).toBeDisabled();
       await expect(page.getByRole("radio", { name: /unlock the traffic/ })).toHaveCount(0);
       await shot(page, `install-front-door-rented-${label}`);
+      // Another public port (advanced, ADR-064): the owner's warning first.
+      await page.getByRole("button", { name: "Advanced" }).click();
+      await page.getByRole("radio", { name: /use another public port/ }).click();
+      await expect(page.getByText("Linx is designed and tuned to work best on port 443")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
+      await shot(page, `install-public-port-warning-${label}`);
+      await page.getByRole("button", { name: "Use another port" }).click();
+      await page.getByLabel("Public web port").fill("6666");
+      await page.getByRole("button", { name: "Next" }).click();
+      await expect(page.getByText("6666 is blocked by browsers: choose another, like 8443.")).toBeVisible();
+      await page.getByLabel("Public web port").fill("8443");
+      await expect(page.getByText("Linx will open TCP 8443 and UDP 443 on this server's firewall")).toBeVisible();
+      await shot(page, `install-public-port-${label}`);
+      await page.getByRole("radio", { name: /Nothing else uses port 443/ }).click();
       await page.getByRole("button", { name: "Next" }).click();
 
       await expect(page.getByRole("heading", { name: "What's your domain?" })).toBeVisible();

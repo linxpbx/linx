@@ -132,6 +132,10 @@ services:
       # The relay's addresses as browsers reach them; empty is
       # turn.<domain> on 443 (an HTTP-only proxy's TLS relay is on 5349).
       LINX_TURN_URLS: ${LINX_TURN_URLS:-}
+      # The public port browsers use (443 unless the router or server brings
+      # another one here, docs/SIMPLER.md §2.5): Linx's address is then
+      # https://<domain>:<port>, for links, passkeys and company sign-in.
+      LINX_PUBLIC_PORT: ${LINX_PUBLIC_PORT:-443}
       # The server's time zone (setup reads it), so the backup schedule's
       # "03:00" means 03:00 on the server's clock.
       TZ: ${LINX_TZ:-UTC}
@@ -187,7 +191,7 @@ services:
     # For a front door on the home network (Pangolin): on the LAN address,
     # and the firewall lets only the front door in. 127.0.0.1 otherwise.
     ports:
-      - ${LINX_WEB_ADDRESS:-127.0.0.1}:8443:8443/tcp
+      - ${LINX_WEB_ADDRESS:-127.0.0.1}:${LINX_WEB_HOST_PORT-8443}:8443/tcp
     depends_on:
       postgres:
         condition: service_healthy
@@ -398,7 +402,9 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     ports:
-      - ${LINX_SNI_ADDRESS:-127.0.0.1}:443:443/tcp
+      # The public port: 443, or another the router or server brings here
+      # (docs/SIMPLER.md §2.5); linx-sni itself always listens on 443.
+      - ${LINX_SNI_ADDRESS:-127.0.0.1}:${LINX_PUBLIC_PORT:-443}:443/tcp
     volumes:
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     tmpfs: [/tmp]

@@ -20,6 +20,7 @@ import (
 	"linxpbx.com/linx/internal/hostinfo"
 	"linxpbx.com/linx/internal/installer"
 	"linxpbx.com/linx/internal/version"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 // setupEnv is everything setup touches on the host, so tests can fake it.
@@ -799,7 +800,7 @@ func chooseSetupMode(ctx context.Context, p *prompter, env setupEnv, webFlags bo
 			setupInBrowser:  "the Server settings page, for a system admin (domain, front door, size, Portainer, DNS token)",
 			setupInTerminal: "answer setup's questions again here, with your saved answers as the defaults",
 		}
-		fmt.Fprintf(p.out, "Linx is already installed here (https://%s).\n", cfg.Domain.Name)
+		fmt.Fprintf(p.out, "Linx is already installed here (%s).\n", cfg.Address())
 		mode, err := p.choose("How do you want to change its settings?", []string{setupInBrowser, setupInTerminal}, labels, setupInBrowser)
 		fmt.Fprintln(p.out)
 		return mode == setupInBrowser, err
@@ -834,11 +835,17 @@ func askFrontDoor(p *prompter, cfg *installer.Config, ask bool, lan installer.LA
 		if err != nil {
 			return err
 		}
-		if k != was || !installer.NeedsProxyAddress(k) {
+		if k != was || !installer.NeedsProxyAddress(k) && k != installer.FrontDoorPublicPort {
 			cfg.FrontDoor.ProxyAddress = ""
 			cfg.FrontDoor.TURNUDPPort = 0
+			cfg.FrontDoor.PublicPort = 0
 		}
 		cfg.FrontDoor.Kind = k
+		if k == installer.FrontDoorPublicPort {
+			if err := askPublicPort(p, cfg, lan); err != nil {
+				return err
+			}
+		}
 		if installer.NeedsProxyAddress(k) && lan.OK() {
 			what := map[string]string{installer.FrontDoorProxy: "that program", installer.FrontDoorHTTPProxy: "the proxy"}[k]
 			def := cfg.FrontDoor.ProxyAddress
@@ -886,6 +893,80 @@ func askFrontDoor(p *prompter, cfg *installer.Config, ask bool, lan installer.LA
 	return nil
 }
 
+// askPublicPort asks another public port's two ports, after the owner's
+// warning (docs/SIMPLER.md §2.5).
+func askPublicPort(p *prompter, cfg *installer.Config, lan installer.LAN) error {
+	fmt.Fprint(p.out, "\n"+wrap(installer.PublicPortWarning)+"\n\n")
+	def := "8443"
+	if cfg.FrontDoor.PublicPort != 0 {
+		def = strconv.Itoa(cfg.FrontDoor.PublicPort)
+	}
+	for {
+		a, err := p.text("Public web port, from 1024 to 65535", def)
+		if err != nil {
+			return err
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(a))
+		msg := weburl.Problem(n)
+		switch {
+		case err != nil:
+			msg = "Give a port number, like 8443."
+		case n == installer.PublicPort:
+			msg = "443 is the standard port: choose linx-443 instead (run setup again)."
+		}
+		if msg != "" {
+			fmt.Fprintln(p.out, "  "+msg)
+			continue
+		}
+		cfg.FrontDoor.PublicPort = n
+		break
+	}
+	fmt.Fprint(p.out, "\nCall audio comes in on a UDP port. 443 is recommended: it's often free even when TCP 443 isn't.\n"+
+		"Use 3478 if your router can't forward UDP 443.\n")
+	for {
+		a, err := p.text("UDP port for call audio", strconv.Itoa(cfg.FrontDoor.UDPPort()))
+		if err != nil {
+			return err
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(a))
+		if err == nil {
+			err = installer.ValidateTURNUDPPort(n)
+		}
+		if err != nil {
+			fmt.Fprintln(p.out, "  Give a port number, like 443 or 3478.")
+			continue
+		}
+		cfg.FrontDoor.TURNUDPPort = n
+		if n == installer.PublicPort {
+			cfg.FrontDoor.TURNUDPPort = 0
+		}
+		break
+	}
+	for _, w := range installer.PublicPortWarnings {
+		fmt.Fprintln(p.out, wrap("Note: "+w))
+	}
+	fmt.Fprintln(p.out, "Without port 443, Let's Encrypt can only check your domain through your DNS company, so setup needs its key.")
+	return nil
+}
+
+// wrap breaks s into lines of at most 100 characters, for the terminal.
+func wrap(s string) string {
+	var b strings.Builder
+	n := 0
+	for i, w := range strings.Fields(s) {
+		if i > 0 && n+1+len(w) > 100 {
+			b.WriteByte('\n')
+			n = 0
+		} else if i > 0 {
+			b.WriteByte(' ')
+			n++
+		}
+		b.WriteString(w)
+		n += len(w)
+	}
+	return b.String()
+}
+
 // printFrontDoor tells the owner what to do outside this server.
 func printFrontDoor(w io.Writer, cfg installer.Config, lan installer.LAN) {
 	fd := cfg.FrontDoor
@@ -902,9 +983,15 @@ func printFrontDoor(w io.Writer, cfg installer.Config, lan installer.LAN) {
 		}
 		fmt.Fprintf(w, "\nLinx now answers on port 443 itself. If a router is in front, forward TCP and UDP port 443 to %s.\n"+
 			"Then check with: sudo linx doctor\n", where)
+	case installer.FrontDoorPublicPort:
+		fmt.Fprintf(w, "\nLinx answers at %s.\n", cfg.Address())
+		for _, step := range installer.PublicPortSteps(fd, lan) {
+			fmt.Fprintln(w, wrap(step))
+		}
+		fmt.Fprintln(w, "Then check with: sudo linx doctor")
 	case installer.FrontDoorHomeOnly:
-		fmt.Fprintf(w, "\nLinx answers at https://%s on this home network only (%s). Calls from outside aren't set up.\n",
-			cfg.Domain.Name, lan.Address)
+		fmt.Fprintf(w, "\nLinx answers at %s on this home network only (%s). Calls from outside aren't set up.\n",
+			cfg.Address(), lan.Address)
 	default:
 		fmt.Fprintln(w, "\nLinx has no web address yet, and calls from outside aren't set up. Run setup again and pick a front door when you want them.")
 	}

@@ -13,6 +13,7 @@ import (
 
 	"linxpbx.com/linx/internal/dnsapi"
 	"linxpbx.com/linx/internal/dnsname"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 // ConfigPath is where setup saves the owner's answers. Re-running setup reads
@@ -119,6 +120,10 @@ func ParseConfig(r io.Reader) (Config, error) {
 	return c, c.Validate()
 }
 
+// Address is Linx's public web address: https://<domain>, with the public
+// port unless it's 443.
+func (c Config) Address() string { return weburl.Origin(c.Domain.Name, c.FrontDoor.Port()) }
+
 // Validate checks every field.
 func (c Config) Validate() error {
 	var errs []error
@@ -154,7 +159,8 @@ func (c Config) Validate() error {
 		errs = append(errs, fmt.Errorf("front_door.%w", err))
 	}
 	if c.Certificates.NoDNSToken && (c.FrontDoor.Kind != FrontDoorLinx443 || c.Certificates.Staging) {
-		errs = append(errs, errors.New("certificates.no_dns_token: only with front_door.kind linx-443 and trusted (not staging) certificates"))
+		errs = append(errs, errors.New("certificates.no_dns_token: only with front_door.kind linx-443 and trusted (not staging) certificates "+
+			"(without port 443, Let's Encrypt can only check the domain through the DNS company)"))
 	}
 	if c.TimeZone != "" {
 		if err := ValidateTimeZone(c.TimeZone); err != nil {
@@ -226,7 +232,8 @@ domain:
   email: %q
 %s# What sits in front of Linx on the internet (docs/WEB.md §3): pangolin,
 # nginx (nginx or HAProxy on port 443), http-proxy (Caddy, Nginx Proxy
-# Manager, ...), linx-443 (nothing: Linx takes port 443 itself), home-only
+# Manager, ...), linx-443 (nothing: Linx takes port 443 itself), public-port
+# (advanced: Linx takes another public port, public_port below), home-only
 # (Linx answers on this home network only) or none.
 front_door:
   kind: %s
@@ -240,6 +247,11 @@ front_door:
 		fmt.Fprintf(&b, `  # The UDP port the router forwards to Linx for call audio (443 if not set).
   turn_udp_port: %d
 `, c.FrontDoor.TURNUDPPort)
+	}
+	if c.FrontDoor.PublicPort != 0 {
+		fmt.Fprintf(&b, `  # For public-port: the public port browsers use, https://<domain>:<port>.
+  public_port: %d
+`, c.FrontDoor.PublicPort)
 	}
 	if c.TimeZone != "" {
 		fmt.Fprintf(&b, `# The time zone schedules use (backups, office hours), e.g. Asia/Dubai.

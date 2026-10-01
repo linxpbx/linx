@@ -218,8 +218,13 @@ func FirewallRuleset(lan LAN, fd FrontDoorSettings) []byte {
 		webElements = "\t\telements = { " + strings.Join(s, ", ") + " }\n"
 	}
 	guarded := fmt.Sprintf("{ %d, %d }", WebPort, TURNTLSPort)
-	if fd.TURNTLSOpen {
+	switch {
+	case fd.TURNTLSOpen:
 		guarded = fmt.Sprint(WebPort) // the router forwards 5349 from the internet
+	case fd.SNIPort == WebPort:
+		// 8443 is the public port, linx-sni's (the web port is then on a
+		// port of 127.0.0.1 only, FrontDoorSettings.WebHostPort).
+		guarded = fmt.Sprint(TURNTLSPort)
 	}
 	sip, rtp, plain := asteriskconf.SIPPort, fmt.Sprintf("%d-%d", asteriskconf.RTPStart, asteriskconf.RTPEnd), asteriskconf.PlainTrunkPort
 	return fmt.Appendf(nil, `#!/usr/sbin/nft -f

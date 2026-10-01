@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/turn"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 // The phone half of Check it: a link an admin opens on a phone with Wi-Fi
@@ -84,6 +85,9 @@ type Claimed struct {
 // Links holds the open phone links.
 type Links struct {
 	Domain string
+	// Address is Linx's web address (weburl.Origin: with the public port
+	// unless it's 443); "" is https://<Domain>.
+	Address string
 	// Proxies reports the front door's own address (auth.ClientIPResolver.Trusted).
 	Proxies func(netip.Addr) bool
 	// PublicIP is this network's public address, if known.
@@ -110,7 +114,13 @@ func (l *Links) New() Link {
 }
 
 // URL is where the phone opens a link.
-func (l *Links) URL(k Link) string { return "https://" + l.Domain + "/reach/" + k.Code }
+func (l *Links) URL(k Link) string {
+	a := l.Address
+	if a == "" {
+		a = weburl.Origin(l.Domain, 0)
+	}
+	return a + "/reach/" + k.Code
+}
 
 // Claim uses a code from addr, once.
 func (l *Links) Claim(ctx context.Context, code string, addr netip.Addr) (Claimed, error) {

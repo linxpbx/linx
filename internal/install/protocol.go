@@ -165,8 +165,10 @@ type Answers struct {
 	FrontDoor    string `json:"front_door"`
 	ProxyAddress string `json:"proxy_address,omitempty"`
 	TURNUDPPort  int    `json:"turn_udp_port,omitempty"`
-	Domain       string `json:"domain"`
-	Name         string `json:"name"`
+	// PublicPort is, for "another public port", the one browsers use.
+	PublicPort int    `json:"public_port,omitempty"`
+	Domain     string `json:"domain"`
+	Name       string `json:"name"`
 	// Email is Let's Encrypt's contact for certificate notices.
 	Email string `json:"email"`
 	// AdminEmail signs in to the first system admin account. Asked on its

@@ -7049,6 +7049,12 @@ components:
         turn_udp_port:
           type: integer
           description: The call relay's UDP port on the router, when it isn't 443.
+        public_port:
+          type: integer
+          description: For `public-port`, the public port browsers use (docs/SIMPLER.md §2.5).
+        address:
+          type: string
+          description: Linx's web address now, https://<domain> with the public port unless it's 443.
         front_doors:
           type: array
           description: The front doors this server may use.
@@ -7159,8 +7165,8 @@ components:
           description: A new domain (left out keeps it).
         front_door:
           type: string
-          enum: [linx-443, proxy, home-only, http-proxy]
-          description: A new front door (left out keeps it). `proxy` is another program passing Linx through by name (Pangolin, nginx, HAProxy, Caddy, ...); `http-proxy` a proxy that decrypts (advanced, home only).
+          enum: [linx-443, proxy, home-only, public-port, http-proxy]
+          description: A new front door (left out keeps it). `proxy` is another program passing Linx through by name (Pangolin, nginx, HAProxy, Caddy, ...); `public-port` Linx on another public port (advanced, `public_port`); `http-proxy` a proxy that decrypts (advanced, home only).
         proxy_address:
           type: string
           maxLength: 253
@@ -7168,6 +7174,11 @@ components:
           type: integer
           minimum: 0
           maximum: 65535
+        public_port:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: For `public-port`, the public port browsers use, like 8443.
         door_done:
           type: boolean
           description: The front door's steps (the preview's `setup`) are done.

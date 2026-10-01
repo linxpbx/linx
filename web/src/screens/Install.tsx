@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Building2, ChevronDown, House, ShieldAlert, TriangleAlert } from "lucide-react";
 import { Choice, Countdown, FieldMessage, Frame, LinkUnusable, Nav, submit, Title, useSecondsLeft } from "@/components/InstallFrame";
+import { PublicPortFields, PublicPortWarning } from "@/components/PublicPortChoice";
 import { CertificateStep, SecureInstall } from "@/screens/InstallCertificate";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -18,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import {
   browserTimeZone, checkAnswers, domainProblem, timeZones, emailProblem, emptyAnswers, getState, LinkClosed, nameProblem, portProblem,
-  proxyAddressProblem, proxyKinds, saveDraft, type Answers, type Facts, type FieldError, type FrontDoor,
+  proxyAddressProblem, proxyKinds, publicPortProblem, saveDraft, type Answers, type Facts, type FieldError, type FrontDoor,
   type InstallState, type Step,
 } from "@/lib/install";
 
@@ -175,6 +176,10 @@ const doorText: Partial<Record<FrontDoor, { title: string; hint: string }>> = {
   proxy: { title: "Another program passes Linx through", hint: "Pangolin, nginx, HAProxy, Caddy, Nginx Proxy Manager or similar already uses port 443 and sends Linx's names here." },
   "home-only": { title: "Nothing: only at home", hint: "Linx works on this network only. No calls from outside. Needs your DNS company's token on this unencrypted page." },
   "http-proxy": { title: "My proxy must unlock the traffic itself", hint: "For a proxy that can't pass Linx through. Not recommended." },
+  "public-port": {
+    title: "Nothing here can pass Linx through on 443: use another public port",
+    hint: "Your router brings another port, like 8443, to Linx. Some networks block it.",
+  },
 };
 
 function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepProps & { facts: Facts; onBack: () => void; onNext: () => void }) {
@@ -182,30 +187,43 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
   const noLAN = !facts.lan_address;
   const isProxy = proxyKinds.includes(answers.front_door as FrontDoor);
   const unlocking = answers.front_door === "http-proxy";
-  const [more, setMore] = useState(rented && isProxy);
-  const [advanced, setAdvanced] = useState(unlocking);
+  const otherPort = answers.front_door === "public-port";
+  const [more, setMore] = useState(rented && (isProxy || otherPort));
+  const [advanced, setAdvanced] = useState(unlocking || otherPort);
   const [anyway, setAnyway] = useState(unlocking);
+  // Another public port: the owner's warning first (docs/SIMPLER.md §2.5).
+  const [portAccepted, setPortAccepted] = useState(otherPort);
+  const [publicPort, setPublicPort] = useState(String(answers.public_port ?? 8443));
   const [portOpen, setPortOpen] = useState(!!answers.turn_udp_port && answers.turn_udp_port !== 443);
   const [touched, setTouched] = useState(false);
   const port = answers.turn_udp_port ?? 443;
   const addrProblem = isProxy ? proxyAddressProblem(answers.proxy_address ?? "") : "";
-  const portErr = isProxy ? portProblem(port) : "";
+  const portErr = isProxy || otherPort ? portProblem(port) : "";
+  const publicErr = otherPort ? publicPortProblem(Number(publicPort)) : "";
   const needsLAN = (d: FrontDoor) => proxyKinds.includes(d) || d === "home-only";
   const text = (d: FrontDoor) => d === "linx-443" && rented
     ? { title: doorText["linx-443"]!.title, hint: "Your server provider sends port 443 here." }
-    : doorText[d]!;
+    : d === "public-port" && rented
+      ? { title: doorText["public-port"]!.title, hint: "This server takes another port, like 8443, itself. Some networks block it." }
+      : doorText[d]!;
   const choice = (d: FrontDoor, badge?: string) => (
     <Choice key={d} id={`door-${d}`} value={d} title={text(d).title} badge={badge} disabled={noLAN && needsLAN(d)}
       hint={noLAN && needsLAN(d) ? "Needs this server on a home network, and it isn't on one." : text(d).hint} />
   );
   const choose = (d: FrontDoor) => {
     if (d !== "http-proxy") setAnyway(false);
-    set({ front_door: d, ...(proxyKinds.includes(d) ? {} : { proxy_address: undefined, turn_udp_port: undefined }) });
+    if (d !== "public-port") setPortAccepted(false);
+    set({
+      front_door: d,
+      ...(proxyKinds.includes(d) ? {} : { proxy_address: undefined }),
+      ...(proxyKinds.includes(d) || d === "public-port" ? {} : { turn_udp_port: undefined }),
+      public_port: d === "public-port" ? Number(publicPort) || 0 : undefined,
+    });
   };
-  const ready = !!answers.front_door && (!unlocking || anyway);
+  const ready = !!answers.front_door && (!unlocking || anyway) && (!otherPort || portAccepted);
 
   return (
-    <form onSubmit={submit(() => { setTouched(true); if (ready && !addrProblem && !portErr) onNext(); })}>
+    <form onSubmit={submit(() => { setTouched(true); if (ready && !addrProblem && !portErr && !publicErr) onNext(); })}>
       <Title>{rented ? "How do people reach this server from the internet?" : "What's in front of Linx on the internet?"}</Title>
       <RadioGroup value={answers.front_door} aria-label="What's in front of this server" onValueChange={(v) => choose(v as FrontDoor)}>
         {rented ? (
@@ -218,6 +236,16 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
               Something else already uses port 443 here
             </button>
             {more && choice("proxy")}
+            {more && (
+              <>
+                <button type="button" aria-expanded={advanced} onClick={() => setAdvanced(!advanced)}
+                  className="flex items-center gap-1 justify-self-start text-sm text-link hover:underline">
+                  <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", !advanced && "-rotate-90")} />
+                  Advanced
+                </button>
+                {advanced && choice("public-port")}
+              </>
+            )}
           </>
         ) : (
           <>
@@ -227,6 +255,7 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
               <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", !advanced && "-rotate-90")} />
               Advanced
             </button>
+            {advanced && choice("public-port")}
             {advanced && choice("http-proxy")}
           </>
         )}
@@ -245,6 +274,20 @@ function FrontDoorStep({ answers, set, errorFor, facts, onBack, onNext }: StepPr
             <Button type="button" variant="outline" onClick={() => choose("proxy")}>Show me how</Button>
             <Button type="button" onClick={() => setAnyway(true)}>Use it anyway</Button>
           </div>
+        </div>
+      )}
+      {otherPort && !portAccepted && (
+        <div className="mt-4">
+          <PublicPortWarning onDoors={() => { setMore(true); choose(rented ? "linx-443" : "proxy"); }} onUse={() => setPortAccepted(true)} />
+        </div>
+      )}
+      {otherPort && portAccepted && (
+        <div className="mt-4 rounded-md border p-4">
+          <PublicPortFields id="install" port={publicPort} udp={port} domain={answers.domain.trim().toLowerCase()}
+            lanAddress={rented ? undefined : facts.lan_address}
+            onPort={(v) => { setPublicPort(v); set({ public_port: Number(v) || 0 }); }}
+            onUdp={(v) => set({ turn_udp_port: v })}
+            errors={{ public_port: (touched && publicErr) || errorFor("public_port"), turn_udp_port: (touched && portErr) || errorFor("turn_udp_port") }} />
         </div>
       )}
       {isProxy && (

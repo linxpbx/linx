@@ -294,7 +294,7 @@ func TestSetupChoosesBrowserOrTerminal(t *testing.T) {
 		want        string
 	}{
 		{"enter picks the browser", "\n", true, true, "Start the web install"},
-		{"terminal", "2\n\nMars/Olympus\nAsia/Dubai\ny\n5\n\nlab.linxpbx.com\n\n\n\n\n\n", true, true, "isn't a time zone this server knows"},
+		{"terminal", "2\n\nMars/Olympus\nAsia/Dubai\ny\n6\n\nlab.linxpbx.com\n\n\n\n\n\n", true, true, "isn't a time zone this server knows"},
 		{"no terminal", "", false, false, "Start the web install"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -324,5 +324,36 @@ func TestPrompterChoose(t *testing.T) {
 	p = &prompter{in: bufio.NewReader(strings.NewReader("")), out: &bytes.Buffer{}}
 	if _, err := p.confirm("?", true); !errors.Is(err, io.EOF) {
 		t.Errorf("confirm at EOF: %v", err)
+	}
+}
+
+// TestAskFrontDoorPublicPort: another public port is asked after the
+// owner's warning; refused ports say why, and the router rules name both
+// ports (docs/SIMPLER.md §2.5).
+func TestAskFrontDoorPublicPort(t *testing.T) {
+	lan := installer.LAN{Address: netip.MustParseAddr("192.168.1.20"), Network: netip.MustParsePrefix("192.168.1.0/24")}
+	var out bytes.Buffer
+	p := &prompter{in: bufio.NewReader(strings.NewReader("5\n5061\n443\n9443\n3478\n")), out: &out}
+	cfg := installer.DefaultConfig()
+	cfg.Domain.Name = "pbx.example.com"
+	if err := askFrontDoor(p, &cfg, true, lan); err != nil {
+		t.Fatal(err)
+	}
+	want := installer.FrontDoorConfig{Kind: installer.FrontDoorPublicPort, PublicPort: 9443, TURNUDPPort: 3478}
+	if cfg.FrontDoor != want {
+		t.Fatalf("front door = %+v, want %+v\n%s", cfg.FrontDoor, want, out.String())
+	}
+	for _, s := range []string{"designed and tuned to work best on port 443", "5061 is used by Linx itself",
+		"443 is the standard port", "may fail or have no audio", "needs its key"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("missing %q:\n%s", s, out.String())
+		}
+	}
+	out.Reset()
+	printFrontDoor(&out, cfg, lan)
+	for _, s := range []string{"https://pbx.example.com:9443", "forward TCP 9443 to 192.168.1.20 port 9443", "forward UDP 3478 to 192.168.1.20 port 3478"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("missing %q:\n%s", s, out.String())
+		}
 	}
 }

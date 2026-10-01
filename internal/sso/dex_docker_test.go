@@ -66,7 +66,7 @@ func TestDexDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	redirect := RedirectURI("linx.test")
+	redirect := RedirectURI("https://linx.test")
 	cfg := fmt.Sprintf(`issuer: %s
 storage:
   type: memory

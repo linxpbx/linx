@@ -17,9 +17,10 @@ import (
 // CertMode is how the first certificate is got for a front door: through
 // port 443 without a token, unless the front door can't pass Let's
 // Encrypt's check through to Linx (an HTTP-only proxy decrypts it; home
-// only isn't reachable at all), where the DNS token is asked instead.
+// only isn't reachable at all; another public port isn't 443, the only
+// port Let's Encrypt checks), where the DNS token is asked instead.
 func CertMode(kind string) string {
-	if kind == FrontDoorHTTPProxy || kind == FrontDoorHomeOnly {
+	if kind == FrontDoorHTTPProxy || kind == FrontDoorHomeOnly || kind == FrontDoorPublicPort {
 		return install.CertToken
 	}
 	return install.CertPort443
@@ -28,7 +29,7 @@ func CertMode(kind string) string {
 // CertView is the certificate page for the saved answers: its mode, the
 // record to add and the front door's own steps.
 func CertView(c Config, lan LAN, facts install.Facts) install.CertView {
-	v := install.CertView{Mode: CertMode(c.FrontDoor.Kind), Domain: c.Domain.Name, FrontDoor: c.FrontDoor.Kind, Setup: DoorSetup(c, lan)}
+	v := install.CertView{Mode: CertMode(c.FrontDoor.Kind), Domain: c.Domain.Name, Address: c.Address(), FrontDoor: c.FrontDoor.Kind, Setup: DoorSetup(c, lan)}
 	if v.Mode == install.CertPort443 {
 		for _, h := range certs.BootstrapHosts {
 			v.AddRecords = append(v.AddRecords, install.Record{Type: "A", Name: dnsname.Host(h, c.Domain.Name), Value: facts.PublicAddress})
@@ -57,8 +58,45 @@ func DoorSetup(c Config, lan LAN) *install.DoorSetup {
 		if lan.OK() {
 			return &install.DoorSetup{Steps: []string{fmt.Sprintf("On your router, send TCP and UDP port 443 to this server (%s).", lan.Address)}}
 		}
+	case FrontDoorPublicPort:
+		return &install.DoorSetup{Steps: PublicPortSteps(c.FrontDoor, lan)}
 	}
 	return nil
+}
+
+// PublicPortWarning is the owner's words above the choice of another
+// public port, and next to it (docs/SIMPLER.md §2.5, owner 2026-09-29).
+const PublicPortWarning = "Linx is designed and tuned to work best on port 443, the standard port for secure websites. " +
+	"It's always the recommended choice: almost every network lets it through, so sign-in, calls and meetings work " +
+	"wherever people are. Another port can work, but some networks block it, so some features may not work everywhere, " +
+	"and calls from those places may fail or sound worse."
+
+// PublicPortWarnings are what another public port trades away
+// (docs/SIMPLER.md §2.5 items 5 and 6).
+var PublicPortWarnings = []string{
+	"Browser calls from networks that only allow standard web traffic, like some hotels, workplaces, public Wi-Fi and " +
+		"mobile networks, may fail or have no audio, because this setup can't use port 443 for them. Calls from normal " +
+		"home and mobile networks work.",
+	"Some company, school and public networks block any address with a port like :8443. There, even this page and " +
+		"signing in can fail. A front door on port 443 (Pangolin, nginx, Caddy or Nginx Proxy Manager passing Linx " +
+		"through), or a small rented server as your front door, keeps port 443.",
+}
+
+// PublicPortSteps are the router rules for another public port
+// (docs/ui/SCREENS_PHASE1F.md §4.2), or, on a rented server, what Linx
+// opens itself.
+func PublicPortSteps(f FrontDoorConfig, lan LAN) []string {
+	tcp, udp := f.Port(), f.UDPPort()
+	if !lan.OK() {
+		return []string{fmt.Sprintf("Linx opens TCP %d and UDP %d on this server itself: there's nothing to forward. "+
+			"If your server provider has a firewall of its own, open those two there.", tcp, udp)}
+	}
+	return []string{
+		fmt.Sprintf("On your router, forward TCP %d to %s port %d.", tcp, lan.Address, tcp),
+		fmt.Sprintf("On your router, forward UDP %d to %s port %d.", udp, lan.Address, udp),
+		fmt.Sprintf("People at the office use the same address. If it doesn't open there, turn on NAT loopback (hairpin) "+
+			"on your router, or add the domain to your local DNS pointing at %s.", lan.Address),
+	}
 }
 
 // installEnvCert is the certificate page's part of install.env.
@@ -74,9 +112,11 @@ LINX_TRUSTED_PROXIES=%s
 LINX_PROXY_PROTOCOL=%t
 LINX_WEB_ADDRESS=%s
 LINX_SNI_ADDRESS=%s
+LINX_PUBLIC_PORT=%d
+LINX_WEB_HOST_PORT=%s
 COMPOSE_PROFILES=%s
 `, c.FrontDoor.Kind, c.Domain.Name, c.Certificates.Email, c.Domain.DNSProvider, fd.TrustedProxies, fd.ProxyProtocol,
-		fd.WebAddress, fd.SNIAddress, fd.ComposeProfiles)
+		fd.WebAddress, fd.SNIAddress, fd.SNIPort, fd.WebHostPort, fd.ComposeProfiles)
 }
 
 // InstallCertEnv is install.env for the certificate page.

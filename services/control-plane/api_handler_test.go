@@ -121,7 +121,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	calls := &fakeCalls{connected: true}
 	authn.Sessions = st
 	accounts := &auth.Accounts{Store: st, Sealer: sender.Sealer, Alerts: nil, Failures: authn.Failures, Now: time.Now, Passkeys: st}
-	if accounts.WebAuthn, err = auth.NewWebAuthn("linx.example.com"); err != nil {
+	if accounts.WebAuthn, err = auth.NewWebAuthn("linx.example.com", 443); err != nil {
 		t.Fatal(err)
 	}
 	turnIssuer := &turn.Issuer{Secret: []byte("test-turn-secret"), URLs: turn.DefaultURLs("linx.example.com"), Now: time.Now}

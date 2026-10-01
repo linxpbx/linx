@@ -10,9 +10,10 @@ import (
 
 // legacyHosts sends the web app's old names (meet.<domain>, api.<domain>,
 // before it moved to the domain itself on 2026-09-28) to the same path on
-// https://<domain>, so old bookmarks and links keep working while a front
-// door still passes those names through. Everything else goes to next.
-func legacyHosts(domain string, next http.Handler) http.Handler {
+// Linx's address (https://<domain>, with the public port unless it's 443),
+// so old bookmarks and links keep working while a front door still passes
+// those names through. Everything else goes to next.
+func legacyHosts(domain, address string, next http.Handler) http.Handler {
 	if domain == "" {
 		return next
 	}
@@ -26,7 +27,7 @@ func legacyHosts(domain string, next http.Handler) http.Handler {
 			host = h
 		}
 		if old[strings.ToLower(host)] {
-			http.Redirect(w, r, "https://"+domain+r.URL.RequestURI(), http.StatusPermanentRedirect)
+			http.Redirect(w, r, address+r.URL.RequestURI(), http.StatusPermanentRedirect)
 			return
 		}
 		next.ServeHTTP(w, r)

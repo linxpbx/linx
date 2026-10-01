@@ -90,7 +90,7 @@ func serverSettingsView(v install.ServerView) (ServerSettingsView, error) {
 		doors = []string{}
 	}
 	b, err := json.Marshal(map[string]any{
-		"where": v.Where, "front_door": v.FrontDoor, "proxy_address": v.ProxyAddress, "turn_udp_port": v.TURNUDPPort, "front_doors": doors,
+		"where": v.Where, "front_door": v.FrontDoor, "proxy_address": v.ProxyAddress, "turn_udp_port": v.TURNUDPPort, "public_port": v.PublicPort, "address": v.Address, "front_doors": doors,
 		"public_address": v.PublicAddress, "lan_address": v.LANAddress, "problem": v.Problem, "repair": v.Repair, "no_sign_in": v.NoSignIn,
 		"domain": v.Domain, "provider": v.Provider, "token_saved": v.Token != "", "dns_by_hand": v.DNSByHand,
 		"profile": v.Profile, "profiles": profiles, "profile_pick": v.ProfilePick, "profile_reason": v.ProfileReason,
@@ -133,6 +133,9 @@ func serverChange(b ServerSettingsChange) install.ServerChange {
 	}
 	if b.TurnUdpPort != nil {
 		c.TURNUDPPort = *b.TurnUdpPort
+	}
+	if b.PublicPort != nil {
+		c.PublicPort = *b.PublicPort
 	}
 	if b.DoorDone != nil {
 		c.DoorDone = *b.DoorDone

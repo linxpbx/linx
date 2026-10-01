@@ -18,7 +18,7 @@ const testOrigin = "https://linx.test"
 func newPasskeyAccounts(t *testing.T) (*Accounts, *fakeAccountStore, *fakeAlerts) {
 	t.Helper()
 	a, st, alerts := newTestAccounts(t)
-	wa, err := NewWebAuthn("linx.test")
+	wa, err := NewWebAuthn("linx.test", 443)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +115,45 @@ func TestPasskeySetupLinkAndSignIn(t *testing.T) {
 	// No password to guess: any password is refused.
 	_, err = a.SignIn(context.Background(), tenant, "owner@example.com", "", passkeyIP, "ua")
 	wantCode(t, err, "sign_in_invalid")
+}
+
+// TestPasskeyAcrossPublicPort: a passkey belongs to the domain, so one
+// made on port 443 signs in on another public port and back
+// (docs/SIMPLER.md §2.5 item 2); a page at another port than the server's
+// own is still refused.
+func TestPasskeyAcrossPublicPort(t *testing.T) {
+	a, _, _ := newPasskeyAccounts(t)
+	tenant := uuid.New()
+	dev := webauthntest.New(testOrigin)
+	passkeyOnlyUser(t, a, tenant, "port@example.com", RoleUser, dev)
+
+	moved, err := NewWebAuthn("linx.test", 8443)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.WebAuthn = moved
+	dev.Origin = "https://linx.test:8443"
+	if _, err := signInWithPasskey(t, a, tenant, dev); err != nil {
+		t.Fatalf("made on 443, signing in on 8443: %v", err)
+	}
+	dev.Origin = testOrigin
+	if _, err := signInWithPasskey(t, a, tenant, dev); err != nil {
+		t.Fatalf("made on 443, signing in on 443 while the port is 8443: %v", err)
+	}
+	dev.Origin = "https://linx.test:9443"
+	if _, err := signInWithPasskey(t, a, tenant, dev); err == nil {
+		t.Fatal("a page on port 9443 signed in; the server's port is 8443")
+	}
+
+	back, err := NewWebAuthn("linx.test", 443)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.WebAuthn = back
+	dev.Origin = testOrigin
+	if _, err := signInWithPasskey(t, a, tenant, dev); err != nil {
+		t.Fatalf("back on 443: %v", err)
+	}
 }
 
 func TestPasskeyChallengeIsSingleUseAndChecked(t *testing.T) {

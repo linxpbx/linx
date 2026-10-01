@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 // Provider kinds: the templates of docs/ADMIN.md §6. The kind decides the
@@ -32,10 +33,11 @@ const GoogleIssuer = "https://accounts.google.com"
 
 // CallbackPath is where every provider sends the browser back: one address
 // for all of them, registered at each provider as the redirect URI.
-const CallbackPath = "/api/v1/sso/callback"
+const CallbackPath = weburl.SSOCallbackPath
 
-// RedirectURI is the address to register at the provider for domain.
-func RedirectURI(domain string) string { return "https://" + domain + CallbackPath }
+// RedirectURI is the address to register at the provider for Linx's web
+// address (weburl.Origin: with the public port unless it's 443).
+func RedirectURI(origin string) string { return weburl.SSOCallback(origin) }
 
 // Provider is one company sign-in provider. ClientSecretEnc is sealed with
 // ADR-030's key, row id SealID(ID); nil when the provider has no secret (a

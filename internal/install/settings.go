@@ -34,9 +34,13 @@ type ServerView struct {
 	// Where is shown, not changed: it follows this server's network.
 	Where     string `json:"where"`
 	FrontDoor string `json:"front_door"`
-	// ProxyAddress and TURNUDPPort: the front door's own settings, if any.
+	// ProxyAddress, TURNUDPPort and PublicPort: the front door's own
+	// settings, if any.
 	ProxyAddress string `json:"proxy_address,omitempty"`
 	TURNUDPPort  int    `json:"turn_udp_port,omitempty"`
+	PublicPort   int    `json:"public_port,omitempty"`
+	// Address is Linx's web address now (with the public port unless 443).
+	Address string `json:"address"`
 	// FrontDoors are the front doors this server may use
 	// (installer.FrontDoorsFor Where).
 	FrontDoors []string `json:"front_doors,omitempty"`
@@ -95,6 +99,7 @@ type ServerChange struct {
 	FrontDoor    string `json:"front_door,omitempty"`
 	ProxyAddress string `json:"proxy_address,omitempty"`
 	TURNUDPPort  int    `json:"turn_udp_port,omitempty"`
+	PublicPort   int    `json:"public_port,omitempty"`
 	// DoorDone: the front door's steps (ServerPreview.Setup) are done.
 	DoorDone bool `json:"door_done,omitempty"`
 }

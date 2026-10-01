@@ -58,7 +58,7 @@ func TestWebSetupAlreadyInstalled(t *testing.T) {
 	t.Run("working", func(t *testing.T) {
 		env := webTestEnv(t, hostRunner{start: ""}, "192.168.1.20")
 		env.savedConfig = func() ([]byte, error) { return []byte("version: 1\ndomain:\n  name: lab.linxpbx.com\n"), nil }
-		env.web.secureCheck = func(context.Context, string) error { return nil }
+		env.web.secureCheck = func(context.Context, string, int) error { return nil }
 		var out, errOut bytes.Buffer
 		code := runSetup(context.Background(), nil, &out, &errOut, env)
 		for _, want := range []string{"Linx is installed at https://lab.linxpbx.com (working ✓)", "https://lab.linxpbx.com/admin/system/server", "Nothing was reopened"} {
@@ -90,7 +90,7 @@ func TestWebSetupAlreadyInstalled(t *testing.T) {
 	}
 	t.Run("address not answering: the repair page", func(t *testing.T) {
 		env, ran := repairRig(t, hostRunner{repairStart: ""})
-		env.web.secureCheck = func(context.Context, string) error { return errors.New("x509: certificate has expired") }
+		env.web.secureCheck = func(context.Context, string, int) error { return errors.New("x509: certificate has expired") }
 		var out, errOut bytes.Buffer
 		code := runSetup(context.Background(), nil, &out, &errOut, env)
 		rs, err := install.LoadRepairState(env.web.repairPath)
@@ -118,7 +118,7 @@ func TestWebSetupAlreadyInstalled(t *testing.T) {
 	})
 	t.Run("--no-sign-in", func(t *testing.T) {
 		env, _ := repairRig(t, hostRunner{repairStart: ""})
-		env.web.secureCheck = func(context.Context, string) error { return nil }
+		env.web.secureCheck = func(context.Context, string, int) error { return nil }
 		var out, errOut bytes.Buffer
 		code := runSetup(context.Background(), []string{"--new-link", "--no-sign-in"}, &out, &errOut, env)
 		rs, _ := install.LoadRepairState(env.web.repairPath)
@@ -128,7 +128,7 @@ func TestWebSetupAlreadyInstalled(t *testing.T) {
 	})
 	t.Run("working again: the repair page closes", func(t *testing.T) {
 		env, ran := repairRig(t, hostRunner{start: "", "systemctl is-active --quiet linx-setup.service": "", "systemctl stop linx-setup.service": ""})
-		env.web.secureCheck = func(context.Context, string) error { return nil }
+		env.web.secureCheck = func(context.Context, string, int) error { return nil }
 		if err := install.NewRepairState(env.web.now(), false, "").Save(env.web.repairPath); err != nil {
 			t.Fatal(err)
 		}

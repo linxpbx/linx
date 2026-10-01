@@ -21,6 +21,7 @@ import (
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/store"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 const userUsage = `Usage:
@@ -331,9 +332,9 @@ func userReset2FA(ctx context.Context, st userAdmin, accounts *auth.Accounts, al
 }
 
 func printSetupLink(stdout io.Writer, u auth.User, token string) {
-	domain := os.Getenv("LINX_DOMAIN")
-	if domain == "" {
-		domain = "<your domain>"
+	address := weburl.FromEnv(os.Getenv)
+	if address == "" {
+		address = "https://<your domain>"
 	}
-	fmt.Fprintf(stdout, "%s (%s, %s) can now set their password. Send them this link yourself — it works once, for 24 hours:\n\n  https://%s/setup/%s\n\n", u.Name, u.Email, u.Role, domain, token)
+	fmt.Fprintf(stdout, "%s (%s, %s) can now set their password. Send them this link yourself — it works once, for 24 hours:\n\n  %s/setup/%s\n\n", u.Name, u.Email, u.Role, address, token)
 }

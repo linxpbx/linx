@@ -3,6 +3,8 @@ package installer
 import (
 	"bytes"
 	"net/netip"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -29,6 +31,15 @@ func TestFrontDoorConfigValidate(t *testing.T) {
 		{FrontDoorConfig{Kind: FrontDoorPangolin, ProxyAddress: "fd00::1"}, false},
 		{FrontDoorConfig{Kind: FrontDoorLinx443, ProxyAddress: "192.168.1.30"}, false},
 		{FrontDoorConfig{Kind: "nginx"}, false},
+		{FrontDoorConfig{Kind: FrontDoorPublicPort, PublicPort: 8443}, true},
+		{FrontDoorConfig{Kind: FrontDoorPublicPort, PublicPort: 8443, TURNUDPPort: 3478}, true},
+		{FrontDoorConfig{Kind: FrontDoorPublicPort}, false},                   // which port?
+		{FrontDoorConfig{Kind: FrontDoorPublicPort, PublicPort: 443}, false},  // that's linx-443
+		{FrontDoorConfig{Kind: FrontDoorPublicPort, PublicPort: 5061}, false}, // Linx's own
+		{FrontDoorConfig{Kind: FrontDoorPublicPort, PublicPort: 6666}, false}, // browsers refuse it
+		{FrontDoorConfig{Kind: FrontDoorPublicPort, PublicPort: 80}, false},
+		{FrontDoorConfig{Kind: FrontDoorLinx443, PublicPort: 8443}, false},
+		{FrontDoorConfig{Kind: FrontDoorPublicPort, PublicPort: 8443, ProxyAddress: "192.168.1.30"}, false},
 	} {
 		if err := tc.f.Validate(); (err == nil) != tc.ok {
 			t.Errorf("%+v: %v", tc.f, err)
@@ -306,5 +317,114 @@ func TestSNIRestartPlan(t *testing.T) {
 	c.FrontDoor.Kind = FrontDoorPangolin
 	if p := SNIRestartPlan(c, LAN{}, old); p != nil {
 		t.Errorf("no linx-sni behind Pangolin: %v", p)
+	}
+}
+
+// TestFrontDoorPublicPort: another public port (docs/SIMPLER.md §2.5):
+// linx-sni published there, coturn's UDP on its own port, both advertised
+// to browsers, and 8443 taken over from the web port.
+func TestFrontDoorPublicPort(t *testing.T) {
+	lan := LAN{Address: netip.MustParseAddr("192.168.1.20"), Network: netip.MustParsePrefix("192.168.1.0/24")}
+	cfg := DefaultConfig()
+	cfg.Domain.Name = "lab.example.com"
+	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorPublicPort, PublicPort: 9443}
+	if a := cfg.Address(); a != "https://lab.example.com:9443" {
+		t.Errorf("Address = %q", a)
+	}
+	home := FrontDoorFor(cfg, lan)
+	if home.SNIAddress != lan.Address || home.SNIPort != 9443 || home.TURNUDPAddress != lan.Address || home.TURNUDPPort != 443 ||
+		home.TrustedProxies != SNIContainerName || home.ComposeProfiles != FrontDoorLinx443 || home.WebHostPort != "8443" ||
+		home.TURNURLs != "turn:turn.lab.example.com:443?transport=udp,turns:turn.lab.example.com:9443?transport=tcp" {
+		t.Errorf("public port 9443 at home: %+v", home)
+	}
+	if fw := string(FirewallRuleset(lan, home)); !strings.Contains(fw, "tcp dport { 8443, 5349 } counter drop") {
+		t.Errorf("9443: the web port is no longer guarded:\n%s", fw)
+	}
+
+	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorPublicPort, PublicPort: 8443, TURNUDPPort: 3478}
+	vps := FrontDoorFor(cfg, LAN{})
+	if vps.SNIAddress.String() != "0.0.0.0" || vps.SNIPort != 8443 || vps.TURNUDPPort != 3478 || vps.WebHostPort != "" ||
+		vps.TURNURLs != "turn:turn.lab.example.com:3478?transport=udp,turns:turn.lab.example.com:8443?transport=tcp" {
+		t.Errorf("public port 8443 on a rented server: %+v", vps)
+	}
+	fw := string(FirewallRuleset(LAN{}, vps))
+	if strings.Contains(fw, "dport { 8443") || !strings.Contains(fw, "tcp dport 5349 counter drop") {
+		t.Errorf("8443 is the public port, yet the firewall drops it:\n%s", fw)
+	}
+	env := string(stackDotEnv(cfg, "v1", LAN{}))
+	for _, want := range []string{"\nLINX_PUBLIC_PORT=8443\n", "\nLINX_WEB_HOST_PORT=\n", "\nLINX_TURN_UDP_PORT=3478\n", "\nLINX_SNI_ADDRESS=0.0.0.0\n"} {
+		if !strings.Contains(env, want) {
+			t.Errorf(".env misses %q:\n%s", want, env)
+		}
+	}
+	if CertMode(FrontDoorPublicPort) != install.CertToken {
+		t.Error("another public port gets its certificate through port 443")
+	}
+	if s := DoorSetup(cfg, LAN{}); len(s.Steps) != 1 || !strings.Contains(s.Steps[0], "opens TCP 8443 and UDP 3478 on this server") {
+		t.Errorf("rented server steps: %+v", s)
+	}
+	if s := DoorSetup(cfg, lan); len(s.Steps) != 3 || s.Steps[0] != "On your router, forward TCP 8443 to 192.168.1.20 port 8443." ||
+		s.Steps[1] != "On your router, forward UDP 3478 to 192.168.1.20 port 3478." {
+		t.Errorf("home steps: %+v", s)
+	}
+
+	// Saved and read back the same; certificates need the DNS key.
+	cfg.Certificates = CertificateConfig{Email: "me@example.com"}
+	back, err := ParseConfig(bytes.NewReader(cfg.Marshal()))
+	if err != nil || back.FrontDoor != cfg.FrontDoor {
+		t.Errorf("read back %+v, %v", back.FrontDoor, err)
+	}
+	cfg.Certificates.NoDNSToken = true
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "no_dns_token") {
+		t.Errorf("no DNS key with another public port: %v", err)
+	}
+
+	// Linx-443 stays as it was.
+	cfg.FrontDoor = FrontDoorConfig{Kind: FrontDoorLinx443}
+	if l := FrontDoorFor(cfg, LAN{}); l.SNIPort != 443 || l.WebHostPort != "8443" || l.TURNURLs != "" {
+		t.Errorf("linx-443: %+v", l)
+	}
+	if a := cfg.Address(); a != "https://lab.example.com" {
+		t.Errorf("Address = %q", a)
+	}
+}
+
+func TestFrontDoorChoicePublicPort(t *testing.T) {
+	for _, tc := range []struct {
+		port, udp int
+		field     string
+	}{
+		{8443, 0, ""},
+		{8443, 3478, ""},
+		{0, 0, "public_port"},
+		{443, 0, "public_port"},
+		{5349, 0, "public_port"},
+		{8443, 80, "turn_udp_port"},
+	} {
+		fd, errs := FrontDoorChoice(install.WhereRented, FrontDoorPublicPort, "", tc.udp, tc.port, LAN{})
+		switch {
+		case tc.field == "" && len(errs) > 0:
+			t.Errorf("%d/%d: %+v", tc.port, tc.udp, errs)
+		case tc.field == "" && (fd.PublicPort != tc.port || fd.TURNUDPPort != tc.udp):
+			t.Errorf("%d/%d: got %+v", tc.port, tc.udp, fd)
+		case tc.field != "" && (len(errs) != 1 || errs[0].Field != tc.field):
+			t.Errorf("%d/%d: want a %s refusal, got %+v", tc.port, tc.udp, tc.field, errs)
+		}
+	}
+}
+
+// TestPublicPortWordsMatchWeb: the web pages say the owner's warning and
+// the trade-offs in the same words as setup (web/src/lib/install.ts).
+func TestPublicPortWordsMatchWeb(t *testing.T) {
+	b, err := os.ReadFile("../../web/src/lib/install.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The TypeScript strings are split over lines with "a " + "b".
+	web := regexp.MustCompile(`"\s*\+\s*"`).ReplaceAllString(string(b), "")
+	for _, w := range append([]string{PublicPortWarning}, PublicPortWarnings...) {
+		if !strings.Contains(web, `"`+w+`"`) {
+			t.Errorf("web/src/lib/install.ts doesn't say, word for word:\n%s", w)
+		}
 	}
 }

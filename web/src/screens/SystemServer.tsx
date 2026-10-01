@@ -21,11 +21,12 @@ import { CheckIt } from "@/components/CheckIt";
 import { DnsRecords } from "@/components/DnsRecords";
 import { BY_HAND, DnsKeyFields } from "@/components/DnsKeyForm";
 import { FrontDoorCard } from "@/components/FrontDoorCard";
+import { PublicPortFields, PublicPortWarning } from "@/components/PublicPortChoice";
 import { CopyBlock, Disclosure, PortainerNote, RecordBox } from "@/components/InstallFrame";
 import { SystemCard as Card, SystemHeader } from "@/components/SystemPage";
-import { domainProblem, portProblem, proxyAddressProblem } from "@/lib/install";
+import { domainProblem, portProblem, proxyAddressProblem, publicPortProblem } from "@/lib/install";
 import {
-  doorChoice, DOORS, PROXY_DOORS, sessionClient,
+  ADVANCED_DOORS, doorChoice, DOORS, PROXY_DOORS, sessionClient,
   type FrontDoorKind, type ServerChange, type ServerPreview, type ServerSettings, type ServerSettingsClient,
 } from "@/lib/serverSettings";
 import { companyById, dnsKeyBody, dnsKeyFilled, startingCompany, type DnsKeyValue } from "@/lib/dnsCompanies";
@@ -78,7 +79,7 @@ export function ServerSettingsPanel({ me, client, afterMove = "" }: { me: Me | n
     const t = setInterval(() => void load(), running || unreachable ? 3000 : 10000);
     return () => clearInterval(t);
   }, [load, running, unreachable]);
-  const here = s && movedTo === `https://${s.domain}`;
+  const here = s && movedTo === (s.address || `https://${s.domain}`);
 
   return (
     <div className="flex flex-col gap-4">
@@ -151,9 +152,13 @@ function Settings({ me, s, client, onChanged, onMoved }:
   const [domain, setDomain] = useState("");
   const [editDoor, setEditDoor] = useState(false);
   const [door, setDoor] = useState<string>(doorChoice(s.front_door));
-  const [advanced, setAdvanced] = useState(s.front_door === "http-proxy");
+  const [advanced, setAdvanced] = useState(ADVANCED_DOORS.includes(s.front_door));
   const [proxy, setProxy] = useState(s.proxy_address ?? "");
   const [udp, setUdp] = useState(String(s.turn_udp_port || 443));
+  // Another public port (docs/ui/SCREENS_PHASE1F.md §4): the owner's
+  // warning first, then the ports.
+  const [publicPort, setPublicPort] = useState(String(s.public_port || 8443));
+  const [portAccepted, setPortAccepted] = useState(s.front_door === "public-port");
   const [preview, setPreview] = useState<ServerPreview | null>(null);
   // Which row's Check showed the preview (it's shown there).
   const [checkedAt, setCheckedAt] = useState<CheckAt | null>(null);
@@ -170,8 +175,10 @@ function Settings({ me, s, client, onChanged, onMoved }:
 
   const newDomain = editDomain ? domain.trim().toLowerCase() : "";
   const proxyDoor = PROXY_DOORS.includes(door);
+  const portDoor = door === "public-port";
   const doorChanged = editDoor && (door !== doorChoice(s.front_door) || (proxyDoor && (proxy.trim() !== (s.proxy_address ?? "") ||
-    Number(udp) !== (s.turn_udp_port || 443))));
+    Number(udp) !== (s.turn_udp_port || 443))) || (portDoor && (Number(publicPort) !== s.public_port || Number(udp) !== (s.turn_udp_port || 443))));
+  const address = s.address || `https://${s.domain}`;
   const moves = (newDomain !== "" && newDomain !== s.domain) || doorChanged;
   const changed = profile !== s.profile || portainer !== s.portainer || keyGiven || byHand !== null || moves;
 
@@ -189,12 +196,14 @@ function Settings({ me, s, client, onChanged, onMoved }:
       setDoor(doorChoice(s.front_door));
       setProxy(s.proxy_address ?? "");
       setUdp(String(s.turn_udp_port || 443));
+      setPublicPort(String(s.public_port || 8443));
+      setPortAccepted(s.front_door === "public-port");
       setPreview(null);
       setDoorDone(false);
     }
-  }, [s.apply.state, s.profile, s.portainer, s.front_door, s.proxy_address, s.turn_udp_port, s.domain, s.provider]);
+  }, [s.apply.state, s.profile, s.portainer, s.front_door, s.proxy_address, s.turn_udp_port, s.public_port, s.domain, s.provider]);
   // Anything edited after a preview needs a new one.
-  useEffect(() => { setPreview(null); setCheckedAt(null); setTokenOK(false); setDoorDone(false); }, [profile, portainer, dnsKey, byHand, domain, door, proxy, udp, editDomain, editDoor]);
+  useEffect(() => { setPreview(null); setCheckedAt(null); setTokenOK(false); setDoorDone(false); }, [profile, portainer, dnsKey, byHand, domain, door, proxy, udp, publicPort, editDomain, editDoor]);
 
   const body = (): ServerChange => ({
     profile: profile as ServerChange["profile"], portainer,
@@ -204,6 +213,7 @@ function Settings({ me, s, client, onChanged, onMoved }:
     ...(doorChanged ? {
       front_door: door as FrontDoorKind,
       ...(proxyDoor ? { proxy_address: proxy.trim(), turn_udp_port: Number(udp) === 443 ? 0 : Number(udp) } : {}),
+      ...(portDoor ? { public_port: Number(publicPort) || 0, turn_udp_port: Number(udp) === 443 ? 0 : Number(udp) } : {}),
     } : {}),
     ...(doorDone ? { door_done: true } : {}),
   });
@@ -214,6 +224,10 @@ function Settings({ me, s, client, onChanged, onMoved }:
     if (editDomain && newDomain && newDomain !== s.domain && domainProblem(newDomain)) p.domain = domainProblem(newDomain);
     if (doorChanged && proxyDoor) {
       if (proxyAddressProblem(proxy)) p.proxy_address = proxyAddressProblem(proxy);
+      if (portProblem(Number(udp))) p.turn_udp_port = portProblem(Number(udp));
+    }
+    if (doorChanged && portDoor) {
+      if (publicPortProblem(Number(publicPort))) p.public_port = publicPortProblem(Number(publicPort));
       if (portProblem(Number(udp))) p.turn_udp_port = portProblem(Number(udp));
     }
     return p;
@@ -257,7 +271,7 @@ function Settings({ me, s, client, onChanged, onMoved }:
       if (problemCode(err) === "token_refused") setFieldErrors({ token: problemMessage(err) });
       else setError(problemMessage(err));
     } else {
-      if (preview && preview.address !== `https://${s.domain}`) onMoved(preview.address);
+      if (preview && preview.address !== address) onMoved(preview.address);
       setPreview(null);
       onChanged();
     }
@@ -280,18 +294,22 @@ function Settings({ me, s, client, onChanged, onMoved }:
           <Row label="In front">
             {DOORS[s.front_door] ?? s.front_door}
             {s.proxy_address && PROXY_DOORS.includes(s.front_door) && <span className="text-muted-foreground"> at {s.proxy_address}</span>}
+            {s.front_door === "public-port" && <span className="text-muted-foreground"> on port {s.public_port}: {address}</span>}
             <ChangeLink open={editDoor} label="Change" disabled={running} onClick={() => setEditDoor(true)} />
             {editDoor && (
               <div className="mt-3 flex max-w-md flex-col gap-3">
-                <RadioGroup value={door} onValueChange={setDoor} aria-label="What's in front of this server" className="gap-2">
-                  {s.front_doors.filter((d) => d !== "http-proxy" || advanced).map((d) => (
+                <RadioGroup value={door} aria-label="What's in front of this server" className="gap-2" onValueChange={(d) => {
+                  setDoor(d);
+                  if (d !== "public-port") setPortAccepted(s.front_door === "public-port");
+                }}>
+                  {s.front_doors.filter((d) => !ADVANCED_DOORS.includes(d) || advanced).map((d) => (
                     <label key={d} htmlFor={`server-door-${d}`} className="flex items-center gap-2">
                       <RadioGroupItem id={`server-door-${d}`} value={d} />
                       <span>{DOORS[d] ?? d}</span>
                     </label>
                   ))}
                 </RadioGroup>
-                {s.front_doors.includes("http-proxy") && !advanced && (
+                {s.front_doors.some((d) => ADVANCED_DOORS.includes(d)) && !advanced && (
                   <Button variant="link" className="h-auto w-fit p-0" onClick={() => setAdvanced(true)}>Advanced</Button>
                 )}
                 {door === "http-proxy" && (
@@ -302,6 +320,22 @@ function Settings({ me, s, client, onChanged, onMoved }:
                       Caddy (with its layer-4 add-on), nginx and HAProxy can pass Linx through instead (“Another program passes Linx through”).
                     </span>
                   </p>
+                )}
+                {portDoor && !portAccepted && (
+                  <PublicPortWarning onDoors={() => setDoor(s.where === "rented" ? "linx-443" : "proxy")} onUse={() => {
+                    setPortAccepted(true);
+                    // Certificates then need the DNS company's key (§4.2).
+                    if (!s.token_saved) {
+                      setAddToken(true);
+                      setByHand(null);
+                      setDnsKey({ provider: startingCompany(s.domain, undefined, detected), key: {} });
+                    }
+                  }} />
+                )}
+                {portDoor && portAccepted && (
+                  <PublicPortFields id="server" port={publicPort} onPort={setPublicPort} udp={Number(udp) || 0} onUdp={(v) => setUdp(String(v))}
+                    domain={newDomain || s.domain} lanAddress={s.where === "home" ? s.lan_address : undefined}
+                    errors={{ public_port: fieldErrors.public_port, turn_udp_port: fieldErrors.turn_udp_port }} />
                 )}
                 {proxyDoor && (
                   <>
@@ -453,7 +487,7 @@ function Settings({ me, s, client, onChanged, onMoved }:
       <Dialog open={asking} onOpenChange={setAsking}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{preview && preview.address !== `https://${s.domain}` ? `Move Linx to ${preview.address}?` : "Apply these changes?"}</DialogTitle>
+            <DialogTitle>{preview && preview.address !== address ? `Move Linx to ${preview.address}?` : "Apply these changes?"}</DialogTitle>
             <DialogDescription>
               Linx restarts the services whose settings changed, for about a minute. Calls in progress may drop.
             </DialogDescription>

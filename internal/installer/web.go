@@ -16,6 +16,7 @@ import (
 
 	"linxpbx.com/linx/deploy/compose"
 	"linxpbx.com/linx/internal/install"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 // The web-first install (docs/INSTALL.md, ADR-057): `sudo linx setup` starts
@@ -68,22 +69,24 @@ func (c Config) Installed() bool {
 // settings offer for where the server is (docs/ui/SCREENS_PHASE1F.md
 // §1.1): a rented server's recommended one first. "none" isn't offered: a
 // web install needs a web address. A proxy that decrypts is advanced and
-// home only (owner decision 2026-09-30).
+// home only (owner decision 2026-09-30); another public port is advanced,
+// offered on rented servers too (owner decision 2026-09-29, ADR-064).
 func FrontDoorsFor(where string) []string {
 	if where == install.WhereRented {
-		return []string{FrontDoorLinx443, FrontDoorProxy}
+		return []string{FrontDoorLinx443, FrontDoorProxy, FrontDoorPublicPort}
 	}
-	return []string{FrontDoorLinx443, FrontDoorProxy, FrontDoorHomeOnly, FrontDoorHTTPProxy}
+	return []string{FrontDoorLinx443, FrontDoorProxy, FrontDoorHomeOnly, FrontDoorPublicPort, FrontDoorHTTPProxy}
 }
 
 // FrontDoorShort is each front door as the terminal's progress line says it.
 var FrontDoorShort = map[string]string{
-	FrontDoorProxy:     "another program passes Linx through",
-	FrontDoorPangolin:  "Pangolin",
-	FrontDoorNginx:     "nginx or HAProxy",
-	FrontDoorHTTPProxy: "a proxy that unlocks the traffic",
-	FrontDoorLinx443:   "Linx takes port 443",
-	FrontDoorHomeOnly:  "only at home",
+	FrontDoorProxy:      "another program passes Linx through",
+	FrontDoorPangolin:   "Pangolin",
+	FrontDoorNginx:      "nginx or HAProxy",
+	FrontDoorHTTPProxy:  "a proxy that unlocks the traffic",
+	FrontDoorLinx443:    "Linx takes port 443",
+	FrontDoorHomeOnly:   "only at home",
+	FrontDoorPublicPort: "Linx takes another public port",
 }
 
 const maxNameRunes = 100
@@ -101,7 +104,7 @@ func WebConfig(base Config, a install.Answers, lan LAN, now time.Time) (Config, 
 		add(install.StepWhere, "where", "Choose where this server is.")
 	}
 
-	fd, fdErrs := FrontDoorChoice(a.Where, a.FrontDoor, a.ProxyAddress, a.TURNUDPPort, lan)
+	fd, fdErrs := FrontDoorChoice(a.Where, a.FrontDoor, a.ProxyAddress, a.TURNUDPPort, a.PublicPort, lan)
 	errs = append(errs, fdErrs...)
 
 	domain, provider, msg := DomainFor(a.Domain)
@@ -164,7 +167,7 @@ func WebConfig(base Config, a install.Answers, lan LAN, now time.Time) (Config, 
 // FrontDoorChoice checks a front door chosen on a page (the install's, or
 // Server settings') for where the server is. Refusals are plain words,
 // tied to the front-door step.
-func FrontDoorChoice(where, kind, proxyAddress string, turnUDPPort int, lan LAN) (FrontDoorConfig, []install.FieldError) {
+func FrontDoorChoice(where, kind, proxyAddress string, turnUDPPort, publicPort int, lan LAN) (FrontDoorConfig, []install.FieldError) {
 	var errs []install.FieldError
 	add := func(field, msg string) {
 		errs = append(errs, install.FieldError{Step: install.StepFrontDoor, Field: field, Message: msg})
@@ -181,6 +184,24 @@ func FrontDoorChoice(where, kind, proxyAddress string, turnUDPPort int, lan LAN)
 		if err := ValidateProxyAddress(fd.ProxyAddress); err != nil {
 			add("proxy_address", upperFirst(err.Error())+".")
 		}
+		if turnUDPPort != 0 && turnUDPPort != PublicPort {
+			if err := ValidateTURNUDPPort(turnUDPPort); err != nil {
+				add("turn_udp_port", upperFirst(err.Error())+".")
+			}
+			fd.TURNUDPPort = turnUDPPort
+		}
+	case kind == FrontDoorPublicPort:
+		switch {
+		case publicPort == 0:
+			add("public_port", "Give the public port, like 8443.")
+		case publicPort == PublicPort:
+			add("public_port", "443 is the standard port: choose “Nothing else uses port 443 — Linx takes it” instead.")
+		default:
+			if msg := weburl.Problem(publicPort); msg != "" {
+				add("public_port", msg)
+			}
+		}
+		fd.PublicPort = publicPort
 		if turnUDPPort != 0 && turnUDPPort != PublicPort {
 			if err := ValidateTURNUDPPort(turnUDPPort); err != nil {
 				add("turn_udp_port", upperFirst(err.Error())+".")

@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/apihttp"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 // Passkeys (ADR-051, docs/ADMIN.md §5). The browser's own
@@ -83,14 +84,21 @@ type PasskeyStore interface {
 
 // NewWebAuthn is Linx's relying party for domain (ADR-051): the ID is the
 // base domain, so one passkey works on every Linx hostname under it; the
-// web client is served at the domain itself. Attestation none (any maker's
-// device), discoverable credentials and user verification required.
-func NewWebAuthn(domain string) (*webauthn.WebAuthn, error) {
+// web client is served at the domain itself, on the public port (443, or
+// another, docs/SIMPLER.md §2.5). Both https://<domain> and, for another
+// port, https://<domain>:<port> are accepted, so passkeys keep working
+// when the port changes. Attestation none (any maker's device),
+// discoverable credentials and user verification required.
+func NewWebAuthn(domain string, port int) (*webauthn.WebAuthn, error) {
+	origins := []string{weburl.Origin(domain, 0)}
+	if o := weburl.Origin(domain, port); o != origins[0] {
+		origins = append(origins, o)
+	}
 	timeout := webauthn.TimeoutConfig{Enforce: true, Timeout: PasskeyCeremonyTTL, TimeoutUVD: PasskeyCeremonyTTL}
 	return webauthn.New(&webauthn.Config{
 		RPID:                  domain,
 		RPDisplayName:         "Linx",
-		RPOrigins:             []string{"https://" + domain},
+		RPOrigins:             origins,
 		AttestationPreference: protocol.PreferNoAttestation,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			ResidentKey:        protocol.ResidentKeyRequirementRequired,

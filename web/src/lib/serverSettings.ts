@@ -62,7 +62,11 @@ export const DOORS: Record<string, string> = {
   "linx-443": "Nothing else uses port 443 — Linx takes it", proxy: "Another program passes Linx through",
   pangolin: "Pangolin passes Linx through", nginx: "nginx or HAProxy passes Linx through",
   "home-only": "Nothing: only at home", "http-proxy": "A proxy that unlocks the traffic (advanced)", none: "Nothing yet",
+  "public-port": "Nothing here can pass Linx through on 443: another public port (advanced)",
 };
+
+/** Front doors shown only under Advanced. */
+export const ADVANCED_DOORS = ["public-port", "http-proxy"];
 
 /** Front doors that are another program at an address on the home network. */
 export const PROXY_DOORS = ["proxy", "pangolin", "nginx", "http-proxy"];

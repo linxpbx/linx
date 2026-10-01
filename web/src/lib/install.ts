@@ -5,7 +5,7 @@
 
 export type Where = "home" | "rented";
 /** "pangolin" and "nginx" are older setups' names for "proxy" (ADR-062). */
-export type FrontDoor = "proxy" | "pangolin" | "nginx" | "http-proxy" | "linx-443" | "home-only";
+export type FrontDoor = "proxy" | "pangolin" | "nginx" | "http-proxy" | "linx-443" | "home-only" | "public-port";
 export type Step = "welcome" | "where" | "front_door" | "domain" | "you" | "checked";
 
 export interface Facts {
@@ -24,6 +24,8 @@ export interface Answers {
   front_door: FrontDoor | "";
   proxy_address?: string;
   turn_udp_port?: number;
+  /** For "public-port": the public port browsers use, like 8443. */
+  public_port?: number;
   domain: string;
   name: string;
   /** Let's Encrypt's contact for certificate notices. */
@@ -333,6 +335,34 @@ export function portProblem(p: number): string {
   if (p === 5060 || p === 5061 || p === 5349 || p === 8443 || (p >= 10000 && p <= 10199)) return "Linx already uses that port (3478 is the usual one).";
   return "";
 }
+
+/** Why p can't be Linx's public port ("" if it can), as internal/weburl.Problem says it. */
+export function publicPortProblem(p: number): string {
+  if (p === 443) return "443 is the standard port: choose “Nothing else uses port 443 — Linx takes it” instead.";
+  if (!Number.isInteger(p) || p < 1024 || p > 65535) return `${p || "That"} isn't a port Linx can use: choose one from 1024 to 65535, like 8443.`;
+  if ((p >= 5060 && p <= 5064) || p === 5349 || p === 6464) return `${p} is used by Linx itself: choose another, like 8443.`;
+  if ([1719, 1720, 1723, 2049, 3659, 4045, 4190, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080].includes(p)) {
+    return `${p} is blocked by browsers: choose another, like 8443.`;
+  }
+  return "";
+}
+
+/** The owner's words above another public port (installer.PublicPortWarning). */
+export const PUBLIC_PORT_WARNING =
+  "Linx is designed and tuned to work best on port 443, the standard port for secure websites. " +
+  "It's always the recommended choice: almost every network lets it through, so sign-in, calls and meetings work " +
+  "wherever people are. Another port can work, but some networks block it, so some features may not work everywhere, " +
+  "and calls from those places may fail or sound worse.";
+
+/** What another public port trades away (installer.PublicPortWarnings). */
+export const PUBLIC_PORT_TRADEOFFS = [
+  "Browser calls from networks that only allow standard web traffic, like some hotels, workplaces, public Wi-Fi and " +
+    "mobile networks, may fail or have no audio, because this setup can't use port 443 for them. Calls from normal " +
+    "home and mobile networks work.",
+  "Some company, school and public networks block any address with a port like :8443. There, even this page and " +
+    "signing in can fail. A front door on port 443 (Pangolin, nginx, Caddy or Nginx Proxy Manager passing Linx " +
+    "through), or a small rented server as your front door, keeps port 443.",
+];
 
 export function nameProblem(n: string): string {
   if (!n.trim()) return "Give your name.";

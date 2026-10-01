@@ -738,6 +738,8 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 **Consequences.** Works for ordinary home and mobile networks without any proxy; unreliable on 443-only and inspecting networks (stated everywhere it's chosen). No new service or loop. Built in Phase 1F after the front-door card.
 
+**As built (Phase 1F step 6, 2026-10-01).** Its own front door, `public-port`, with `public_port` and `turn_udp_port`. One change from the design: `linx-sni` is published on the public port itself (home and rented alike), so the router forwards TCP 8443 to this server's 8443 rather than its 443; this keeps working when the program owning 443 is on the same server, and makes a local DNS entry work inside the office. At 8443 the control plane's loopback-only 8443 moves to a port Docker picks. `internal/weburl` builds the address for everything (docs/SIMPLER.md §2.5 "As built").
+
 ## ADR-065 — Linx's own call messages, one open voice (owner decision 2026-09-30)
 **Context.** A refused call said Asterisk's "I'm sorry, that feature is not available on this line" (Phase 1E demo): not plain words, and Asterisk's prompt pack has no clearer sentence. The owner asked for an open-source voice matching Asterisk's; that voice is a real person's (Allison Smith, CC BY-SA 3.0), and copying it with software isn't something her licence allows, so it wasn't cloned.
 

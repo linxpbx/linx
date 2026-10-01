@@ -220,6 +220,7 @@ function setupTitle(cert: CertView, facts: Facts): string {
   switch (cert.front_door) {
     case "proxy": case "pangolin": case "nginx": return "Set up your front door";
     case "http-proxy": return "Set up your proxy";
+    case "public-port": return facts.lan_address ? "Set up your router" : "Open the ports";
     default: return facts.lan_address ? "Set up your router" : "Set up port 443";
   }
 }

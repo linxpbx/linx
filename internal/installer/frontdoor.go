@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/dnsname"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 // Front doors (docs/WEB.md §3, ADR-040): what sits between the internet and
@@ -51,6 +53,13 @@ const (
 	// FrontDoorLinx443: Linx's own HAProxy (linx-sni) owns TCP 443 (ADR-009)
 	// and coturn UDP 443.
 	FrontDoorLinx443 = "linx-443"
+	// FrontDoorPublicPort: like FrontDoorLinx443, but nothing here can pass
+	// Linx through on public 443, so the router (or, on a rented server,
+	// Docker) brings another public port (PublicPort, e.g. 8443) to
+	// linx-sni, and UDP 443 or TURNUDPPort to coturn (docs/SIMPLER.md
+	// §2.5, ADR-064). Advanced: networks that allow only 443 may block it.
+	// Certificates then need a DNS key (TLS-ALPN-01 checks port 443).
+	FrontDoorPublicPort = "public-port"
 	// FrontDoorHomeOnly: linx-sni answers on the home network's address and
 	// the names point there: https://<domain> works at home only, with
 	// no router changes.
@@ -58,7 +67,7 @@ const (
 )
 
 // FrontDoors lists the choices, as setup offers them.
-var FrontDoors = []string{FrontDoorLinx443, FrontDoorProxy, FrontDoorHomeOnly, FrontDoorHTTPProxy, FrontDoorNone}
+var FrontDoors = []string{FrontDoorLinx443, FrontDoorProxy, FrontDoorHomeOnly, FrontDoorHTTPProxy, FrontDoorPublicPort, FrontDoorNone}
 
 // frontDoorsAccepted are FrontDoors and the older names setup.yaml may still have.
 var frontDoorsAccepted = append([]string{FrontDoorPangolin, FrontDoorNginx}, FrontDoors...)
@@ -71,7 +80,9 @@ var FrontDoorDescription = map[string]string{
 	FrontDoorHTTPProxy: "advanced: my proxy must unlock the traffic itself (Caddy or Nginx Proxy Manager as a website proxy; not recommended)",
 	FrontDoorLinx443:   "nothing: Linx takes port 443 itself (your router, or this VPS, sends port 443 here)",
 	FrontDoorHomeOnly:  "nothing, and only at home: Linx answers on this home network only",
-	FrontDoorNone:      "not now: no calls from outside, and no web address",
+	FrontDoorPublicPort: "advanced: nothing here can pass Linx through on port 443, so use another public port, like 8443 " +
+		"(some networks block it: port 443 is always the recommended choice)",
+	FrontDoorNone: "not now: no calls from outside, and no web address",
 }
 
 // proxyKinds are the front doors that are another program at ProxyAddress.
@@ -92,12 +103,26 @@ type FrontDoorConfig struct {
 	// own, if it runs here): the only address allowed to reach Linx's web
 	// port, and whose PROXY headers or X-Forwarded-For Linx believes.
 	ProxyAddress string `yaml:"proxy_address"`
-	// TURNUDPPort is, for those same front doors, the UDP port the router
-	// forwards to Linx for call audio (0: 443). Some routers (UniFi) won't
-	// forward UDP 443 to one machine while TCP 443 goes to another; 3478,
-	// the usual port for this, works instead.
+	// TURNUDPPort is, for those same front doors and FrontDoorPublicPort,
+	// the UDP port the router forwards to Linx for call audio (0: 443).
+	// Some routers (UniFi) won't forward UDP 443 to one machine while TCP
+	// 443 goes to another; 3478, the usual port for this, works instead.
 	TURNUDPPort int `yaml:"turn_udp_port,omitempty"`
+	// PublicPort is, for FrontDoorPublicPort only, the public TCP port
+	// people's browsers use (https://<domain>:<port>).
+	PublicPort int `yaml:"public_port,omitempty"`
 }
+
+// Port is the public TCP port browsers use: 443 unless FrontDoorPublicPort.
+func (f FrontDoorConfig) Port() int {
+	if f.Kind == FrontDoorPublicPort && f.PublicPort != 0 {
+		return f.PublicPort
+	}
+	return PublicPort
+}
+
+// udpPortKinds may set TURNUDPPort.
+func udpPortKinds() []string { return append(slices.Clone(proxyKinds), FrontDoorPublicPort) }
 
 // UDPPort is the public UDP port for call audio.
 func (f FrontDoorConfig) UDPPort() int {
@@ -137,12 +162,25 @@ func (f FrontDoorConfig) Validate() error {
 		return fmt.Errorf("proxy_address: only used with kind %s", strings.Join(proxyKinds, ", "))
 	}
 	if f.TURNUDPPort != 0 {
-		if !NeedsProxyAddress(f.Kind) {
-			return fmt.Errorf("turn_udp_port: only used with kind %s", strings.Join(proxyKinds, ", "))
+		if !slices.Contains(udpPortKinds(), f.Kind) {
+			return fmt.Errorf("turn_udp_port: only used with kind %s", strings.Join(udpPortKinds(), ", "))
 		}
 		if err := ValidateTURNUDPPort(f.TURNUDPPort); err != nil {
 			return fmt.Errorf("turn_udp_port: %w", err)
 		}
+	}
+	switch {
+	case f.Kind == FrontDoorPublicPort && f.PublicPort == 0:
+		return errors.New("public_port: required with kind " + FrontDoorPublicPort + " (8443, for example)")
+	case f.Kind == FrontDoorPublicPort:
+		if msg := weburl.Problem(f.PublicPort); msg != "" {
+			return errors.New("public_port: " + msg)
+		}
+		if f.PublicPort == PublicPort {
+			return errors.New("public_port: 443 is kind " + FrontDoorLinx443)
+		}
+	case f.PublicPort != 0:
+		return errors.New("public_port: only used with kind " + FrontDoorPublicPort)
 	}
 	return nil
 }
@@ -193,8 +231,13 @@ type FrontDoorSettings struct {
 	TURNUDPPort    int
 	// TURNURLs is LINX_TURN_URLS ("": the default, turn.<domain>:443).
 	TURNURLs string
-	// SNIAddress is where linx-sni publishes 443.
+	// SNIAddress:SNIPort is where linx-sni (listening on 443) is published.
 	SNIAddress netip.Addr
+	SNIPort    int
+	// WebHostPort is LINX_WEB_HOST_PORT, the host port the web port is
+	// published on: 8443, or "" (a free one Docker picks, on 127.0.0.1)
+	// when linx-sni takes 8443 itself as the public port.
+	WebHostPort string
 	// ComposeProfiles turns on optional services (linx-sni).
 	ComposeProfiles string
 	// DNSAddress is where the public names point: "" follows this
@@ -206,7 +249,8 @@ var loopback = netip.AddrFrom4([4]byte{127, 0, 0, 1})
 
 // FrontDoorFor works out a front door's settings on this server.
 func FrontDoorFor(c Config, lan LAN) FrontDoorSettings {
-	s := FrontDoorSettings{ProxyProtocol: true, WebAddress: loopback, TURNUDPAddress: loopback, TURNUDPPort: TURNUDPPort, SNIAddress: loopback}
+	s := FrontDoorSettings{ProxyProtocol: true, WebAddress: loopback, TURNUDPAddress: loopback, TURNUDPPort: TURNUDPPort,
+		SNIAddress: loopback, SNIPort: PublicPort, WebHostPort: strconv.Itoa(WebPort)}
 	switch c.FrontDoor.Kind {
 	case FrontDoorProxy, FrontDoorPangolin, FrontDoorNginx, FrontDoorHTTPProxy:
 		p, _ := netip.ParseAddr(c.FrontDoor.ProxyAddress)
@@ -222,7 +266,7 @@ func FrontDoorFor(c Config, lan LAN) FrontDoorSettings {
 			host := "turn." + c.Domain.Name
 			s.TURNURLs = fmt.Sprintf("turn:%s:%d?transport=udp,turns:%s:%d?transport=tcp", host, s.TURNUDPPort, host, tlsPort)
 		}
-	case FrontDoorLinx443:
+	case FrontDoorLinx443, FrontDoorPublicPort:
 		s.TrustedProxies = SNIContainerName
 		// Behind a home router the forwards arrive at the LAN address; on
 		// a VPS (no LAN) on the public one.
@@ -230,9 +274,18 @@ func FrontDoorFor(c Config, lan LAN) FrontDoorSettings {
 		if lan.OK() {
 			public = lan.Address
 		}
-		s.SNIAddress = public
-		s.TURNUDPAddress, s.TURNUDPPort = public, PublicPort
+		s.SNIAddress, s.SNIPort = public, c.FrontDoor.Port()
+		s.TURNUDPAddress, s.TURNUDPPort = public, c.FrontDoor.UDPPort()
 		s.ComposeProfiles = FrontDoorLinx443
+		if s.SNIPort == WebPort {
+			// The web port then stays on 127.0.0.1 at a port Docker picks:
+			// nothing on this server uses it (the health check runs inside).
+			s.WebHostPort = ""
+		}
+		if s.SNIPort != PublicPort || s.TURNUDPPort != PublicPort {
+			host := "turn." + c.Domain.Name
+			s.TURNURLs = fmt.Sprintf("turn:%s:%d?transport=udp,turns:%s:%d?transport=tcp", host, s.TURNUDPPort, host, s.SNIPort)
+		}
 	case FrontDoorHomeOnly:
 		// At home browsers send audio straight to Asterisk; the relay is
 		// only reached over TLS through linx-sni, like everything else.

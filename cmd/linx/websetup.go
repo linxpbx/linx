@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -41,7 +42,7 @@ type webEnv struct {
 	now           func() time.Time
 	// secureCheck says whether https://<domain> works from here (nil: not
 	// checked).
-	secureCheck func(ctx context.Context, domain string) error
+	secureCheck func(ctx context.Context, domain string, port int) error
 	// wait pauses between looks at the service's progress; false once ctx
 	// has ended.
 	wait func(ctx context.Context, d time.Duration) bool
@@ -554,21 +555,22 @@ const ServerSettingsPath = "/admin/system/server"
 // --new-link), the page is also opened on port 6464 behind a new one-time
 // link: the repair page (§5.3).
 func runServerSettings(ctx context.Context, o webOptions, cfg installer.Config, stdout, stderr io.Writer, env setupEnv) int {
-	url := "https://" + cfg.Domain.Name + ServerSettingsPath
+	address := cfg.Address()
+	url := address + ServerSettingsPath
 	if o.dryRun {
-		fmt.Fprintf(stdout, "Linx is installed at https://%s. Setup would open the Server settings page for four hours:\n  %s\n", cfg.Domain.Name, url)
+		fmt.Fprintf(stdout, "Linx is installed at %s. Setup would open the Server settings page for four hours:\n  %s\n", address, url)
 		fmt.Fprintf(stdout, "If that address doesn't work from this server, or with --new-link, it would also open it on port %d.\n\nDry run: nothing was changed.\n", install.Port)
 		return 0
 	}
 	problem := ""
 	if env.web.secureCheck != nil {
-		if err := env.web.secureCheck(ctx, cfg.Domain.Name); err != nil {
+		if err := env.web.secureCheck(ctx, cfg.Domain.Name, cfg.FrontDoor.Port()); err != nil {
 			problem = err.Error()
-			fmt.Fprintf(stdout, "Linx is installed, but https://%s didn't answer from this server:\n  %v\n\n", cfg.Domain.Name, err)
+			fmt.Fprintf(stdout, "Linx is installed, but %s didn't answer from this server:\n  %v\n\n", address, err)
 		}
 	}
 	if problem == "" {
-		fmt.Fprintf(stdout, "Linx is installed at https://%s (working ✓).\n\n", cfg.Domain.Name)
+		fmt.Fprintf(stdout, "Linx is installed at %s (working ✓).\n\n", address)
 	}
 	repair := problem != "" || o.newLink
 	active := unitActive(ctx, env.runner)
@@ -614,7 +616,7 @@ func runServerSettings(ctx context.Context, o webOptions, cfg installer.Config, 
 		return 0
 	}
 	if problem != "" {
-		fmt.Fprintf(stdout, "If https://%s opens in your browser anyway, use the Server settings page there:\n  %s\n\n", cfg.Domain.Name, url)
+		fmt.Fprintf(stdout, "If %s opens in your browser anyway, use the Server settings page there:\n  %s\n\n", address, url)
 	}
 	fmt.Fprintln(stdout, "Otherwise open this link to fix it. It works once, for four hours, in the first browser that opens it:\n"+
 		"open it in the browser you'll use, since after that it won't open anywhere else (--new-link makes a new one).")
@@ -707,11 +709,11 @@ func printRepairLink(w io.Writer, env setupEnv, rs install.RepairState) {
 
 // secureAddressWorks checks https://<domain> answers with a certificate
 // this server's own trust store accepts for that name.
-func secureAddressWorks(ctx context.Context, domain string) error {
+func secureAddressWorks(ctx context.Context, domain string, port int) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	d := tls.Dialer{Config: &tls.Config{ServerName: domain, MinVersion: tls.VersionTLS12}}
-	c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(domain, "443"))
+	c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(domain, strconv.Itoa(port)))
 	if err != nil {
 		return err
 	}

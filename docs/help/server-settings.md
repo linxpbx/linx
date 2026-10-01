@@ -2,7 +2,7 @@
 title: Server settings and running setup again
 audience: system_admin
 section: install
-keywords: [server settings, domain, change domain, front door, dns, dns records, name servers, dns token, dns key, automatic dns, dynamic dns, ddns, address changes, cloudflare, duckdns, route 53, godaddy, namecheap, porkbun, digitalocean, hetzner, desec, ovh, size, performance, portainer, setup again, rerun]
+keywords: [server settings, domain, change domain, front door, public port, 8443, dns, dns records, name servers, dns token, dns key, automatic dns, dynamic dns, ddns, address changes, cloudflare, duckdns, route 53, godaddy, namecheap, porkbun, digitalocean, hetzner, desec, ovh, size, performance, portainer, setup again, rerun]
 screens: [/admin/system/server]
 ---
 # Server settings and running setup again
@@ -54,6 +54,8 @@ Some companies have limits worth knowing: GoDaddy and Namecheap only let some ac
 3. The page shows each step. Linx restarts, and the page comes back by itself.
 
 A new domain needs new DNS records (the page lists them under **DNS records to add**) and has consequences: passkeys belong to the old address, so everyone signs in with their password and authenticator app and adds a new passkey, and desk phones need the new address.
+
+Another public port (under **Advanced** in what's in front, see [Front doors](front-doors)) changes the address to one ending in the port, like `https://pbx.example.com:8443`. **Before you apply** shows the router rules and says what follows: passkeys keep working, company sign-in needs its new return address added at Google or Microsoft, and links already sent for the old address stop working. It needs the DNS company's key; without one, the key form opens.
 
 ## If the address doesn't work any more
 

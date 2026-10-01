@@ -12,6 +12,7 @@ import (
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/settings"
 	"linxpbx.com/linx/internal/store"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 const adminAccessUsage = `Usage:
@@ -101,9 +102,8 @@ func networkList(s settings.Settings) string {
 }
 
 func signInURL() string {
-	domain := os.Getenv("LINX_DOMAIN")
-	if domain == "" {
-		domain = "<your domain>"
+	if a := weburl.FromEnv(os.Getenv); a != "" {
+		return a + "/"
 	}
-	return "https://" + domain + "/"
+	return "https://<your domain>/"
 }

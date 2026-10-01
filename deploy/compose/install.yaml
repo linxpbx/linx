@@ -51,7 +51,7 @@ services:
     # router reaches them inside Docker).
     ports:
       - ${LINX_INSTALL_ADDRESS:?set by linx setup}:6464:6464/tcp
-      - ${LINX_WEB_ADDRESS:-127.0.0.1}:8443:8443/tcp
+      - ${LINX_WEB_ADDRESS:-127.0.0.1}:${LINX_WEB_HOST_PORT-8443}:8443/tcp
       - ${LINX_WEB_ADDRESS:-127.0.0.1}:5349:5349/tcp
     healthcheck:
       test: [CMD, /usr/local/bin/service, healthcheck, --install]
@@ -112,7 +112,9 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     ports:
-      - ${LINX_SNI_ADDRESS:-127.0.0.1}:443:443/tcp
+      # The public port: 443, or another the router or server brings here
+      # (docs/SIMPLER.md §2.5); linx-sni itself always listens on 443.
+      - ${LINX_SNI_ADDRESS:-127.0.0.1}:${LINX_PUBLIC_PORT:-443}:443/tcp
     volumes:
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     tmpfs: [/tmp]

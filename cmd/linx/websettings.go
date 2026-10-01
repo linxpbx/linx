@@ -14,6 +14,7 @@ import (
 	"linxpbx.com/linx/internal/dnsname"
 	"linxpbx.com/linx/internal/install"
 	"linxpbx.com/linx/internal/installer"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 // webSettings is the Server settings page on the host
@@ -91,6 +92,7 @@ func (w webSettings) View(ctx context.Context) (install.ServerView, error) {
 	opts, pick, reason := w.Profiles(ctx)
 	v := install.ServerView{
 		Where: w.where(c), FrontDoor: c.FrontDoor.Kind, ProxyAddress: c.FrontDoor.ProxyAddress, TURNUDPPort: c.FrontDoor.TURNUDPPort,
+		PublicPort: c.FrontDoor.PublicPort, Address: c.Address(),
 		Domain: c.Domain.Name, Provider: c.Domain.DNSProvider,
 		Profile: c.ResourceProfile, Profiles: opts, ProfilePick: pick, ProfileReason: reason,
 		Portainer:        c.ContainerUI == installer.ContainerUIPortainer,
@@ -185,20 +187,20 @@ func (w webSettings) plan(ctx context.Context, ch install.ServerChange) (change,
 		}
 	}
 	if ch.FrontDoor != "" {
-		fd, fdErrs := installer.FrontDoorChoice(w.where(c), ch.FrontDoor, ch.ProxyAddress, ch.TURNUDPPort, w.lan)
+		fd, fdErrs := installer.FrontDoorChoice(w.where(c), ch.FrontDoor, ch.ProxyAddress, ch.TURNUDPPort, ch.PublicPort, w.lan)
 		errs = append(errs, fdErrs...)
 		if len(fdErrs) == 0 && fd != c.FrontDoor {
 			x.door = true
 			next.FrontDoor = fd
-			if fd.Kind == installer.FrontDoorLinx443 && c.FrontDoor.Kind != installer.FrontDoorLinx443 {
-				if user := installer.PortUser(ctx, w.env.runner, installer.PublicPort); user != "" {
-					errs = append(errs, field(install.StepFrontDoor, "front_door", "Port 443 is used by "+user+
-						" on this server. Stop it first, or choose that program as what's in front of Linx."))
-				}
+			if errs := w.portFree(ctx, c.FrontDoor, fd); len(errs) > 0 {
+				return x, errs, nil
 			}
 		}
 	}
-	if next.Certificates.NoDNSToken && next.FrontDoor.Kind != installer.FrontDoorLinx443 {
+	if next.Certificates.NoDNSToken && next.FrontDoor.Kind == installer.FrontDoorPublicPort {
+		errs = append(errs, field(install.StepToken, "token", "Without port 443, Let's Encrypt can only check your domain "+
+			"through your DNS company: add its key below."))
+	} else if next.Certificates.NoDNSToken && next.FrontDoor.Kind != installer.FrontDoorLinx443 {
 		errs = append(errs, field(install.StepToken, "token", "With "+installer.FrontDoorShort[next.FrontDoor.Kind]+
 			" in front, Linx needs your DNS company's token to get its certificate: add it below."))
 	}
@@ -220,6 +222,33 @@ func (w webSettings) plan(ctx context.Context, ch install.ServerChange) (change,
 	return x, nil, nil
 }
 
+// portFree refuses a front door whose port 443, or other public port, is
+// another program's on this server. linx-sni's own port, and the web
+// port's (8443, which linx-sni takes over when it's the public port),
+// are Linx's.
+func (w webSettings) portFree(ctx context.Context, was, now installer.FrontDoorConfig) []install.FieldError {
+	takes := func(f installer.FrontDoorConfig) int {
+		if f.Kind == installer.FrontDoorLinx443 || f.Kind == installer.FrontDoorPublicPort {
+			return f.Port()
+		}
+		return 0
+	}
+	p := takes(now)
+	if p == 0 || p == takes(was) || p == installer.WebPort {
+		return nil
+	}
+	user := installer.PortUser(ctx, w.env.runner, p)
+	switch {
+	case user == "":
+		return nil
+	case p == installer.PublicPort:
+		return []install.FieldError{field(install.StepFrontDoor, "front_door", "Port 443 is used by "+user+
+			" on this server. Stop it first, or choose that program as what's in front of Linx.")}
+	}
+	return []install.FieldError{field(install.StepFrontDoor, "public_port", fmt.Sprintf("Port %d is used by %s on this server. "+
+		"Choose another port, or stop it first.", p, user))}
+}
+
 // records are the DNS records to add by hand before a new domain's first
 // certificate: without a token, Let's Encrypt checks them on port 443.
 func (w webSettings) records(ctx context.Context, x change) []install.Record {
@@ -234,7 +263,7 @@ func (w webSettings) Preview(ctx context.Context, ch install.ServerChange) (inst
 	if err != nil {
 		return install.ServerPreview{}, err
 	}
-	p := install.ServerPreview{Errors: errs, Address: "https://" + x.next.Domain.Name}
+	p := install.ServerPreview{Errors: errs, Address: x.next.Address()}
 	if len(errs) > 0 {
 		return p, nil
 	}
@@ -243,17 +272,29 @@ func (w webSettings) Preview(ctx context.Context, ch install.ServerChange) (inst
 		p.Setup = s
 	}
 	old, d := x.before.Domain.Name, x.next.Domain.Name
+	oldAddr, addr := x.before.Address(), x.next.Address()
 	if x.domain {
 		p.Warnings = append(p.Warnings,
-			"Linx moves to https://"+d+". https://"+old+" stops working, and everyone signs in again at the new address.",
+			"Linx moves to "+addr+". "+oldAddr+" stops working, and everyone signs in again at the new address.",
 			"Passkeys only work at the address they were made for. Before you apply, check you can sign in with your password and "+
 				"authenticator app (or a recovery code), then add new passkeys at the new address. A system admin with only a passkey "+
 				"gets back in with  sudo linx user setup-link EMAIL  on the server.",
-			"If you use company sign-in, change its redirect address at Google or Microsoft to https://"+d+"/api/v1/sso/callback.")
+			"If you use company sign-in, change its redirect address at Google or Microsoft to "+weburl.SSOCallback(addr)+".")
 		if w.lan.OK() {
 			p.Warnings = append(p.Warnings, "Desk phones and phone apps set up with "+dnsname.Host("sip", old)+" need "+dnsname.Host("sip", d)+
 				" as their server: change it on each one.")
 		}
+	} else if addr != oldAddr {
+		// Only the port changes (docs/ui/SCREENS_PHASE1F.md §4.3).
+		p.Warnings = append(p.Warnings,
+			"Linx moves to "+addr+". Links already sent for "+oldAddr+" (invites, setup links) stop working once nothing "+
+				"forwards it here: send new ones.",
+			"Passkeys keep working: they belong to "+d+", whatever the port.",
+			"If you use company sign-in, add "+weburl.SSOCallback(addr)+" as a redirect address at Google or Microsoft. Until you do, "+
+				"“Continue with Google” or Microsoft shows “redirect URI mismatch”.")
+	}
+	if x.door && x.next.FrontDoor.Kind == installer.FrontDoorPublicPort && x.before.FrontDoor.Kind != installer.FrontDoorPublicPort {
+		p.Warnings = append(p.Warnings, installer.PublicPortWarnings...)
 	}
 	if len(p.AddRecords) > 0 {
 		p.Warnings = append(p.Warnings, "Add the DNS records below at your DNS company first: Linx checks them before it asks Let's Encrypt.")

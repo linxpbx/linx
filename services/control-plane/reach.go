@@ -20,6 +20,7 @@ import (
 	"linxpbx.com/linx/internal/publicip"
 	"linxpbx.com/linx/internal/reach"
 	"linxpbx.com/linx/internal/turn"
+	"linxpbx.com/linx/internal/weburl"
 )
 
 // Check it (docs/SIMPLER.md §2.3, internal/reach): the checks from this
@@ -59,7 +60,7 @@ func newReach(getenv func(string) string, cert *certs.ServingCert, issuer *turn.
 	if home.IsValid() {
 		c.TURNTLS = netip.AddrPortFrom(home, 5349).String()
 	}
-	links := &reach.Links{Domain: domain, Proxies: ips.Trusted, PublicIP: public.Get, TURN: issuer, Now: time.Now}
+	links := &reach.Links{Domain: domain, Address: weburl.FromEnv(getenv), Proxies: ips.Trusted, PublicIP: public.Get, TURN: issuer, Now: time.Now}
 	return c, links
 }
 

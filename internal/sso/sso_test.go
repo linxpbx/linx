@@ -121,7 +121,7 @@ func standIn(t *testing.T) *http.Client {
 func newTestService(t *testing.T) (*Service, *fakeStore, context.Context) {
 	t.Helper()
 	st := newFakeStore()
-	client := &Client{Store: st, Sealer: testSealer(), HTTP: standIn(t), RedirectURI: RedirectURI("linx.test"), Now: time.Now}
+	client := &Client{Store: st, Sealer: testSealer(), HTTP: standIn(t), RedirectURI: RedirectURI("https://linx.test"), Now: time.Now}
 	svc := &Service{Store: st, Sealer: testSealer(), Client: client, Resolver: publicResolver{}, Now: time.Now}
 	tenant := uuid.New()
 	now := time.Now()
@@ -139,7 +139,7 @@ func wantCode(t *testing.T, err error, code string) {
 }
 
 func TestRedirectURI(t *testing.T) {
-	if got := RedirectURI("example.org"); got != "https://example.org/api/v1/sso/callback" {
+	if got := RedirectURI("https://example.org:8443"); got != "https://example.org:8443/api/v1/sso/callback" {
 		t.Fatal(got)
 	}
 }

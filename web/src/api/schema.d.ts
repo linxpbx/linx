@@ -4229,6 +4229,10 @@ export interface components {
             proxy_address?: string;
             /** @description The call relay's UDP port on the router, when it isn't 443. */
             turn_udp_port?: number;
+            /** @description For `public-port`, the public port browsers use (docs/SIMPLER.md §2.5). */
+            public_port?: number;
+            /** @description Linx's web address now, https://<domain> with the public port unless it's 443. */
+            address?: string;
             /** @description The front doors this server may use. */
             front_doors: string[];
             public_address?: string;
@@ -4284,12 +4288,14 @@ export interface components {
             /** @description A new domain (left out keeps it). */
             domain?: string;
             /**
-             * @description A new front door (left out keeps it). `proxy` is another program passing Linx through by name (Pangolin, nginx, HAProxy, Caddy, ...); `http-proxy` a proxy that decrypts (advanced, home only).
+             * @description A new front door (left out keeps it). `proxy` is another program passing Linx through by name (Pangolin, nginx, HAProxy, Caddy, ...); `public-port` Linx on another public port (advanced, `public_port`); `http-proxy` a proxy that decrypts (advanced, home only).
              * @enum {string}
              */
-            front_door?: "linx-443" | "proxy" | "home-only" | "http-proxy";
+            front_door?: "linx-443" | "proxy" | "home-only" | "public-port" | "http-proxy";
             proxy_address?: string;
             turn_udp_port?: number;
+            /** @description For `public-port`, the public port browsers use, like 8443. */
+            public_port?: number;
             /** @description The front door's steps (the preview's `setup`) are done. */
             door_done?: boolean;
         };

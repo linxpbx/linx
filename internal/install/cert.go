@@ -68,8 +68,19 @@ type CertView struct {
 	Certificate Stage `json:"certificate"`
 	// TokenSaved: the token is on the server (CertToken).
 	TokenSaved bool `json:"token_saved,omitempty"`
-	// SecureURL is https://<domain>, once the certificate is ready.
+	// Address is Linx's web address: https://<domain>, with the public
+	// port unless it's 443.
+	Address string `json:"address,omitempty"`
+	// SecureURL is Address, once the certificate is ready.
 	SecureURL string `json:"secure_url,omitempty"`
+}
+
+// address is Address, or https://<domain> for a view from before it.
+func (c *CertView) address() string {
+	if c.Address != "" {
+		return c.Address
+	}
+	return "https://" + c.Domain
 }
 
 // Ready reports whether the real certificate is deployed.
@@ -402,8 +413,8 @@ func (h *Host) realCert(ctx context.Context, obtain func(context.Context) error)
 	}
 	h.updateCert(func(c *CertView) {
 		c.Certificate = Stage{State: StageOK, At: h.now().UTC()}
-		c.SecureURL = "https://" + c.Domain
-	}, h.line("Certificate ready: https://"+h.cert().Domain, false, false))
+		c.SecureURL = c.address()
+	}, h.line("Certificate ready: "+h.cert().address(), false, false))
 }
 
 func dnsState(seen []string, err error, want string) string {

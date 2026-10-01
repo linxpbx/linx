@@ -55,6 +55,7 @@ import (
 	"linxpbx.com/linx/internal/version"
 	"linxpbx.com/linx/internal/webapp"
 	"linxpbx.com/linx/internal/webhook"
+	"linxpbx.com/linx/internal/weburl"
 	controlplaneapi "linxpbx.com/linx/services/control-plane/api"
 )
 
@@ -235,7 +236,7 @@ func main() {
 	accounts := &auth.Accounts{Store: st, Sealer: sealer, Alerts: engine, Failures: authn.Failures, Now: time.Now, Log: log, Passkeys: st}
 	// Passkeys need the domain: it's their relying party (ADR-051).
 	if d := os.Getenv("LINX_DOMAIN"); d != "" {
-		wa, err := auth.NewWebAuthn(d)
+		wa, err := auth.NewWebAuthn(d, weburl.Port(os.Getenv))
 		if err != nil {
 			log.Error("passkeys", "err", err)
 			os.Exit(1)
@@ -245,11 +246,12 @@ func main() {
 	// Company sign-in (ADR-052): providers are reached through the same
 	// guarded client as webhooks, so one on the home network needs its
 	// address on the outbound allowlist. It needs the domain too: the
-	// provider sends people back to https://<domain>.
+	// provider sends people back to Linx's address (with the public port
+	// unless it's 443).
 	ssoSvc := &sso.Service{Store: st, Sealer: sealer, Policy: policy, Now: time.Now}
 	accounts.Company = st
 	if d := os.Getenv("LINX_DOMAIN"); d != "" {
-		client := &sso.Client{Store: st, Sealer: sealer, HTTP: guardedClient, RedirectURI: sso.RedirectURI(d), Now: time.Now}
+		client := &sso.Client{Store: st, Sealer: sealer, HTTP: guardedClient, RedirectURI: sso.RedirectURI(weburl.FromEnv(os.Getenv)), Now: time.Now}
 		ssoSvc.Client, accounts.CompanyProviders = client, client
 	}
 
@@ -467,7 +469,7 @@ func main() {
 	if _, err := cert.Current(); err != nil {
 		log.Warn("no TLS certificate yet; HTTPS connections fail until linx-certd deploys one", "err", err)
 	}
-	https := server.New(envOr(os.Getenv, "LINX_LISTEN_ADDR", ":8443"), webapp.Headers(legacyHosts(os.Getenv("LINX_DOMAIN"), mux)))
+	https := server.New(envOr(os.Getenv, "LINX_LISTEN_ADDR", ":8443"), webapp.Headers(legacyHosts(os.Getenv("LINX_DOMAIN"), weburl.FromEnv(os.Getenv), mux)))
 	// Let's Encrypt's port 443 check is answered here too, for a server
 	// that renews without a DNS token (docs/INSTALL.md §5): only while
 	// certd has left a challenge for that name.
