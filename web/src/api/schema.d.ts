@@ -2541,6 +2541,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How Linx sends email
+         * @description The mail account Linx sends through (ADR-066, docs/PHASE1F.md §4) and its queue; the password is never shown, only whether one is set.
+         */
+        get: operations["getEmail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change how Linx sends email
+         * @description JSON Merge Patch with If-Match. A system admin only, after a fresh "confirm it's you"; audited without the password. A new server or address needs the password typed again. A server on a private network is refused (host_blocked) unless it's on the outbound allowlist.
+         */
+        patch: operations["updateEmail"];
+        trace?: never;
+    };
+    "/api/v1/email/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send the test email to yourself
+         * @description Sends "Linx can send email" to the caller's own address with the saved setting, on or off, straight away (not queued), and says how far it got. A system admin only; 5 a minute.
+         */
+        post: operations["testEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface webhooks {
     "webhook.test": {
@@ -2945,7 +2989,7 @@ export interface components {
             data: Record<string, never>;
         };
         /** @enum {string} */
-        AlertChannelKind: "ntfy" | "gotify" | "slack" | "teams" | "telegram" | "webhook";
+        AlertChannelKind: "ntfy" | "gotify" | "slack" | "teams" | "telegram" | "webhook" | "email";
         /** @enum {string} */
         AlertSeverity: "info" | "warning" | "critical";
         /** @description A do-not-disturb window in the channel's own local time (docs/API.md §5). `start` may be after `end`: the window then wraps past midnight (e.g. 22:00-07:00). */
@@ -2976,6 +3020,8 @@ export interface components {
             bot_token?: string;
             /** @description Telegram chat id to send to. */
             chat_id?: string;
+            /** @description Email addresses, separated by commas (at most 10), for an email channel. Needs email set up (System → Settings). The "email isn't sending" alert never goes to an email channel. */
+            to?: string;
         };
         /** @description A place Linx sends admin alerts (docs/API.md §5). */
         AlertChannel: {
@@ -3744,6 +3790,68 @@ export interface components {
         HelpGuideRef: {
             name: string;
             title: string;
+        };
+        Email: {
+            enabled: boolean;
+            /** @description Who sends it (web/src/lib/email-presets.json). */
+            preset: string;
+            host: string;
+            port: number;
+            /**
+             * @description TLS from the start, or STARTTLS. There is no plain choice.
+             * @enum {string}
+             */
+            security: "tls" | "starttls";
+            username: string;
+            from_address: string;
+            from_name: string;
+            password_set: boolean;
+            hourly_limit: number;
+            /**
+             * Format: date-time
+             * @description When a system admin said the test email arrived; absent until then.
+             */
+            arrived_at?: string;
+            etag: string;
+            status: {
+                /** Format: date-time */
+                last_sent_at?: string;
+                sent_last_hour: number;
+                waiting: number;
+                /** @description The newest failure still waiting, or of the last day with nothing sent since; empty when there's none. */
+                last_error: string;
+            };
+        };
+        /** @description JSON Merge Patch; fields not sent stay as they are. An empty password removes it. */
+        EmailPatch: {
+            enabled?: boolean;
+            preset?: string;
+            host?: string;
+            port?: number;
+            /** @enum {string} */
+            security?: "tls" | "starttls";
+            username?: string;
+            from_address?: string;
+            from_name?: string;
+            password?: string;
+            hourly_limit?: number;
+            /** @description The test email arrived (true), or didn't (false). */
+            arrived?: boolean;
+        };
+        EmailTest: {
+            to: string;
+            ok: boolean;
+            /** @description The stages passed, in order. */
+            passed: ("connect" | "encrypt" | "certificate" | "sign_in" | "send")[];
+            /**
+             * @description Where it stopped, when ok is false.
+             * @enum {string}
+             */
+            stage?: "connect" | "encrypt" | "certificate" | "sign_in" | "send";
+            /** @description Why, in plain words, with what the mail server said. */
+            error?: string;
+            /** @description The server is on a private network an admin may allow (the outbound allowlist). */
+            blocked_host?: string;
         };
         HelpGuideSummary: {
             name: string;
@@ -8613,6 +8721,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HelpAnswersTest"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The setting. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Email"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateEmail: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["EmailPatch"];
+            };
+        };
+        responses: {
+            /** @description The setting as it now is. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Email"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    testEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How far it got. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailTest"];
                 };
             };
             default: components["responses"]["Problem"];

@@ -11,7 +11,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"linxpbx.com/linx/internal/apihttp"
+	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/dbsecret"
+	"linxpbx.com/linx/internal/email"
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/version"
 )
@@ -148,6 +151,17 @@ type Sender struct {
 	Client Doer
 	Sealer *dbsecret.Sealer
 	Now    func() time.Time
+	// Email queues an email channel's messages (nil: email channels fail
+	// with "set up email first").
+	Email EmailQueue
+	// WebAddress is Linx's own address (https://<domain>[:port]), to make
+	// an alert's link whole in an email.
+	WebAddress string
+}
+
+// EmailQueue is Linx's email (internal/email.Service).
+type EmailQueue interface {
+	Enqueue(ctx context.Context, tenant uuid.UUID, kind string, to []string, c email.Content, audit auth.AuditEntry) (uuid.UUID, error)
 }
 
 // Send posts job's message through its channel and reports the attempt.
@@ -168,6 +182,9 @@ func (s *Sender) Send(ctx context.Context, job Job) (a Attempt, succeeded bool) 
 	cfg, err := UnmarshalConfig(plain)
 	if err != nil {
 		return fail("Linx couldn't read this channel's settings.")
+	}
+	if job.ChannelKind == KindEmail {
+		return s.sendEmail(ctx, job, cfg, start, fail)
 	}
 	send, ok := kindSenders[job.ChannelKind]
 	if !ok {
@@ -200,6 +217,45 @@ func (s *Sender) Send(ctx context.Context, job Job) (a Attempt, succeeded bool) 
 	msg2 := fmt.Sprintf("The receiver answered %d %s.", code, http.StatusText(code))
 	a.Error = &msg2
 	return a, false
+}
+
+// sendEmail queues job's message for an email channel: the delivery
+// succeeds once it's queued (the email's own tries and the "email isn't
+// sending" alert take it from there).
+func (s *Sender) sendEmail(ctx context.Context, job Job, cfg Config, start time.Time, fail func(string) (Attempt, bool)) (Attempt, bool) {
+	if s.Email == nil {
+		return fail("Set up email first (System → Settings).")
+	}
+	title, body, link, _, resolved := summarize(newMessage(job.Kind, job.Alerts, job.ID, start))
+	switch {
+	case job.Kind == DeliveryTest:
+		title = "Test from Linx"
+		body = "This is a test of this alert channel. Alerts will arrive like this."
+	case resolved:
+		title = "Resolved: " + title
+	}
+	if strings.HasPrefix(link, "/") && s.WebAddress != "" {
+		link = s.WebAddress + link
+	}
+	if link != "" {
+		body += "\n\n" + link
+	}
+	subject := "[Linx] " + strings.Join(strings.Fields(title), " ")
+	if r := []rune(subject); len(r) > 200 {
+		subject = string(r[:199]) + "…"
+	}
+	_, err := s.Email.Enqueue(ctx, job.TenantID, email.KindAlert, EmailAddresses(cfg.To), email.Content{Subject: subject, Text: body},
+		auth.AuditEntry{Actor: "system", Action: "email.queue", Result: auth.ResultOK,
+			Detail: map[string]any{"alert_channel": job.ChannelID.String()}})
+	if err != nil {
+		var e *apihttp.Error
+		if errors.As(err, &e) {
+			return fail(e.Detail)
+		}
+		return fail("Linx couldn't queue the email.")
+	}
+	a := Attempt{At: start, DurationMS: int(s.Now().Sub(start).Milliseconds())}
+	return a, true
 }
 
 // outcome turns an attempt on job into what's recorded.

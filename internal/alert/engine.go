@@ -171,7 +171,7 @@ func (e *Engine) notify(ctx context.Context, a Alert, kind string, now time.Time
 	}
 	var due, held []uuid.UUID
 	for _, c := range channels {
-		if !meetsSeverity(a.Severity, c.MinSeverity) {
+		if !meetsSeverity(a.Severity, c.MinSeverity) || (c.Kind == KindEmail && a.Key == EmailBrokenKey) {
 			continue
 		}
 		quiet, err := c.QuietHours.Active(now)

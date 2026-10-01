@@ -3942,6 +3942,82 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/email:
+    get:
+      operationId: getEmail
+      summary: How Linx sends email
+      description: >-
+        The mail account Linx sends through (ADR-066, docs/PHASE1F.md §4)
+        and its queue; the password is never shown, only whether one is set.
+      tags: [settings]
+      security:
+        - bearer: [settings:read]
+      responses:
+        "200":
+          description: The setting.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Email"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateEmail
+      summary: Change how Linx sends email
+      description: >-
+        JSON Merge Patch with If-Match. A system admin only, after a fresh
+        "confirm it's you"; audited without the password. A new server or
+        address needs the password typed again. A server on a private
+        network is refused (host_blocked) unless it's on the outbound
+        allowlist.
+      tags: [settings]
+      security:
+        - bearer: [settings:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/EmailPatch"
+      responses:
+        "200":
+          description: The setting as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Email"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/email/test:
+    post:
+      operationId: testEmail
+      summary: Send the test email to yourself
+      description: >-
+        Sends "Linx can send email" to the caller's own address with the
+        saved setting, on or off, straight away (not queued), and says how
+        far it got. A system admin only; 5 a minute.
+      tags: [settings]
+      security:
+        - bearer: [settings:write]
+      responses:
+        "200":
+          description: How far it got.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailTest"
+        default:
+          $ref: "#/components/responses/Problem"
+
 webhooks:
   webhook.test:
     post:
@@ -4582,7 +4658,7 @@ components:
 
     AlertChannelKind:
       type: string
-      enum: [ntfy, gotify, slack, teams, telegram, webhook]
+      enum: [ntfy, gotify, slack, teams, telegram, webhook, email]
 
     AlertSeverity:
       type: string
@@ -4650,6 +4726,13 @@ components:
           type: string
           maxLength: 64
           description: Telegram chat id to send to.
+        to:
+          type: string
+          maxLength: 2600
+          description: >-
+            Email addresses, separated by commas (at most 10), for an email
+            channel. Needs email set up (System → Settings). The "email
+            isn't sending" alert never goes to an email channel.
 
     AlertChannel:
       description: A place Linx sends admin alerts (docs/API.md §5).
@@ -6104,6 +6187,119 @@ components:
           type: string
         title:
           type: string
+
+    Email:
+      type: object
+      required: [enabled, preset, host, port, security, username, from_address, from_name, password_set, hourly_limit, etag, status]
+      properties:
+        enabled:
+          type: boolean
+        preset:
+          type: string
+          description: Who sends it (web/src/lib/email-presets.json).
+        host:
+          type: string
+        port:
+          type: integer
+        security:
+          type: string
+          enum: [tls, starttls]
+          description: TLS from the start, or STARTTLS. There is no plain choice.
+        username:
+          type: string
+        from_address:
+          type: string
+        from_name:
+          type: string
+        password_set:
+          type: boolean
+        hourly_limit:
+          type: integer
+        arrived_at:
+          type: string
+          format: date-time
+          description: When a system admin said the test email arrived; absent until then.
+        etag:
+          type: string
+        status:
+          type: object
+          required: [sent_last_hour, waiting, last_error]
+          properties:
+            last_sent_at:
+              type: string
+              format: date-time
+            sent_last_hour:
+              type: integer
+            waiting:
+              type: integer
+            last_error:
+              type: string
+              description: The newest failure still waiting, or of the last day with nothing sent since; empty when there's none.
+
+    EmailPatch:
+      description: JSON Merge Patch; fields not sent stay as they are. An empty password removes it.
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        preset:
+          type: string
+          maxLength: 30
+        host:
+          type: string
+          maxLength: 253
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        security:
+          type: string
+          enum: [tls, starttls]
+        username:
+          type: string
+          maxLength: 254
+        from_address:
+          type: string
+          maxLength: 254
+        from_name:
+          type: string
+          maxLength: 100
+        password:
+          type: string
+          maxLength: 500
+        hourly_limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        arrived:
+          type: boolean
+          description: The test email arrived (true), or didn't (false).
+
+    EmailTest:
+      type: object
+      required: [to, ok, passed]
+      properties:
+        to:
+          type: string
+        ok:
+          type: boolean
+        passed:
+          type: array
+          description: The stages passed, in order.
+          items:
+            type: string
+            enum: [connect, encrypt, certificate, sign_in, send]
+        stage:
+          type: string
+          enum: [connect, encrypt, certificate, sign_in, send]
+          description: Where it stopped, when ok is false.
+        error:
+          type: string
+          description: Why, in plain words, with what the mail server said.
+        blocked_host:
+          type: string
+          description: The server is on a private network an admin may allow (the outbound allowlist).
 
     HelpGuideSummary:
       type: object

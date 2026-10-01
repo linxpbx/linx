@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
+
+	"linxpbx.com/linx/internal/email"
 )
 
 var topicPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -17,6 +20,7 @@ var fieldsFor = map[string][]string{
 	KindTeams:    {"url"},
 	KindTelegram: {"bot_token", "chat_id"},
 	KindWebhook:  {"url"},
+	KindEmail:    {"to"},
 }
 
 // optionalFields may be set for a kind without being required.
@@ -42,13 +46,15 @@ func fieldValue(cfg Config, name string) string {
 		return cfg.BotToken
 	case "chat_id":
 		return cfg.ChatID
+	case "to":
+		return cfg.To
 	}
 	return ""
 }
 
 // allFields is every Config field name, for spotting one that doesn't
 // belong to kind.
-var allFields = []string{"server_url", "topic", "access_token", "app_token", "url", "bot_token", "chat_id"}
+var allFields = []string{"server_url", "topic", "access_token", "app_token", "url", "bot_token", "chat_id", "to"}
 
 // ValidateFor checks that cfg has exactly the fields kind's channel needs
 // (required ones set, no fields from another kind), returning a
@@ -72,7 +78,29 @@ func ValidateFor(kind string, cfg Config) string {
 	if kind == KindNtfy && cfg.Topic != "" && !topicPattern.MatchString(cfg.Topic) {
 		return "ntfy topics are letters, digits, underscores and hyphens only."
 	}
+	if kind == KindEmail {
+		to := EmailAddresses(cfg.To)
+		if len(to) == 0 || len(to) > email.MaxRecipients {
+			return fmt.Sprintf("An email channel goes to 1 to %d addresses.", email.MaxRecipients)
+		}
+		for _, a := range to {
+			if msg := email.CheckAddress(a); msg != "" {
+				return msg
+			}
+		}
+	}
 	return ""
+}
+
+// EmailAddresses splits an email channel's "to" into addresses.
+func EmailAddresses(to string) []string {
+	var out []string
+	for _, a := range strings.Split(to, ",") {
+		if a = strings.ToLower(strings.TrimSpace(a)); a != "" {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func contains(list []string, s string) bool {

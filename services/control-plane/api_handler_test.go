@@ -7,8 +7,10 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -24,6 +26,8 @@ import (
 	"linxpbx.com/linx/internal/alert"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/dbsecret"
+	"linxpbx.com/linx/internal/email"
+	"linxpbx.com/linx/internal/email/emailtest"
 	"linxpbx.com/linx/internal/helpanswers"
 	"linxpbx.com/linx/internal/helpanswers/helpanswerstest"
 	"linxpbx.com/linx/internal/pbx"
@@ -62,6 +66,8 @@ type testEnv struct {
 	serverSettings *fakeServerSettings
 	// apiServer is the API server itself, for handlers made from it.
 	apiServer *controlplaneapi.Server
+	// email is the email setting and queue (email_test.go).
+	email *emailtest.Store
 	// asterisk is where the /sip relay connects (a websocket URL); tests
 	// that use the relay set it.
 	asterisk string
@@ -137,6 +143,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	fops := &fakeOps{}
 	fss := &fakeServerSettings{}
 	var apiServer *controlplaneapi.Server
+	var emailStore *emailtest.Store
 	handler, err := newAPIHandler(log, st, authn, webhooks, alerts, pbxSvc, trunks, nil, calls, accounts, turnIssuer, team, settingsSvc, st, ssoSvc, nil,
 		func(s *controlplaneapi.Server) {
 			apiServer = s
@@ -144,12 +151,17 @@ func newTestEnv(t *testing.T) *testEnv {
 			s.SetServerSettings(fss)
 			s.SetHelpAnswers(&helpanswers.Service{Store: helpanswerstest.New(), Sealer: sender.Sealer, Help: testHelpLibrary(t),
 				Policy: policy, Resolver: resolver, Now: time.Now})
+			emailStore = emailtest.New()
+			s.SetEmail(&email.Service{Store: emailStore, Sealer: sender.Sealer, Policy: policy, Resolver: resolver, Now: time.Now,
+				Sender: &email.Sender{Now: time.Now, Dial: func(context.Context, string) (net.Conn, error) {
+					return nil, errors.New("no mail server in this test")
+				}}})
 		})
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)
 	}
 	env := &testEnv{t: t, store: st, authn: authn, tokens: tokens, webhooks: webhooks, whStore: wh, alerts: alerts, alStore: al,
-		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts, team: teamStore, hub: hub, company: company, ops: fops, serverSettings: fss, apiServer: apiServer}
+		pbx: pbxSvc, pbxStore: pb, calls: calls, accounts: accounts, team: teamStore, hub: hub, company: company, ops: fops, serverSettings: fss, apiServer: apiServer, email: emailStore}
 	sst := testSIPStore{fakeStore: st, fakePbxStore: pb}
 	pb.sessionLive = st.sessionLive
 	env.relay = &siprelay.Relay{

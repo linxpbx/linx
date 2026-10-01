@@ -35,6 +35,7 @@ import (
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
+	"linxpbx.com/linx/internal/email"
 	"linxpbx.com/linx/internal/health"
 	"linxpbx.com/linx/internal/help"
 	"linxpbx.com/linx/internal/helpanswers"
@@ -365,8 +366,28 @@ func main() {
 			run(bgCtx)
 		}()
 	}
+	// Email (ADR-066): through the owner's own mail account, over the same
+	// private-address guard. When it stops working, an alert goes out
+	// through the other channels (never by email, internal/alert).
+	emailSvc := &email.Service{Store: st, Sealer: sealer, Policy: policy, Now: time.Now, Log: log,
+		Sender: &email.Sender{Dial: email.GuardedDial(policy, nil), Now: time.Now},
+		Broken: func(ctx context.Context, tenant uuid.UUID, detail string) {
+			if err := engine.Fire(ctx, tenant, alert.EmailBrokenKey, alert.SeverityWarning, "Email isn't sending",
+				detail+" Invites, password resets and voicemail emails wait until it works again. "+
+					"(This alert never comes by email.)", "/admin/system/settings"); err != nil {
+				log.Error("firing the email alert failed", "err", err)
+			}
+		},
+		Working: func(ctx context.Context, tenant uuid.UUID) {
+			if err := engine.Resolve(ctx, tenant, alert.EmailBrokenKey); err != nil {
+				log.Error("resolving the email alert failed", "err", err)
+			}
+		},
+	}
+	alertSender.Email, alertSender.WebAddress = emailSvc, weburl.FromEnv(os.Getenv)
 	runBackground(worker.Run)
 	runBackground(engine.Run)
+	runBackground(emailSvc.Run)
 	// The certificate renewal alert source polls linx-certd directly (not
 	// through the SSRF guard: it's Linx's own service, not an admin URL).
 	var certExpiry atomic.Int64
@@ -435,6 +456,7 @@ func main() {
 			s.SetServerSettings(serverSettings)
 			s.SetMoved(movedSvc)
 			s.SetHelpAnswers(helpAnswers)
+			s.SetEmail(emailSvc)
 			s.SetReach(reachChecker.Run, reachLinks)
 			s.SetDNSRecords(reachChecker.Records)
 			s.SetOps(opsHub, st.Audit, func() time.Time {

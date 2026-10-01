@@ -40,7 +40,14 @@ const (
 	KindTeams    = "teams"
 	KindTelegram = "telegram"
 	KindWebhook  = "webhook" // generic, Standard Webhooks signed
+	// KindEmail goes through Linx's own email (ADR-066): queued, so a
+	// delivery succeeds once the email is queued.
+	KindEmail = "email"
 )
+
+// EmailBrokenKey is the "email isn't sending" alert's key. It's never sent
+// to an email channel: it would only wait in the same broken queue.
+const EmailBrokenKey = "email.broken"
 
 // Alert statuses.
 const (
@@ -104,6 +111,7 @@ type Config struct {
 	URL         string `json:"url,omitempty"`          // slack, teams, webhook
 	BotToken    string `json:"bot_token,omitempty"`    // telegram
 	ChatID      string `json:"chat_id,omitempty"`      // telegram
+	To          string `json:"to,omitempty"`           // email: addresses, comma-separated
 	// Secret signs a webhook channel's messages (Standard Webhooks). Linx
 	// generates it when the channel is created; never set by the admin, so
 	// it's never part of the API's Config and never listed in allFields.

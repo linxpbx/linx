@@ -19,6 +19,7 @@ import (
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/backupschedule"
+	"linxpbx.com/linx/internal/email"
 	"linxpbx.com/linx/internal/helpanswers"
 	"linxpbx.com/linx/internal/moved"
 	"linxpbx.com/linx/internal/numbering"
@@ -64,8 +65,10 @@ type Server struct {
 	moved          *moved.Service
 	// Help's written answers (SetHelpAnswers).
 	helpAnswers *helpanswers.Service
-	writeAudit  func(context.Context, auth.AuditEntry) error
-	certExpiry  func() time.Time
+	// Email sending (SetEmail).
+	email      *email.Service
+	writeAudit func(context.Context, auth.AuditEntry) error
+	certExpiry func() time.Time
 }
 
 // AuditLogSource is the database access /audit-log needs.

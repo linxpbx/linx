@@ -30,7 +30,7 @@ func toQuietHoursInput(q *QuietHours) *alert.QuietHoursInput {
 func toChannelConfig(c AlertChannelConfig) alert.Config {
 	return alert.Config{
 		ServerURL: deref(c.ServerUrl), Topic: deref(c.Topic), AccessToken: deref(c.AccessToken),
-		AppToken: deref(c.AppToken), URL: deref(c.Url), BotToken: deref(c.BotToken), ChatID: deref(c.ChatId),
+		AppToken: deref(c.AppToken), URL: deref(c.Url), BotToken: deref(c.BotToken), ChatID: deref(c.ChatId), To: deref(c.To),
 	}
 }
 

@@ -67,7 +67,7 @@ func matchETag(ifMatch string, version int) bool {
 var errChanged = &apihttp.Error{Status: http.StatusPreconditionFailed, Code: "etag_mismatch",
 	Detail: "This alert channel was changed since you read it. Fetch it again and retry."}
 
-var validKinds = []string{KindNtfy, KindGotify, KindSlack, KindTeams, KindTelegram, KindWebhook}
+var validKinds = []string{KindNtfy, KindGotify, KindSlack, KindTeams, KindTelegram, KindWebhook, KindEmail}
 
 func validKind(k string) bool {
 	for _, v := range validKinds {
