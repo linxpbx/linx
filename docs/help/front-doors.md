@@ -33,7 +33,7 @@ Your router keeps sending TCP port 443 to the other program, and sends a UDP por
 
 Setup also writes everything to `/etc/linx/front-door/` on the server (`FRONT-DOOR.txt` and each block), for anyone working in a terminal.
 
-## Nothing: only at home
+## Nothing: only at home (no internet)
 
 Linx works on your home or office network only: no calls from outside. It still needs your DNS company's token for its certificate.
 
@@ -68,7 +68,7 @@ Only for a proxy that can't pass Linx through, and only at home. The proxy opens
 
 - A rented server with nothing else on it: **Nothing else uses port 443 — Linx takes it**.
 - At home with Pangolin, nginx, HAProxy or Caddy already on port 443: **Another program passes Linx through**.
-- Nothing from outside needed: **Nothing: only at home**.
+- Nothing from outside needed: **Nothing: only at home (no internet)**.
 - Port 443 taken by something that can't pass Linx through, and no proxy: *Advanced: use another public port*, knowing some networks block it.
 
 If people outside can't open Linx afterwards, see [Can't open Linx's address](cant-open-the-address).

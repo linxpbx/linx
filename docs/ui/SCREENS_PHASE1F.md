@@ -59,7 +59,7 @@ One card, the same in three places: the install page's "What's in front of this 
   ( ) Another program passes Linx through
       Pangolin, nginx, HAProxy, Caddy, Nginx Proxy Manager or
       similar already uses port 443 and sends Linx's names here.
-  ( ) Nothing: only at home
+  ( ) Nothing: only at home (no internet)
       Linx works on this network only. No calls from outside.
 
   ▸ Advanced

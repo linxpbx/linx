@@ -174,7 +174,7 @@ function WhereStep({ answers, set, errorFor, facts, onNext }: StepProps & { fact
 const doorText: Partial<Record<FrontDoor, { title: string; hint: string }>> = {
   "linx-443": { title: "Nothing else uses port 443 — Linx takes it", hint: "Your router sends TCP and UDP port 443 straight to this server." },
   proxy: { title: "Another program passes Linx through", hint: "Pangolin, nginx, HAProxy, Caddy, Nginx Proxy Manager or similar already uses port 443 and sends Linx's names here." },
-  "home-only": { title: "Nothing: only at home", hint: "Linx works on this network only. No calls from outside. Needs your DNS company's token on this unencrypted page." },
+  "home-only": { title: "Nothing: only at home (no internet)", hint: "Linx works on this network only. No calls from outside. Needs your DNS company's token on this unencrypted page." },
   "http-proxy": { title: "My proxy must unlock the traffic itself", hint: "For a proxy that can't pass Linx through. Not recommended." },
   "public-port": {
     title: "Nothing here can pass Linx through on 443: use another public port",

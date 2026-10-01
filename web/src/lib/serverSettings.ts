@@ -61,7 +61,7 @@ export const repairClient: ServerSettingsClient = {
 export const DOORS: Record<string, string> = {
   "linx-443": "Nothing else uses port 443 — Linx takes it", proxy: "Another program passes Linx through",
   pangolin: "Pangolin passes Linx through", nginx: "nginx or HAProxy passes Linx through",
-  "home-only": "Nothing: only at home", "http-proxy": "A proxy that unlocks the traffic (advanced)", none: "Nothing yet",
+  "home-only": "Nothing: only at home (no internet)", "http-proxy": "A proxy that unlocks the traffic (advanced)", none: "Nothing yet",
   "public-port": "Nothing here can pass Linx through on 443: another public port (advanced)",
 };
 
