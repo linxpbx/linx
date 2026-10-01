@@ -116,6 +116,17 @@ type dialer struct {
 	resolver Resolver
 }
 
+// Dial connects to addr (host:port) over TCP, as the HTTP client does:
+// every address the host resolves to is checked against policy, and the
+// exact one again right before connecting. For outbound connections that
+// aren't HTTP (email, ADR-066); a nil resolver is net.DefaultResolver.
+func Dial(ctx context.Context, policy Policy, resolver Resolver, addr string) (net.Conn, error) {
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	return (&dialer{policy: policy, resolver: resolver}).dial(ctx, "tcp", addr)
+}
+
 // dial resolves addr's host once, checks every address, then connects to
 // the checked addresses in turn. The net.Dialer's Control checks the exact
 // address again right before connecting.

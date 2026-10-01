@@ -1,0 +1,100 @@
+[
+  {
+    "id": "google",
+    "name": "Gmail or Google Workspace",
+    "host": "smtp.gmail.com",
+    "port": 465,
+    "security": "tls",
+    "password": "App password",
+    "username_is_address": true,
+    "where": "Turn on 2-Step Verification for the account, then make an app password at myaccount.google.com → Security → App passwords (name it Linx). Paste the 16 letters, without spaces.",
+    "link": "https://myaccount.google.com/apppasswords"
+  },
+  {
+    "id": "microsoft",
+    "name": "Microsoft 365",
+    "host": "smtp.office365.com",
+    "port": 587,
+    "security": "starttls",
+    "password": "Password or app password",
+    "username_is_address": true,
+    "where": "Your admin has to allow \"Authenticated SMTP\" for this mailbox (Microsoft 365 admin center → Users → the mailbox → Mail → Email apps). With 2-step sign-in, make an app password at mysignins.microsoft.com → Security info.",
+    "link": "https://mysignins.microsoft.com/security-info",
+    "warning": "Microsoft is turning off password sign-in for sending mail. It may stop working; a sending service (Postmark, Brevo, Amazon SES) is safer."
+  },
+  {
+    "id": "icloud",
+    "name": "iCloud Mail",
+    "host": "smtp.mail.me.com",
+    "port": 587,
+    "security": "starttls",
+    "password": "App-specific password",
+    "username_is_address": true,
+    "where": "Make an app-specific password at account.apple.com → Sign-In and Security → App-Specific Passwords (name it Linx). Send from your @icloud.com address or a custom domain set up in iCloud.",
+    "link": "https://account.apple.com"
+  },
+  {
+    "id": "fastmail",
+    "name": "Fastmail",
+    "host": "smtp.fastmail.com",
+    "port": 465,
+    "security": "tls",
+    "password": "App password",
+    "username_is_address": true,
+    "where": "Make an app password at Settings → Privacy \u0026 Security → Integrations → App passwords, with access to SMTP only.",
+    "link": "https://app.fastmail.com/settings/security/integrations"
+  },
+  {
+    "id": "ses",
+    "name": "Amazon SES",
+    "port": 465,
+    "security": "tls",
+    "password": "SMTP password",
+    "username_is_address": false,
+    "username": "SMTP user name",
+    "where": "In the SES console of your region: verify the address or domain you send from, then SMTP settings → Create SMTP credentials. Give the SMTP endpoint shown there as the server (e.g. email-smtp.eu-west-1.amazonaws.com)."
+  },
+  {
+    "id": "postmark",
+    "name": "Postmark",
+    "host": "smtp.postmarkapp.com",
+    "port": 587,
+    "security": "starttls",
+    "password": "Server API token",
+    "username_is_address": false,
+    "username": "Server API token",
+    "where": "In Postmark, verify your sender address or domain, then open your server → API Tokens. The same token is the user name and the password.",
+    "link": "https://account.postmarkapp.com/servers"
+  },
+  {
+    "id": "brevo",
+    "name": "Brevo",
+    "host": "smtp-relay.brevo.com",
+    "port": 587,
+    "security": "starttls",
+    "password": "SMTP key",
+    "username_is_address": false,
+    "username": "SMTP login",
+    "where": "In Brevo, add and verify your sender, then Settings → SMTP \u0026 API → SMTP: the login is shown there, and Generate a new SMTP key gives the password.",
+    "link": "https://app.brevo.com/settings/keys/smtp"
+  },
+  {
+    "id": "mailgun",
+    "name": "Mailgun",
+    "host": "smtp.mailgun.org",
+    "port": 465,
+    "security": "tls",
+    "password": "SMTP password",
+    "username_is_address": false,
+    "username": "SMTP user name",
+    "where": "In Mailgun, open your sending domain → Domain settings → SMTP credentials and add one. For the EU region, the server is smtp.eu.mailgun.org."
+  },
+  {
+    "id": "other",
+    "name": "Something else",
+    "password": "Password",
+    "username_is_address": false,
+    "username": "User name",
+    "where": "Your mail provider's help pages list its SMTP server, port and encryption. Linx only sends encrypted: TLS from the start (usually port 465) or STARTTLS (usually 587)."
+  }
+]
