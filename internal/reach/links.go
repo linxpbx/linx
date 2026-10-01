@@ -3,6 +3,7 @@ package reach
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"errors"
 	"net/netip"
 	"strconv"
@@ -124,7 +125,17 @@ func (l *Links) URL(k Link) string {
 
 // Claim uses a code from addr, once.
 func (l *Links) Claim(ctx context.Context, code string, addr netip.Addr) (Claimed, error) {
-	// Worked out before the lock: it may ask the internet.
+	// A wrong code ends here, before anything below asks the internet:
+	// the phone's page is open to anyone.
+	l.mu.Lock()
+	l.sweep()
+	k := l.find(code)
+	open := k != nil && k.State == Waiting
+	l.mu.Unlock()
+	if !open {
+		return Claimed{}, ErrNoLink
+	}
+	// Worked out without the lock: it may ask the internet.
 	seen := SeenOutside
 	switch {
 	case l.Proxies != nil && l.Proxies(addr):
@@ -139,8 +150,7 @@ func (l *Links) Claim(ctx context.Context, code string, addr netip.Addr) (Claime
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sweep()
-	k := l.find(code)
-	if k == nil || k.State != Waiting {
+	if k = l.find(code); k == nil || k.State != Waiting {
 		return Claimed{}, ErrNoLink
 	}
 	k.State, k.Address, k.Seen, k.claimedAt = Reached, addr.String(), seen, l.Now()
@@ -222,7 +232,7 @@ func (l *Links) sweep() {
 
 func (l *Links) find(code string) *Link {
 	for _, k := range l.links {
-		if len(code) == codeLen && k.Code == code {
+		if len(code) == codeLen && subtle.ConstantTimeCompare([]byte(k.Code), []byte(code)) == 1 {
 			return k
 		}
 	}

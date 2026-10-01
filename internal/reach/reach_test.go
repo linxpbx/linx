@@ -95,6 +95,31 @@ func TestLinks(t *testing.T) {
 	}
 }
 
+// A wrong or used code is refused before anything asks the internet for
+// this network's address: the phone's page is open to anyone.
+func TestClaimWrongCodeAsksNothing(t *testing.T) {
+	asked := 0
+	l := &Links{Domain: "example.com", Now: time.Now,
+		PublicIP: func(context.Context) (netip.Addr, error) { asked++; return netip.Addr{}, errors.New("offline") },
+		TURN:     &turn.Issuer{Secret: []byte("s")}}
+	k := l.New()
+	outside := netip.MustParseAddr("5.194.33.12")
+	for _, code := range []string{"WRONGCODE2", "", k.Code + "X", strings.ToLower(k.Code)} {
+		if _, err := l.Claim(context.Background(), code, outside); err != ErrNoLink {
+			t.Errorf("%q: %v", code, err)
+		}
+	}
+	if asked != 0 {
+		t.Fatalf("wrong codes asked for the public address %d times", asked)
+	}
+	if _, err := l.Claim(context.Background(), k.Code, outside); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Claim(context.Background(), k.Code, outside); err != ErrNoLink || asked != 1 {
+		t.Errorf("used code: %v, asked %d times", err, asked)
+	}
+}
+
 // A certificate chain: an issuer and a leaf for names.
 func chain(t *testing.T, names ...string) tls.Certificate {
 	t.Helper()
