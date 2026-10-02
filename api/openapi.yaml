@@ -4428,6 +4428,180 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/me/calls:
+    get:
+      operationId: listMyCalls
+      summary: My call history
+      description: >-
+        The Call history tab (ADR-070, docs/ui/SCREENS_PHASE1F.md §13.1):
+        the calls the signed-in person made, was rung for, answered, or
+        whose voicemail they reached, newest first. `missed` lists only
+        the ones they missed. A person with no extension has none.
+        Signed-in browser sessions only (`not_a_session` for API keys,
+        which use GET /calls).
+      tags: [calls]
+      parameters:
+        - $ref: "#/components/parameters/CallsMissed"
+        - $ref: "#/components/parameters/CallsNumber"
+        - $ref: "#/components/parameters/CallsBefore"
+        - $ref: "#/components/parameters/CallsLimit"
+      responses:
+        "200":
+          description: A page of calls.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallHistoryPage"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/missed-calls:
+    get:
+      operationId: getMyMissedCalls
+      summary: How many calls I missed since I last looked
+      description: >-
+        The Call history badge. Fetched again when the Team websocket's
+        `calls` counter changes. Signed-in browser sessions only.
+      tags: [calls]
+      responses:
+        "200":
+          description: The count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [missed]
+                properties:
+                  missed:
+                    type: integer
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: clearMyMissedCalls
+      summary: Clear the Call history badge
+      description: Called when the person opens Call history. Signed-in browser sessions only.
+      tags: [calls]
+      responses:
+        "204":
+          description: Cleared.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/calls:
+    get:
+      operationId: listCalls
+      summary: Everyone's call history
+      description: >-
+        Admin → Calls (ADR-070, docs/ui/SCREENS_PHASE1F.md §13.2), newest
+        first, kept for the days call history settings say (1 year by
+        default). Filters: one person's calls (`extension_id`), a number
+        (digits, anywhere in the caller's or the called number), missed
+        only, and a time range (`from` inclusive, `to` exclusive). Page
+        with `before` (the `next` of the last page).
+      tags: [calls]
+      security:
+        - bearer: [calls:read]
+      parameters:
+        - name: extension_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/CallsMissed"
+        - $ref: "#/components/parameters/CallsNumber"
+        - $ref: "#/components/parameters/CallsFrom"
+        - $ref: "#/components/parameters/CallsTo"
+        - $ref: "#/components/parameters/CallsBefore"
+        - $ref: "#/components/parameters/CallsLimit"
+      responses:
+        "200":
+          description: A page of calls.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallHistoryPage"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/calls/csv:
+    get:
+      operationId: downloadCalls
+      summary: Download call history (CSV)
+      description: >-
+        The same filters as GET /calls, one line per call, up to 100,000
+        calls, times in the server's time zone; the file name says the
+        dates. Served by a hand-written handler (excluded from code
+        generation).
+      tags: [calls]
+      security:
+        - bearer: [calls:read]
+      parameters:
+        - name: extension_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/CallsMissed"
+        - $ref: "#/components/parameters/CallsNumber"
+        - $ref: "#/components/parameters/CallsFrom"
+        - $ref: "#/components/parameters/CallsTo"
+      responses:
+        "200":
+          description: The calls.
+          content:
+            text/csv:
+              schema:
+                type: string
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/call-history-settings:
+    get:
+      operationId: getCallHistorySettings
+      summary: How long call history is kept
+      description: System → Settings, with how many calls are kept and the space call history uses.
+      tags: [calls]
+      security:
+        - bearer: [settings:read]
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallHistorySettings"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateCallHistorySettings
+      summary: Change how long call history is kept
+      description: 30 to 730 days. Older calls are deleted within the hour. Audited.
+      tags: [calls]
+      security:
+        - bearer: [settings:write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [keep_days]
+              properties:
+                keep_days:
+                  type: integer
+                  minimum: 30
+                  maximum: 730
+      responses:
+        "200":
+          description: The settings as they now are.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallHistorySettings"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /oauth/token:
     post:
       operationId: oauthToken
@@ -4854,6 +5028,42 @@ components:
         /oauth/token. Operations list the scopes they need (docs/API.md §3).
 
   parameters:
+    CallsMissed:
+      name: missed
+      in: query
+      schema:
+        type: boolean
+    CallsNumber:
+      name: number
+      in: query
+      schema:
+        type: string
+        maxLength: 40
+    CallsFrom:
+      name: from
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CallsTo:
+      name: to
+      in: query
+      schema:
+        type: string
+        format: date-time
+    CallsBefore:
+      name: before
+      in: query
+      schema:
+        type: string
+        maxLength: 80
+    CallsLimit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
     Id:
       name: id
       in: path
@@ -4906,6 +5116,124 @@ components:
             $ref: "#/components/schemas/Problem"
 
   schemas:
+    CallHistoryParty:
+      type: object
+      required: [number, name]
+      properties:
+        number:
+          type: string
+          description: An outside number (E.164 when Linx could tell), a person's extension, or what was dialled; "" when withheld.
+        name:
+          type: string
+          description: The person's name, or what the caller's provider sent (plain text, show as text only).
+        extension_id:
+          type: string
+          format: uuid
+
+    CallHistoryVoicemail:
+      type: object
+      required: [box]
+      properties:
+        box:
+          type: string
+          description: Whose voicemail, e.g. "Sara Haddad (101)" or "Sales".
+        id:
+          type: string
+          format: uuid
+          description: The message left, while it's kept (absent - none left, or deleted since).
+        box_id:
+          type: string
+          format: uuid
+        duration_ms:
+          type: integer
+
+    CallRecord:
+      type: object
+      required: [id, direction, started_at, ended_at, talk_seconds, result, missed, rang_unanswered, from, to, steps]
+      properties:
+        id:
+          type: string
+          format: uuid
+        direction:
+          type: string
+          enum: [internal, inbound, outbound]
+        started_at:
+          type: string
+          format: date-time
+        answered_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        talk_seconds:
+          type: integer
+        result:
+          type: string
+          enum: [answered, missed, voicemail, not_available, not_in_use, closed, not_permitted, no_lines, limit_reached, echo_test, busy, failed]
+          description: >-
+            missed - phones rang and nobody answered (the caller's own view
+            says "No answer"); voicemail - reached a voicemail box (after
+            ringing when rang_unanswered); the others are where Linx ended
+            the call itself.
+        missed:
+          type: boolean
+          description: In my history, I missed it; in everyone's, someone did.
+        rang_unanswered:
+          type: boolean
+        placed_by_me:
+          type: boolean
+          description: In my history, I made this call.
+        from:
+          $ref: "#/components/schemas/CallHistoryParty"
+        to:
+          $ref: "#/components/schemas/CallHistoryParty"
+        line:
+          type: string
+          description: The phone line it came in or went out on.
+        ring_group:
+          type: string
+        answered_by:
+          type: string
+          description: The person who answered ("Sara Haddad (101)"), or the outside number for an outgoing call.
+        answered_by_extension_id:
+          type: string
+          format: uuid
+        voicemail:
+          $ref: "#/components/schemas/CallHistoryVoicemail"
+        steps:
+          type: array
+          items:
+            type: string
+          description: The call's way through Linx, one plain sentence per step.
+
+    CallHistoryPage:
+      type: object
+      required: [items, keep_days]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CallRecord"
+        next:
+          type: string
+          description: Pass as `before` for the next page; absent on the last.
+        keep_days:
+          type: integer
+
+    CallHistorySettings:
+      type: object
+      required: [keep_days, calls, bytes]
+      properties:
+        keep_days:
+          type: integer
+        calls:
+          type: integer
+          format: int64
+        bytes:
+          type: integer
+          format: int64
+
     OpenApiDocument:
       description: The full OpenAPI document served by this API. Free-form JSON.
       type: object
@@ -9306,6 +9634,12 @@ components:
             Live updates only: changes whenever a voicemail on this server
             arrives, is heard or is deleted; fetch GET /me/voicemail-count
             then.
+        calls:
+          type: integer
+          format: int64
+          description: >-
+            Live updates only: changes whenever call history on this server
+            changes (a call ended); fetch GET /me/missed-calls then.
 
     TurnCredentials:
       description: Credentials for Linx's relay, as an RTCIceServer (ADR-039).

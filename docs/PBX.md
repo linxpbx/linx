@@ -39,7 +39,7 @@ Migration `0005_pbx.sql` adds these tables, owned by the control plane:
 - `extension`: tenant, number (2–6 digits, unique per tenant), display name, email (optional), enabled, `etag`, timestamps.
 - `device`: extension, name ("Mohammed's iPhone"), kind (`softphone` now; `web`, `ios`, `desk` later), SIP username (random, e.g. `d_7k2m9x4q`), digest hash, enabled, last registered at/from, timestamps.
 
-The `asterisk` schema holds **views only**: `ps_endpoints`, `ps_aors`, `ps_auths` (plus `linx_ring_targets` for the dialplan). They are built from the tables above, so the tables can change later without Asterisk noticing. A separate database user `linx_asterisk` (password: new Docker secret `linx_asterisk_db_password`) can `SELECT` those views and nothing else. Asterisk can't read API keys, webhooks or anything else, and can't write anywhere.
+The `asterisk` schema holds **views only**: `ps_endpoints`, `ps_aors`, `ps_auths` (plus `linx_ring_targets` for the dialplan). They are built from the tables above, so the tables can change later without Asterisk noticing. A separate database user `linx_asterisk` (password: new Docker secret `linx_asterisk_db_password`) can `SELECT` those views and nothing else. Asterisk can't read API keys, webhooks or anything else, and can't write anywhere, except adding rows to `asterisk.cdr`, its call records (Phase 1F, ADR-070: `INSERT` only, over its own connection; it can't read, change or delete them).
 
 - **Driver:** ODBC (`res_odbc` + psqlODBC, pooled), the path Asterisk's own docs use for PJSIP realtime.
 - **No cache:** Asterisk reads the database on each registration and call. A revoked device stops at once. That's fine at home and small-office size; Phase 5 load tests decide whether to add a cache.

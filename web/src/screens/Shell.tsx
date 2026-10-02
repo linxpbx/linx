@@ -2,7 +2,7 @@
 // screen, and the call panel on the right while a call is on.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  Activity, BarChart3, CalendarClock, Check, CircleHelp, CircleUser, Clock, FlaskConical, Grid3x3, Hash, IdCard, Inbox, KeyRound, LogOut, Network,
+  Activity, BarChart3, CalendarClock, Check, CircleHelp, CircleUser, Clock, FlaskConical, Grid3x3, Hash, History, IdCard, Inbox, KeyRound, LogOut, Network,
   Phone, PhoneCall, PhoneIncoming, PhoneOutgoing, Search, Settings as SettingsIcon, Users, UsersRound, Video, Voicemail, Webhook,
   Home as HomeIcon,
 } from "lucide-react";
@@ -23,18 +23,19 @@ import { cn } from "@/lib/utils";
 import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
-export type Screen = "dialer" | "team" | "voicemail" | "settings" | "account" | "help" | "admin-home" | "admin-people" | "admin-extensions"
+export type Screen = "dialer" | "team" | "calls" | "voicemail" | "settings" | "account" | "help" | "admin-home" | "admin-people" | "admin-extensions"
   | "admin-system-status" | "admin-system-backups" | "admin-system-server"
   | "admin-lines" | "admin-incoming" | "admin-ring-groups" | "admin-office-hours" | "admin-outgoing" | "admin-simulator" | "admin-connections"
-  | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings" | "admin-webhooks" | "admin-api-keys";
+  | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings" | "admin-webhooks" | "admin-api-keys" | "admin-calls";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
   { id: "team", label: "Team", path: "/team", icon: Users },
 ];
-// Everyday tabs still to come are greyed; Voicemail is live (Phase 1F step 14).
+// Everyday tabs still to come are greyed; Voicemail (Phase 1F step 14) and
+// Call history (step 15) are live.
 const LATER: { label: string; icon: typeof Users; id?: Screen; path?: string }[] = [
-  { label: "Call history", icon: Clock },
+  { label: "Call history", icon: Clock, id: "calls", path: "/calls" },
   { label: "Voicemail", icon: Voicemail, id: "voicemail", path: "/voicemail" },
   { label: "Meetings", icon: Video },
   { label: "Inbox", icon: Inbox },
@@ -43,7 +44,7 @@ const LATER: { label: string; icon: typeof Users; id?: Screen; path?: string }[]
 
 // The admin group (docs/ui/ADMIN_SCREENS_PHASE1E.md §1), in checklist order.
 // Every item has its screen (steps 5-7); System's tabs arrive in step 8.
-const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
+const ADMIN_NAV: { label: string; icon: typeof Users; path?: string; scope?: string }[] = [
   { label: "Home", icon: HomeIcon, path: "/admin" },
   { label: "People", icon: IdCard, path: "/admin/people" },
   { label: "Extensions", icon: Hash, path: "/admin/extensions" },
@@ -53,6 +54,7 @@ const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
   { label: "Office hours", icon: CalendarClock, path: "/admin/office-hours" },
   { label: "Outgoing", icon: PhoneOutgoing, path: "/admin/outgoing" },
   { label: "Simulator", icon: FlaskConical, path: "/admin/simulator" },
+  { label: "Calls", icon: History, path: "/admin/calls", scope: "calls:read" },
   { label: "System", icon: Activity, path: "/admin/system/status" },
 ];
 const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
@@ -62,7 +64,7 @@ const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
   "/admin/lines": "admin-lines", "/admin/incoming": "admin-incoming",
   "/admin/ring-groups": "admin-ring-groups", "/admin/office-hours": "admin-office-hours", "/admin/outgoing": "admin-outgoing",
   "/admin/simulator": "admin-simulator", "/admin/connections": "admin-connections",
-  "/admin/webhooks": "admin-webhooks", "/admin/api-keys": "admin-api-keys",
+  "/admin/webhooks": "admin-webhooks", "/admin/api-keys": "admin-api-keys", "/admin/calls": "admin-calls",
 };
 
 const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users; path?: string }[] = [
@@ -263,7 +265,7 @@ function AdminNav({ me, systemStatus, simpleMode, onSimpleModeChange, screen }: 
     <>
       <div className="my-2 border-t border-sidebar-foreground/10" />
       <p className="px-3 py-1 text-xs font-medium tracking-wide text-sidebar-foreground/50 max-md:sr-only">ADMIN</p>
-      {ADMIN_NAV.map((n) => (
+      {ADMIN_NAV.filter((n) => !n.scope || hasScope(me, n.scope)).map((n) => (
         <NavItem key={n.label} label={n.label} icon={n.icon} disabled={!n.path}
           active={!!n.path && (screen === ADMIN_SCREEN_FOR_PATH[n.path]
             || (n.label === "System" && screen.startsWith("admin-system-")))}
@@ -290,8 +292,8 @@ function AdminNav({ me, systemStatus, simpleMode, onSimpleModeChange, screen }: 
   );
 }
 
-export function Shell({ me, screen, members, presence, voicemailNew = 0, systemStatus, simpleMode, onSimpleModeChange, onPresence, onSignOut, children }: {
-  me: Me; screen: Screen; members: TeamMember[] | null; presence: Presence; voicemailNew?: number;
+export function Shell({ me, screen, members, presence, voicemailNew = 0, callsMissed = 0, systemStatus, simpleMode, onSimpleModeChange, onPresence, onSignOut, children }: {
+  me: Me; screen: Screen; members: TeamMember[] | null; presence: Presence; voicemailNew?: number; callsMissed?: number;
   systemStatus: SystemStatus | null; simpleMode: boolean; onSimpleModeChange: (v: boolean) => void;
   onPresence: (p: Presence) => void; onSignOut: () => void; children: (query: string) => ReactNode;
 }) {
@@ -327,7 +329,8 @@ export function Shell({ me, screen, members, presence, voicemailNew = 0, systemS
           {LATER.map((n) => (
             <NavItem key={n.label} label={n.label} icon={n.icon} disabled={!n.path} active={!!n.id && screen === n.id}
               onClick={n.path ? () => navigate(n.path!) : undefined}
-              badge={n.id === "voicemail" ? voicemailNew : undefined} badgeWord="new" />
+              badge={n.id === "voicemail" ? voicemailNew : n.id === "calls" ? callsMissed : undefined}
+              badgeWord={n.id === "calls" ? "missed" : "new"} />
           ))}
           <AdminNav me={me} systemStatus={systemStatus} simpleMode={simpleMode} onSimpleModeChange={onSimpleModeChange} screen={screen} />
         </div>

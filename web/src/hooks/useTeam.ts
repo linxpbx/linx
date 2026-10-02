@@ -13,6 +13,9 @@ export interface TeamState {
   // Moves whenever a voicemail on this server arrives, is heard or is
   // deleted: the badge fetches its own count then (useVoicemailCount).
   voicemail?: number;
+  // Moves whenever call history changes (a call ended): the Call history
+  // badge and lists fetch again then (useMissedCalls).
+  calls?: number;
 }
 
 export function useTeam(enabled: boolean): TeamState {
@@ -29,7 +32,7 @@ export function useTeam(enabled: boolean): TeamState {
         delay = 1000;
         try {
           const list = JSON.parse(String(ev.data)) as TeamList;
-          setState({ members: list.items, connected: true, voicemail: list.voicemail });
+          setState({ members: list.items, connected: true, voicemail: list.voicemail, calls: list.calls });
         } catch {
           // Ignore a message we can't read; the next one replaces it.
         }

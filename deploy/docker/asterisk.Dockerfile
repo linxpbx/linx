@@ -92,8 +92,9 @@ RUN make menuselect.makeopts || make menuselect.makeopts
 # (gone in 22 anyway), no AGI, no AMI-over-network, no telephony cards, no
 # add-ons, no unit tests, no queues/conferencing/fax/presence yet, and no
 # app_voicemail ever (ADR-069: Record, UserEvent and FILE() for the note
-# instead) — trimmed at the category level, not by hand-picking every
-# res_pjsip_* submodule menuselect enables together.
+# instead), and of the call-record modules only the one that adds rows to
+# Linx's database (ADR-070) — trimmed at the category level, not by
+# hand-picking every res_pjsip_* submodule menuselect enables together.
 # BUILD_NATIVE off: it compiles with -march=native, for the CPU that built
 # the image, and the image must run on any amd64/arm64 server (Asterisk
 # from a CI cache built on one runner died at start on another).
@@ -136,6 +137,7 @@ RUN menuselect/menuselect \
       --enable codec_opus_open_source \
       --enable func_odbc --enable func_channel --enable func_callerid \
       --enable func_cut --enable func_strings --enable func_groupcount --enable func_env \
+      --enable func_cdr --enable cdr_adaptive_odbc \
       --enable pbx_config \
       --enable bridge_simple --enable bridge_native_rtp \
       --enable format_pcm --enable format_sln \

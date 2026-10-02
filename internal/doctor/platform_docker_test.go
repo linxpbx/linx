@@ -127,17 +127,18 @@ func TestPhoneQueryDocker(t *testing.T) {
 		}
 		return st
 	}
-	if st := read(); st.Views != 4 || st.Other != 0 {
+	if st := read(); st.Views != 5 || st.Other != 0 {
 		t.Fatalf("fresh database: %+v", st)
 	}
-	for _, grant := range []string{"GRANT SELECT ON api_key TO linx_asterisk", "GRANT INSERT ON asterisk.ps_auths TO linx_asterisk"} {
+	for _, grant := range []string{"GRANT SELECT ON api_key TO linx_asterisk", "GRANT INSERT ON asterisk.ps_auths TO linx_asterisk",
+		"GRANT SELECT ON asterisk.cdr TO linx_asterisk", "GRANT DELETE ON asterisk.cdr TO linx_asterisk"} {
 		if _, err := pool.Exec(ctx, grant); err != nil {
 			t.Fatal(err)
 		}
 		if st := read(); st.Other == 0 {
 			t.Errorf("%s: not noticed (%+v)", grant, st)
 		}
-		if _, err := pool.Exec(ctx, "REVOKE ALL ON api_key, asterisk.ps_auths FROM linx_asterisk; GRANT SELECT ON asterisk.ps_auths TO linx_asterisk"); err != nil {
+		if _, err := pool.Exec(ctx, "REVOKE ALL ON api_key, asterisk.ps_auths, asterisk.cdr FROM linx_asterisk; GRANT SELECT ON asterisk.ps_auths TO linx_asterisk; GRANT INSERT ON asterisk.cdr TO linx_asterisk"); err != nil {
 			t.Fatal(err)
 		}
 	}

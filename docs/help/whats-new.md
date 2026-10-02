@@ -9,6 +9,13 @@ screens: []
 
 The newest changes come first. Each Linx update brings its own help pages, so these guides always match the version your server runs.
 
+## Call history
+
+- **Call history** in the sidebar: your calls, newest first, missed ones in red, with **Call** to ring back and each call's steps ("Rang Sales… nobody answered… left a voicemail"). The number on it counts the calls you missed since you last looked. See [Call history](call-history).
+- The Dialer's **Recent** list now shows your last 5 calls from any phone or browser.
+- **Calls** in the admin sidebar: everyone's calls, by person, number, missed and date, with **Download (CSV)**. Reporters see it too.
+- System → Settings, **Keep call history**: 1 year unless you change it.
+
 ## Voicemail you can listen to
 
 - **Voicemail** in the sidebar: your messages and your ring groups', newest first, with a number for the new ones. Play, **Call back**, download, mark as heard or new, delete. See [Voicemail](voicemail).

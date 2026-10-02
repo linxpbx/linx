@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { navigate } from "@/hooks/useRoute";
@@ -66,6 +67,46 @@ function KeepVoicemail({ canWrite }: { canWrite: boolean }) {
           onChange={(e) => setDays(e.target.value.replace(/\D/g, "").slice(0, 3))} />
         days (7–365), then deleted.
         <span className="text-muted-foreground">Voicemail uses {space(v.bytes)} ({v.messages} {v.messages === 1 ? "message" : "messages"}).</span>
+        {saved && <span role="status" className="text-status-available">Saved</span>}
+      </span>
+      {error && <span role="alert" className="mt-1 block text-destructive">{error}</span>}
+    </Row>
+  );
+}
+
+// --- How long call history is kept (docs/ui/SCREENS_PHASE1F.md §12.5, ADR-070) ----
+
+const KEEP_CALLS = [
+  { days: 30, label: "30 days" }, { days: 90, label: "90 days" }, { days: 182, label: "6 months" },
+  { days: 365, label: "1 year" }, { days: 730, label: "2 years" },
+];
+
+function KeepCallHistory({ canWrite }: { canWrite: boolean }) {
+  const [v, setV] = useState<components["schemas"]["CallHistorySettings"] | null>(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    void api.GET("/api/v1/call-history-settings").then(({ data }) => { if (data) setV(data); });
+  }, []);
+  if (!v) return null;
+  const choices = KEEP_CALLS.some((k) => k.days === v.keep_days) ? KEEP_CALLS : [...KEEP_CALLS, { days: v.keep_days, label: `${v.keep_days} days` }];
+  const save = async (days: number) => {
+    setError("");
+    const { data, error: err } = await api.PATCH("/api/v1/call-history-settings", { body: { keep_days: days } });
+    if (!data) { setError(problemMessage(err)); return; }
+    setV(data);
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2500);
+  };
+  return (
+    <Row label="Keep call history">
+      <span className="flex flex-wrap items-center gap-2">
+        <Select value={String(v.keep_days)} onValueChange={(d) => void save(Number(d))} disabled={!canWrite}>
+          <SelectTrigger className="w-32" aria-label="How long to keep call history"><SelectValue /></SelectTrigger>
+          <SelectContent>{choices.map((k) => <SelectItem key={k.days} value={String(k.days)}>{k.label}</SelectItem>)}</SelectContent>
+        </Select>
+        then deleted.
+        <span className="text-muted-foreground">Call history uses {space(v.bytes)} ({v.calls} {v.calls === 1 ? "call" : "calls"}).</span>
         {saved && <span role="status" className="text-status-available">Saved</span>}
       </span>
       {error && <span role="alert" className="mt-1 block text-destructive">{error}</span>}
@@ -317,6 +358,7 @@ export function SystemSettingsScreen({ me, onSimpleModeChange }: { me: Me; onSim
             Numbers, people, phone line and calls, step by step.
           </Row>
           <KeepVoicemail canWrite={canWrite} />
+          <KeepCallHistory canWrite={canWrite} />
         </SystemCard>
 
         <SystemCard title="Admins can sign in from">

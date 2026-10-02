@@ -52,6 +52,9 @@ type teamHub struct {
 	// page fetches its own badge count when it moves, so no one's count
 	// goes to anyone else.
 	vm map[uuid.UUID]int64
+	// calls counts each tenant's call history changes (step 15), for the
+	// Call history badge, the same way.
+	calls map[uuid.UUID]int64
 }
 
 type teamSub struct {
@@ -61,7 +64,7 @@ type teamSub struct {
 func newTeamHub(team *pbx.Team, log *slog.Logger) *teamHub {
 	return &teamHub{team: team, log: log, kick: make(chan struct{}, 1),
 		subs: map[uuid.UUID]map[*teamSub]struct{}{}, last: map[uuid.UUID][]byte{}, open: map[uuid.UUID]int{},
-		vm: map[uuid.UUID]int64{}}
+		vm: map[uuid.UUID]int64{}, calls: map[uuid.UUID]int64{}}
 }
 
 // acquire counts one more open list for session, unless it already has
@@ -97,6 +100,15 @@ func (h *teamHub) Changed() {
 func (h *teamHub) VoicemailChanged(tenant uuid.UUID) {
 	h.mu.Lock()
 	h.vm[tenant]++
+	h.mu.Unlock()
+	h.Changed()
+}
+
+// CallsChanged says a tenant's call history changed (a call ended, or old
+// calls went). Never blocks.
+func (h *teamHub) CallsChanged(tenant uuid.UUID) {
+	h.mu.Lock()
+	h.calls[tenant]++
 	h.mu.Unlock()
 	h.Changed()
 }
@@ -145,9 +157,9 @@ func (h *teamHub) snapshot(ctx context.Context, tenant uuid.UUID) ([]byte, error
 	}
 	body := controlplaneapi.TeamListBody(rows)
 	h.mu.Lock()
-	vm := h.vm[tenant]
+	vm, calls := h.vm[tenant], h.calls[tenant]
 	h.mu.Unlock()
-	body.Voicemail = &vm
+	body.Voicemail, body.Calls = &vm, &calls
 	return json.Marshal(body)
 }
 

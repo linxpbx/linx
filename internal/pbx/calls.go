@@ -143,6 +143,10 @@ type CallTracker struct {
 	// UserEvent, if set, hears the dialplan's UserEvent()s by name (a
 	// voicemail left: internal/voicemail).
 	UserEvent func(name string)
+	// Ended, if set, is called after each call ends (call history reads
+	// Asterisk's call records then, internal/callhistory). It must not
+	// block.
+	Ended func()
 
 	mu        sync.Mutex
 	connected bool
@@ -648,6 +652,9 @@ func (t *CallTracker) end(ctx context.Context, c *call, at time.Time) {
 		oc := t.outsideCall(c)
 		oc.EndedAt, oc.TalkSeconds, oc.Outcome = at, talk, outcome
 		t.Watch.OutsideCallEnded(ctx, oc)
+	}
+	if t.Ended != nil {
+		t.Ended()
 	}
 }
 

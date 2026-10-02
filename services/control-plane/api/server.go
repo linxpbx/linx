@@ -19,6 +19,7 @@ import (
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/backupschedule"
+	"linxpbx.com/linx/internal/callhistory"
 	"linxpbx.com/linx/internal/email"
 	"linxpbx.com/linx/internal/helpanswers"
 	"linxpbx.com/linx/internal/moved"
@@ -71,6 +72,7 @@ type Server struct {
 	routing *routing.Service
 	// Voicemail listening and settings (SetVoicemail).
 	voicemail *voicemail.Service
+	history   *callhistory.Service
 	// Email sending (SetEmail), and Linx's own address for its links.
 	email      *email.Service
 	webAddress string

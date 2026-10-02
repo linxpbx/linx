@@ -652,6 +652,43 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-voicemail-empty`);
     });
 
+    test("call history", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
+      await page.goto("/");
+      // The badge: two missed since I last looked.
+      await expect(page.getByRole("button", { name: "Call history" })).toContainText("2");
+      await page.goto("/calls");
+      await expect(page.getByRole("heading", { name: "Call history", exact: true })).toBeVisible();
+      await expect(page.getByText("· rang Sales")).toBeVisible();
+      await expect(page.getByText("Missed · left a voicemail").first()).toBeVisible();
+      await expect(page.getByRole("button", { name: "Call history" })).not.toContainText("2");
+      await page.getByRole("button", { name: "+971501234567 · rang Sales" }).click();
+      await expect(page.getByText("nobody answered in 25 s", { exact: false })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Listen to the voicemail for Sales" })).toBeVisible();
+      await shot(page, `${scheme}-call-history`);
+      await page.getByRole("button", { name: "Missed", exact: true }).click();
+      await expect(page.getByTestId("call-row")).toHaveCount(3);
+    });
+
+    test("call history, empty", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, noCalls: true });
+      await page.goto("/calls");
+      await expect(page.getByText("No calls yet")).toBeVisible();
+      await shot(page, `${scheme}-call-history-empty`);
+    });
+
+    test("admin calls", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
+      await page.goto("/admin/calls");
+      await expect(page.getByRole("heading", { name: "Calls", exact: true })).toBeVisible();
+      await expect(page.getByTestId("admin-call-row")).toHaveCount(8);
+      await expect(page.getByRole("link", { name: "Download (CSV)" })).toHaveAttribute("href", /\/api\/v1\/calls\/csv\?from=/);
+      await shot(page, `${scheme}-admin-calls`);
+      await page.getByTestId("admin-call-row").first().click();
+      await expect(page.getByRole("dialog")).toContainText("Went to the voicemail for Sales");
+      await shot(page, `${scheme}-admin-calls-detail`);
+    });
+
     test("ring groups", async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
       await page.goto("/admin/ring-groups");
@@ -1164,7 +1201,7 @@ test.describe("phone width", () => {
     ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/status", "system-status", "Linx services"],
     ["/admin/system/backups", "system-backups", "Backups"], ["/admin/system/server", "system-server", "Server settings"],
     ["/admin/lines", "lines", "Phone lines"], ["/admin/incoming", "incoming", "Incoming calls"],
-    ["/voicemail", "voicemail", "Voicemail"],
+    ["/voicemail", "voicemail", "Voicemail"], ["/calls", "call-history", "Call history"], ["/admin/calls", "admin-calls", "Calls"],
     ["/admin/ring-groups", "ring-groups", "Ring groups"], ["/admin/office-hours", "office-hours", "Office hours"],
     ["/admin/outgoing", "outgoing", "Outgoing calls"], ["/admin/simulator", "simulator", "Call simulator"],
     ["/admin/connections", "connections", "Connections"],

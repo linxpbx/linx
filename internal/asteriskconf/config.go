@@ -319,23 +319,25 @@ func (c Config) Render() error {
 	}
 
 	files := map[string]string{
-		"asterisk.conf":         c.asteriskConf(),
-		"logger.conf":           loggerConf,
-		"modules.conf":          modulesConf,
-		"manager.conf":          managerConf,
-		"http.conf":             c.httpConf(ws),
-		"ari.conf":              ariConf(rand.Text()),
-		"websocket_client.conf": c.websocketClientConf(ariPassword),
-		"extensions.conf":       extensionsConf,
-		"func_odbc.conf":        funcOdbcConf,
-		"pjsip.conf":            c.pjsipConf(nets, nat, ws),
-		"rtp.conf":              rtpConf(ice),
-		"sorcery.conf":          sorceryConf,
-		"extconfig.conf":        extconfigConf,
-		"odbcinst.ini":          odbcinstIni,
-		"odbc.ini":              c.odbcIni(),
-		"res_odbc.conf":         c.resOdbcConf(dbPassword),
-		"openssl.cnf":           opensslConf,
+		"asterisk.conf":          c.asteriskConf(),
+		"logger.conf":            loggerConf,
+		"modules.conf":           modulesConf,
+		"manager.conf":           managerConf,
+		"http.conf":              c.httpConf(ws),
+		"ari.conf":               ariConf(rand.Text()),
+		"websocket_client.conf":  c.websocketClientConf(ariPassword),
+		"extensions.conf":        extensionsConf,
+		"func_odbc.conf":         funcOdbcConf,
+		"pjsip.conf":             c.pjsipConf(nets, nat, ws),
+		"rtp.conf":               rtpConf(ice),
+		"sorcery.conf":           sorceryConf,
+		"extconfig.conf":         extconfigConf,
+		"odbcinst.ini":           odbcinstIni,
+		"odbc.ini":               c.odbcIni(),
+		"res_odbc.conf":          c.resOdbcConf(dbPassword),
+		"cdr.conf":               cdrConf,
+		"cdr_adaptive_odbc.conf": cdrAdaptiveOdbcConf,
+		"openssl.cnf":            opensslConf,
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(c.ConfDir, name), []byte(content), 0o640); err != nil {
@@ -757,16 +759,27 @@ Driver=` + odbcDriverPath + `
 // server's Postgres, read-only, and scoped to the asterisk schema so an
 // unqualified "SELECT * FROM ps_endpoints" (what res_config_odbc sends)
 // finds the realtime views without Asterisk needing to know the schema
-// name.
+// name. asterisk-cdr is the call-record module's own connection (ADR-070):
+// not read-only, since it adds rows, but the role may only add them to
+// asterisk.cdr (migration 0037); every other query keeps the read-only
+// one.
 func (c Config) odbcIni() string {
 	return fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint.
 [asterisk]
 Description=Linx phone system realtime data
 Driver=PostgreSQL
-Servername=%s
-Port=%s
-Database=%s
+Servername=%[1]s
+Port=%[2]s
+Database=%[3]s
 ReadOnly=Yes
+ConnSettings=SET search_path TO asterisk
+
+[asterisk-cdr]
+Description=Linx call history
+Driver=PostgreSQL
+Servername=%[1]s
+Port=%[2]s
+Database=%[3]s
 ConnSettings=SET search_path TO asterisk
 `, c.DBHost, c.DBPort, c.DBName)
 }
@@ -781,12 +794,49 @@ func (c Config) resOdbcConf(dbPassword string) string {
 [asterisk]
 dsn=asterisk
 username=linx_asterisk
-password=%s
+password=%[1]s
 max_connections=5
+pre-connect=yes
+sanitysql=SELECT 1
+
+[cdr]
+dsn=asterisk-cdr
+username=linx_asterisk
+password=%[1]s
+max_connections=1
 pre-connect=yes
 sanitysql=SELECT 1
 `, dbPassword)
 }
+
+// cdrConf turns on Asterisk's call records (ADR-070): a row as each call
+// ends, straight away (batch off, so nothing waits in memory for a
+// restart to lose), including calls nobody answered and every phone that
+// rang. endbeforehexten: a call's length ends when the caller hangs up,
+// not after the voicemail note the h extension writes.
+const cdrConf = `; Rendered by linx-asterisk-entrypoint.
+[general]
+enable=yes
+unanswered=yes
+congestion=yes
+endbeforehexten=yes
+batch=no
+safeshutdown=yes
+`
+
+// cdrAdaptiveOdbcConf sends each call record to asterisk.cdr (migration
+// 0037) over the add-only connection, in UTC; start, answer and end are
+// SQL words, so their columns have other names.
+const cdrAdaptiveOdbcConf = `; Rendered by linx-asterisk-entrypoint.
+[linx]
+connection=cdr
+table=cdr
+schema=asterisk
+usegmtime=yes
+alias start => started
+alias answer => answered
+alias end => ended
+`
 
 // loggerConf sends every log line to the container's stdout: the read-only
 // root filesystem has no writable log directory, and `docker logs` is where
@@ -985,15 +1035,20 @@ exten => _XXXXXX,1,Goto(linx-local,${EXTEN},1)
 exten => _[0-9*#+].,1,Goto(linx-outbound,${EXTEN},1)
 exten => _[0-9*#+],1,Goto(linx-outbound,${EXTEN},1)
 
+; What a phone dialled goes in the call records (CDR linx_dialled,
+; ADR-070): a call that ends on a message still says what was dialled.
+;
 ; A short number from a phone: an extension or a ring group, or else
 ; maybe an outside one (999 is 3 digits; extensions and ring groups can't
 ; take such numbers, migrations 0016 and 0032). Its first step is already
 ; asked, so linx-route starts at "got".
 [linx-local]
-exten => _X.,1,Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(n:${EXTEN},${CALLERID(num)})})
+exten => _X.,1,Set(CDR(linx_dialled)=${EXTEN})
+ same => n,Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(n:${EXTEN},${CALLERID(num)})})
  same => n,GotoIf($[${ODBCROWS} < 1]?linx-outbound,${EXTEN},1)
  same => n,GotoIf($["${CALLERID(num)}" = "${EXTEN}"]?linx-messages,not-available,1)
  same => n,Set(CALLER=${CALLERID(num)})
+ same => n,Set(DEST=n:${EXTEN})
  same => n,Set(STEPS=1)
  same => n,Goto(linx-route,s,got)
 
@@ -1001,7 +1056,9 @@ exten => _X.,1,Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(n:$
 ; (migration 0032's linx_route explains the text), CALLER the calling
 ; extension ('' from a line). A step rings (linx-ring), goes straight on
 ; when nobody there can ring, or ends on a message. At most 10 places a
-; call, so a loop the screens missed still ends.
+; call, so a loop the screens missed still ends. Each ringing step's
+; place goes in the call records (CDR linx_step, ADR-070), which is how
+; call history says "rang Sales".
 [linx-route]
 exten => s,1,Set(STEPS=1)
  same => n(again),Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(${DEST},${CALLER})})
@@ -1009,6 +1066,7 @@ exten => s,1,Set(STEPS=1)
  same => n(got),GotoIf($["${ACTION}" = "message"]?linx-messages,${TARGETS},1)
  same => n,GotoIf($["${ACTION}" = "voicemail"]?linx-voicemail,${TARGETS},1)
  same => n,GotoIf($["${ACTION}" != "dial"]?follow)
+ same => n,Set(CDR(linx_step)=${DEST})
  same => n,GotoIf($["${LABEL}" = ""]?nolabel)
  same => n,Gosub(linx-ring,${LABEL},1(${TARGETS},${SECS}))
  same => n,Goto(rang)
@@ -1065,7 +1123,8 @@ exten => h,1,GotoIf($["${VMFILE}" = ""]?done)
  same => n(done),Hangup()
 
 [linx-outbound]
-exten => _[0-9*#+].,1,Set(ARRAY(REASON,CATEGORY,WITHHOLD,LINES)=${LINX_OUTBOUND(${CHANNEL(endpoint)},${EXTEN})})
+exten => _[0-9*#+].,1,Set(CDR(linx_dialled)=${EXTEN})
+ same => n,Set(ARRAY(REASON,CATEGORY,WITHHOLD,LINES)=${LINX_OUTBOUND(${CHANNEL(endpoint)},${EXTEN})})
  same => n,GotoIf($[${ODBCROWS} < 1]?linx-messages,no-lines,1)
  same => n,GotoIf($["${REASON}" = "invalid"]?linx-messages,not-in-use,1)
  same => n,GotoIf($["${REASON}" = "no_lines"]?linx-messages,no-lines,1)
@@ -1085,7 +1144,8 @@ exten => _[0-9*#+].,1,Set(ARRAY(REASON,CATEGORY,WITHHOLD,LINES)=${LINX_OUTBOUND(
  same => n,GotoIf($["${DIALSTATUS}" = "CHANUNAVAIL" | "${DIALSTATUS}" = "CONGESTION"]?next)
  same => n,Hangup()
 
-exten => _[0-9*#+],1,Goto(linx-messages,not-in-use,1)
+exten => _[0-9*#+],1,Set(CDR(linx_dialled)=${EXTEN})
+ same => n,Goto(linx-messages,not-in-use,1)
 
 ; On the outgoing channel, before it dials: the caller ID the called person
 ; sees (the caller's DID on that trunk, or the trunk's main number), and
@@ -1126,6 +1186,7 @@ exten => s,1,Set(CALLERID(name)=${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40})
  same => n,Set(CALLER=)
  same => n,Set(DID=${FILTER(0-9+,${DID})})
  same => n,GotoIf($["${DID}" = ""]?linx-route,s,1)
+ same => n,Set(CDR(linx_did)=${DID})
  same => n,Goto(linx-trunk-did,${DID},1)
 
 ; Only so the control plane's call events can tell which number was

@@ -35,4 +35,4 @@ Call `*43`. Linx plays back what you say, so you can check your microphone and s
 
 ## Recent calls
 
-**Recent** lists the calls you made or got while the page was open. Full call history comes in a later update.
+**Recent** lists your last 5 calls, from all your phones and browsers. **All calls** opens [Call history](call-history).

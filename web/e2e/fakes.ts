@@ -76,6 +76,8 @@ export interface FakeOptions {
   home?: boolean;
   // Voicemail (docs/ui/SCREENS_PHASE1F.md §12): no messages at all.
   noVoicemail?: boolean;
+  // No calls in call history.
+  noCalls?: boolean;
 }
 
 // Phone lines, numbers and routing (docs/ui/ADMIN_SCREENS_PHASE1E.md §6-9).
@@ -426,6 +428,40 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       e1001: { unavailable: { recorded: true, in_use: true, recorded_at: atToday(9, 0, 29), duration_ms: 6_000 }, closed: { recorded: false, in_use: false } },
     } as Record<string, Json>,
   };
+  // Call history (docs/ui/SCREENS_PHASE1F.md §13): mine are the ones I'm part of.
+  const me = { number: ME.extension, name: ME.name, extension_id: "e1001" };
+  const call = (id: string, started: string, secs: number, o: Json): Json => ({
+    id, started_at: started, ended_at: new Date(new Date(started).getTime() + secs * 1000).toISOString(), talk_seconds: 0,
+    missed: false, rang_unanswered: false, steps: [], direction: "internal", result: "answered", ...o,
+  });
+  const calls = opts.noCalls ? [] : [
+    { mine: true, c: call("c1", atToday(10, 42), 70, { direction: "inbound", result: "voicemail", missed: true, rang_unanswered: true,
+      from: { number: "+971501234567", name: "" }, to: { number: "+97142000100", name: "" }, line: "UCM landlines", ring_group: "Sales",
+      voicemail: { box: "Sales", id: "vm1", box_id: "g1", duration_ms: 42_000 },
+      steps: ["Rang Sales (all at once): Mohammed Al Mansoori (1001), Sara Haddad (1024), Bilal Aziz (1110) · nobody answered in 25 s",
+        "Went to the voicemail for Sales · left a message (0:42)"] }) },
+    { mine: true, c: call("c2", atToday(9, 15), 182, { direction: "outbound", talk_seconds: 182, from: me,
+      to: { number: "+97145551234", name: "" }, line: "UCM landlines", answered_by: "+97145551234", answered_at: atToday(9, 15),
+      steps: ["Went out on UCM landlines · answered"] }) },
+    { mine: true, c: call("c3", atToday(8, 50), 64, { talk_seconds: 64, from: { number: "1042", name: "Aisha Rahman", extension_id: "e1042" },
+      to: me, answered_by: `${ME.name} (1001)`, answered_by_extension_id: "e1001", answered_at: atToday(8, 50),
+      steps: [`Rang ${ME.name} (1001) · answered`] }) },
+    { mine: false, c: call("c4", atToday(8, 31), 47, { direction: "inbound", talk_seconds: 47, from: { number: "+442079461234", name: "" },
+      to: { number: "+97142000103", name: "" }, line: "UCM landlines", answered_by: "Sara Haddad (1024)", answered_by_extension_id: "e1024",
+      steps: ["Rang Sara Haddad (1024) · answered"] }) },
+    { mine: true, c: call("c5", atToday(17, 31, 1), 30, { result: "missed", missed: true, rang_unanswered: true,
+      from: { number: "1031", name: "Omar Khalil", extension_id: "e1031" }, to: me,
+      steps: [`Rang ${ME.name} (1001) · nobody answered in 30 s`, "Heard \"Nobody can take your call right now\""] }) },
+    { mine: false, c: call("c6", atToday(16, 40, 1), 252, { direction: "outbound", talk_seconds: 252,
+      from: { number: "1024", name: "Sara Haddad", extension_id: "e1024" }, to: { number: "+971501234567", name: "" }, line: "UCM landlines",
+      answered_by: "+971501234567", steps: ["Went out on UCM landlines · answered"] }) },
+    { mine: true, c: call("c7", atToday(16, 4, 1), 80, { direction: "inbound", result: "voicemail", missed: true,
+      from: { number: "+442079460000", name: "" }, to: { number: "+97142000101", name: "" }, line: "UCM landlines",
+      voicemail: { box: `${ME.name} (1001)`, id: "vm2", box_id: "e1001", duration_ms: 70_000 },
+      steps: [`${ME.name} (1001) has no phone or browser connected`, `Went to the voicemail for ${ME.name} (1001) · left a message (1:10)`] }) },
+    { mine: true, c: call("c8", atToday(9, 0, mondayBack), 12, { result: "echo_test", from: me, to: { number: "*43", name: "" }, steps: ["Echo test"] }) },
+  ];
+  const callSettings = { keep: 365 };
   const vmBox = (b: Json) => {
     const msgs = vm.messages.filter((m) => m.box_id === b.id);
     return { ...b, messages: msgs.length, new: msgs.filter((m) => !m.heard_at).length,
@@ -1087,6 +1123,24 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       let n = 6000;
       while (groups.some((g) => g.number === String(n))) n++;
       return route.fulfill(json({ number: String(n) }));
+    }
+    if (p === "/api/v1/me/calls" && method === "GET") {
+      const missed = url.searchParams.get("missed") === "true";
+      const limit = Number(url.searchParams.get("limit") ?? 50);
+      const items = calls.filter((x) => x.mine).map((x): Json => ({ ...x.c, placed_by_me: (x.c.from as Json).extension_id === "e1001" }))
+        .filter((c) => !missed || (c.missed && !c.placed_by_me)).slice(0, limit);
+      return route.fulfill(json({ items, keep_days: callSettings.keep }));
+    }
+    if (p === "/api/v1/calls" && method === "GET") {
+      const missed = url.searchParams.get("missed") === "true";
+      return route.fulfill(json({ items: calls.map((x) => x.c).filter((c) => !missed || c.missed), keep_days: callSettings.keep }));
+    }
+    if (p === "/api/v1/me/missed-calls") {
+      return method === "DELETE" ? route.fulfill({ status: 204, body: "" }) : route.fulfill(json({ missed: opts.noCalls ? 0 : 2 }));
+    }
+    if (p === "/api/v1/call-history-settings") {
+      if (method === "PATCH") callSettings.keep = (route.request().postDataJSON() as { keep_days: number }).keep_days;
+      return route.fulfill(json({ keep_days: callSettings.keep, calls: calls.length, bytes: 9_400_000 }));
     }
     if (p === "/api/v1/voicemail" && method === "GET") {
       const box = url.searchParams.get("box");

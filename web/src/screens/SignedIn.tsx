@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useTeam } from "@/hooks/useTeam";
 import { navigate } from "@/hooks/useRoute";
 import { useSystemStatus } from "@/hooks/useSystemStatus";
+import { useMissedCalls } from "@/hooks/useMissedCalls";
 import { useVoicemailCount } from "@/hooks/useVoicemailCount";
 import { guideInPath, HELP_PATH } from "@/lib/help";
 import { hasScope, seesAdminArea } from "@/lib/roles";
@@ -40,6 +41,8 @@ const SystemSettingsScreen = lazy(() => import("./SystemSettings").then((m) => (
 const WebhooksScreen = lazy(() => import("./Webhooks").then((m) => ({ default: m.WebhooksScreen })));
 const ApiKeysScreen = lazy(() => import("./ApiKeys").then((m) => ({ default: m.ApiKeysScreen })));
 const HelpScreen = lazy(() => import("./Help"));
+const CallHistoryScreen = lazy(() => import("./CallHistory").then((m) => ({ default: m.CallHistoryScreen })));
+const AdminCallsScreen = lazy(() => import("./AdminCalls").then((m) => ({ default: m.AdminCallsScreen })));
 const VoicemailScreen = lazy(() => import("./Voicemail").then((m) => ({ default: m.VoicemailScreen })));
 const SetupWizardScreen = lazy(() => import("./SetupWizard").then((m) => ({ default: m.SetupWizardScreen })));
 const loading = <div className="p-6" aria-busy="true" />;
@@ -51,6 +54,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
   const admin = seesAdminArea(me) && !me.admin_network_restricted;
   const systemStatus = useSystemStatus(admin);
   const voicemailNew = useVoicemailCount(team.voicemail, team.connected);
+  const callsMissed = useMissedCalls(team.calls, team.connected, path === "/calls");
   // Simple mode (docs/ui/ADMIN_SCREENS_PHASE1E.md §1): on by default, so the
   // sidebar doesn't flash expert items in while settings load.
   const [simpleMode, setSimpleMode] = useState(true);
@@ -105,7 +109,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
     );
   }
 
-  const screen: Screen = path === HELP_PATH || guideInPath(path) ? "help" : path === "/team" ? "team" : path === "/voicemail" ? "voicemail" : path === "/settings" ? "settings" : path === "/account" ? "account"
+  const screen: Screen = path === HELP_PATH || guideInPath(path) ? "help" : path === "/team" ? "team" : path === "/voicemail" ? "voicemail" : path === "/calls" ? "calls" : path === "/settings" ? "settings" : path === "/account" ? "account"
     : path === "/admin" ? "admin-home" : path === "/admin/people" ? "admin-people" : path === "/admin/extensions" ? "admin-extensions"
       : path === "/admin/system" || path === "/admin/system/status" ? "admin-system-status"
       : path === "/admin/system/backups" ? "admin-system-backups"
@@ -117,19 +121,22 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
       : path === "/admin/office-hours" ? "admin-office-hours"
       : path === "/admin/outgoing" ? "admin-outgoing" : path === "/admin/simulator" ? "admin-simulator"
       : path === "/admin/connections" ? "admin-connections"
+      : path === "/admin/calls" && hasScope(me, "calls:read") ? "admin-calls"
       : path === "/admin/webhooks" ? "admin-webhooks" : path === "/admin/api-keys" ? "admin-api-keys"
       : "dialer";
 
   return (
     <TooltipProvider delayDuration={300}>
     <PhoneContext.Provider value={line}>
-      <Shell me={me} screen={screen} members={team.members} presence={presence} voicemailNew={voicemailNew}
+      <Shell me={me} screen={screen} members={team.members} presence={presence} voicemailNew={voicemailNew} callsMissed={callsMissed}
         systemStatus={systemStatus} simpleMode={simpleMode} onSimpleModeChange={(v) => void changeSimpleMode(v)}
         onPresence={(p) => void changePresence(p)} onSignOut={() => void signOut()}>
         {(query) => <Suspense fallback={loading}>{
           screen === "help" ? <HelpScreen path={path} signedIn />
             : screen === "team" ? <TeamScreen members={team.members} query={query} />
             : screen === "voicemail" ? <VoicemailScreen me={me} members={team.members} stamp={team.voicemail} />
+            : screen === "calls" ? <CallHistoryScreen members={team.members} stamp={team.calls} />
+            : screen === "admin-calls" ? <AdminCallsScreen />
             : screen === "settings" ? <SettingsScreen />
               : screen === "account" ? <AccountScreen />
               : screen === "admin-home" ? <AdminHomeScreen me={me} systemStatus={systemStatus} members={team.members} />
@@ -150,7 +157,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
               : screen === "admin-connections" ? <ConnectionsScreen me={me} />
               : screen === "admin-webhooks" ? <WebhooksScreen me={me} />
               : screen === "admin-api-keys" ? <ApiKeysScreen me={me} />
-              : <DialerScreen members={team.members} />}</Suspense>}
+              : <DialerScreen members={team.members} stamp={team.calls} />}</Suspense>}
       </Shell>
     </PhoneContext.Provider>
     </TooltipProvider>

@@ -2821,6 +2821,114 @@ export interface paths {
         patch: operations["updateVoicemailSettings"];
         trace?: never;
     };
+    "/api/v1/me/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My call history
+         * @description The Call history tab (ADR-070, docs/ui/SCREENS_PHASE1F.md §13.1): the calls the signed-in person made, was rung for, answered, or whose voicemail they reached, newest first. `missed` lists only the ones they missed. A person with no extension has none. Signed-in browser sessions only (`not_a_session` for API keys, which use GET /calls).
+         */
+        get: operations["listMyCalls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/missed-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many calls I missed since I last looked
+         * @description The Call history badge. Fetched again when the Team websocket's `calls` counter changes. Signed-in browser sessions only.
+         */
+        get: operations["getMyMissedCalls"];
+        put?: never;
+        post?: never;
+        /**
+         * Clear the Call history badge
+         * @description Called when the person opens Call history. Signed-in browser sessions only.
+         */
+        delete: operations["clearMyMissedCalls"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Everyone's call history
+         * @description Admin → Calls (ADR-070, docs/ui/SCREENS_PHASE1F.md §13.2), newest first, kept for the days call history settings say (1 year by default). Filters: one person's calls (`extension_id`), a number (digits, anywhere in the caller's or the called number), missed only, and a time range (`from` inclusive, `to` exclusive). Page with `before` (the `next` of the last page).
+         */
+        get: operations["listCalls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calls/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download call history (CSV)
+         * @description The same filters as GET /calls, one line per call, up to 100,000 calls, times in the server's time zone; the file name says the dates. Served by a hand-written handler (excluded from code generation).
+         */
+        get: operations["downloadCalls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/call-history-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How long call history is kept
+         * @description System → Settings, with how many calls are kept and the space call history uses.
+         */
+        get: operations["getCallHistorySettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change how long call history is kept
+         * @description 30 to 730 days. Older calls are deleted within the hour. Audited.
+         */
+        patch: operations["updateCallHistorySettings"];
+        trace?: never;
+    };
     "/oauth/token": {
         parameters: {
             query?: never;
@@ -3198,6 +3306,74 @@ export interface webhooks {
 }
 export interface components {
     schemas: {
+        CallHistoryParty: {
+            /** @description An outside number (E.164 when Linx could tell), a person's extension, or what was dialled; "" when withheld. */
+            number: string;
+            /** @description The person's name, or what the caller's provider sent (plain text, show as text only). */
+            name: string;
+            /** Format: uuid */
+            extension_id?: string;
+        };
+        CallHistoryVoicemail: {
+            /** @description Whose voicemail, e.g. "Sara Haddad (101)" or "Sales". */
+            box: string;
+            /**
+             * Format: uuid
+             * @description The message left, while it's kept (absent - none left, or deleted since).
+             */
+            id?: string;
+            /** Format: uuid */
+            box_id?: string;
+            duration_ms?: number;
+        };
+        CallRecord: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            direction: "internal" | "inbound" | "outbound";
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            answered_at?: string;
+            /** Format: date-time */
+            ended_at: string;
+            talk_seconds: number;
+            /**
+             * @description missed - phones rang and nobody answered (the caller's own view says "No answer"); voicemail - reached a voicemail box (after ringing when rang_unanswered); the others are where Linx ended the call itself.
+             * @enum {string}
+             */
+            result: "answered" | "missed" | "voicemail" | "not_available" | "not_in_use" | "closed" | "not_permitted" | "no_lines" | "limit_reached" | "echo_test" | "busy" | "failed";
+            /** @description In my history, I missed it; in everyone's, someone did. */
+            missed: boolean;
+            rang_unanswered: boolean;
+            /** @description In my history, I made this call. */
+            placed_by_me?: boolean;
+            from: components["schemas"]["CallHistoryParty"];
+            to: components["schemas"]["CallHistoryParty"];
+            /** @description The phone line it came in or went out on. */
+            line?: string;
+            ring_group?: string;
+            /** @description The person who answered ("Sara Haddad (101)"), or the outside number for an outgoing call. */
+            answered_by?: string;
+            /** Format: uuid */
+            answered_by_extension_id?: string;
+            voicemail?: components["schemas"]["CallHistoryVoicemail"];
+            /** @description The call's way through Linx, one plain sentence per step. */
+            steps: string[];
+        };
+        CallHistoryPage: {
+            items: components["schemas"]["CallRecord"][];
+            /** @description Pass as `before` for the next page; absent on the last. */
+            next?: string;
+            keep_days: number;
+        };
+        CallHistorySettings: {
+            keep_days: number;
+            /** Format: int64 */
+            calls: number;
+            /** Format: int64 */
+            bytes: number;
+        };
         /** @description The full OpenAPI document served by this API. Free-form JSON. */
         OpenApiDocument: {
             [key: string]: unknown;
@@ -5483,6 +5659,11 @@ export interface components {
              * @description Live updates only: changes whenever a voicemail on this server arrives, is heard or is deleted; fetch GET /me/voicemail-count then.
              */
             voicemail?: number;
+            /**
+             * Format: int64
+             * @description Live updates only: changes whenever call history on this server changes (a call ended); fetch GET /me/missed-calls then.
+             */
+            calls?: number;
         };
         /** @description Credentials for Linx's relay, as an RTCIceServer (ADR-039). */
         TurnCredentials: {
@@ -5510,6 +5691,12 @@ export interface components {
         };
     };
     parameters: {
+        CallsMissed: boolean;
+        CallsNumber: string;
+        CallsFrom: string;
+        CallsTo: string;
+        CallsBefore: string;
+        CallsLimit: number;
         Id: string;
         /** @description A Linx service, as System → Status lists them (e.g. `asterisk`). */
         ServiceName: string;
@@ -10065,6 +10252,178 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VoicemailSettings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listMyCalls: {
+        parameters: {
+            query?: {
+                missed?: components["parameters"]["CallsMissed"];
+                number?: components["parameters"]["CallsNumber"];
+                before?: components["parameters"]["CallsBefore"];
+                limit?: components["parameters"]["CallsLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of calls. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallHistoryPage"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getMyMissedCalls: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        missed: number;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    clearMyMissedCalls: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listCalls: {
+        parameters: {
+            query?: {
+                extension_id?: string;
+                missed?: components["parameters"]["CallsMissed"];
+                number?: components["parameters"]["CallsNumber"];
+                from?: components["parameters"]["CallsFrom"];
+                to?: components["parameters"]["CallsTo"];
+                before?: components["parameters"]["CallsBefore"];
+                limit?: components["parameters"]["CallsLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of calls. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallHistoryPage"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    downloadCalls: {
+        parameters: {
+            query?: {
+                extension_id?: string;
+                missed?: components["parameters"]["CallsMissed"];
+                number?: components["parameters"]["CallsNumber"];
+                from?: components["parameters"]["CallsFrom"];
+                to?: components["parameters"]["CallsTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calls. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getCallHistorySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallHistorySettings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateCallHistorySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": {
+                    keep_days: number;
+                };
+            };
+        };
+        responses: {
+            /** @description The settings as they now are. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallHistorySettings"];
                 };
             };
             default: components["responses"]["Problem"];

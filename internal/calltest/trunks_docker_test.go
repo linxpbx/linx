@@ -28,10 +28,12 @@ import (
 	"linxpbx.com/linx/internal/ari"
 	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/callhistory"
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/routing"
+	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/trunkconf"
 	"linxpbx.com/linx/internal/trunkstatus"
@@ -475,6 +477,36 @@ func TestTrunksDocker(t *testing.T) {
 			if !strings.Contains(string(out), want) {
 				t.Errorf("Asterisk didn't log %q", want)
 			}
+		}
+	})
+
+	t.Run("call history", func(t *testing.T) {
+		// Calls through lines, from Asterisk's own records (ADR-070).
+		b := &callhistory.Builder{Store: store.CallHistory{Store: e.store}, Now: time.Now, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		h := &callhistory.Service{Store: b.Store, Builder: b, Now: time.Now}
+		items, _, err := h.All(ctx, e.tenant, callhistory.Filter{Limit: callhistory.MaxLimit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var in, out, failover *callhistory.Listed
+		for i, c := range items {
+			switch {
+			case c.Direction == callhistory.DirectionInbound && c.ToNumber == "+97142000102" && c.Result == callhistory.ResultAnswered:
+				in = &items[i]
+			case c.Direction == callhistory.DirectionOutbound && c.ToNumber == "+971501234567" && c.Result == callhistory.ResultAnswered:
+				out = &items[i]
+			case c.Direction == callhistory.DirectionOutbound && c.Result == callhistory.ResultAnswered && len(c.Steps) == 2:
+				failover = &items[i]
+			}
+		}
+		if in == nil || in.FromNumber != "+971501112222" || in.FromName != "Evil Caller" || in.TrunkName != "Provider" || in.AnsweredByName != "Bob (102)" {
+			t.Errorf("the call from the provider: %+v", in)
+		}
+		if out == nil || out.TrunkName != "Provider" || out.FromName != "Alice" {
+			t.Errorf("the call out: %+v", out)
+		}
+		if failover == nil || failover.Words()[0] != "Dead couldn't take it (down or full)" || failover.TrunkName != "Plain" {
+			t.Errorf("the call out on the second line: %+v", failover)
 		}
 	})
 

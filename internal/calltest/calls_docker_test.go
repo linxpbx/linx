@@ -21,11 +21,13 @@ import (
 
 	"linxpbx.com/linx/internal/ari"
 	"linxpbx.com/linx/internal/asteriskconf"
+	"linxpbx.com/linx/internal/callhistory"
 	"linxpbx.com/linx/internal/calltest/sipws"
 	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/routing"
 	"linxpbx.com/linx/internal/siprelay"
+	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/voicemail"
 )
 
@@ -39,7 +41,8 @@ import (
 // control plane's /sip relay (docs/WEB.md §5): session-bound lines, the
 // relay's refusals, and the audio addresses Asterisk offers them. Phase
 // 1F adds ring groups (ADR-068): all at once, one after another, "if
-// nobody answers", and a loop ending after 10 places.
+// nobody answers", and a loop ending after 10 places; voicemail; and the
+// call history made from the records Asterisk adds (ADR-070).
 func TestCallsDocker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -324,6 +327,63 @@ func TestCallsDocker(t *testing.T) {
 		}
 		if logs := e.asteriskLogs(); strings.Contains(logs, "linx_route") && strings.Contains(logs, "ERROR") {
 			t.Errorf("routing errors:\n%s", logs)
+		}
+	})
+
+	t.Run("call history", func(t *testing.T) {
+		// The calls above, from the records Asterisk added itself
+		// (ADR-070), as call history reads them.
+		b := &callhistory.Builder{Store: store.CallHistory{Store: e.store}, Now: time.Now, Log: tracker.Log}
+		svc := &callhistory.Service{Store: b.Store, Builder: b, Now: time.Now}
+		items, _, err := svc.All(ctx, e.tenant, callhistory.Filter{Limit: callhistory.MaxLimit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		find := func(to, result string) callhistory.Listed {
+			t.Helper()
+			for _, c := range items {
+				if c.ToNumber == to && c.Result == result {
+					return c
+				}
+			}
+			var all []string
+			for _, c := range items {
+				all = append(all, c.ToNumber+" "+c.Result+": "+strings.Join(c.Words(), " | "))
+			}
+			t.Fatalf("no call to %s with result %s in:\n%s", to, result, strings.Join(all, "\n"))
+			return callhistory.Listed{}
+		}
+		answered := find("102", callhistory.ResultAnswered)
+		if answered.FromName != "Alice" || answered.AnsweredByName != "Bob (102)" || answered.TalkSeconds < 1 || answered.Direction != callhistory.DirectionInternal {
+			t.Errorf("Alice to Bob: %+v", answered)
+		}
+		missed := find("102", callhistory.ResultMissed)
+		if w := strings.Join(missed.Words(), " | "); !strings.HasPrefix(w, "Rang Bob (102) · nobody answered in 30 s") || !missed.RangUnanswered {
+			t.Errorf("nobody answered: %s", w)
+		}
+		vm := find("103", callhistory.ResultVoicemail)
+		if vm.VoicemailBoxName != "Carol (103)" || vm.VoicemailSource == "" {
+			t.Errorf("Carol's voicemail: %+v", vm)
+		}
+		group := find("600", callhistory.ResultAnswered)
+		if w := strings.Join(group.Words(), " | "); w != "Rang Sales (all at once): Bob (102), Dave (109) · Dave (109) answered" || group.RingGroupName != "Sales" {
+			t.Errorf("Sales: %s (%+v)", w, group)
+		}
+		turn := find("601", callhistory.ResultAnswered)
+		if w := strings.Join(turn.Words(), " | "); w != "Rang Support (one after another): Bob (102), Dave (109) · Dave (109) answered" {
+			t.Errorf("Support: %s", w)
+		}
+		if echo := find("*43", callhistory.ResultEchoTest); echo.FromExtensionID == nil || *echo.FromExtensionID != alice.ext.ID {
+			t.Errorf("echo test: %+v", echo)
+		}
+		find("555", callhistory.ResultNotInUse)
+		// Bob's own history: his missed call, not Alice's echo tests.
+		bobs, _, err := svc.All(ctx, e.tenant, callhistory.Filter{Party: &bob.ext.ID, Missed: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(bobs) == 0 || bobs[0].ToNumber != "102" {
+			t.Errorf("Bob's missed calls: %+v", bobs)
 		}
 	})
 

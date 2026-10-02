@@ -71,14 +71,17 @@ func ODBCConnected(cliOutput string) bool {
 	return m != nil && m[1] != "0"
 }
 
-// phoneQuery checks the linx_asterisk role's grants (ADR-032): SELECT on the
-// four realtime views, and nothing else anywhere.
+// phoneQuery checks the linx_asterisk role's grants (ADR-032, ADR-070):
+// SELECT on the four realtime views, INSERT (only) on asterisk.cdr, the
+// call records, and nothing else anywhere. views counts those five.
 const phoneQuery = `SELECT json_build_object(
 	'views', (SELECT count(*) FROM unnest(ARRAY['ps_endpoints', 'ps_aors', 'ps_auths', 'linx_ring_targets']) v
-		WHERE has_table_privilege('linx_asterisk', 'asterisk.' || v, 'SELECT')),
+		WHERE has_table_privilege('linx_asterisk', 'asterisk.' || v, 'SELECT'))
+		+ CASE WHEN has_table_privilege('linx_asterisk', 'asterisk.cdr', 'INSERT') THEN 1 ELSE 0 END,
 	'other', (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f') AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-		AND (has_table_privilege('linx_asterisk', c.oid, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+		AND (has_table_privilege('linx_asterisk', c.oid, 'UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+			OR has_table_privilege('linx_asterisk', c.oid, 'INSERT') AND NOT (n.nspname = 'asterisk' AND c.relname = 'cdr')
 			OR has_table_privilege('linx_asterisk', c.oid, 'SELECT')
 			AND NOT (n.nspname = 'asterisk' AND c.relname IN ('ps_endpoints', 'ps_aors', 'ps_auths', 'linx_ring_targets')))))`
 
@@ -101,12 +104,12 @@ func phoneDatabase(ctx context.Context, env Env, rs *results) {
 	case err != nil:
 		rs.fail("Can't check what the phone system may read in the database.",
 			"The API service sets this up when it starts: sudo docker logs --tail 50 "+controlPlaneContainer)
-	case st.Views != 4 || st.Other != 0:
-		rs.fail("The phone system's database access isn't limited to what it needs (the phone settings, read-only).",
+	case st.Views != 5 || st.Other != 0:
+		rs.fail("The phone system's database access isn't limited to what it needs (the phone settings, read-only, and adding call records).",
 			"Restart the API service, which resets it: sudo docker restart "+controlPlaneContainer+
 				". If this stays, the database was changed by hand: restore it from a backup.")
 	default:
-		rs.ok("The phone system reads the phone settings from the database, and nothing else.")
+		rs.ok("The phone system reads the phone settings from the database and adds call records, and nothing else.")
 	}
 }
 

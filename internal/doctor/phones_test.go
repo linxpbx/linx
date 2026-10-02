@@ -57,7 +57,7 @@ func addPhones(t *testing.T, f *fixture) {
 	f.runner[astCLI+"pjsip show transports"] = transport
 	f.runner[procTCPCmd] = procTCP
 	f.runner["docker port linx-asterisk"] = dockerPorts("192.168.1.20")
-	f.runner[psqlCmd+phoneQuery] = `{"views": 4, "other": 0}`
+	f.runner[psqlCmd+phoneQuery] = `{"views": 5, "other": 0}`
 	f.runner["docker ps --format {{.Names}} {{.Ports}}"] = "linx-asterisk 192.168.1.20:5061->5061/tcp, 192.168.1.20:10000-10199->10000-10199/udp\nlinx-postgres \n"
 	f.runner["ss -Hlntu"] = "tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:*\nudp UNCONN 0 0 127.0.0.53%lo:53 0.0.0.0:*\n"
 	f.runner[nftGet] = nftSet
@@ -115,7 +115,7 @@ func TestPhonesAllGreen(t *testing.T) {
 		if worst(rs) != installer.OK {
 			t.Fatalf("staging=%v: want all ok, got:\n%s", staging, dump(rs))
 		}
-		for _, w := range []string{"The phone system is running and answering", "reads the phone settings from the database, and nothing else",
+		for _, w := range []string{"The phone system is running and answering", "reads the phone settings from the database and adds call records, and nothing else",
 			"connected to the API service", "only accepts encrypted phone connections",
 			"accepts browsers' connections encrypted, and only from inside the server", "local network address (192.168.1.20) only",
 			"current certificate for sip.lab.example.com", "Nothing on this server offers unencrypted SIP",
@@ -136,7 +136,7 @@ func TestPhonesProblems(t *testing.T) {
 		{"no database", func(f *fixture) {
 			f.runner[astCLI+"odbc show asterisk"] = strings.Replace(odbcShow, "connections: 1", "connections: 0", 1)
 		}, installer.Fail, "can't read extensions and phones"},
-		{"grants widened", func(f *fixture) { f.runner[psqlCmd+phoneQuery] = `{"views": 4, "other": 1}` },
+		{"grants widened", func(f *fixture) { f.runner[psqlCmd+phoneQuery] = `{"views": 5, "other": 1}` },
 			installer.Fail, "isn't limited to what it needs"},
 		{"ARI down", func(f *fixture) { f.runner[astCLI+"ari show websocket sessions"] = ariDown }, installer.Fail, "isn't connected to the API service"},
 		{"UDP transport", func(f *fixture) {

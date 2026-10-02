@@ -32,6 +32,7 @@ import (
 	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/backupschedule"
+	"linxpbx.com/linx/internal/callhistory"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
@@ -411,6 +412,12 @@ func main() {
 	voicemailSvc := &voicemail.Service{Store: st, EmailOn: emailSvc.On, Greetings: greetings, TimeZone: st.TimeZone,
 		Changed: hub.VoicemailChanged, Now: time.Now, Log: log}
 	emailSvc.Voicemail = voicemail.Attachment(st)
+	// Call history (ADR-070): Asterisk adds its call records to the
+	// database itself; this reads them into one line per call as each
+	// call ends, and moves the Call history badge's counter.
+	historyBuilder := &callhistory.Builder{Store: store.CallHistory{Store: st}, Changed: hub.CallsChanged, Now: time.Now, Log: log}
+	historySvc := &callhistory.Service{Store: store.CallHistory{Store: st}, Builder: historyBuilder, Now: time.Now}
+	tracker.Ended = historyBuilder.Kick
 	tracker.UserEvent = func(name string) {
 		if name == voicemail.EventName {
 			voicemails.Kick()
@@ -433,6 +440,7 @@ func main() {
 	runBackground(func(ctx context.Context) { sweepWebDevices(ctx, st, relay, webDeviceSweepInterval, log) })
 	runBackground(hub.Run)
 	runBackground(voicemailSvc.RunExpiry)
+	runBackground(historyBuilder.Run)
 	runBackground(trunkFiles.Run)
 	runBackground(trunkMonitor.Run)
 	runBackground(callAlerts.Run)
@@ -496,6 +504,7 @@ func main() {
 			s.SetEmail(emailSvc, weburl.FromEnv(os.Getenv))
 			s.SetRouting(&routing.Service{Store: st, Rules: st, Now: time.Now})
 			s.SetVoicemail(voicemailSvc)
+			s.SetCallHistory(historySvc)
 			s.SetReach(reachChecker.Run, reachLinks)
 			s.SetDNSRecords(reachChecker.Records)
 			s.SetOps(opsHub, st.Audit, func() time.Time {
@@ -519,6 +528,7 @@ func main() {
 	registerBackupFileHandlers(mux, authn, backups)
 	registerHelpHandlers(mux, authn, helpLib, helpAnswers, tenant, log)
 	registerVoicemailHandlers(mux, authn, voicemailSvc)
+	registerCallHandlers(mux, authn, historySvc, st.TimeZone, log)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
 	// Everything else is the web client (ADR-037).

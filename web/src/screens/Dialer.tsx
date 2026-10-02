@@ -1,12 +1,14 @@
 // The Dialer (WEB_SCREENS_PHASE1C.md §3).
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Delete, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing } from "lucide-react";
-import type { TeamMember } from "@/api/client";
+import { api, type TeamMember } from "@/api/client";
 import { Keypad } from "@/components/Keypad";
 import { Avatar, StatusDot, statusLabel } from "@/components/presence";
 import { Input } from "@/components/ui/input";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
-import type { RecentCall } from "@/phone/line";
+import { navigate } from "@/hooks/useRoute";
+import { callBackNumber, dayHeading, isMissed, otherParty, resultWords, timeOf, type CallRecord } from "@/lib/calls";
+import { cn } from "@/lib/utils";
 
 export const DIALABLE = /^[0-9*#+]+$/;
 
@@ -16,18 +18,19 @@ export function matchTeam(members: TeamMember[] | null, query: string, me?: stri
   return members.filter((m) => m.extension !== me && (m.name.toLowerCase().includes(q) || m.extension.startsWith(q))).slice(0, 5);
 }
 
-function recentWhen(at: number): string {
-  const d = new Date(at);
-  const today = new Date();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return d.toDateString() === today.toDateString() ? time : `${d.toLocaleDateString()} ${time}`;
-}
+const RECENT = 5;
 
-const recentIcon: Record<RecentCall["kind"], typeof Phone> = { outgoing: PhoneOutgoing, incoming: PhoneIncoming, missed: PhoneMissed };
-
-export function DialerScreen({ members }: { members: TeamMember[] | null }) {
+export function DialerScreen({ members, stamp }: { members: TeamMember[] | null; stamp?: number }) {
   const line = usePhoneLine();
-  const { recent, status, call, extension } = usePhoneState();
+  const { status, call, extension } = usePhoneState();
+  // The last few calls from Call history (docs/ui/SCREENS_PHASE1F.md
+  // §13.1), again whenever call history changes.
+  const [recent, setRecent] = useState<CallRecord[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api.GET("/api/v1/me/calls", { params: { query: { limit: RECENT } } }).then(({ data }) => { if (live && data) setRecent(data.items); });
+    return () => { live = false; };
+  }, [stamp]);
   const [value, setValue] = useState("");
   const matches = matchTeam(members, value, extension);
   const canCall = status === "ready" && !call;
@@ -89,23 +92,25 @@ export function DialerScreen({ members }: { members: TeamMember[] | null }) {
 
       <section className="mt-10 w-full" aria-labelledby="recent-title">
         <h2 id="recent-title" className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Recent</h2>
-        {recent.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">Calls you make or get while this page is open show up here.</p>
+        {recent === null ? <div className="mt-3 h-12" aria-busy="true" /> : recent.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">Calls you make or get show up here.</p>
         ) : (
           <ul className="mt-2 divide-y rounded-md border bg-card">
-            {recent.map((r) => {
-              const Icon = recentIcon[r.kind];
-              const who = members?.find((m) => m.extension === r.peer.number);
+            {recent.map((c) => {
+              const missed = isMissed(c);
+              const Icon = missed ? PhoneMissed : c.placed_by_me ? PhoneOutgoing : PhoneIncoming;
+              const back = callBackNumber(c);
+              const who = members?.find((m) => m.extension === back);
+              const day = dayHeading(c.started_at);
               return (
-                <li key={r.id}>
-                  <button type="button" disabled={!canCall} onClick={() => line.call(r.peer.number, r.peer.name)}
+                <li key={c.id}>
+                  <button type="button" disabled={!canCall || !back} onClick={() => line.call(back, who?.name ?? undefined)}
                     className="flex w-full items-center gap-3 px-3 py-2.5 text-start hover:bg-background disabled:opacity-60">
-                    <Icon aria-hidden="true" className="size-4 text-muted-foreground" />
+                    <Icon aria-hidden="true" className={cn("size-4", missed ? "text-destructive" : "text-muted-foreground")} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{r.peer.name}</span>
+                      <span className={cn("block break-words font-medium", missed && "text-destructive")}>{otherParty(c)}</span>
                       <span className="block text-sm text-muted-foreground">
-                        {r.peer.name !== r.peer.number && <>Ext <span className="font-mono">{r.peer.number}</span> · </>}
-                        {r.kind}, {recentWhen(r.at)}
+                        {resultWords(c, true)}, {day === "Today" ? timeOf(c.started_at) : `${day} ${timeOf(c.started_at)}`}
                       </span>
                     </span>
                     {who && <StatusDot status={who.status} />}
@@ -115,7 +120,9 @@ export function DialerScreen({ members }: { members: TeamMember[] | null }) {
             })}
           </ul>
         )}
-        <p className="mt-3 text-xs text-muted-foreground">Nothing older is kept yet. Call history comes in a later update.</p>
+        <button type="button" onClick={() => navigate("/calls")} className="mt-3 text-sm font-medium text-link underline-offset-4 hover:underline">
+          All calls
+        </button>
       </section>
     </div>
   );

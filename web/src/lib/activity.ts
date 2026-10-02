@@ -25,6 +25,7 @@ const SENTENCES: Record<string, string> = {
   "system.service_restart": "Restarted a service",
   "voicemail_greeting.record": "Recorded a voicemail greeting", "voicemail.keep_days": "Changed how long voicemail is kept",
   "voicemail.play": "Listened to the voicemail of",
+  "call_history.keep_days": "Changed how long call history is kept",
 };
 
 export interface AuditEntryLike {
