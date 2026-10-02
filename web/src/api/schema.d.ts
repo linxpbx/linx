@@ -1445,7 +1445,7 @@ export interface paths {
         put?: never;
         /**
          * Add a ring group
-         * @description Not idempotent: retrying adds a second group (or fails on its name). Unanswered calls default to the "not available" message.
+         * @description Not idempotent: retrying adds a second group (or fails on its name). Unanswered calls default to the group's own voicemail box (a `voicemail` destination with neither id).
          */
         post: operations["createRingGroup"];
         delete?: never;
@@ -2985,6 +2985,47 @@ export interface webhooks {
         patch?: never;
         trace?: never;
     };
+    "voicemail.created": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A caller left a voicemail (ADR-069)
+         * @description Sent once the message is kept. `data` is `{"id", "box": {"id", "kind": "extension" | "ring_group", "extension_id" | "ring_group_id"}, "from": {"number", "name", "extension_id"?}, "received_at", "duration_seconds"}`. No audio: a caller from a line's number and name are as the line sent them (cleaned), so treat them as text.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["WebhookMessage"];
+                };
+            };
+            responses: {
+                /** @description Any 2xx means received. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface components {
     schemas: {
@@ -3942,10 +3983,10 @@ export interface components {
             items: components["schemas"]["CallPermissionLevel"][];
             next_cursor?: string;
         };
-        /** @description Where a call goes (ADR-068): an extension, a ring group, or a message and hang up (`not-available`, or `closed`: "We're closed"). Voicemail boxes join in a later version. */
+        /** @description Where a call goes (ADR-068): an extension, a ring group, a voicemail box (ADR-069: `extension_id` for a person's, `ring_group_id` for a group's; on a ring group's own `if_no_answer`, neither means its own), or a message and hang up (`not-available`, or `closed`: "We're closed"). A voicemail box reached outside office hours or on a holiday plays the "we're closed" greeting; one that's turned off, or whose person is gone, plays "not available". */
         Destination: {
             /** @enum {string} */
-            kind: "extension" | "ring_group" | "message";
+            kind: "extension" | "ring_group" | "voicemail" | "message";
             /** Format: uuid */
             extension_id?: string;
             /** Format: uuid */
@@ -4056,17 +4097,20 @@ export interface components {
         };
         IncomingSet: {
             rings?: components["schemas"]["Destination"];
-            /** @description Set only `rings`, all the time, and forget the rest. */
+            /** @description Set only `rings`, all the time, and forget the rest: a person rings 30 seconds, then their voicemail. */
             just_ring?: boolean;
             /** @description Check it and return it with its sentence, without saving (the wizard's live sentence). */
             preview?: boolean;
+            /** @description Defaults to 25. */
             if_no_answer_seconds?: number;
+            /** @description Defaults to the voicemail of whoever `rings`. */
             if_no_answer?: components["schemas"]["Destination"];
             /**
              * Format: uuid
              * @description Leave out for the same all the time.
              */
             schedule_id?: string;
+            /** @description Defaults to the voicemail of whoever `rings` (with the "we're closed" greeting), or "We're closed" when it rings nobody. */
             after_hours?: components["schemas"]["Destination"];
             /** @description Leave out for the same as `after_hours`. */
             holidays?: components["schemas"]["Destination"];

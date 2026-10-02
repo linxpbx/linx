@@ -123,7 +123,7 @@ interface FakeUser {
 }
 interface FakeRingGroup {
   id: string; name: string; number?: string; strategy: "all" | "in_turn"; ring_seconds: number; turn_seconds: number;
-  member_ids: string[]; if_no_answer: { kind: "extension" | "ring_group" | "message"; extension_id?: string; ring_group_id?: string; message?: "not-available" };
+  member_ids: string[]; if_no_answer: { kind: "extension" | "ring_group" | "voicemail" | "message"; extension_id?: string; ring_group_id?: string; message?: "not-available" };
   version: number;
 }
 interface FakeDevice {
@@ -362,7 +362,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   // unanswered calls to another.
   let groups: FakeRingGroup[] = [
     { id: "g1", name: "Sales", number: "6000", strategy: "all", ring_seconds: 25, turn_seconds: 15, member_ids: ["e1001", "e1024", "e1110"],
-      if_no_answer: { kind: "message", message: "not-available" }, version: 1 },
+      if_no_answer: { kind: "voicemail", ring_group_id: "g1" }, version: 1 },
     { id: "g2", name: "Support", number: "6001", strategy: "in_turn", ring_seconds: 25, turn_seconds: 15, member_ids: ["e1024", "e1001"],
       if_no_answer: { kind: "ring_group", ring_group_id: "g1" }, version: 1 },
     { id: "g3", name: "Front desk", strategy: "all", ring_seconds: 20, turn_seconds: 15, member_ids: ["e1110"],
@@ -374,10 +374,11 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       .map((e) => ({ extension_id: e.id, number: e.number, display_name: e.display_name, can_ring: people.devices.some((d) => d.extension_id === e.id && d.online) }));
     const names = members.map((m) => m.display_name);
     const d = g.if_no_answer;
-    const ext = d.kind === "extension" ? people.extensions.find((e) => e.id === d.extension_id) : undefined;
-    const other = d.kind === "ring_group" ? groups.find((x) => x.id === d.ring_group_id) : undefined;
-    const label = ext ? `${ext.display_name} (${ext.number})` : other ? other.name : "\"Not available\" message";
-    const then = ext || other ? `the call goes to ${label}.` : "callers hear \"not available\".";
+    const ext = d.kind === "extension" || d.kind === "voicemail" ? people.extensions.find((e) => e.id === d.extension_id) : undefined;
+    const other = d.kind === "ring_group" || d.kind === "voicemail" ? groups.find((x) => x.id === d.ring_group_id) : undefined;
+    const owner = ext ? `${ext.display_name} (${ext.number})` : other ? other.name : "";
+    const label = !owner ? "\"Not available\" message" : d.kind === "voicemail" ? `Voicemail for ${owner}` : owner;
+    const then = !owner ? "callers hear \"not available\"." : d.kind === "voicemail" ? `callers can leave a voicemail for ${owner}.` : `the call goes to ${label}.`;
     const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
     const words = g.strategy === "in_turn" && names.length > 1
       ? `Calls ring ${names.join(", then ")}, ${g.turn_seconds} seconds each. If nobody answers, ${then}`
@@ -385,7 +386,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     return {
       id: g.id, name: g.name, number: g.number, strategy: g.strategy, ring_seconds: g.ring_seconds, turn_seconds: g.turn_seconds,
       members, if_no_answer: { ...d, label }, words,
-      used_by: groups.filter((o) => o.if_no_answer.ring_group_id === g.id).map((o) => ({ kind: "ring_group", id: o.id, name: o.name, how: "if_nobody_answers" })),
+      used_by: groups.filter((o) => o.id !== g.id && o.if_no_answer.ring_group_id === g.id).map((o) => ({ kind: "ring_group", id: o.id, name: o.name, how: "if_nobody_answers" })),
       created_at: now(), updated_at: now(), etag: `"${g.version}"`,
     };
   };
@@ -413,16 +414,21 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   });
   const rules: Record<string, Rule> = opts.home ? {} : {
     "0199f2": { seconds: 20, no_answer: { kind: "ring_group", ring_group_id: "g3" }, after_hours: { kind: "message", message: "closed" } },
-    "0199f3": { seconds: 25, no_answer: { kind: "message", message: "not-available" }, schedule_id: "s1", after_hours: { kind: "message", message: "closed" } },
+    "0199f3": { seconds: 25, no_answer: { kind: "voicemail", ring_group_id: "g1" }, schedule_id: "s1", after_hours: { kind: "voicemail", ring_group_id: "g1" } },
   };
   const ringsOf: Record<string, Dest | undefined> = { "0199f3": { kind: "ring_group", ring_group_id: "g1" } };
-  const destLabel = (d: Dest | undefined) => {
+  const destLabel = (d: Dest | undefined): string => {
     if (!d) return "";
     if (d.kind === "extension") { const e = people.extensions.find((x) => x.id === d.extension_id); return e ? `${e.display_name} (${e.number})` : ""; }
     if (d.kind === "ring_group") return groups.find((g) => g.id === d.ring_group_id)?.name ?? "";
+    if (d.kind === "voicemail") {
+      const owner = destLabel({ kind: d.extension_id ? "extension" : "ring_group", extension_id: d.extension_id, ring_group_id: d.ring_group_id });
+      return owner ? `Voicemail for ${owner}` : "\"Not available\" message";
+    }
     return d.message === "closed" ? "\"We're closed\" message" : "\"Not available\" message";
   };
   const destWords = (d: Dest) => (d.kind === "message" ? (d.message === "closed" ? "callers hear \"We're closed\"." : "callers hear \"not available\".")
+    : d.kind === "voicemail" ? `callers can leave a ${destLabel(d).replace(/^Voicemail/, "voicemail")}.`
     : `the call goes to ${destLabel(d)}.`);
   const incomingView = (kind: "number" | "line", x: Json): Json => {
     const id = String(x.id);
@@ -436,13 +442,14 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     const hours = r?.schedule_id ? " Mon–Fri 08:00–17:00" : "";
     let words = who ? `${subject} ring ${who}${hours}.` : `${subject} ring nobody${hours}: callers hear the number isn't in use.`;
     if (group) words += ` If nobody answers, ${destWords(group.if_no_answer)}`;
-    else if (who) words += r ? ` If nobody answers in ${r.seconds} seconds, ${destWords(r.no_answer)}` : " If nobody answers in 30 seconds, callers hear \"not available\".";
+    else if (who) words += r ? ` If nobody answers in ${r.seconds} seconds, ${destWords(r.no_answer)}` : ` If nobody answers in 30 seconds, callers can leave a voicemail for ${who}.`;
     if (r?.schedule_id) words += r.holidays ? ` At other times, ${destWords(r.after_hours)} On holidays, ${destWords(r.holidays)}` : ` At other times and on holidays, ${destWords(r.after_hours)}`;
     const withLabel = (d: Dest) => ({ ...d, label: destLabel(d) });
     return {
       id, kind, ...(kind === "number" ? { number: x.number, ...(x.label ? { label: x.label } : {}) } : {}),
       line_id: line?.id, line_name: line?.name, line_kind: line?.kind, ...(rings ? { rings: withLabel(rings) } : {}),
-      if_no_answer_seconds: r?.seconds ?? 30, if_no_answer: withLabel(r?.no_answer ?? { kind: "message", message: "not-available" }),
+      if_no_answer_seconds: r?.seconds ?? 30,
+      if_no_answer: withLabel(r?.no_answer ?? (rings?.kind === "extension" ? { kind: "voicemail", extension_id: rings.extension_id } : { kind: "message", message: "not-available" })),
       ...(r?.schedule_id ? { schedule_id: r.schedule_id } : {}), after_hours: withLabel(r?.after_hours ?? { kind: "message", message: "closed" }),
       ...(r?.holidays ? { holidays: withLabel(r.holidays) } : {}), just_ring: !r, words, etag: '"1"',
     };
@@ -1035,7 +1042,8 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       const body = route.request().postDataJSON() as Partial<FakeRingGroup> & { member_ids: string[] };
       const g: FakeRingGroup = { id: `g${people.nextId++}`, name: body.name ?? "", number: body.number, strategy: body.strategy ?? "all",
         ring_seconds: body.ring_seconds ?? 25, turn_seconds: body.turn_seconds ?? 15, member_ids: body.member_ids,
-        if_no_answer: body.if_no_answer ?? { kind: "message", message: "not-available" }, version: 1 };
+        if_no_answer: body.if_no_answer ?? { kind: "voicemail" }, version: 1 };
+      if (g.if_no_answer.kind === "voicemail" && !g.if_no_answer.extension_id && !g.if_no_answer.ring_group_id) g.if_no_answer = { kind: "voicemail", ring_group_id: g.id };
       groups.push(g);
       return route.fulfill(json(ringGroupView(g), 201));
     }

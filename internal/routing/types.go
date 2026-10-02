@@ -16,11 +16,15 @@ import (
 	"linxpbx.com/linx/internal/auth"
 )
 
-// Destination kinds: where a call can go. A voicemail box joins them in
-// Phase 1F step 13, menus and queues in Phase 4.
+// Destination kinds: where a call can go. Menus and queues join them in
+// Phase 4.
 const (
 	KindExtension = "extension"
 	KindRingGroup = "ring_group"
+	// KindVoicemail is a voicemail box (ADR-069): a person's
+	// (ExtensionID) or a ring group's (RingGroupID). A box's id is its
+	// owner's.
+	KindVoicemail = "voicemail"
 	KindMessage   = "message"
 )
 
@@ -41,11 +45,15 @@ const (
 	MaxMembers    = 50
 	MaxRingGroups = 200
 	MaxSchedules  = 20
-	MaxSpans      = 50
-	MaxHolidays   = 200
+	// MaxVoicemailMinutes is how long a message can be (the dialplan's
+	// Record, docs/PHASE1F.md §8).
+	MaxVoicemailMinutes = 3
+	MaxSpans            = 50
+	MaxHolidays         = 200
 )
 
-// Destination is one place a call can go.
+// Destination is one place a call can go. For KindVoicemail, ExtensionID
+// or RingGroupID says whose box.
 type Destination struct {
 	Kind        string
 	ExtensionID *uuid.UUID

@@ -8,7 +8,7 @@ import type { components } from "@/api/schema";
 import { AddChooserDialog, useAlwaysQuickAdd } from "@/components/AddChooser";
 import { DataTable } from "@/components/DataTable";
 import {
-  DestinationPicker, NOT_AVAILABLE, destinationLabel, type Destination, type ExtensionChoice, type RingGroup,
+  DestinationPicker, NOT_AVAILABLE, OWN_VOICEMAIL, destinationLabel, type Destination, type ExtensionChoice, type RingGroup,
 } from "@/components/DestinationPicker";
 import { Dot } from "@/components/presence";
 import { Button } from "@/components/ui/button";
@@ -145,9 +145,11 @@ function HowItRings({ extensions, strategy, onStrategy, turnSeconds, onTurnSecon
 }
 
 /** If nobody answers: after how long (all at once), and where. */
-function IfNobodyAnswers({ strategy, ringSeconds, onRingSeconds, value, onChange, extensions, groups, self }: {
+function IfNobodyAnswers({ strategy, ringSeconds, onRingSeconds, value, onChange, extensions, groups, self, name }: {
   strategy: Strategy; ringSeconds: string; onRingSeconds: (s: string) => void;
   value: Destination; onChange: (d: Destination) => void; extensions: ExtensionChoice[]; groups: RingGroup[]; self?: string;
+  /** The group's name, for its own voicemail box. */
+  name: string;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -161,8 +163,11 @@ function IfNobodyAnswers({ strategy, ringSeconds, onRingSeconds, value, onChange
       ) : (
         <p className="text-sm">If nobody answers once everyone has rung, the call goes to:</p>
       )}
-      <DestinationPicker id="no-answer" value={value} onChange={onChange} extensions={extensions} groups={groups} self={self} />
-      <p className="text-sm text-muted-foreground">A voicemail box for the group comes with voicemail, soon.</p>
+      <DestinationPicker id="no-answer" value={value} onChange={onChange} extensions={extensions} groups={groups} self={self}
+        ownBoxName={name} />
+      <p className="text-sm text-muted-foreground">
+        Recommended: voicemail for {name || "the group"}. Callers can leave a message, and everyone in the group sees it.
+      </p>
     </div>
   );
 }
@@ -217,7 +222,7 @@ function GuidedAddRingGroup({ open, onOpenChange, extensions, groups, onDone }: 
   const [strategy, setStrategy] = useState<Strategy>("all");
   const [turnSeconds, setTurnSeconds] = useState("15");
   const [ringSeconds, setRingSeconds] = useState("25");
-  const [noAnswer, setNoAnswer] = useState<Destination>(NOT_AVAILABLE);
+  const [noAnswer, setNoAnswer] = useState<Destination>(OWN_VOICEMAIL);
   const next = useNextGroupNumber(open);
   const [numberChoice, setNumberChoice] = useState<NumberChoice>("next");
   const [number, setNumber] = useState("");
@@ -228,7 +233,7 @@ function GuidedAddRingGroup({ open, onOpenChange, extensions, groups, onDone }: 
   useEffect(() => {
     if (!open) return;
     setStep(1); setName(""); setMembers([]); setStrategy("all"); setTurnSeconds("15"); setRingSeconds("25");
-    setNoAnswer(NOT_AVAILABLE); setNumberChoice("next"); setNumber(""); setError(""); setCreated(null);
+    setNoAnswer(OWN_VOICEMAIL); setNumberChoice("next"); setNumber(""); setError(""); setCreated(null);
   }, [open]);
   useEffect(() => { if (!next && numberChoice === "next") setNumberChoice("none"); }, [next, numberChoice]);
 
@@ -279,7 +284,7 @@ function GuidedAddRingGroup({ open, onOpenChange, extensions, groups, onDone }: 
           )}
           {step === 4 && (
             <IfNobodyAnswers strategy={strategy} ringSeconds={ringSeconds} onRingSeconds={setRingSeconds}
-              value={noAnswer} onChange={setNoAnswer} extensions={extensions} groups={groups} />
+              value={noAnswer} onChange={setNoAnswer} extensions={extensions} groups={groups} name={name.trim()} />
           )}
           {step === 5 && <NumberStep next={next} choice={numberChoice} onChoice={setNumberChoice} number={number} onNumber={setNumber} />}
           {step === 6 && created && (
@@ -347,7 +352,7 @@ function QuickAddRingGroup({ open, onOpenChange, onGuideInstead, always, extensi
           </Field>
           <PeopleChoice extensions={extensions} value={members} onChange={setMembers} />
           <p className="text-sm text-muted-foreground">
-            {next ? `Number ${next}, ` : "No number, "}all at once, 25 seconds, then callers hear "not available". You can change it any time.
+            {next ? `Number ${next}, ` : "No number, "}all at once, 25 seconds, then its own voicemail. You can change it any time.
           </p>
           <FormError message={error} />
           <DialogFooter><Button type="submit" disabled={busy || !name.trim() || members.length === 0} aria-busy={busy}>Add</Button></DialogFooter>
@@ -483,7 +488,7 @@ function RingGroupSheet({ me, group, extensions, groups, onClose, onChanged, onR
               {destinationLabel(group.if_no_answer, extensions, groups)}
             </p>,
             <IfNobodyAnswers strategy={group.strategy} ringSeconds={ringSeconds} onRingSeconds={setRingSeconds}
-              value={noAnswer} onChange={setNoAnswer} extensions={extensions} groups={groups} self={group.id} />,
+              value={noAnswer} onChange={setNoAnswer} extensions={extensions} groups={groups} self={group.id} name={group.name} />,
             () => void save({ if_no_answer: noAnswer, ring_seconds: seconds(ringSeconds, 25) }))}
 
           {row("Number", "number", <p className="font-mono text-sm">{group.number ?? "None"}</p>,

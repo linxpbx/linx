@@ -19,9 +19,10 @@ import (
 // not disturb (the dialplan's own linx_ring_targets).
 func (s *Store) RingGroups(ctx context.Context, tenant uuid.UUID) ([]routing.RingGroup, error) {
 	rows, err := s.pool.Query(ctx, `SELECT g.id, g.tenant_id, g.name, coalesce(g.number, ''), g.strategy, g.ring_seconds, g.turn_seconds,
-			g.no_answer_kind, g.no_answer_extension_id, g.no_answer_ring_group_id, coalesce(g.no_answer_message, ''),
-			g.version, g.created_at, g.updated_at
-		FROM ring_group g WHERE g.tenant_id = $1 ORDER BY lower(g.name), g.id`, tenant)
+			g.no_answer_kind, coalesce(g.no_answer_extension_id, vb.extension_id), coalesce(g.no_answer_ring_group_id, vb.ring_group_id),
+			coalesce(g.no_answer_message, ''), g.version, g.created_at, g.updated_at
+		FROM ring_group g LEFT JOIN voicemail_box vb ON vb.id = g.no_answer_voicemail_id
+		WHERE g.tenant_id = $1 ORDER BY lower(g.name), g.id`, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -86,14 +87,31 @@ func (s *Store) Extensions(ctx context.Context, tenant uuid.UUID, ids []uuid.UUI
 	return out, rows.Err()
 }
 
+// destColumns are d's kind, extension, ring group, voicemail box and
+// message columns (migration 0034: a box's id is its owner's, in a column
+// of its own).
+func destColumns(d routing.Destination) (string, *uuid.UUID, *uuid.UUID, *uuid.UUID, *string) {
+	if d.Kind == routing.KindVoicemail {
+		box := d.ExtensionID
+		if box == nil {
+			box = d.RingGroupID
+		}
+		return d.Kind, nil, nil, box, nil
+	}
+	return d.Kind, d.ExtensionID, d.RingGroupID, nil, emptyStrToNil(d.Message)
+}
+
+// CreateRingGroup adds g; its voicemail box comes with it (migration
+// 0034's trigger), so g can send its unanswered calls there.
 func (s *Store) CreateRingGroup(ctx context.Context, g routing.RingGroup, audit auth.AuditEntry) error {
+	kind, ext, grp, box, msg := destColumns(g.NoAnswer)
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO ring_group (id, tenant_id, name, number, strategy, ring_seconds, turn_seconds,
-				no_answer_kind, no_answer_extension_id, no_answer_ring_group_id, no_answer_message, version, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+				no_answer_kind, no_answer_extension_id, no_answer_ring_group_id, no_answer_voicemail_id, no_answer_message,
+				version, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 			g.ID, g.TenantID, g.Name, emptyStrToNil(g.Number), g.Strategy, g.RingSeconds, g.TurnSeconds,
-			g.NoAnswer.Kind, g.NoAnswer.ExtensionID, g.NoAnswer.RingGroupID, emptyStrToNil(g.NoAnswer.Message),
-			g.Version, g.CreatedAt, g.UpdatedAt)
+			kind, ext, grp, box, msg, g.Version, g.CreatedAt, g.UpdatedAt)
 		if err != nil {
 			return ringGroupError(err, g)
 		}
@@ -105,13 +123,14 @@ func (s *Store) CreateRingGroup(ctx context.Context, g routing.RingGroup, audit 
 }
 
 func (s *Store) UpdateRingGroup(ctx context.Context, g routing.RingGroup, audit auth.AuditEntry) error {
+	kind, ext, grp, box, msg := destColumns(g.NoAnswer)
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE ring_group SET name = $4, number = $5, strategy = $6, ring_seconds = $7, turn_seconds = $8,
-				no_answer_kind = $9, no_answer_extension_id = $10, no_answer_ring_group_id = $11, no_answer_message = $12,
-				version = version + 1, updated_at = $13
+				no_answer_kind = $9, no_answer_extension_id = $10, no_answer_ring_group_id = $11, no_answer_voicemail_id = $12,
+				no_answer_message = $13, version = version + 1, updated_at = $14
 			WHERE id = $1 AND tenant_id = $2 AND version = $3`,
 			g.ID, g.TenantID, g.Version, g.Name, emptyStrToNil(g.Number), g.Strategy, g.RingSeconds, g.TurnSeconds,
-			g.NoAnswer.Kind, g.NoAnswer.ExtensionID, g.NoAnswer.RingGroupID, emptyStrToNil(g.NoAnswer.Message), g.UpdatedAt)
+			kind, ext, grp, box, msg, g.UpdatedAt)
 		if err != nil {
 			return ringGroupError(err, g)
 		}
@@ -155,8 +174,19 @@ func setMembers(ctx context.Context, tx pgx.Tx, g routing.RingGroup) error {
 	return nil
 }
 
+// DeleteRingGroup removes the group with its voicemail box and messages;
+// ErrInUse while something else sends calls to either.
 func (s *Store) DeleteRingGroup(ctx context.Context, tenant, id uuid.UUID, audit auth.AuditEntry) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var used bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ring_group WHERE no_answer_voicemail_id = $1 AND id <> $1)
+				OR EXISTS (SELECT 1 FROM incoming_rule WHERE $1 IN (no_answer_voicemail_id, closed_voicemail_id, holiday_voicemail_id))`,
+			id).Scan(&used); err != nil {
+			return err
+		}
+		if used {
+			return routing.ErrInUse
+		}
 		tag, err := tx.Exec(ctx, `DELETE FROM ring_group WHERE id = $1 AND tenant_id = $2`, id, tenant)
 		if err != nil {
 			if isRestrictViolation(err) {

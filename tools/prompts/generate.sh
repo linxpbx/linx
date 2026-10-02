@@ -12,4 +12,8 @@ grep -v '^#' /in/prompts.tsv | grep -v '^$' | while IFS="$(printf '\t')" read -r
   ffmpeg -nostdin -loglevel error -y -i "/tmp/$name.wav" -af "adelay=250,loudnorm=I=-18:TP=-3" -ar 16000 -ac 1 -c:a g722 -f g722 "/out/$name.g722"
   echo "$name: $text"
 done
+# The voicemail tone (internal/asteriskconf's linx-voicemail): half a
+# second of 1 kHz, not a voice.
+ffmpeg -nostdin -loglevel error -y -f lavfi -i "sine=frequency=1000:duration=0.5" -af "volume=-12dB" -ar 16000 -ac 1 -c:a g722 -f g722 /out/beep.g722
+echo "beep: (tone)"
 cd /out && sha256sum ./*.g722 > SHA256SUMS

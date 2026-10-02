@@ -162,7 +162,9 @@ func (s *Service) views(ctx context.Context, tenant uuid.UUID, groups []RingGrou
 		v.NoAnswerLabel = DestinationLabel(g.NoAnswer, byID, exts)
 		v.Words = Words(g, destinationWords(g.NoAnswer, byID, exts))
 		for _, o := range groups {
-			if o.NoAnswer.RingGroupID != nil && *o.NoAnswer.RingGroupID == g.ID {
+			// Another group sending its unanswered calls here or to this
+			// group's voicemail (its own voicemail is part of it).
+			if o.ID != g.ID && o.NoAnswer.RingGroupID != nil && *o.NoAnswer.RingGroupID == g.ID {
 				v.UsedBy = append(v.UsedBy, UsedBy{Kind: KindRingGroup, ID: o.ID, Name: o.Name, How: "if_nobody_answers"})
 			}
 		}
@@ -173,9 +175,14 @@ func (s *Service) views(ctx context.Context, tenant uuid.UUID, groups []RingGrou
 }
 
 // DestinationLabel is a destination in a few words, for lists and the
-// picker: "Sara Haddad (101)", "Sales", `"Not available" message`.
+// picker: "Sara Haddad (101)", "Sales", "Voicemail for Sales", `"Not
+// available" message`.
 func DestinationLabel(d Destination, groups map[uuid.UUID]RingGroup, exts map[uuid.UUID]ExtensionRef) string {
 	switch d.Kind {
+	case KindVoicemail:
+		if owner := voicemailOwner(d, groups, exts); owner != "" {
+			return "Voicemail for " + owner
+		}
 	case KindExtension:
 		if d.ExtensionID != nil {
 			if e, ok := exts[*d.ExtensionID]; ok {
@@ -197,8 +204,28 @@ func DestinationLabel(d Destination, groups map[uuid.UUID]RingGroup, exts map[uu
 	return `"Not available" message`
 }
 
+// voicemailOwner is whose box d is ("Sara Haddad (101)", "Sales"), or ""
+// when they're gone.
+func voicemailOwner(d Destination, groups map[uuid.UUID]RingGroup, exts map[uuid.UUID]ExtensionRef) string {
+	if d.ExtensionID != nil {
+		if e, ok := exts[*d.ExtensionID]; ok {
+			return fmt.Sprintf("%s (%s)", e.DisplayName, e.Number)
+		}
+	}
+	if d.RingGroupID != nil {
+		if g, ok := groups[*d.RingGroupID]; ok {
+			return g.Name
+		}
+	}
+	return ""
+}
+
 func destinationWords(d Destination, groups map[uuid.UUID]RingGroup, exts map[uuid.UUID]ExtensionRef) string {
 	switch d.Kind {
+	case KindVoicemail:
+		if owner := voicemailOwner(d, groups, exts); owner != "" {
+			return "callers can leave a voicemail for " + owner + "."
+		}
 	case KindExtension, KindRingGroup:
 		if label := DestinationLabel(d, groups, exts); label != `"Not available" message` {
 			return "the call goes to " + label + "."
@@ -264,7 +291,7 @@ type Input struct {
 	RingSeconds *int
 	TurnSeconds *int
 	MemberIDs   []uuid.UUID
-	NoAnswer    *Destination // nil means the "not available" message
+	NoAnswer    *Destination // nil means the group's own voicemail
 }
 
 // Patch is a JSON Merge Patch of a ring group; nil fields stay as they are.
@@ -291,7 +318,7 @@ func (s *Service) CreateRingGroup(ctx context.Context, in Input) (View, error) {
 	now := s.Now().UTC()
 	g := RingGroup{ID: id, TenantID: p.TenantID, Name: strings.TrimSpace(in.Name), Number: in.Number,
 		Strategy: in.Strategy, RingSeconds: 25, TurnSeconds: 15, Version: 1, CreatedAt: now, UpdatedAt: now,
-		NoAnswer: Destination{Kind: KindMessage, Message: MessageNotAvailable}}
+		NoAnswer: Destination{Kind: KindVoicemail, RingGroupID: &id}}
 	if g.Strategy == "" {
 		g.Strategy = StrategyAll
 	}
@@ -402,7 +429,7 @@ func (s *Service) DeleteRingGroup(ctx context.Context, id uuid.UUID) error {
 	}
 	if errors.Is(err, ErrInUse) {
 		return &apihttp.Error{Status: http.StatusConflict, Code: "ring_group_in_use",
-			Detail: "Another ring group or a phone number sends calls here. Choose where they go instead first."}
+			Detail: "Another ring group or a phone number sends calls here or to this group's voicemail. Choose where they go instead first."}
 	}
 	return err
 }
@@ -480,13 +507,29 @@ func checkDestination(g *RingGroup, exts map[uuid.UUID]ExtensionRef, all []RingG
 			return err
 		}
 		d.ExtensionID, d.Message = nil, ""
+	case KindVoicemail:
+		// No owner: the group's own box.
+		if d.ExtensionID == nil && d.RingGroupID == nil {
+			d.RingGroupID = &g.ID
+		}
+		switch {
+		case d.ExtensionID != nil && d.RingGroupID != nil:
+			return invalid("destination_invalid", "A voicemail box is a person's or a ring group's, not both.")
+		case d.ExtensionID != nil:
+			if _, ok := exts[*d.ExtensionID]; !ok {
+				return invalid("extension_not_found", "That extension doesn't exist.")
+			}
+		case *d.RingGroupID != g.ID && !slices.ContainsFunc(all, func(o RingGroup) bool { return o.ID == *d.RingGroupID }):
+			return invalid("ring_group_not_found", "That ring group doesn't exist.")
+		}
+		d.Message = ""
 	case KindMessage:
 		if d.Message != MessageNotAvailable && d.Message != MessageClosed {
 			return invalid("destination_invalid", `The message can be "not-available" or "closed".`)
 		}
 		d.ExtensionID, d.RingGroupID = nil, nil
 	default:
-		return invalid("destination_invalid", "Unanswered calls can go to an extension, a ring group or a message.")
+		return invalid("destination_invalid", "Unanswered calls can go to an extension, a ring group, a voicemail box or a message.")
 	}
 	return nil
 }

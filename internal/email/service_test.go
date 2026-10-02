@@ -1,10 +1,16 @@
 package email
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/mail"
 	"strings"
 	"sync"
 	"testing"
@@ -347,5 +353,79 @@ func TestRunWakesOnEnqueue(t *testing.T) {
 	}
 	if len(f.mails()) != 1 {
 		t.Fatal("the worker didn't send a queued email")
+	}
+}
+
+func TestVoicemailAttached(t *testing.T) {
+	f := newFakeSMTP(t, true)
+	s, _ := newTestService(t, f)
+	ctx := asRole(auth.RoleSystemAdmin, true)
+	if _, err := s.Update(ctx, Patch{Preset: ptr("fastmail"), FromAddress: ptr(f.user), Password: ptr(f.pass), Enabled: ptr(true)}, ""); err != nil {
+		t.Fatal(err)
+	}
+	s.Store.(*memStore).cfg.Host = "mail.test"
+	audio := bytes.Repeat([]byte("RIFF-audio-"), 100)
+	kept := uuid.New()
+	s.Voicemail = func(_ context.Context, _, id uuid.UUID) (File, bool, error) {
+		if id != kept {
+			return File{}, false, nil
+		}
+		return File{Name: "voicemail-2026-10-02-1042.wav", ContentType: "audio/wav", Data: audio}, true, nil
+	}
+	sys := auth.AuditEntry{Actor: "system", Action: "email.queue", Result: auth.ResultOK}
+	gone := uuid.New()
+	for _, id := range []uuid.UUID{kept, gone} {
+		c := Content{Subject: "Voicemail from 0501234567 (0:42)", Text: "0501234567 called you.", Voicemail: &id}
+		if _, err := s.Enqueue(context.Background(), testTenant, KindVoicemail, []string{"sara@example.com"}, c, sys); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.sendDue(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	mails := f.mails()
+	if len(mails) != 2 {
+		t.Fatalf("%d mails", len(mails))
+	}
+	msg, err := mail.ReadMessage(strings.NewReader(mails[0].Data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mt, params, _ := mime.ParseMediaType(msg.Header.Get("Content-Type"))
+	if mt != "multipart/mixed" {
+		t.Fatalf("content type %q", mt)
+	}
+	r := multipart.NewReader(msg.Body, params["boundary"])
+	var parts []string
+	var got []byte
+	for {
+		p, err := r.NextPart()
+		if err != nil {
+			break
+		}
+		parts = append(parts, p.Header.Get("Content-Type"))
+		if p.FileName() == "voicemail-2026-10-02-1042.wav" {
+			got, _ = io.ReadAll(base64.NewDecoder(base64.StdEncoding, p))
+		}
+	}
+	if len(parts) != 2 || !strings.HasPrefix(parts[0], "multipart/alternative") || !bytes.Equal(got, audio) {
+		t.Errorf("parts %v, attachment %d bytes", parts, len(got))
+	}
+	// Deleted before it went out: no attachment, and the email says so.
+	if strings.Contains(mails[1].Data, "multipart/mixed") || !strings.Contains(mails[1].Data, "deleted before this email") {
+		t.Errorf("deleted voicemail's email:\n%s", mails[1].Data)
+	}
+}
+
+func TestBuildRefusesStrangeAttachments(t *testing.T) {
+	from := mail.Address{Address: "pbx@example.com"}
+	for _, f := range []File{
+		{Name: "x.wav\r\nBcc: a@example.com", ContentType: "audio/wav"},
+		{Name: "../x.wav", ContentType: "audio/wav"},
+		{Name: "x.wav", ContentType: "audio/wav; x=\"y\""},
+	} {
+		if _, err := build(from, []string{"a@example.com"}, Content{Subject: "Hi", Text: "x", Files: []File{f}}, testNow); err == nil {
+			t.Errorf("built attachment %q %q", f.Name, f.ContentType)
+		}
 	}
 }

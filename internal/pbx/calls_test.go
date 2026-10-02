@@ -229,6 +229,17 @@ func TestCallOutcomes(t *testing.T) {
 			tr.handle(ctx, ari.Event{Type: "Dial", Caller: c, Peer: leg})
 			tr.handle(ctx, ari.Event{Type: "Dial", Caller: c, Peer: leg, DialStatus: "NOANSWER"})
 		}, OutcomeMissed, CallRinging},
+		{"straight to voicemail", "103", func(tr *CallTracker, c *ari.Channel) {
+			c.State, c.Dialplan = "Up", ari.Dialplan{Context: "linx-voicemail", Exten: "h"}
+			tr.handle(ctx, ari.Event{Type: "ChannelDialplan", Channel: c})
+		}, OutcomeVoicemail, CallSystem},
+		{"voicemail after ringing", "102", func(tr *CallTracker, c *ari.Channel) {
+			leg := ch("9", "d_bob00002", "Down", "linx-extensions", "s", "")
+			tr.handle(ctx, ari.Event{Type: "Dial", Caller: c, Peer: leg})
+			tr.handle(ctx, ari.Event{Type: "Dial", Caller: c, Peer: leg, DialStatus: "NOANSWER"})
+			c.State, c.Dialplan = "Up", ari.Dialplan{Context: "linx-voicemail", Exten: "h"}
+			tr.handle(ctx, ari.Event{Type: "ChannelDialplan", Channel: c})
+		}, OutcomeVoicemail, CallSystem},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -241,7 +252,7 @@ func TestCallOutcomes(t *testing.T) {
 			}
 			tr.handle(ctx, ari.Event{Type: "ChannelDestroyed", Timestamp: at(5), Channel: caller})
 			want := []string{"call.started", "call.ended"}
-			if tt.want == OutcomeMissed {
+			if tt.want == OutcomeMissed || tt.name == "voicemail after ringing" {
 				want = append(want, "call.missed")
 			}
 			if got := st.types(); !equal(got, want) {
@@ -430,5 +441,15 @@ func TestInboundCall(t *testing.T) {
 	}
 	if len(w.started)+len(w.ended) != 0 {
 		t.Error("the watcher heard about an inbound call")
+	}
+}
+
+func TestUserEvent(t *testing.T) {
+	tr, _ := newTracker()
+	var got []string
+	tr.UserEvent = func(name string) { got = append(got, name) }
+	tr.handle(context.Background(), ari.Event{Type: "ChannelUserevent", EventName: "LinxVoicemail"})
+	if len(got) != 1 || got[0] != "LinxVoicemail" {
+		t.Errorf("user events = %v", got)
 	}
 }

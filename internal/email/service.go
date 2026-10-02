@@ -42,6 +42,9 @@ type Service struct {
 	// Working when an email goes out again. Either may be nil.
 	Broken  func(ctx context.Context, tenant uuid.UUID, detail string)
 	Working func(ctx context.Context, tenant uuid.UUID)
+	// Voicemail returns a voicemail message as the file to attach (found
+	// false: it was deleted since it was queued).
+	Voicemail func(ctx context.Context, tenant, id uuid.UUID) (f File, found bool, err error)
 
 	once  sync.Once
 	wake  chan struct{}

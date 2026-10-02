@@ -105,6 +105,25 @@ func (s *Service) sendOne(ctx context.Context, c Config, m Message) {
 		finish(StatusFailed, "Linx couldn't read the mail account's password.", nil)
 		return
 	}
+	if content.Voicemail != nil {
+		f, found, err := s.attachVoicemail(ctx, m.TenantID, *content.Voicemail)
+		switch {
+		case err != nil:
+			// The database, not the mail account: try again later.
+			s.Log.Error("reading a voicemail to email failed", "email", m.ID, "err", err)
+			if m.Attempts+1 < MaxAttempts {
+				next := s.Now().UTC().Add(retryDelays[m.Attempts])
+				finish(StatusPending, "Linx couldn't read the voicemail.", &next)
+			} else {
+				finish(StatusFailed, "Linx couldn't read the voicemail.", nil)
+			}
+			return
+		case found:
+			content.Files = []File{f}
+		default:
+			content.Text += "\n\n(The message was deleted before this email went out, so it isn't attached.)"
+		}
+	}
 	err = s.Sender.Send(ctx, a, m.To, content)
 	if err == nil {
 		finish(StatusSent, "", nil)
@@ -131,4 +150,11 @@ func (s *Service) sendOne(ctx context.Context, c Config, m Message) {
 	if accountProblem && (!se.Temporary || attempts >= MaxAttempts) && s.Broken != nil {
 		s.Broken(ctx, m.TenantID, se.Detail)
 	}
+}
+
+func (s *Service) attachVoicemail(ctx context.Context, tenant, id uuid.UUID) (File, bool, error) {
+	if s.Voicemail == nil {
+		return File{}, false, nil
+	}
+	return s.Voicemail(ctx, tenant, id)
 }

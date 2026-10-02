@@ -102,8 +102,10 @@ func TestRoutingDocker(t *testing.T) {
 	check("n:600", route("n:600", "104"), step{"dial", "PJSIP/d_aisha001&PJSIP/d_bilal002", 25, "e:104", 1, "600"})
 	// Aisha calling her own group doesn't ring herself.
 	check("n:600 from 101", route("n:600", "101"), step{"dial", "PJSIP/d_bilal002", 25, "e:104", 1, "600"})
-	check("e:104", route("e:104", ""), step{"dial", "PJSIP/d_dana0004", 30, "m:not-available", 1, "104"})
-	check("n:103 (no phone)", route("n:103", ""), step{"next", "", 30, "m:not-available", 1, "103"})
+	// A person nobody answers (or who has no phone) goes to their
+	// voicemail (migration 0034).
+	check("e:104", route("e:104", ""), step{"dial", "PJSIP/d_dana0004", 30, "v:" + d.ID.String(), 1, "104"})
+	check("n:103 (no phone)", route("n:103", ""), step{"next", "", 30, "v:" + c.ID.String(), 1, "103"})
 	check("m:not-available", route("m:not-available", ""), step{"message", "not-available", 0, "", 0, ""})
 	if got := route("n:699", ""); got != nil {
 		t.Errorf("unused number routes: %+v", got)

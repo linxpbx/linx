@@ -49,11 +49,12 @@ func incomingName(in Incoming) string {
 	return in.Number
 }
 
-// incomingUses lists the numbers and lines that send calls to group.
+// incomingUses lists the numbers and lines that send calls to group or
+// its voicemail.
 func incomingUses(list []Incoming, group uuid.UUID) []UsedBy {
 	var out []UsedBy
 	is := func(d *Destination) bool {
-		return d != nil && d.Kind == KindRingGroup && d.RingGroupID != nil && *d.RingGroupID == group
+		return d != nil && (d.Kind == KindRingGroup || d.Kind == KindVoicemail) && d.RingGroupID != nil && *d.RingGroupID == group
 	}
 	for _, in := range list {
 		add := func(how string) {
@@ -228,7 +229,8 @@ func (l lookups) words(in Incoming) string {
 	case who != "" && in.Rule != nil:
 		fmt.Fprintf(&b, " If nobody answers in %d seconds, %s", in.Rule.NoAnswerSeconds, destinationWords(in.Rule.NoAnswer, l.groups, l.exts))
 	case who != "":
-		fmt.Fprintf(&b, ` If nobody answers in %d seconds, callers hear "not available".`, plainExtensionSeconds)
+		fmt.Fprintf(&b, " If nobody answers in %d seconds, %s", plainExtensionSeconds,
+			destinationWords(Destination{Kind: KindVoicemail, ExtensionID: in.Rings.ExtensionID}, l.groups, l.exts))
 	}
 	if hours != "" {
 		closed := destinationWords(in.Rule.Closed, l.groups, l.exts)
@@ -243,8 +245,10 @@ func (l lookups) words(in Incoming) string {
 
 // IncomingInput is a whole "When someone calls". JustRing sets only Rings,
 // all the time (the quick change); otherwise nil fields take the
-// defaults: 25 seconds, then "not available"; no office hours; "We're
-// closed" outside them; holidays as outside them.
+// defaults (the wizard's recommendations): 25 seconds, then the voicemail
+// of whoever it rings; no office hours; outside them, that voicemail with
+// the "we're closed" greeting (just "We're closed" when it rings nobody);
+// holidays as outside them.
 type IncomingInput struct {
 	Rings           *Destination
 	JustRing        bool
@@ -283,6 +287,10 @@ func (s *Service) SetIncoming(ctx context.Context, id uuid.UUID, in IncomingInpu
 	if !in.JustRing {
 		r := Rule{NoAnswerSeconds: DefaultNoAnswerSeconds, NoAnswer: Destination{Kind: KindMessage, Message: MessageNotAvailable},
 			ScheduleID: in.ScheduleID, Closed: Destination{Kind: KindMessage, Message: MessageClosed}, Holiday: in.Holiday}
+		if in.Rings != nil && (in.Rings.ExtensionID != nil || in.Rings.RingGroupID != nil) {
+			box := Destination{Kind: KindVoicemail, ExtensionID: in.Rings.ExtensionID, RingGroupID: in.Rings.RingGroupID}
+			r.NoAnswer, r.Closed = box, box
+		}
 		if in.NoAnswerSeconds != nil {
 			r.NoAnswerSeconds = *in.NoAnswerSeconds
 		}
@@ -293,7 +301,10 @@ func (s *Service) SetIncoming(ctx context.Context, id uuid.UUID, in IncomingInpu
 			r.Closed = *in.Closed
 		}
 		if r.ScheduleID == nil {
-			r.Closed, r.Holiday = Destination{Kind: KindMessage, Message: MessageClosed}, nil
+			r.Closed, r.Holiday = r.NoAnswer, nil
+			if r.Closed.Kind != KindVoicemail {
+				r.Closed = Destination{Kind: KindMessage, Message: MessageClosed}
+			}
 		}
 		cur.Rule = &r
 	}
@@ -369,18 +380,32 @@ func (s *Service) checkIncoming(ctx context.Context, tenant uuid.UUID, in *Incom
 				return invalid("ring_group_not_found", "That ring group doesn't exist.")
 			}
 			d.ExtensionID, d.Message = nil, ""
+		case KindVoicemail:
+			switch {
+			case (d.ExtensionID == nil) == (d.RingGroupID == nil):
+				return invalid("destination_invalid", "Choose whose voicemail "+what+".")
+			case d.ExtensionID != nil:
+				if _, ok := l.exts[*d.ExtensionID]; !ok {
+					return invalid("extension_not_found", "That extension doesn't exist.")
+				}
+			default:
+				if _, ok := l.groups[*d.RingGroupID]; !ok {
+					return invalid("ring_group_not_found", "That ring group doesn't exist.")
+				}
+			}
+			d.Message = ""
 		case KindMessage:
 			if d.Message != MessageNotAvailable && d.Message != MessageClosed {
 				return invalid("destination_invalid", `The message can be "not-available" or "closed".`)
 			}
 			d.ExtensionID, d.RingGroupID = nil, nil
 		default:
-			return invalid("destination_invalid", "Calls can go to a person, a ring group or a message.")
+			return invalid("destination_invalid", "Calls can go to a person, a ring group, a voicemail box or a message.")
 		}
 		return nil
 	}
 	if in.Rings != nil {
-		if in.Rings.Kind == KindMessage {
+		if in.Rings.Kind == KindMessage || in.Rings.Kind == KindVoicemail {
 			return invalid("destination_invalid", "Calls ring a person or a ring group. For nobody, leave it empty.")
 		}
 		if err := check(in.Rings, "it rings"); err != nil {
@@ -539,6 +564,22 @@ func (s *Service) simulate(ctx context.Context, tenant uuid.UUID, dest, caller s
 			return sim, nil
 		}
 		kind, arg, _ := strings.Cut(dest, ":")
+		if kind == "v" {
+			id, _, _ := strings.Cut(arg, ":")
+			owner := s.boxOwner(ctx, tenant, id, byID)
+			if st.Action == "voicemail" {
+				greeting := `"isn't available, please leave a message"`
+				if st.Label == "closed" {
+					greeting = `"We're closed, please leave a message"`
+				}
+				sim.Steps = append(sim.Steps, SimStep{Words: fmt.Sprintf(
+					"Plays %s, then records a voicemail for %s (up to %d minutes).", greeting, owner, MaxVoicemailMinutes)})
+				return sim, nil
+			}
+			sim.Steps = append(sim.Steps, SimStep{Words: fmt.Sprintf("The voicemail for %s is off, so the call goes straight on.", owner)})
+			dest = st.Next
+			continue
+		}
 		var group *RingGroup
 		switch kind {
 		case "g":
@@ -573,6 +614,21 @@ func (s *Service) simulate(ctx context.Context, tenant uuid.UUID, dest, caller s
 		}
 	}
 	return sim, nil
+}
+
+// boxOwner is whose voicemail box id is, in words.
+func (s *Service) boxOwner(ctx context.Context, tenant uuid.UUID, id string, groups map[uuid.UUID]RingGroup) string {
+	u, err := uuid.Parse(id)
+	if err != nil {
+		return "nobody"
+	}
+	if g, ok := groups[u]; ok {
+		return g.Name
+	}
+	if exts, err := s.Store.Extensions(ctx, tenant, []uuid.UUID{u}); err == nil && len(exts) == 1 {
+		return fmt.Sprintf("%s (%s)", exts[0].DisplayName, exts[0].Number)
+	}
+	return "a removed person"
 }
 
 func messageWords(name string) string {

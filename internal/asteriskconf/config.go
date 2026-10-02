@@ -130,6 +130,12 @@ const DefaultSIPWSHost = "linx-sipws"
 // Asterisk on linx-media, which coturn also resolves (allowed-peer-ip).
 const DefaultMediaHost = "linx-asterisk-media"
 
+// VoicemailDir is where the dialplan records messages (ADR-069): a folder
+// only Asterisk and the control plane share (compose.yaml's voicemail),
+// which internal/voicemail empties into the database. extensionsConf
+// spells it out.
+const VoicemailDir = "/var/spool/linx-voicemail"
+
 // ConfigFromEnv reads the configuration from the environment, defaulting
 // every path to the layout compose.yaml mounts.
 func ConfigFromEnv(getenv func(string) string) Config {
@@ -995,6 +1001,7 @@ exten => s,1,Set(STEPS=1)
  same => n(again),Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(${DEST},${CALLER})})
  same => n,GotoIf($[${ODBCROWS} < 1]?linx-messages,not-in-use,1)
  same => n(got),GotoIf($["${ACTION}" = "message"]?linx-messages,${TARGETS},1)
+ same => n,GotoIf($["${ACTION}" = "voicemail"]?linx-voicemail,${TARGETS},1)
  same => n,GotoIf($["${ACTION}" != "dial"]?follow)
  same => n,GotoIf($["${LABEL}" = ""]?nolabel)
  same => n,Gosub(linx-ring,${LABEL},1(${TARGETS},${SECS}))
@@ -1016,6 +1023,32 @@ exten => _X.,1,Dial(${ARG1},${ARG2})
  same => n,Return()
 exten => s,1,Dial(${ARG1},${ARG2})
  same => n,Return()
+
+; Leaving a voicemail (ADR-069) in the box linx_route named (a uuid it
+; checked): the greeting (LABEL "closed": the we're-closed one), the tone,
+; then up to 3 minutes, ending on # or 10 seconds of quiet; "k" keeps what
+; was said when the caller simply hangs up. As the call ends, h writes the
+; note internal/voicemail reads next to the recording, then tells the
+; control plane over ARI. Only digits, +, plain letters, spaces and dots
+; reach the note. A caller who hangs up before the tone leaves nothing.
+[linx-voicemail]
+exten => _[0-9a-f].,1,Answer()
+ same => n,Set(VMBOX=${FILTER(0-9a-f-,${EXTEN})})
+ same => n,Wait(0.5)
+ same => n,GotoIf($["${LABEL}" = "closed"]?closed)
+ same => n,Playback(linx/vm-greeting)
+ same => n,Goto(tone)
+ same => n(closed),Playback(linx/vm-closed)
+ same => n(tone),Playback(linx/beep)
+ same => n,Set(VMSTART=${EPOCH})
+ same => n,Set(VMFILE=/var/spool/linx-voicemail/${UNIQUEID})
+ same => n,Record(${VMFILE}.ulaw,10,180,kq)
+ same => n,Hangup()
+
+exten => h,1,GotoIf($["${VMFILE}" = ""]?done)
+ same => n,Set(FILE(${VMFILE}.txt)=v1|${VMBOX}|${FILTER(0-9,${CALLER})}|${FILTER(0-9+,${CALLERID(num)}):0:20}|${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40}|${VMSTART})
+ same => n,UserEvent(LinxVoicemail)
+ same => n(done),Hangup()
 
 [linx-outbound]
 exten => _[0-9*#+].,1,Set(ARRAY(REASON,CATEGORY,WITHHOLD,LINES)=${LINX_OUTBOUND(${CHANNEL(endpoint)},${EXTEN})})

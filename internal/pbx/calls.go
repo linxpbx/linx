@@ -32,6 +32,7 @@ const (
 	OutcomeNotAvailable = "not_available" // nothing could ring: no signed-in device, or calling yourself
 	OutcomeNotInUse     = "not_in_use"    // no such number
 	OutcomeEchoTest     = "echo_test"     // *43
+	OutcomeVoicemail    = "voicemail"     // went to a voicemail box (after ringing, call.missed too)
 	// Outside calls Linx refused (docs/TRUNKS.md §5, §9).
 	OutcomeNotPermitted = "not_permitted" // the caller's call permission level doesn't allow that kind of number
 	OutcomeNoLines      = "no_lines"      // no outside line set up, or every line down or full
@@ -139,6 +140,9 @@ type CallTracker struct {
 	OnChange func()
 	// Watch, if set, hears about outgoing calls.
 	Watch CallWatcher
+	// UserEvent, if set, hears the dialplan's UserEvent()s by name (a
+	// voicemail left: internal/voicemail).
+	UserEvent func(name string)
 
 	mu        sync.Mutex
 	connected bool
@@ -260,6 +264,11 @@ func (t *CallTracker) handle(ctx context.Context, ev ari.Event) {
 		t.observe(ev.Channel)
 	case "ChannelDestroyed":
 		t.destroyed(ctx, ev, at)
+	case "ChannelUserevent":
+		if t.UserEvent != nil {
+			t.UserEvent(ev.EventName)
+		}
+		return
 	default:
 		return
 	}
@@ -612,6 +621,10 @@ func (t *CallTracker) end(ctx context.Context, c *call, at time.Time) {
 		// Every line tried failed (down, full, refused its certificate):
 		// dialled, but nothing rang.
 		outcome = OutcomeNoLines
+	case strings.HasPrefix(c.where, "linx-voicemail/"):
+		// Reached a voicemail box (whether a message was left is
+		// voicemail.created's to say).
+		outcome = OutcomeVoicemail
 	case c.rang:
 		outcome = OutcomeMissed
 	case c.where == "linx-messages/not-in-use":
@@ -628,7 +641,7 @@ func (t *CallTracker) end(ctx context.Context, c *call, at time.Time) {
 	extra := map[string]any{"ended_at": at.UTC(), "outcome": outcome, "duration_seconds": talk}
 	t.emit(ctx, c, "call.ended", at, extra)
 	// Its own event too, for whoever only wants to hear about missed calls.
-	if outcome == OutcomeMissed {
+	if outcome == OutcomeMissed || (outcome == OutcomeVoicemail && c.rang) {
 		t.emit(ctx, c, "call.missed", at, extra)
 	}
 	if c.direction == DirectionOutbound && t.Watch != nil {

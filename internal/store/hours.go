@@ -195,9 +195,18 @@ func (s *Store) DeleteOfficeHours(ctx context.Context, tenant, id uuid.UUID, aud
 }
 
 // ruleColumns are incoming_rule's, in scanRule's order.
-const ruleColumns = `r.no_answer_seconds, r.no_answer_kind, r.no_answer_extension_id, r.no_answer_ring_group_id, r.no_answer_message,
-	r.schedule_id, r.closed_kind, r.closed_extension_id, r.closed_ring_group_id, r.closed_message,
-	r.holiday_kind, r.holiday_extension_id, r.holiday_ring_group_id, r.holiday_message`
+// A voicemail box comes back as its owner (migration 0034: the box's id is
+// the extension's or ring group's).
+const ruleColumns = `r.no_answer_seconds, r.no_answer_kind,
+	coalesce(r.no_answer_extension_id, (SELECT b.extension_id FROM voicemail_box b WHERE b.id = r.no_answer_voicemail_id)),
+	coalesce(r.no_answer_ring_group_id, (SELECT b.ring_group_id FROM voicemail_box b WHERE b.id = r.no_answer_voicemail_id)),
+	r.no_answer_message, r.schedule_id, r.closed_kind,
+	coalesce(r.closed_extension_id, (SELECT b.extension_id FROM voicemail_box b WHERE b.id = r.closed_voicemail_id)),
+	coalesce(r.closed_ring_group_id, (SELECT b.ring_group_id FROM voicemail_box b WHERE b.id = r.closed_voicemail_id)),
+	r.closed_message, r.holiday_kind,
+	coalesce(r.holiday_extension_id, (SELECT b.extension_id FROM voicemail_box b WHERE b.id = r.holiday_voicemail_id)),
+	coalesce(r.holiday_ring_group_id, (SELECT b.ring_group_id FROM voicemail_box b WHERE b.id = r.holiday_voicemail_id)),
+	r.holiday_message`
 
 // IncomingList returns every number of the tenant (by number), then every
 // line (by name), with who it rings and its rule.
@@ -302,19 +311,23 @@ func (s *Store) SetIncoming(ctx context.Context, in routing.Incoming, audit auth
 			return err
 		}
 		if r := in.Rule; r != nil {
-			hk, he, hg, hm := (*string)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), (*string)(nil)
+			nk, ne, ng, nv, nm := destColumns(r.NoAnswer)
+			ck, ce, cg, cv, cm := destColumns(r.Closed)
+			hk, he, hg, hv, hm := (*string)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), (*uuid.UUID)(nil), (*string)(nil)
 			if h := r.Holiday; h != nil {
-				hk, he, hg, hm = &h.Kind, h.ExtensionID, h.RingGroupID, emptyStrToNil(h.Message)
+				var k string
+				k, he, hg, hv, hm = destColumns(*h)
+				hk = &k
 			}
 			_, err := tx.Exec(ctx, `INSERT INTO incoming_rule (tenant_id, did_id, trunk_id, no_answer_seconds,
-					no_answer_kind, no_answer_extension_id, no_answer_ring_group_id, no_answer_message, schedule_id,
-					closed_kind, closed_extension_id, closed_ring_group_id, closed_message,
-					holiday_kind, holiday_extension_id, holiday_ring_group_id, holiday_message, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now())`,
+					no_answer_kind, no_answer_extension_id, no_answer_ring_group_id, no_answer_voicemail_id, no_answer_message, schedule_id,
+					closed_kind, closed_extension_id, closed_ring_group_id, closed_voicemail_id, closed_message,
+					holiday_kind, holiday_extension_id, holiday_ring_group_id, holiday_voicemail_id, holiday_message, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now())`,
 				in.TenantID, did, line, r.NoAnswerSeconds,
-				r.NoAnswer.Kind, r.NoAnswer.ExtensionID, r.NoAnswer.RingGroupID, emptyStrToNil(r.NoAnswer.Message), r.ScheduleID,
-				r.Closed.Kind, r.Closed.ExtensionID, r.Closed.RingGroupID, emptyStrToNil(r.Closed.Message),
-				hk, he, hg, hm)
+				nk, ne, ng, nv, nm, r.ScheduleID,
+				ck, ce, cg, cv, cm,
+				hk, he, hg, hv, hm)
 			if err != nil {
 				return ruleError(err)
 			}

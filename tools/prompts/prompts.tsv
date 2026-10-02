@@ -6,3 +6,5 @@ not-permitted	This phone isn't allowed to call that number. If you need to, ask 
 no-lines	Calls outside the company can't be made right now. Please try again later.
 limit	This phone is already on as many outside calls as it's allowed. Please end one, then try again.
 closed	Thank you for calling. We're closed right now. Please call again during our opening hours.
+vm-greeting	The person you called isn't available. Please leave a message after the tone. When you're done, just hang up.
+vm-closed	Thank you for calling. We're closed right now. Please leave a message after the tone, and we'll get back to you.

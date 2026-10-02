@@ -213,6 +213,8 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		"--volume", filepath.Join(d, "trunks")+":/var/lib/linx/trunks:ro",
 		// Where the entrypoint reports each trunk's state (internal/trunkstatus).
 		"--volume", filepath.Join(d, "trunk-status")+":/var/lib/linx/trunk-status",
+		// Where Asterisk records voicemail for the control plane (ADR-069).
+		"--volume", filepath.Join(d, "voicemail")+":"+asteriskconf.VoicemailDir,
 		"--init", // as compose.yaml
 		"--env", "LINX_CERT_CHECK_INTERVAL=1s",
 		"--volume", filepath.Join(d, "ca")+":/etc/linx/ca:ro",
@@ -286,7 +288,9 @@ func (e *env) asteriskLogs() string {
 }
 
 // newPhone creates an extension with one device whose password this test
-// knows.
+// knows. Its voicemail is off (voicemailOn turns it on): most calls here
+// end on a spoken message, and a voicemail box would record (up to 3
+// minutes) instead.
 func (e *env) newPhone(number, name string) phone {
 	e.t.Helper()
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -303,7 +307,16 @@ func (e *env) newPhone(number, name string) phone {
 	if err := e.store.CreateDevice(e.ctx, dev, e.audit("device.create")); err != nil {
 		e.t.Fatal(err)
 	}
+	e.voicemailOn(ext.ID, false)
 	return phone{number: number, ext: ext, dev: dev, password: pw}
+}
+
+// voicemailOn turns box (a person's or ring group's id) on or off.
+func (e *env) voicemailOn(box uuid.UUID, on bool) {
+	e.t.Helper()
+	if _, err := e.pool.Exec(e.ctx, `UPDATE voicemail_box SET enabled = $2 WHERE id = $1`, box, on); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 func (e *env) audit(action string) auth.AuditEntry {
@@ -368,6 +381,7 @@ func (e *env) newWebPhone(number, name string) phone {
 	if err := e.store.CreateExtension(e.ctx, ext, e.audit("extension.create")); err != nil {
 		e.t.Fatal(err)
 	}
+	e.voicemailOn(ext.ID, false) // as newPhone
 	u := auth.User{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, Email: strings.ToLower(name) + "@linx.test", Name: name,
 		Role: auth.RoleUser, ExtensionID: &ext.ID, PasswordHash: "unused", PasswordUpdatedAt: now, Version: 1, CreatedAt: now, UpdatedAt: now}
 	if err := e.store.CreateUser(e.ctx, u, e.audit("user.create")); err != nil {
@@ -445,7 +459,7 @@ func (w testWriter) Write(b []byte) (int, error) {
 // other users in their containers.
 func (e *env) writeFiles() {
 	t := e.t
-	for _, sub := range []string{"certs/v1", "sipws/v20", "ca", "secrets", "sipp", "trunks", "trunk-status"} {
+	for _, sub := range []string{"certs/v1", "sipws/v20", "ca", "secrets", "sipp", "trunks", "trunk-status", "voicemail"} {
 		if err := os.MkdirAll(filepath.Join(e.dir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -455,6 +469,7 @@ func (e *env) writeFiles() {
 	}
 	// Asterisk (uid 100) writes here.
 	os.Chmod(filepath.Join(e.dir, "trunk-status"), 0o777)
+	os.Chmod(filepath.Join(e.dir, "voicemail"), 0o777)
 	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	caTmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Linx Test Root"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
@@ -559,6 +574,18 @@ func (e *env) renewCert(sub, name string, serial int64) {
 }
 
 // eventually polls cond until it's true or the timeout passes.
+// eventuallyOr is eventually, saying more (detail) when it times out.
+func eventuallyOr(t *testing.T, what string, timeout time.Duration, cond func() bool, detail func() string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s\n%s", what, detail())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 func eventually(t *testing.T, what string, timeout time.Duration, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

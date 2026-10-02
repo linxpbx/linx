@@ -1,8 +1,8 @@
 // The one "where does the call go" picker (docs/ui/SCREENS_PHASE1F.md §0,
 // ADR-068): the same drop-down everywhere a call is sent somewhere. A
 // choice that would make a loop is greyed with the reason; what isn't
-// built yet (voicemail boxes, menus and queues) is greyed so the list's
-// shape never changes.
+// built yet (menus and queues) is greyed so the list's shape never
+// changes. Voicemail boxes (ADR-069): every person's and ring group's.
 import { useMemo, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 import type { components } from "@/api/schema";
@@ -17,6 +17,15 @@ export type ExtensionChoice = { id: string; number: string; display_name: string
 
 export const NOT_AVAILABLE: Destination = { kind: "message", message: "not-available" };
 export const CLOSED: Destination = { kind: "message", message: "closed" };
+/** A new ring group's own voicemail box (the server fills in its id). */
+export const OWN_VOICEMAIL: Destination = { kind: "voicemail" };
+
+/** The voicemail box of whoever `rings` (a person or a ring group), if anyone. */
+export function voicemailOf(rings: Destination | undefined): Destination | undefined {
+  if (rings?.kind === "extension" && rings.extension_id) return { kind: "voicemail", extension_id: rings.extension_id };
+  if (rings?.kind === "ring_group" && rings.ring_group_id) return { kind: "voicemail", ring_group_id: rings.ring_group_id };
+  return undefined;
+}
 
 /** A destination in a few words, as lists show it. */
 export function destinationLabel(d: Destination | undefined, extensions: ExtensionChoice[], groups: RingGroup[]): string {
@@ -28,6 +37,13 @@ export function destinationLabel(d: Destination | undefined, extensions: Extensi
   if (d.kind === "ring_group") {
     const g = groups.find((x) => x.id === d.ring_group_id);
     if (g) return g.name;
+  }
+  if (d.kind === "voicemail") {
+    const e = extensions.find((x) => x.id === d.extension_id);
+    if (e) return `Voicemail for ${e.display_name} (${e.number})`;
+    const g = groups.find((x) => x.id === d.ring_group_id);
+    if (g) return `Voicemail for ${g.name}`;
+    if (!d.extension_id && !d.ring_group_id) return "Voicemail for this group";
   }
   if (d.kind === "message") return d.message === "closed" ? "Play \"We're closed\" and hang up" : "Nobody (callers hear \"not available\")";
   return d.label ?? "—";
@@ -55,7 +71,7 @@ function Section({ title }: { title: string }) {
   return <p className="px-2 pb-1 pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>;
 }
 
-export function DestinationPicker({ id, value, onChange, extensions, groups, self, onNewGroup, ringOnly, placeholder }: {
+export function DestinationPicker({ id, value, onChange, extensions, groups, self, ownBoxName, onNewGroup, ringOnly, placeholder }: {
   id?: string; value: Destination | undefined; onChange: (d: Destination) => void;
   /** Only people and ring groups (who a number rings). */
   ringOnly?: boolean;
@@ -64,6 +80,8 @@ export function DestinationPicker({ id, value, onChange, extensions, groups, sel
   extensions: ExtensionChoice[]; groups: RingGroup[];
   /** The ring group being edited: choices leading back to it are greyed. */
   self?: string;
+  /** Offer the ring group's own voicemail box first, by this name (a new group: no `self` yet). */
+  ownBoxName?: string;
   /** "+ New ring group…": opens ring-group quick add on top. */
   onNewGroup?: () => void;
 }) {
@@ -97,7 +115,11 @@ export function DestinationPicker({ id, value, onChange, extensions, groups, sel
       <PopoverTrigger asChild>
         <Button id={id} type="button" variant="outline" role="combobox" aria-expanded={open} aria-haspopup="listbox"
           className="w-full justify-between font-normal">
-          <span className="truncate">{value ? destinationLabel(value, extensions, groups) : (placeholder ?? "—")}</span>
+          <span className="truncate">
+            {!value ? (placeholder ?? "—")
+              : ownBoxName && value.kind === "voicemail" && !value.extension_id && (!value.ring_group_id || value.ring_group_id === self)
+                ? `Voicemail for ${ownBoxName}` : destinationLabel(value, extensions, groups)}
+          </span>
           <ChevronDown aria-hidden="true" className="size-4 opacity-60" />
         </Button>
       </PopoverTrigger>
@@ -123,7 +145,12 @@ export function DestinationPicker({ id, value, onChange, extensions, groups, sel
           )}
           {!ringOnly && <>
             <Section title="Voicemail" />
-            {later("Voicemail boxes: coming soon")}
+            {ownBoxName !== undefined && (!q || ownBoxName.toLowerCase().includes(q) || "voicemail".includes(q)) &&
+              option("v-own", self ? { kind: "voicemail", ring_group_id: self } : OWN_VOICEMAIL,
+                `Voicemail for ${ownBoxName || "this group"}`, "A voicemail box for this group; everyone in it sees the messages.")}
+            {shownGroups.filter((g) => !(ownBoxName !== undefined && g.id === self)).map((g) =>
+              option(`v-g-${g.id}`, { kind: "voicemail", ring_group_id: g.id }, `Voicemail for ${g.name}`, "Everyone in the group sees the messages"))}
+            {people.map((e) => option(`v-e-${e.id}`, { kind: "voicemail", extension_id: e.id }, `Voicemail for ${e.display_name} (${e.number})`))}
             <Section title="Other" />
             {option("m-closed", CLOSED, "Play \"We're closed\" and hang up")}
             {option("m-na", NOT_AVAILABLE, "Nobody (callers hear \"not available\")")}

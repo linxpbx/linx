@@ -639,9 +639,9 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-ring-groups-add-how`);
       await page.getByRole("button", { name: "Next" }).click();
       await page.getByRole("combobox").click();
-      await expect(page.getByRole("option", { name: /Sales/ })).toBeVisible();
+      await expect(page.getByRole("option", { name: /^6000 Sales/ })).toBeVisible();
       await shot(page, `${scheme}-destination-picker`);
-      await page.getByRole("option", { name: /Sales/ }).click();
+      await page.getByRole("option", { name: /^6000 Sales/ }).click();
       await page.getByRole("button", { name: "Next" }).click();
       await page.getByRole("button", { name: "Create" }).click();
       await expect(page.getByText("Calls ring Sara Haddad, then Reception, 15 seconds each. If nobody answers, the call goes to Sales.")).toBeVisible();
@@ -654,7 +654,7 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-ring-groups-detail`);
       await page.getByRole("button", { name: "Edit" }).nth(3).click();
       await page.getByRole("combobox").click();
-      await expect(page.getByRole("option", { name: /Support/ })).toBeDisabled();
+      await expect(page.getByRole("option", { name: /^6001 Support/ })).toBeDisabled();
       await expect(page.getByText("Support already sends its unanswered calls here")).toBeVisible();
       await page.keyboard.press("Escape");
     });
@@ -676,7 +676,7 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Next" }).click();
       await page.getByText("Holidays go somewhere else").click();
       await page.locator("#wiz-holidays-to").click();
-      await page.getByRole("option", { name: /Front desk/ }).click();
+      await page.getByRole("option", { name: /^Front desk/ }).click();
       await expect(page.getByRole("dialog").getByText("On holidays, the call goes to Front desk.", { exact: false })).toBeVisible();
       await shot(page, `${scheme}-incoming-wizard-after`);
       await page.getByRole("button", { name: "Next" }).click();

@@ -55,6 +55,7 @@ import (
 	"linxpbx.com/linx/internal/trunkprobe"
 	"linxpbx.com/linx/internal/turn"
 	"linxpbx.com/linx/internal/version"
+	"linxpbx.com/linx/internal/voicemail"
 	"linxpbx.com/linx/internal/webapp"
 	"linxpbx.com/linx/internal/webhook"
 	"linxpbx.com/linx/internal/weburl"
@@ -391,6 +392,23 @@ func main() {
 	}
 	alertSender.Email, alertSender.WebAddress = emailSvc, weburl.FromEnv(os.Getenv)
 	accounts.Mailer = accountMail{email: emailSvc, web: weburl.FromEnv(os.Getenv)}
+	// Voicemail (ADR-069): Asterisk records into a folder only it and this
+	// container share, and says so over ARI; the importer keeps each
+	// message in the database, queues voicemail.created and emails it
+	// (the audio fetched as the email goes out).
+	voicemails := &voicemail.Importer{Dir: envOr(os.Getenv, "LINX_VOICEMAIL_DIR", asteriskconf.VoicemailDir), Store: st,
+		Mail: emailSvc, WebAddress: weburl.FromEnv(os.Getenv), Now: time.Now, Log: log}
+	emailSvc.Voicemail = voicemail.Attachment(st)
+	tracker.UserEvent = func(name string) {
+		if name == voicemail.EventName {
+			voicemails.Kick()
+		}
+	}
+	if _, err := os.Stat(voicemails.Dir); err != nil {
+		log.Warn("no voicemail folder; messages callers leave can't be kept", "err", err)
+	} else {
+		runBackground(voicemails.Run)
+	}
 	runBackground(worker.Run)
 	runBackground(engine.Run)
 	runBackground(emailSvc.Run)

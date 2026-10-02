@@ -53,6 +53,8 @@ const (
 	// the note after a password changes (ADR-067).
 	KindReset           = "password_reset"
 	KindPasswordChanged = "password_changed"
+	// KindVoicemail is a new voicemail, to its box's owner (ADR-069).
+	KindVoicemail = "voicemail"
 )
 
 // Queue statuses.
@@ -110,6 +112,20 @@ type Message struct {
 type Content struct {
 	Subject string `json:"subject"`
 	Text    string `json:"text"`
+	// Voicemail is a message to attach (ADR-069), fetched only as the
+	// email is sent, so the audio isn't copied into the queue. If it was
+	// deleted by then, the email goes without it and says so.
+	Voicemail *uuid.UUID `json:"voicemail,omitempty"`
+	// Files are the attachments, filled in as the email is sent (never
+	// queued).
+	Files []File `json:"-"`
+}
+
+// File is one attachment.
+type File struct {
+	Name        string
+	ContentType string
+	Data        []byte
 }
 
 // Status is what the Email card shows about the queue.

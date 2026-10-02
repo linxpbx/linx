@@ -157,6 +157,12 @@ func toIncoming(v routing.IncomingView) Incoming {
 	if v.Rings != nil {
 		d := toDestination(*v.Rings, v.RingsLabel)
 		out.Rings = &d
+		// No rule: a person rings 30 seconds, then their voicemail
+		// (migration 0034).
+		if v.Rule == nil && v.Rings.Kind == routing.KindExtension && v.RingsLabel != "" {
+			out.IfNoAnswer = toDestination(routing.Destination{Kind: routing.KindVoicemail, ExtensionID: v.Rings.ExtensionID},
+				"Voicemail for "+v.RingsLabel)
+		}
 	}
 	if r := v.Rule; r != nil {
 		out.IfNoAnswerSeconds = r.NoAnswerSeconds

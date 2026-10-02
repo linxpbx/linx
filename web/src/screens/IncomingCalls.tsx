@@ -6,7 +6,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FlaskConical, TriangleAlert } from "lucide-react";
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
-import { CLOSED, DestinationPicker, NOT_AVAILABLE, type Destination, type ExtensionChoice, type RingGroup } from "@/components/DestinationPicker";
+import {
+  CLOSED, DestinationPicker, NOT_AVAILABLE, voicemailOf, type Destination, type ExtensionChoice, type RingGroup,
+} from "@/components/DestinationPicker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -37,20 +39,40 @@ function title(i: Incoming): string {
 /** What the wizard holds while it's open. */
 type Draft = {
   rings?: Destination; schedule?: string; seconds: number; noAnswer: Destination;
-  closedKind: "closed" | "other"; closed?: Destination; holidaysDiffer: boolean; holidays?: Destination;
+  /** Outside office hours: "We're closed", then a voicemail box (closedBox), or then hang up, or somewhere else. */
+  closedKind: "voicemail" | "closed" | "other"; closedBox?: Destination; closed?: Destination;
+  holidaysDiffer: boolean; holidays?: Destination;
 };
+
+function sameDest(a: Destination | undefined, b: Destination | undefined): boolean {
+  return a?.kind === b?.kind && a?.extension_id === b?.extension_id && a?.ring_group_id === b?.ring_group_id && a?.message === b?.message;
+}
+
+/** Changing who rings moves the choices that were "their voicemail" along with it. */
+function withRings(d: Draft, rings: Destination | undefined): Partial<Draft> {
+  const before = voicemailOf(d.rings);
+  const after = voicemailOf(rings);
+  const out: Partial<Draft> = { rings };
+  if (sameDest(d.noAnswer, before) || (!before && sameDest(d.noAnswer, NOT_AVAILABLE))) out.noAnswer = after ?? NOT_AVAILABLE;
+  if (!d.closedBox || sameDest(d.closedBox, before)) out.closedBox = after;
+  return out;
+}
 
 function draftOf(i: Incoming, schedules: Schedule[], home: boolean): Draft {
   const officeHours = schedules.find((s) => s.name === "Office hours") ?? schedules[0];
   const fresh = i.just_ring;
+  const box = voicemailOf(i.rings);
   const closedIsMessage = i.after_hours.kind === "message" && i.after_hours.message === "closed";
+  const closedKind: Draft["closedKind"] = fresh ? (box ? "voicemail" : "closed")
+    : i.after_hours.kind === "voicemail" ? "voicemail" : closedIsMessage ? "closed" : "other";
   return {
     rings: i.rings,
     schedule: fresh ? (home ? undefined : officeHours?.id) : i.schedule_id,
     seconds: fresh ? 25 : i.if_no_answer_seconds,
-    noAnswer: fresh ? NOT_AVAILABLE : i.if_no_answer,
-    closedKind: closedIsMessage ? "closed" : "other",
-    closed: closedIsMessage ? undefined : i.after_hours,
+    noAnswer: fresh ? (box ?? NOT_AVAILABLE) : i.if_no_answer,
+    closedKind,
+    closedBox: closedKind === "voicemail" && !fresh ? i.after_hours : box,
+    closed: closedKind === "other" ? i.after_hours : undefined,
     holidaysDiffer: !!i.holidays,
     holidays: i.holidays,
   };
@@ -61,10 +83,28 @@ function bodyOf(d: Draft): IncomingSet {
   if (d.rings) body.rings = d.rings;
   if (d.schedule) {
     body.schedule_id = d.schedule;
-    body.after_hours = d.closedKind === "closed" || !d.closed ? CLOSED : d.closed;
+    body.after_hours = d.closedKind === "voicemail" ? (d.closedBox ?? voicemailOf(d.rings) ?? CLOSED)
+      : d.closedKind === "other" && d.closed ? d.closed : CLOSED;
     if (d.holidaysDiffer && d.holidays) body.holidays = d.holidays;
   }
   return body;
+}
+
+/** The destination picker, for a voicemail box only. */
+function VoicemailPicker({ id, value, onChange, extensions, groups }: {
+  id: string; value: Destination | undefined; onChange: (d: Destination) => void; extensions: ExtensionChoice[]; groups: RingGroup[];
+}) {
+  const options = [
+    ...groups.map((g) => ({ key: `g-${g.id}`, d: { kind: "voicemail", ring_group_id: g.id } as Destination, label: `Voicemail for ${g.name}` })),
+    ...extensions.map((e) => ({ key: `e-${e.id}`, d: { kind: "voicemail", extension_id: e.id } as Destination, label: `Voicemail for ${e.display_name} (${e.number})` })),
+  ];
+  const current = options.find((o) => sameDest(o.d, value));
+  return (
+    <Select value={current?.key ?? ""} onValueChange={(k) => { const o = options.find((x) => x.key === k); if (o) onChange(o.d); }}>
+      <SelectTrigger id={id} className="w-full sm:w-72"><SelectValue placeholder="Choose whose voicemail" /></SelectTrigger>
+      <SelectContent>{options.map((o) => <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>)}</SelectContent>
+    </Select>
+  );
 }
 
 function MiniTry({ number, zone }: { number: string; zone: string }) {
@@ -182,7 +222,7 @@ function IncomingWizard({ item, schedules, zone, groups, extensions, home, onClo
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="wiz-rings">{draft.schedule ? "During office hours, ring" : "Ring"}</Label>
-                  <DestinationPicker id="wiz-rings" value={draft.rings} onChange={(d) => set({ rings: d })} extensions={extensions} groups={groups}
+                  <DestinationPicker id="wiz-rings" value={draft.rings} onChange={(d) => set(withRings(draft, d))} extensions={extensions} groups={groups}
                     ringOnly placeholder="Choose a person or a ring group" />
                 </div>
                 {schedules.length === 0 ? (
@@ -236,7 +276,7 @@ function IncomingWizard({ item, schedules, zone, groups, extensions, home, onClo
                   <span>seconds</span>
                 </div>
                 <DestinationPicker id="wiz-noanswer" value={draft.noAnswer} onChange={(d) => set({ noAnswer: d })} extensions={extensions} groups={groups} />
-                <p className="text-xs text-muted-foreground">Voicemail comes in a later update; until then, "Nobody" plays "not available".</p>
+                <p className="text-xs text-muted-foreground">Recommended: the voicemail of whoever it rings, so callers can leave a message.</p>
               </div>
             ))}
 
@@ -249,10 +289,20 @@ function IncomingWizard({ item, schedules, zone, groups, extensions, home, onClo
                 <p className="text-sm font-medium">Outside office hours and on holidays</p>
                 <RadioGroup value={draft.closedKind} onValueChange={(v) => set({ closedKind: v as Draft["closedKind"] })} className="flex flex-col gap-3"
                   aria-label="Outside office hours">
+                  <label htmlFor="wiz-closed-vm" className="flex cursor-pointer items-start gap-2 text-sm">
+                    <RadioGroupItem id="wiz-closed-vm" value="voicemail" className="mt-0.5" />
+                    <span>Play "We're closed", then voicemail<Recommended />
+                      <span className="block text-muted-foreground">Callers hear "We're closed right now, please leave a message".</span></span>
+                  </label>
+                  {draft.closedKind === "voicemail" && (
+                    <div className="ms-6 flex flex-col gap-1.5">
+                      <Label htmlFor="wiz-closed-box" className="text-sm text-muted-foreground">Whose voicemail</Label>
+                      <VoicemailPicker id="wiz-closed-box" value={draft.closedBox} onChange={(d) => set({ closedBox: d })} extensions={extensions} groups={groups} />
+                    </div>
+                  )}
                   <label htmlFor="wiz-closed" className="flex cursor-pointer items-start gap-2 text-sm">
                     <RadioGroupItem id="wiz-closed" value="closed" className="mt-0.5" />
-                    <span>Play "We're closed", then hang up<Recommended />
-                      <span className="block text-muted-foreground">Voicemail after it comes in a later update.</span></span>
+                    <span>Play "We're closed", then hang up</span>
                   </label>
                   <label htmlFor="wiz-other" className="flex cursor-pointer items-start gap-2 text-sm">
                     <RadioGroupItem id="wiz-other" value="other" className="mt-0.5" />

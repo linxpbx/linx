@@ -2408,7 +2408,8 @@ paths:
       summary: Add a ring group
       description: >-
         Not idempotent: retrying adds a second group (or fails on its name).
-        Unanswered calls default to the "not available" message.
+        Unanswered calls default to the group's own voicemail box (a
+        `voicemail` destination with neither id).
       tags: [routing]
       security:
         - bearer: [routing:write]
@@ -4547,6 +4548,25 @@ webhooks:
         "200":
           description: Any 2xx means received.
 
+  voicemail.created:
+    post:
+      summary: A caller left a voicemail (ADR-069)
+      description: >-
+        Sent once the message is kept. `data` is `{"id", "box": {"id",
+        "kind": "extension" | "ring_group", "extension_id" |
+        "ring_group_id"}, "from": {"number", "name", "extension_id"?},
+        "received_at", "duration_seconds"}`. No audio: a caller from a
+        line's number and name are as the line sent them (cleaned), so
+        treat them as text.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookMessage"
+      responses:
+        "200":
+          description: Any 2xx means received.
+
 components:
   securitySchemes:
     bearer:
@@ -6407,16 +6427,21 @@ components:
 
     Destination:
       description: >-
-        Where a call goes (ADR-068): an extension, a ring group, or a
-        message and hang up (`not-available`, or `closed`: "We're
-        closed"). Voicemail boxes join in a later version.
+        Where a call goes (ADR-068): an extension, a ring group, a
+        voicemail box (ADR-069: `extension_id` for a person's,
+        `ring_group_id` for a group's; on a ring group's own
+        `if_no_answer`, neither means its own), or a message and hang up
+        (`not-available`, or `closed`: "We're closed"). A voicemail box
+        reached outside office hours or on a holiday plays the "we're
+        closed" greeting; one that's turned off, or whose person is gone,
+        plays "not available".
       type: object
       additionalProperties: false
       required: [kind]
       properties:
         kind:
           type: string
-          enum: [extension, ring_group, message]
+          enum: [extension, ring_group, voicemail, message]
         extension_id:
           type: string
           format: uuid
@@ -6639,7 +6664,9 @@ components:
           $ref: "#/components/schemas/Destination"
         just_ring:
           type: boolean
-          description: Set only `rings`, all the time, and forget the rest.
+          description: >-
+            Set only `rings`, all the time, and forget the rest: a person
+            rings 30 seconds, then their voicemail.
         preview:
           type: boolean
           description: Check it and return it with its sentence, without saving (the wizard's live sentence).
@@ -6647,14 +6674,19 @@ components:
           type: integer
           minimum: 5
           maximum: 300
+          description: Defaults to 25.
         if_no_answer:
           $ref: "#/components/schemas/Destination"
+          description: Defaults to the voicemail of whoever `rings`.
         schedule_id:
           type: string
           format: uuid
           description: Leave out for the same all the time.
         after_hours:
           $ref: "#/components/schemas/Destination"
+          description: >-
+            Defaults to the voicemail of whoever `rings` (with the "we're
+            closed" greeting), or "We're closed" when it rings nobody.
         holidays:
           $ref: "#/components/schemas/Destination"
           description: Leave out for the same as `after_hours`.

@@ -150,8 +150,9 @@ services:
       - linx_turn_secret
     # Group 1000 (step-ca's): reads linx_ca_services_password, to get its
     # own ARI certificate from the internal CA (ADR-034). Only that one CA
-    # secret is mounted here.
-    group_add: ["1000"]
+    # secret is mounted here. Group 101 (Asterisk's): reads the voicemail
+    # Asterisk records (below).
+    group_add: ["1000", "101"]
     volumes:
       # The internal CA's public certificates only (root_ca.crt), never its
       # keys or database: the rest of the volume stays with step-ca.
@@ -184,6 +185,9 @@ services:
       # passed through here unopened. On disk (up to about 2 GB each), owned
       # by this image's user, nobody else's.
       - backup-transfer:/var/lib/linx/backup-transfer
+      # Messages callers leave, as Asterisk records them (ADR-069): taken
+      # into the database and deleted at once (internal/voicemail).
+      - voicemail:/var/spool/linx-voicemail
     # The server helper's socket (linx-ops-agent reaches it through docker
     # exec, docs/ADMIN.md §9): in memory, only this image's user can open it.
     tmpfs:
@@ -312,6 +316,8 @@ services:
       - trunks:/var/lib/linx/trunks:ro
       # The entrypoint writes each trunk's state here for the control plane.
       - trunk-status:/var/lib/linx/trunk-status
+      # Records voicemail here for the control plane (ADR-069).
+      - voicemail:/var/spool/linx-voicemail
       # To check the control plane's ARI certificate (see control-plane).
       - type: volume
         source: step-ca
@@ -546,6 +552,16 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: uid=65532,gid=65532,mode=0755,size=64k
+  # Voicemail on its way from Asterisk into the database (ADR-069): in
+  # memory, only Asterisk (its group writes) and the control plane (owns
+  # it, reads and deletes); a message waits here only while the control
+  # plane restarts. 64 MB is about 40 three-minute messages.
+  voicemail:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=65532,gid=101,mode=2770,size=64m
   postgres-data:
   asterisk-state:
   step-ca:

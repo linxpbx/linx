@@ -18,6 +18,7 @@ type Event struct {
 	CauseTxt    string       `json:"cause_txt,omitempty"`
 	Endpoint    *Endpoint    `json:"endpoint,omitempty"`
 	ContactInfo *ContactInfo `json:"contact_info,omitempty"`
+	EventName   string       `json:"eventname,omitempty"` // ChannelUserevent
 }
 
 // Channel is one call leg.

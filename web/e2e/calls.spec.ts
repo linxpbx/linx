@@ -227,6 +227,19 @@ test("browsers call each other, one with UDP blocked", async () => {
   await expect(omar.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(aisha.getByTestId("team-102")).toHaveAttribute("data-status", "offline");
 
+  // Voicemail (ADR-069): with Omar signed out, Aisha's call goes straight
+  // to his voicemail. Her browser's test tone is the message; she hangs up
+  // after about 5 seconds of it, and internal/browsertest checks it was
+  // kept and the shared folder emptied.
+  await aisha.goto("/");
+  await expect(aisha.getByTestId("account-menu")).toContainText("Available", { timeout: 30_000 });
+  await aisha.getByLabel("Name, extension or number").fill("102");
+  await aisha.getByRole("button", { name: "Call", exact: true }).click();
+  await expect(aisha.getByTestId("call-panel")).toHaveAttribute("data-phase", "active", { timeout: 30_000 });
+  await aisha.waitForTimeout(14_000); // the greeting (about 8 s), the tone, then the message
+  await aisha.getByRole("button", { name: "End call" }).click();
+  await expect(aisha.getByTestId("call-panel")).toHaveCount(0);
+
   // Help comes inside the image (docs/HELP.md): signed out, Omar reads only
   // the sign-in guides; Aisha reads hers, pictures and search included, and
   // gets the same 404 as a missing guide for an admin one.

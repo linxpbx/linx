@@ -718,6 +718,34 @@ func (h *harness) provision(t *testing.T) {
 		out, _ := exec.Command("docker", "logs", "--tail", "40", "linx-browser-test-sipp-call").CombinedOutput()
 		t.Fatalf("the softphone's call to a browser failed (SIPp exit %s):\n%s", code, out)
 	}
+	h.voicemailKept(t)
+}
+
+// voicemailKept checks the message the browser suite left for Omar went
+// the whole way (ADR-069): recorded by Asterisk into the shared folder,
+// taken into the database by the control plane (compose.yaml's own
+// owners and modes), the folder emptied.
+func (h *harness) voicemailKept(t *testing.T) {
+	t.Helper()
+	var got string
+	waitFor(t, h.ctx, 30*time.Second, func() bool {
+		got = strings.TrimSpace(h.docker("exec", "linx-postgres", "psql", "-U", "linx", "-d", "linx", "-tAc",
+			`SELECT count(*) || ' ' || coalesce(max(duration_ms), 0) FROM voicemail_message m
+			 JOIN extension e ON e.id = m.box_id WHERE e.number = '102'`))
+		return strings.HasPrefix(got, "1 ")
+	}, func() string {
+		folder, _ := exec.Command("docker", "exec", "linx-asterisk", "ls", "-la", "/var/spool/linx-voicemail").CombinedOutput()
+		logs, _ := exec.Command("docker", "logs", "--tail", "30", "linx-control-plane").CombinedOutput()
+		return fmt.Sprintf("messages and longest: %q\nfolder:\n%s\ncontrol plane:\n%s", got, folder, logs)
+	})
+	var ms int
+	fmt.Sscanf(strings.Fields(got)[1], "%d", &ms)
+	if ms < 2000 {
+		t.Errorf("Omar's message is %d ms long; the browser spoke for about 5 seconds", ms)
+	}
+	if left := strings.TrimSpace(h.docker("exec", "linx-asterisk", "ls", "-A", "/var/spool/linx-voicemail")); left != "" {
+		t.Errorf("files left in the voicemail folder: %s", left)
+	}
 }
 
 // otherURL is a second address of the same Linx, for the passkey test:

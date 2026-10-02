@@ -210,17 +210,19 @@ func (s *Store) DeleteExtension(ctx context.Context, tenant, id uuid.UUID, at ti
 		if _, err := tx.Exec(ctx, `DELETE FROM ring_group_member WHERE extension_id = $1`, id); err != nil {
 			return err
 		}
+		// The same for its voicemail box (whose id is the extension's):
+		// the box keeps its messages until they expire.
 		if _, err := tx.Exec(ctx, `UPDATE ring_group SET no_answer_kind = 'message', no_answer_extension_id = NULL,
-				no_answer_message = 'not-available', version = version + 1, updated_at = $2
-			WHERE no_answer_extension_id = $1`, id, at); err != nil {
+				no_answer_voicemail_id = NULL, no_answer_message = 'not-available', version = version + 1, updated_at = $2
+			WHERE no_answer_extension_id = $1 OR no_answer_voicemail_id = $1`, id, at); err != nil {
 			return err
 		}
-		// Numbers' "When someone calls" that sent calls to it play "not
-		// available" instead.
+		// Numbers' "When someone calls" that sent calls to it or its
+		// voicemail play "not available" instead.
 		for _, part := range []string{"no_answer", "closed", "holiday"} {
 			if _, err := tx.Exec(ctx, `UPDATE incoming_rule SET `+part+`_kind = 'message', `+part+`_extension_id = NULL,
-					`+part+`_message = 'not-available', updated_at = $2
-				WHERE `+part+`_extension_id = $1`, id, at); err != nil {
+					`+part+`_voicemail_id = NULL, `+part+`_message = 'not-available', updated_at = $2
+				WHERE `+part+`_extension_id = $1 OR `+part+`_voicemail_id = $1`, id, at); err != nil {
 				return err
 			}
 		}

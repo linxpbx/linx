@@ -81,7 +81,7 @@ func TestIncomingWords(t *testing.T) {
 	}{
 		{Incoming{Kind: IncomingNumber, Number: "042000100"}, "Calls to 042000100 ring nobody: callers hear the number isn't in use."},
 		{Incoming{Kind: IncomingNumber, Number: "042000100", Rings: &Destination{Kind: KindExtension, ExtensionID: &sara.ID}},
-			`Calls to 042000100 ring Sara Haddad (101). If nobody answers in 30 seconds, callers hear "not available".`},
+			`Calls to 042000100 ring Sara Haddad (101). If nobody answers in 30 seconds, callers can leave a voicemail for Sara Haddad (101).`},
 		{Incoming{Kind: IncomingNumber, Number: "042000100", Rings: &Destination{Kind: KindRingGroup, RingGroupID: &sales.ID},
 			Rule: &Rule{NoAnswerSeconds: 25, ScheduleID: &office.ID, Closed: closed}},
 			`Calls to 042000100 ring Sales (all at once) Mon–Fri 08:00–17:00. If nobody answers, the call goes to Sara Haddad (101). At other times and on holidays, callers hear "We're closed".`},

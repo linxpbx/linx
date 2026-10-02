@@ -16,7 +16,7 @@ A ring group rings several people for one call: **all at once** (whoever's free 
 Go to **Ring groups** and choose **+ Add**:
 
 - **Guide me** asks, one step at a time: its name, **Who's in it?**, **How it rings**, **If nobody answers**, and its own number.
-- **Quick add** asks only the name and the people. It rings everyone at once for 25 seconds, gets the next free number, and then callers hear "not available". Change any of it later.
+- **Quick add** asks only the name and the people. It rings everyone at once for 25 seconds, gets the next free number, and then callers can leave a voicemail for the group. Change any of it later.
 
 Under each group, Linx writes in one sentence what a caller gets, for example: *"Calls ring Sara and Omar together. If nobody answers in 25 seconds, the call goes to Reception."*
 
@@ -31,7 +31,7 @@ The person calling never rings themselves, even when they're in the group.
 
 ## If nobody answers
 
-Choose where unanswered calls go: a person, another ring group, *Play "We're closed" and hang up*, or **Nobody** (callers hear "not available"). A voicemail box for the group comes with voicemail, in a later update.
+Choose where unanswered calls go: the group's own voicemail (recommended: callers leave a message, and everyone in the group will see it), someone's voicemail, a person, another ring group, *Play "We're closed" and hang up*, or **Nobody** (callers hear "not available"). Messages left for a group aren't emailed, since nobody owns the group's address.
 
 A choice that would send calls round in circles (Sales to Support, and Support back to Sales) is greyed out, with the reason. Even so, Linx stops any call after 10 places.
 
@@ -45,9 +45,9 @@ A number is either an extension's or a ring group's, never both.
 
 Choose a group to open it. Each part has its own **Edit**. **Used by** lists what sends calls to it.
 
-**Remove** asks first where those calls should go instead, then removes the group. A group a phone number rings can't be removed until that number rings someone else. Its number stops working at once.
+**Remove** asks first where those calls should go instead, then removes the group. A group a phone number rings, or whose voicemail a number sends calls to, can't be removed until that number goes somewhere else. Its number stops working at once, and its voicemail goes with it.
 
-When an extension is removed, it leaves its ring groups; a group that sent its unanswered calls to that extension plays "not available" instead.
+When an extension is removed, it leaves its ring groups; a group that sent its unanswered calls to that extension, or to its voicemail, plays "not available" instead.
 
 ## Sending a phone number to a ring group
 

@@ -3,6 +3,7 @@ package email
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"html"
@@ -62,6 +63,11 @@ func hasControl(s string) bool {
 // checkContent refuses what would break the message's headers (a line
 // break in the subject is how header injection works).
 func checkContent(c Content) error {
+	for _, f := range c.Files {
+		if !attachmentName.MatchString(f.Name) || !attachmentType.MatchString(f.ContentType) {
+			return fmt.Errorf("an attachment's name or type isn't plain: %q, %q", f.Name, f.ContentType)
+		}
+	}
 	switch {
 	case c.Subject == "" || utf8.RuneCountInString(c.Subject) > maxSubject:
 		return fmt.Errorf("an email's subject is 1 to %d characters", maxSubject)
@@ -98,6 +104,13 @@ func build(from mail.Address, to []string, c Content, now time.Time) ([]byte, er
 	header("Message-ID", "<"+randomHex(16)+"@"+domain+">")
 	header("MIME-Version", "1.0")
 	header("Auto-Submitted", "auto-generated")
+	// With attachments: the text and its HTML copy first, then the files.
+	mixed := ""
+	if len(c.Files) > 0 {
+		mixed = randomHex(16)
+		header("Content-Type", `multipart/mixed; boundary="`+mixed+`"`)
+		fmt.Fprintf(&b, "\r\n--%s\r\n", mixed)
+	}
 	header("Content-Type", `multipart/alternative; boundary="`+boundary+`"`)
 	b.WriteString("\r\n")
 
@@ -121,8 +134,32 @@ func build(from mail.Address, to []string, c Content, now time.Time) ([]byte, er
 		return nil, err
 	}
 	fmt.Fprintf(&b, "--%s--\r\n", boundary)
+	if mixed == "" {
+		return b.Bytes(), nil
+	}
+	for _, f := range c.Files {
+		fmt.Fprintf(&b, "\r\n--%s\r\n", mixed)
+		header("Content-Type", mime.FormatMediaType(f.ContentType, map[string]string{"name": f.Name}))
+		header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": f.Name}))
+		header("Content-Transfer-Encoding", "base64")
+		b.WriteString("\r\n")
+		enc := base64.StdEncoding.EncodeToString(f.Data)
+		for len(enc) > 76 {
+			b.WriteString(enc[:76] + "\r\n")
+			enc = enc[76:]
+		}
+		b.WriteString(enc + "\r\n")
+	}
+	fmt.Fprintf(&b, "--%s--\r\n", mixed)
 	return b.Bytes(), nil
 }
+
+// Attachments are Linx's own files ("voicemail-2026-10-02-1042.wav"),
+// never a name someone else chose.
+var (
+	attachmentName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`)
+	attachmentType = regexp.MustCompile(`^[a-z]+/[a-z0-9.+-]+$`)
+)
 
 var linkPattern = regexp.MustCompile(`https://[^\s<>"]+`)
 

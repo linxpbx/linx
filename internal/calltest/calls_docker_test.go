@@ -20,11 +20,13 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/ari"
+	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/calltest/sipws"
 	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/routing"
 	"linxpbx.com/linx/internal/siprelay"
+	"linxpbx.com/linx/internal/voicemail"
 )
 
 // TestCallsDocker is docs/PBX.md §7's automated suite: sign in, wrong
@@ -42,11 +44,20 @@ func TestCallsDocker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	tracker := &pbx.CallTracker{Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	var voicemails *voicemail.Importer
 	e := start(t, ctx, func(e *env) ari.App {
 		tracker.Store = e.store
 		tracker.Log = slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
+		// As the control plane: the dialplan's event takes the message in.
+		voicemails = &voicemail.Importer{Dir: filepath.Join(e.dir, "voicemail"), Store: e.store, Now: time.Now, Log: tracker.Log}
+		tracker.UserEvent = func(name string) {
+			if name == voicemail.EventName {
+				voicemails.Kick()
+			}
+		}
 		return tracker
 	})
+	go voicemails.Run(ctx)
 	eventually(t, "Asterisk's ARI connection", 30*time.Second, tracker.Connected)
 
 	// What linx doctor reads from Asterisk's console, on the real image.
@@ -177,6 +188,51 @@ func TestCallsDocker(t *testing.T) {
 		// out at once.
 		docker(t, ctx, "rm", "--force", callee)
 		eventually(t, "Bob offline after his connection dropped", 10*time.Second, func() bool { return !online(bob) })
+	})
+
+	t.Run("voicemail", func(t *testing.T) {
+		// Carol has no phone connected, so a call to her goes straight to
+		// her voicemail: the greeting, the tone, then recording.
+		e.voicemailOn(carol.ext.ID, true)
+		defer e.voicemailOn(carol.ext.ID, false)
+		heard := func(name string) int { return strings.Count(e.asteriskLogs(), "Playing 'linx/"+name+".g722'") }
+		messages := func() int {
+			var n int
+			if err := e.pool.QueryRow(ctx, `SELECT count(*) FROM voicemail_message WHERE box_id = $1`, carol.ext.ID).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			return n
+		}
+		folder := func() []string {
+			entries, _ := os.ReadDir(filepath.Join(e.dir, "voicemail"))
+			var names []string
+			for _, en := range entries {
+				names = append(names, en.Name())
+			}
+			return names
+		}
+		greeting, tone := heard("vm-greeting"), heard("beep")
+		// Alice hangs up just after the tone: SIPp sends no audio, so
+		// there's nothing to keep, and the folder is cleared (the note
+		// Asterisk wrote, its event and the importer all worked).
+		e.run("vm-short", "call.xml", alice, "-s", "103", "-d", "9000")
+		if heard("vm-greeting") != greeting+1 || heard("beep") != tone+1 {
+			t.Fatalf("no greeting or tone:\n%s", e.asteriskLogs())
+		}
+		if ended := e.callEnded("103"); ended["outcome"] != pbx.OutcomeVoicemail {
+			t.Errorf("call.ended outcome %v, want voicemail", ended["outcome"])
+		}
+		logs := e.asteriskLogs()
+		if !strings.Contains(logs, "FILE("+asteriskconf.VoicemailDir+"/") || !strings.Contains(logs, `UserEvent("PJSIP/`) {
+			t.Fatalf("no note or event after the call:\n%s", logs)
+		}
+		eventually(t, "the voicemail folder emptied", 15*time.Second, func() bool { return len(folder()) == 0 })
+		if n := messages(); n != 0 {
+			t.Errorf("%d messages kept from a call with no audio", n)
+		}
+
+		// A message with audio being kept is the browser suite's
+		// (internal/browsertest): SIPp sends no audio.
 	})
 
 	t.Run("ring groups", func(t *testing.T) {

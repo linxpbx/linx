@@ -54,7 +54,7 @@ func (f *fakeStore) UpdateRingGroup(_ context.Context, g RingGroup, _ auth.Audit
 
 func (f *fakeStore) DeleteRingGroup(_ context.Context, _, id uuid.UUID, _ auth.AuditEntry) error {
 	for _, o := range f.groups {
-		if o.NoAnswer.RingGroupID != nil && *o.NoAnswer.RingGroupID == id {
+		if o.ID != id && o.NoAnswer.RingGroupID != nil && *o.NoAnswer.RingGroupID == id {
 			return ErrInUse
 		}
 	}
@@ -103,10 +103,15 @@ func TestCreateRingGroupDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRingGroup: %v", err)
 	}
-	if v.Name != "Sales" || v.Strategy != StrategyAll || v.RingSeconds != 25 || v.NoAnswer.Kind != KindMessage || len(v.Members) != 3 {
+	// Unanswered calls: the group's own voicemail box.
+	if v.Name != "Sales" || v.Strategy != StrategyAll || v.RingSeconds != 25 || v.NoAnswer.Kind != KindVoicemail ||
+		v.NoAnswer.RingGroupID == nil || *v.NoAnswer.RingGroupID != v.ID || len(v.Members) != 3 || len(v.UsedBy) != 0 {
 		t.Errorf("group = %+v", v)
 	}
-	want := `Calls ring Mohammed, Sara and Omar together. If nobody answers in 25 seconds, callers hear "not available".`
+	if v.NoAnswerLabel != "Voicemail for Sales" {
+		t.Errorf("label = %q", v.NoAnswerLabel)
+	}
+	want := `Calls ring Mohammed, Sara and Omar together. If nobody answers in 25 seconds, callers can leave a voicemail for Sales.`
 	if v.Words != want {
 		t.Errorf("words = %q\nwant    %q", v.Words, want)
 	}
