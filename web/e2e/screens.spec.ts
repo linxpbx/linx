@@ -164,6 +164,81 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-signin-error`);
     });
 
+    test("forgot your password", async ({ page }) => {
+      await fakeServer(page, { email: "on" });
+      await page.goto("/");
+      await page.getByLabel("Email").fill("sara@example.com");
+      await page.getByLabel("Password").fill("wrong password here");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await expect(page.getByRole("alert")).toHaveText("Wrong email or password. Forgot your password?");
+      await shot(page, `${scheme}-sign-in-forgot-link`);
+      await page.getByRole("alert").getByRole("button", { name: "Forgot your password?" }).click();
+      await expect(page.getByRole("heading", { name: "Forgot your password?" })).toBeVisible();
+      await shot(page, `${scheme}-sign-in-forgot`);
+      await page.getByLabel("Email").fill("sara@example.com");
+      await page.getByRole("button", { name: "Send the link" }).click();
+      await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+      await shot(page, `${scheme}-sign-in-forgot-sent`);
+      await page.getByRole("button", { name: "← Back to sign-in" }).click();
+      await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+    });
+
+    test("no forgot link without email", async ({ page }) => {
+      await fakeServer(page);
+      await page.goto("/");
+      await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Forgot your password?" })).toHaveCount(0);
+    });
+
+    test("reset link", async ({ page }) => {
+      await fakeServer(page, { email: "on" });
+      await page.goto("/reset/abc123");
+      await expect(page.getByRole("heading", { name: "Choose a new password" })).toBeVisible();
+      await expect(page.getByText("sara@example.com")).toBeVisible();
+      await page.getByLabel("New password", { exact: true }).fill("password123456");
+      await page.getByLabel("Type it again").fill("password123456");
+      await shot(page, `${scheme}-sign-in-forgot-new-password`);
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByRole("heading", { name: "Enter your code" })).toBeVisible();
+      await expect(page.getByText("To finish, confirm with your authenticator app or passkey.", { exact: false })).toBeVisible();
+      await expect(page.getByText("sudo linx user reset-2fa")).toBeVisible();
+      await shot(page, `${scheme}-sign-in-forgot-second-step`);
+      // A common password is refused only once the second step is sent:
+      // back to choosing one, with why.
+      await page.getByLabel("6-digit code").fill("123456");
+      await expect(page.getByRole("alert")).toHaveText("That password is too easy to guess. Choose another.");
+      await page.getByLabel("New password", { exact: true }).fill("a much better passphrase");
+      await page.getByLabel("Type it again").fill("a much better passphrase");
+      await page.getByRole("button", { name: "Continue" }).click();
+      await page.getByLabel("6-digit code").fill("000000");
+      await expect(page.getByRole("alert")).toHaveText("That code isn't right.");
+      await page.getByLabel("6-digit code").fill("123456");
+      await expect(page.getByRole("heading", { name: "Your password is changed" })).toBeVisible();
+      await expect(page.getByText("You've been signed out everywhere else.")).toBeVisible();
+      await expect(page).toHaveURL(/\/$/);
+      await shot(page, `${scheme}-sign-in-forgot-done`);
+    });
+
+    test("reset link, used", async ({ page }) => {
+      await fakeServer(page, { email: "on" });
+      await page.goto("/reset/used");
+      await expect(page.getByRole("heading", { name: "This link can't be used" })).toBeVisible();
+      await expect(page.getByRole("alert")).toHaveText("This link has already been used or is older than 30 minutes.");
+      await shot(page, `${scheme}-sign-in-forgot-link-used`);
+      await page.getByRole("button", { name: "Send a new one" }).click();
+      await expect(page.getByRole("heading", { name: "Forgot your password?" })).toBeVisible();
+      await expect(page).toHaveURL(/\/$/);
+    });
+
+    test("reset link, no second step", async ({ page }) => {
+      await fakeServer(page, { email: "on" });
+      await page.goto("/reset/nostep");
+      await page.getByLabel("New password", { exact: true }).fill("a much better passphrase");
+      await page.getByLabel("Type it again").fill("a much better passphrase");
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(page.getByRole("heading", { name: "Your password is changed" })).toBeVisible();
+    });
+
     test("company sign-in", async ({ page }) => {
       await fakeServer(page, { company: true });
       await page.goto("/");

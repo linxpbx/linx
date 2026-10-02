@@ -29,6 +29,8 @@ type Auth =
   | { state: "signed-in"; me: Me };
 
 const SETUP = /^\/setup\/([^/]+)$/;
+// An emailed "Forgot your password?" link (ADR-067).
+const RESET = /^\/reset\/([^/]+)$/;
 
 /**
  * Where a completed sign-in lands: the first system_admin from a setup link
@@ -85,6 +87,7 @@ function CompanyDonePage() {
 
 function Main({ path }: { path: string }) {
   const setupToken = SETUP.exec(path)?.[1];
+  const resetToken = RESET.exec(path)?.[1];
   const [auth, setAuth] = useState<Auth>({ state: "loading" });
 
   const loadMe = useCallback(async () => {
@@ -105,8 +108,9 @@ function Main({ path }: { path: string }) {
 
   useEffect(() => {
     if (setupToken) setAuth({ state: "signed-out", step: "choose-password" });
+    else if (resetToken) setAuth({ state: "signed-out", step: "reset" });
     else void loadMe();
-  }, [setupToken, loadMe]);
+  }, [setupToken, resetToken, loadMe]);
 
   if (auth.state === "loading") return <div className="min-h-dvh" aria-busy="true" />;
   if (auth.state === "signed-out") {
@@ -114,8 +118,8 @@ function Main({ path }: { path: string }) {
       return <Suspense fallback={<div className="min-h-dvh bg-background" aria-busy="true" />}><Help path={path} signedIn={false} /></Suspense>;
     }
     return (
-      <SignInScreen key={setupToken ?? auth.step} initialStep={auth.step} initialMethods={auth.methods} setupToken={setupToken}
-        onSignedIn={() => void finishSignIn(setupToken, loadMe)} />
+      <SignInScreen key={setupToken ?? resetToken ?? auth.step} initialStep={auth.step} initialMethods={auth.methods} setupToken={setupToken}
+        resetToken={resetToken} onSignedIn={() => void finishSignIn(setupToken, loadMe)} />
     );
   }
   return (

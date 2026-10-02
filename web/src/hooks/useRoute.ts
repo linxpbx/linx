@@ -1,5 +1,5 @@
 // A tiny router: the app has a handful of screens, so plain history is
-// enough. Routes: /, /team, /settings, /setup/<token>.
+// enough. Routes: /, /team, /settings, /setup/<token>, /reset/<token>.
 import { useSyncExternalStore } from "react";
 
 const listeners = new Set<() => void>();

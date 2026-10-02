@@ -30,4 +30,4 @@ If your Linx requires company sign-in, a correct password is refused and the pag
 ## Other problems
 
 - Lost your phone or passkey: [Lost your authenticator or passkey](lost-authenticator).
-- Forgot your password: ask your admin for a set-password link ([Your invite or set-password link](set-password-link)).
+- Forgot your password: choose **Forgot your password?** on the sign-in page ([Signing in](signing-in#forgot-your-password)), or ask your admin for a set-password link ([Your invite or set-password link](set-password-link)).

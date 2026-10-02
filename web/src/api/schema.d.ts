@@ -1588,6 +1588,96 @@ export interface paths {
         patch: operations["updateUser"];
         trace?: never;
     };
+    "/api/v1/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * "Forgot your password?": email a reset link
+         * @description ADR-067. Always 202, as fast, whether or not the email has an account (nobody can learn which do): the account is looked up and the link emailed afterwards, only for an account that isn't disabled and doesn't have to use company sign-in. The link works once, for 30 minutes. At most 3 an hour per email and 10 per address (still 202; an address over its limit announces an alert). 409 `password_reset_off` when email isn't set up (the sign-in page only shows the link when GET /sign-in-options says `password_reset`). Served by a hand-written handler (excluded from code generation).
+         */
+        post: operations["requestPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reset-links/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Check an emailed password-reset link before asking for a password
+         * @description 200 with the person's email and what finishes the reset; 400 `reset_link_invalid` if it was used, is older than 30 minutes or doesn't exist. A link that fails counts against the caller's address like a failed sign-in. A set-password link isn't a reset link, nor the other way round. Served by a hand-written handler.
+         */
+        get: operations["checkResetLink"];
+        put?: never;
+        /**
+         * Choose a new password with an emailed reset link
+         * @description For an account with a second step, `code` (authenticator or recovery code) must be right too, or nothing changes and the link still works (400 `second_step_required` without one; a wrong code counts towards the account's lockout like signing in). Then the link is used up, every other session ends, the person is signed in and emailed that their password changed. An admin with no second step is let in on the link alone and the other admins are alerted. Never resets an authenticator. Served by a hand-written handler.
+         */
+        post: operations["completeResetLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reset-links/{token}/passkey/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a password reset with a passkey (ask the device)
+         * @description Returns the options for the browser's PublicKeyCredential.parse*OptionsFromJSON for one of the link's person's own passkeys, and sets the __Host-linx_passkey cookie (5 minutes, single use). Served by a hand-written handler.
+         */
+        post: operations["completeResetLinkPasskeyOptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reset-links/{token}/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a password reset with a passkey (the device's answer)
+         * @description The new password and the device's answer to the challenge from .../options. The password changes only if the answer passes (as POST /reset-links/{token}). Served by a hand-written handler.
+         */
+        post: operations["completeResetLinkPasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/{id}/setup-link": {
         parameters: {
             query?: never;
@@ -3747,6 +3837,13 @@ export interface components {
             passkeys_available: boolean;
             /** @description This server was restored from a backup made at another domain: passkeys from the old address don't work here (docs/INSTALL.md §8). */
             passkeys_moved?: boolean;
+            /** @description Email is set up, so the page offers "Forgot your password?" (ADR-067). */
+            password_reset: boolean;
+        };
+        ResetLinkInfo: {
+            email: string;
+            /** @description What finishes the reset; empty for an account with no second step. */
+            methods: ("authenticator" | "passkey" | "recovery_code")[];
         };
         HelpGuideList: {
             /** @description Who writes answers ("Anthropic (Claude)", "Ollama", or an OpenAI-compatible service's host name), when written answers are turned on and the caller is signed in; absent otherwise. */
@@ -7466,6 +7563,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    requestPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    email: string;
+                };
+            };
+        };
+        responses: {
+            /** @description If that's an account here, an email is on its way. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    checkResetLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link can be used. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResetLinkInfo"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    completeResetLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description At least 12 characters. */
+                    password: string;
+                    /** @description The authenticator (or recovery) code, for an account that has one. */
+                    code?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Signed in (or, for an admin with no second step who never chose a password only, pending its setup). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    completeResetLinkPasskeyOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Options for navigator.credentials. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    completeResetLinkPasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password: string;
+                    credential: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Signed in; sets the session cookies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStatus"];
                 };
             };
             default: components["responses"]["Problem"];

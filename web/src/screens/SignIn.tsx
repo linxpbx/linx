@@ -3,9 +3,11 @@
 // (authenticator code, passkey or recovery code) when the account has one.
 // On first use (a set-password link) the person chooses how to sign in:
 // passkey (recommended), password + authenticator app, or password only
-// (a warning for admins). One step shown at a time.
+// (a warning for admins). "Forgot your password?" (ADR-067) emails a reset
+// link, whose page asks for the new password and then the second step
+// before anything changes. One step shown at a time.
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Building2, CircleAlert, KeyRound, TriangleAlert } from "lucide-react";
+import { Building2, CircleAlert, CircleCheck, KeyRound, TriangleAlert } from "lucide-react";
 import { api, problemCode, problemMessage } from "@/api/client";
 import {
   autofillSupported, cancelled, createPasskey, deviceName, PasskeyError, passkeysSupported, savePasskey, answerWithPasskey,
@@ -23,7 +25,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { HELP_PATH } from "@/lib/help";
 import { onRepairPage, signInHome } from "@/lib/repair";
 
-export type SignInStep = "password" | "code" | "enroll" | "choose-password";
+export type SignInStep = "password" | "code" | "enroll" | "choose-password" | "forgot" | "reset";
 
 type SessionStatus = "signed_in" | "mfa_verify_required" | "mfa_setup_required";
 export type SecondStepMethod = "authenticator" | "passkey" | "recovery_code";
@@ -86,13 +88,21 @@ function Card({ title, lead, children }: { title: string; lead?: ReactNode; chil
   );
 }
 
-function FormError({ message }: { message: string }) {
+function FormError({ message, children }: { message: string; children?: ReactNode }) {
   if (!message) return null;
   return (
     <p role="alert" className="flex items-start gap-2 text-sm font-medium">
       <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
-      {message}
+      <span>{message}{children}</span>
     </p>
+  );
+}
+
+function TextLink({ onClick, children, disabled }: { onClick: () => void; children: ReactNode; disabled?: boolean }) {
+  return (
+    <button type="button" disabled={disabled} className="text-sm text-link underline-offset-4 hover:underline" onClick={onClick}>
+      {children}
+    </button>
   );
 }
 
@@ -110,13 +120,14 @@ export function SignInScreen({ aside, ...props }: Parameters<typeof SignInSteps>
   return <Aside.Provider value={aside}><SignInSteps {...props} /></Aside.Provider>;
 }
 
-function SignInSteps({ initialStep = "password", initialMethods = [], setupToken, onSignedIn, onSetupNeeded }: {
-  initialStep?: SignInStep; initialMethods?: SecondStepMethod[]; setupToken?: string; onSignedIn: () => void;
+function SignInSteps({ initialStep = "password", initialMethods = [], setupToken, resetToken, onSignedIn, onSetupNeeded }: {
+  initialStep?: SignInStep; initialMethods?: SecondStepMethod[]; setupToken?: string; resetToken?: string; onSignedIn: () => void;
   /** Instead of setting up a second sign-in step here (the repair page can't). */
   onSetupNeeded?: () => void;
 }) {
   const [step, setStep] = useState<SignInStep>(
-    setupToken ? "choose-password" : initialStep === "choose-password" ? "password" : initialStep);
+    setupToken ? "choose-password" : resetToken ? "reset"
+      : initialStep === "choose-password" || initialStep === "reset" ? "password" : initialStep);
   const [methods, setMethods] = useState<SecondStepMethod[]>(initialMethods);
   const [notice, setNotice] = useState("");
   const next = (body: StatusBody) => {
@@ -135,7 +146,12 @@ function SignInSteps({ initialStep = "password", initialMethods = [], setupToken
   const timedOut = () => restart(TIMED_OUT);
   switch (step) {
     case "password":
-      return <PasswordStep notice={notice} onDone={next} />;
+      return <PasswordStep notice={notice} onDone={next} onForgot={() => setStep("forgot")} />;
+    case "forgot":
+      return <ForgotStep onBack={() => restart()} />;
+    case "reset":
+      return <ResetLinkStep token={resetToken ?? ""} onDone={next} onSignedIn={onSignedIn}
+        onForgot={() => { window.history.replaceState(null, "", signInHome()); setStep("forgot"); }} />;
     case "code":
       return <CodeStep methods={methods} onDone={onSignedIn} onTimedOut={timedOut} onStartOver={restart} />;
     case "enroll":
@@ -199,6 +215,8 @@ function useSignInOptions() {
   const [required, setRequired] = useState(false);
   // Restored from a backup made at another domain (docs/INSTALL.md §8).
   const [passkeysMoved, setPasskeysMoved] = useState(false);
+  // Email is set up: "Forgot your password?" (ADR-067).
+  const [passwordReset, setPasswordReset] = useState(false);
   useEffect(() => {
     // Company sign-in comes back to the domain: not on the repair page.
     if (onRepairPage()) return;
@@ -207,9 +225,10 @@ function useSignInOptions() {
       setCompany(data.company);
       setRequired(data.company_sign_in_required);
       setPasskeysMoved(!!data.passkeys_moved);
+      setPasswordReset(data.password_reset);
     });
   }, []);
-  return { company, required, passkeysMoved };
+  return { company, required, passkeysMoved, passwordReset };
 }
 
 function CompanyButtons({ buttons, disabled, onError }:
@@ -238,7 +257,7 @@ function CompanyButtons({ buttons, disabled, onError }:
   );
 }
 
-function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: StatusBody) => void }) {
+function PasswordStep({ notice, onDone, onForgot }: { notice: string; onDone: (s: StatusBody) => void; onForgot: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -247,6 +266,7 @@ function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: StatusBo
     const { error } = takeCompanyResult();
     return error ? companyErrorMessage(error) : "";
   });
+  const [wrong, setWrong] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const passkey = usePasskeySignIn(onDone, setError);
   const offerPasskey = passkeysSupported();
@@ -261,6 +281,7 @@ function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: StatusBo
     e.preventDefault();
     setBusy(true);
     setError("");
+    setWrong(false);
     const { data, error: err, response } = await api.POST("/api/v1/session", { body: { email, password } });
     setBusy(false);
     if (data) {
@@ -271,6 +292,7 @@ function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: StatusBo
     // lockout (docs/WEB.md §4): the same words for every refusal.
     if (response.status === 401 || response.status === 429) {
       setError("Wrong email or password.");
+      setWrong(true);
       if (response.status === 429) {
         setWaiting(true);
         window.setTimeout(() => setWaiting(false), 5000);
@@ -313,17 +335,28 @@ function PasswordStep({ notice, onDone }: { notice: string; onDone: (s: StatusBo
             <Label htmlFor="password">Password</Label>
             <Input id="password" type="password" autoComplete="current-password" required value={password}
               onChange={(e) => setPassword(e.target.value)} className="h-11" aria-invalid={error ? true : undefined} />
+            {options.passwordReset && !wrong && <span><TextLink onClick={onForgot}>Forgot your password?</TextLink></span>}
           </div>
         </fieldset>
-        <FormError message={error} />
+        <FormError message={error}>
+          {wrong && options.passwordReset && <> <TextLink onClick={onForgot}>Forgot your password?</TextLink></>}
+        </FormError>
         <Submit busy={busy} disabled={waiting || !email || !password} variant={primaryElsewhere ? "outline" : "default"}>Sign in</Submit>
       </form>}
     </Card>
   );
 }
 
-function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
-  { methods: SecondStepMethod[]; onDone: () => void; onTimedOut: () => void; onStartOver: () => void }) {
+type CodeAnswer = { data?: unknown; error?: unknown };
+
+function CodeStep({ methods, onDone, onTimedOut, onStartOver, lead, sendCode, passkeyAnswer, onRefused, footer }: {
+  methods: SecondStepMethod[]; onDone: (body?: StatusBody) => void; onTimedOut: () => void; onStartOver: () => void;
+  // A password reset's second step (ADR-067) instead of a sign-in's: its
+  // own lead, requests, refusals it handles itself (true: handled) and a
+  // note under the form.
+  lead?: string; sendCode?: (code: string) => Promise<CodeAnswer>; passkeyAnswer?: () => Promise<unknown>;
+  onRefused?: (err: unknown) => boolean; footer?: ReactNode;
+}) {
   const hasApp = methods.includes("authenticator");
   const hasPasskey = methods.includes("passkey") && passkeysSupported();
   const hasRecovery = methods.includes("recovery_code");
@@ -338,9 +371,9 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
     setKeyBusy(true);
     setError("");
     try {
-      await answerWithPasskey("/api/v1/session/mfa/passkey");
-      onDone();
+      onDone((passkeyAnswer ? await passkeyAnswer() : await answerWithPasskey("/api/v1/session/mfa/passkey")) as StatusBody);
     } catch (err) {
+      if (onRefused?.(err)) return;
       if (err instanceof PasskeyError && ["session_expired", "session_invalid", "auth_required"].includes(err.code)) onTimedOut();
       else if (!cancelled(err)) setError(passkeyMessage(err));
     } finally {
@@ -363,7 +396,7 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
 
   if (!hasApp && hasPasskey && !recovery) {
     return (
-      <Card title="Use your passkey" lead="Unlock your passkey to finish signing in.">
+      <Card title="Use your passkey" lead={lead ?? "Unlock your passkey to finish signing in."}>
         <div className="flex flex-col gap-4">
           <Button className="h-11 w-full text-base" disabled={keyBusy} aria-busy={keyBusy} onClick={() => void withPasskey()} autoFocus>
             <KeyRound aria-hidden="true" className="size-4" />
@@ -376,6 +409,7 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
             </button>
           )}
           <StartOver onStartOver={onStartOver} />
+          {footer}
         </div>
       </Card>
     );
@@ -384,9 +418,11 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
   const send = async (value: string) => {
     setBusy(true);
     setError("");
-    const { data, error: err } = await api.POST("/api/v1/session/mfa", { body: { code: value.trim() } });
+    const { data, error: err }: CodeAnswer = sendCode ? await sendCode(value.trim())
+      : await api.POST("/api/v1/session/mfa", { body: { code: value.trim() } });
     setBusy(false);
-    if (data) return onDone();
+    if (data) return onDone(data as StatusBody);
+    if (onRefused?.(err)) return;
     if (expired(err)) return onTimedOut();
     if (problemCode(err) === "mfa_code_invalid") setError("That code isn't right.");
     else if (problemCode(err) === "mfa_code_used") setError("That code was already used. Wait for the next one in your app.");
@@ -397,7 +433,7 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
 
   return (
     <Card title="Enter your code"
-      lead={recovery ? "Type one of the recovery codes you saved. Each works once." : "Open your authenticator app and type the 6-digit code for Linx."}>
+      lead={(lead ? lead + " " : "") + (recovery ? "Type one of the recovery codes you saved. Each works once." : "Open your authenticator app and type the 6-digit code for Linx.")}>
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <div className="flex flex-col gap-2">
           <Label htmlFor="code">{recovery ? "Recovery code" : "6-digit code"}</Label>
@@ -423,6 +459,7 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver }:
           </button>
         )}
         <StartOver onStartOver={onStartOver} />
+        {footer}
       </form>
     </Card>
   );
@@ -735,10 +772,35 @@ function SecondStepSetup({ onDone, onTimedOut, onStartOver }: { onDone: () => vo
 
 function ChoosePasswordForm({ token, onDone, passwordOnly, onBack }:
   { token: string; onDone: (s: StatusBody) => void; passwordOnly?: boolean; onBack?: () => void }) {
+  return (
+    <NewPasswordCard title="Choose a password" lead="You'll use it with your email to sign in to Linx." submitLabel="Save password"
+      onSubmit={async (password) => {
+        const { data, error: err } = await api.POST("/api/v1/setup-links/{token}", {
+          params: { path: { token } }, body: { password, ...(passwordOnly ? { password_only: true } : {}) },
+        });
+        if (data) {
+          window.history.replaceState(null, "", "/");
+          onDone(data as StatusBody);
+          return "";
+        }
+        return problemCode(err) === "setup_link_invalid" ? LINK_UNUSABLE : problemMessage(err);
+      }}
+      footer={onBack && <TextLink onClick={onBack}>Choose another way</TextLink>} />
+  );
+}
+
+/**
+ * A new password, typed twice. onSubmit returns why it failed, or "" once
+ * it's done.
+ */
+function NewPasswordCard({ title, lead, submitLabel, onSubmit, footer, initialError = "" }: {
+  title: string; lead: ReactNode; submitLabel: string; onSubmit: (password: string) => Promise<string>; footer?: ReactNode;
+  initialError?: string;
+}) {
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
   const short = password.length < MIN_PASSWORD;
   const mismatch = again.length > 0 && again !== password;
 
@@ -747,22 +809,13 @@ function ChoosePasswordForm({ token, onDone, passwordOnly, onBack }:
     if (short || mismatch) return;
     setBusy(true);
     setError("");
-    const { data, error: err } = await api.POST("/api/v1/setup-links/{token}", {
-      params: { path: { token } }, body: { password, ...(passwordOnly ? { password_only: true } : {}) },
-    });
+    const why = await onSubmit(password);
     setBusy(false);
-    if (data) {
-      window.history.replaceState(null, "", "/");
-      onDone(data as StatusBody);
-    } else if (problemCode(err) === "setup_link_invalid") {
-      setError(LINK_UNUSABLE);
-    } else {
-      setError(problemMessage(err));
-    }
+    setError(why);
   };
 
   return (
-    <Card title="Choose a password" lead="You'll use it with your email to sign in to Linx.">
+    <Card title={title} lead={lead}>
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <div className="flex flex-col gap-2">
           <Label htmlFor="new-password">New password</Label>
@@ -781,14 +834,165 @@ function ChoosePasswordForm({ token, onDone, passwordOnly, onBack }:
           {mismatch && <p className="text-sm text-muted-foreground">The two passwords don't match yet.</p>}
         </div>
         <FormError message={error} />
-        <Submit busy={busy} disabled={short || again !== password}>Save password</Submit>
-        {onBack && (
-          <button type="button" className="text-sm text-link underline-offset-4 hover:underline" onClick={onBack} disabled={busy}>
-            Choose another way
-          </button>
-        )}
+        <Submit busy={busy} disabled={short || again !== password}>{submitLabel}</Submit>
+        {footer}
       </form>
     </Card>
+  );
+}
+
+/** "Forgot your password?": the email, then always the same answer. */
+function ForgotStep({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState("");
+  const back = <TextLink onClick={onBack}>← Back to sign-in</TextLink>;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const { response, error: err } = await api.POST("/api/v1/password-reset", { body: { email: email.trim() } });
+    setBusy(false);
+    if (response.ok) setSent(email.trim());
+    else setError(problemMessage(err, "Linx can't send the link right now. Try again in a moment."));
+  };
+
+  if (sent) {
+    return (
+      <Card title="Check your email"
+        lead={<span role="status">If <span className="font-medium text-foreground break-all">{sent}</span> is an account here, an email is on its way.</span>}>
+        <div className="flex flex-col items-start gap-4 text-sm">
+          <p>The link works once, for 30 minutes.</p>
+          <p className="text-muted-foreground">Nothing arrived? Check spam, or ask your admin.</p>
+          {back}
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <Card title="Forgot your password?" lead="Type your email. If it belongs to an account here, we'll email you a link to choose a new one.">
+      <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="forgot-email">Email</Label>
+          <Input id="forgot-email" type="email" autoComplete="username" required value={email}
+            onChange={(e) => setEmail(e.target.value)} className="h-11" autoFocus disabled={busy} />
+        </div>
+        <FormError message={error} />
+        <Submit busy={busy} disabled={!email.trim()}>Send the link</Submit>
+        <span>{back}</span>
+      </form>
+    </Card>
+  );
+}
+
+const RESET_UNUSABLE = "This link has already been used or is older than 30 minutes.";
+
+type ResetInfo = { email: string; methods: SecondStepMethod[] };
+
+/**
+ * The emailed reset link: a new password, then the second step (if the
+ * account has one), sent together so nothing changes until both pass.
+ */
+function ResetLinkStep({ token, onDone, onSignedIn, onForgot }:
+  { token: string; onDone: (s: StatusBody) => void; onSignedIn: () => void; onForgot: () => void }) {
+  const [link, setLink] = useState<"checking" | ResetInfo | { problem: string }>("checking");
+  // The new password, chosen and waiting for the second step.
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    let stale = false;
+    void (async () => {
+      const { data, error: err } = await api.GET("/api/v1/reset-links/{token}", { params: { path: { token } } });
+      if (stale) return;
+      if (data) setLink(data);
+      else setLink({ problem: problemCode(err) === "reset_link_invalid" ? RESET_UNUSABLE : problemMessage(err) });
+    })();
+    return () => { stale = true; };
+  }, [token]);
+
+  const finished = (body: StatusBody) => {
+    window.history.replaceState(null, "", "/");
+    if (body.status === "signed_in") setDone(true);
+    else onDone(body);
+  };
+  // What a refusal means for this page: the link is gone, or the password
+  // itself was refused (back to choosing one); "" when it's the second
+  // step's own problem.
+  const refused = (err: unknown) => {
+    const code = problemCode(err) || (err instanceof PasskeyError ? err.code : "");
+    if (code === "reset_link_invalid") {
+      setLink({ problem: RESET_UNUSABLE });
+      return true;
+    }
+    if (code === "password_invalid") {
+      setPasswordError(problemMessage(err, err instanceof Error ? err.message : ""));
+      setPassword("");
+      return true;
+    }
+    return false;
+  };
+
+  if (link === "checking") return <main className="min-h-dvh" aria-busy="true" />;
+  if ("problem" in link) {
+    return (
+      <Card title="This link can't be used">
+        <div className="flex flex-col items-start gap-4">
+          <FormError message={link.problem} />
+          <Button className="h-11 w-full text-base" onClick={onForgot}>Send a new one</Button>
+          <TextLink onClick={() => navigate("/", true)}>← Back to sign-in</TextLink>
+        </div>
+      </Card>
+    );
+  }
+  if (done) {
+    return (
+      <Card title="Your password is changed" lead={<span role="status" className="flex items-center gap-2">
+        <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-status-available" />
+        You've been signed out everywhere else.
+      </span>}>
+        <Button className="h-11 w-full text-base" onClick={onSignedIn} autoFocus>Continue to Linx</Button>
+      </Card>
+    );
+  }
+  const path = `/api/v1/reset-links/${encodeURIComponent(token)}`;
+  if (!password) {
+    return (
+      <NewPasswordCard key={passwordError} title="Choose a new password" initialError={passwordError}
+        lead={<>For <span className="font-medium text-foreground break-all">{link.email}</span>.</>} submitLabel="Continue"
+        onSubmit={async (pw) => {
+          if (link.methods.length > 0) {
+            setPasswordError("");
+            setPassword(pw);
+            return "";
+          }
+          const { data, error: err } = await api.POST("/api/v1/reset-links/{token}", { params: { path: { token } }, body: { password: pw } });
+          if (data) {
+            finished(data as StatusBody);
+            return "";
+          }
+          if (problemCode(err) === "reset_link_invalid") {
+            setLink({ problem: RESET_UNUSABLE });
+            return "";
+          }
+          return problemMessage(err);
+        }} />
+    );
+  }
+  return (
+    <CodeStep methods={link.methods} lead="To finish, confirm with your authenticator app or passkey."
+      onDone={(body) => finished(body ?? { status: "signed_in" })}
+      onTimedOut={() => setLink({ problem: RESET_UNUSABLE })}
+      onStartOver={() => setPassword("")}
+      sendCode={(code) => api.POST("/api/v1/reset-links/{token}", { params: { path: { token } }, body: { password, code } })}
+      passkeyAnswer={() => answerWithPasskey(`${path}/passkey`, { body: { password } })}
+      onRefused={refused}
+      footer={<p className="text-sm text-muted-foreground">
+        Lost your authenticator app and passkey? Ask your admin to reset them, or they can
+        run <code className="font-mono whitespace-nowrap">sudo linx user reset-2fa</code> on the server.
+      </p>} />
   );
 }
 

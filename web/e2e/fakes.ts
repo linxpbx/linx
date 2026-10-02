@@ -944,7 +944,29 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     }
     if (p === "/api/v1/sign-in-options") {
       return route.fulfill(json({ company: opts.company ? [GOOGLE] : [], company_sign_in_required: !!opts.companyRequired, passkeys_available: true,
-        ...(opts.moved ? { passkeys_moved: true } : {}) }));
+        password_reset: !!opts.email, ...(opts.moved ? { passkeys_moved: true } : {}) }));
+    }
+    // "Forgot your password?" (ADR-067): the same answer for any email; the
+    // reset link "used" is gone, "nostep" is for an account with no second
+    // step, any other has an authenticator app and a passkey. The new
+    // password is refused at the second step when it's a common one.
+    if (p === "/api/v1/password-reset" && method === "POST") return route.fulfill({ status: 202 });
+    if (p.startsWith("/api/v1/reset-links/") && method === "GET") {
+      if (p.endsWith("/used")) {
+        return route.fulfill(json({ type: "about:blank", title: "Bad Request", status: 400, code: "reset_link_invalid", detail: "Used." }, 400));
+      }
+      return route.fulfill(json({ email: "sara@example.com", methods: p.endsWith("/nostep") ? [] : ["authenticator", "passkey", "recovery_code"] }));
+    }
+    if (p.startsWith("/api/v1/reset-links/") && method === "POST") {
+      const { password, code } = route.request().postDataJSON() as { password: string; code?: string };
+      if (password === "password123456") {
+        return route.fulfill(json({ type: "about:blank", title: "Bad Request", status: 400, code: "password_invalid",
+          detail: "That password is too easy to guess. Choose another." }, 400));
+      }
+      if (code !== undefined && code !== "123456") {
+        return route.fulfill(json({ type: "about:blank", title: "Unauthorized", status: 401, code: "mfa_code_invalid", detail: "That code isn't right." }, 401));
+      }
+      return route.fulfill(json({ status: "signed_in" }));
     }
     if (p === "/api/v1/session/company" && method === "POST") {
       // The provider refused: straight back to the sign-in page with why.

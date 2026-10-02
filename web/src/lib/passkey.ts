@@ -87,11 +87,12 @@ export function savePasskey(path: string, credential: Json, name: string): Promi
 }
 
 /**
- * Asks the device to use one of its passkeys and sends the answer. With
- * `conditional`, the browser offers them in the email box's autofill
- * instead of a prompt, until `signal` aborts.
+ * Asks the device to use one of its passkeys and sends the answer (with
+ * `body`'s fields). With `conditional`, the browser offers them in the
+ * email box's autofill instead of a prompt, until `signal` aborts.
  */
-export async function answerWithPasskey(path: string, opts: { conditional?: boolean; signal?: AbortSignal } = {}): Promise<Json> {
+export async function answerWithPasskey(path: string,
+  opts: { conditional?: boolean; signal?: AbortSignal; body?: Json } = {}): Promise<Json> {
   let options: Json;
   try {
     options = await post(`${path}/options`);
@@ -104,5 +105,5 @@ export async function answerWithPasskey(path: string, opts: { conditional?: bool
   const cred = await navigator.credentials.get({
     publicKey, signal: opts.signal, ...(opts.conditional ? { mediation: "conditional" as CredentialMediationRequirement } : {}),
   });
-  return post(path, { credential: toJSON(cred) });
+  return post(path, { ...opts.body, credential: toJSON(cred) });
 }
