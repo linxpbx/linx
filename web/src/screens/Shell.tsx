@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
-export type Screen = "dialer" | "team" | "settings" | "account" | "help" | "admin-home" | "admin-people" | "admin-extensions"
+export type Screen = "dialer" | "team" | "voicemail" | "settings" | "account" | "help" | "admin-home" | "admin-people" | "admin-extensions"
   | "admin-system-status" | "admin-system-backups" | "admin-system-server"
   | "admin-lines" | "admin-incoming" | "admin-ring-groups" | "admin-office-hours" | "admin-outgoing" | "admin-simulator" | "admin-connections"
   | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings" | "admin-webhooks" | "admin-api-keys";
@@ -32,9 +32,10 @@ const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
   { id: "team", label: "Team", path: "/team", icon: Users },
 ];
-const LATER: { label: string; icon: typeof Users }[] = [
+// Everyday tabs still to come are greyed; Voicemail is live (Phase 1F step 14).
+const LATER: { label: string; icon: typeof Users; id?: Screen; path?: string }[] = [
   { label: "Call history", icon: Clock },
-  { label: "Voicemail", icon: Voicemail },
+  { label: "Voicemail", icon: Voicemail, id: "voicemail", path: "/voicemail" },
   { label: "Meetings", icon: Video },
   { label: "Inbox", icon: Inbox },
   { label: "Reports", icon: BarChart3 },
@@ -70,8 +71,8 @@ const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users; path?: string }[] =
   { label: "API keys", icon: KeyRound, path: "/admin/api-keys" },
 ];
 
-function NavItem({ active, label, icon: Icon, onClick, disabled, badge, dot }:
-  { active?: boolean; label: string; icon: typeof Users; onClick?: () => void; disabled?: boolean; badge?: number; dot?: boolean }) {
+function NavItem({ active, label, icon: Icon, onClick, disabled, badge, badgeWord = "open", dot }:
+  { active?: boolean; label: string; icon: typeof Users; onClick?: () => void; disabled?: boolean; badge?: number; badgeWord?: string; dot?: boolean }) {
   // The admin list is longer than a short window: keep the page's own row in view.
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (active) ref.current?.scrollIntoView({ block: "nearest" }); }, [active]);
@@ -87,8 +88,8 @@ function NavItem({ active, label, icon: Icon, onClick, disabled, badge, dot }:
       )}>
       <span className="relative shrink-0">
         <Icon aria-hidden="true" className="size-5" />
-        {dot && (
-          <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-status-busy ring-2 ring-sidebar" />
+        {(dot || !!badge) && (
+          <span aria-hidden="true" className={cn("absolute -right-0.5 -top-0.5 size-2 rounded-full bg-status-busy ring-2 ring-sidebar", !dot && "md:hidden")} />
         )}
       </span>
       <span className="max-md:sr-only">{label}</span>
@@ -99,7 +100,7 @@ function NavItem({ active, label, icon: Icon, onClick, disabled, badge, dot }:
       )}
     </button>
   );
-  const detail = badge ? `${label} · ${badge} open` : dot ? `${label} · needs attention` : disabled ? `${label} · Coming soon` : label;
+  const detail = badge ? `${label} · ${badge} ${badgeWord}` : dot ? `${label} · needs attention` : disabled ? `${label} · Coming soon` : label;
   if (!disabled && !badge && !dot) {
     return (
       <Tooltip>
@@ -289,8 +290,8 @@ function AdminNav({ me, systemStatus, simpleMode, onSimpleModeChange, screen }: 
   );
 }
 
-export function Shell({ me, screen, members, presence, systemStatus, simpleMode, onSimpleModeChange, onPresence, onSignOut, children }: {
-  me: Me; screen: Screen; members: TeamMember[] | null; presence: Presence;
+export function Shell({ me, screen, members, presence, voicemailNew = 0, systemStatus, simpleMode, onSimpleModeChange, onPresence, onSignOut, children }: {
+  me: Me; screen: Screen; members: TeamMember[] | null; presence: Presence; voicemailNew?: number;
   systemStatus: SystemStatus | null; simpleMode: boolean; onSimpleModeChange: (v: boolean) => void;
   onPresence: (p: Presence) => void; onSignOut: () => void; children: (query: string) => ReactNode;
 }) {
@@ -306,10 +307,10 @@ export function Shell({ me, screen, members, presence, systemStatus, simpleMode,
       document.title = `Ringing: ${ringing.peer.name} · Linx`;
       if (icon) icon.href = "/favicon-ringing.svg";
     } else {
-      document.title = "Linx";
+      document.title = voicemailNew > 0 ? `(${voicemailNew}) Linx` : "Linx";
       if (icon) icon.href = "/favicon.svg";
     }
-  }, [ringing]);
+  }, [ringing, voicemailNew]);
 
   return (
     <div className="flex h-dvh overflow-hidden">
@@ -323,7 +324,11 @@ export function Shell({ me, screen, members, presence, systemStatus, simpleMode,
             <NavItem key={n.id} label={n.label} icon={n.icon} active={screen === n.id} onClick={() => navigate(n.path)} />
           ))}
           <div className="my-2 border-t border-sidebar-foreground/10" />
-          {LATER.map((n) => <NavItem key={n.label} label={n.label} icon={n.icon} disabled />)}
+          {LATER.map((n) => (
+            <NavItem key={n.label} label={n.label} icon={n.icon} disabled={!n.path} active={!!n.id && screen === n.id}
+              onClick={n.path ? () => navigate(n.path!) : undefined}
+              badge={n.id === "voicemail" ? voicemailNew : undefined} badgeWord="new" />
+          ))}
           <AdminNav me={me} systemStatus={systemStatus} simpleMode={simpleMode} onSimpleModeChange={onSimpleModeChange} screen={screen} />
         </div>
         <div className="mt-auto flex flex-col gap-2">

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"linxpbx.com/linx/deploy/compose"
+	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/installer"
@@ -745,6 +746,26 @@ func (h *harness) voicemailKept(t *testing.T) {
 	}
 	if left := strings.TrimSpace(h.docker("exec", "linx-asterisk", "ls", "-A", "/var/spool/linx-voicemail")); left != "" {
 		t.Errorf("files left in the voicemail folder: %s", left)
+	}
+
+	// The greeting Aisha recorded in her browser (step 14): kept, and
+	// copied where Asterisk (its own user, compose's owners and modes)
+	// can read it.
+	row := strings.Fields(strings.TrimSpace(h.docker("exec", "linx-postgres", "psql", "-U", "linx", "-d", "linx", "-tAc",
+		`SELECT g.box_id || ' ' || length(g.audio) FROM voicemail_greeting g JOIN extension e ON e.id = g.box_id
+		 WHERE e.number = '101' AND g.kind = 'unavailable' AND g.in_use`)))
+	if len(row) != 2 {
+		t.Fatalf("Aisha's greeting wasn't kept: %v", row)
+	}
+	var n int
+	fmt.Sscanf(row[1], "%d", &n)
+	if n < 2*8000 || n > 31*8000 {
+		t.Errorf("Aisha's greeting is %d bytes; she spoke for about 3 seconds (8000 a second)", n)
+	}
+	file := asteriskconf.GreetingsDir + "/" + row[0] + "-unavailable.ulaw"
+	if got := strings.Fields(h.docker("exec", "linx-asterisk", "wc", "-c", file)); len(got) == 0 || got[0] != row[1] {
+		listing, _ := exec.Command("docker", "exec", "linx-asterisk", "ls", "-ln", asteriskconf.GreetingsDir).CombinedOutput()
+		t.Errorf("Asterisk reads %v of %s bytes from %s:\n%s", got, row[1], file, listing)
 	}
 }
 

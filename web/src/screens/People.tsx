@@ -9,6 +9,7 @@ import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { DataTable } from "@/components/DataTable";
 import { Dot } from "@/components/presence";
 import { Button } from "@/components/ui/button";
+import { VoicemailLine } from "@/components/VoicemailBox";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger,
@@ -533,6 +534,8 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
               </div>
             )}
           </section>
+
+          {user.extension_id && <VoicemailLine boxId={user.extension_id} />}
 
           <FormError message={error} />
 

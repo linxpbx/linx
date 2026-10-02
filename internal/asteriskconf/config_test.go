@@ -318,7 +318,8 @@ func TestRenderARI(t *testing.T) {
 }
 
 // Every message the dialplan plays is one of Linx's own (make prompts),
-// committed and in SHA256SUMS: the image has no other prompts.
+// committed and in SHA256SUMS: the image has no other prompts. The one
+// exception is a voicemail box's own greeting, from GreetingsDir.
 func TestPlaybackPromptsExist(t *testing.T) {
 	c := testConfig(t)
 	if err := c.Render(); err != nil {
@@ -334,6 +335,9 @@ func TestPlaybackPromptsExist(t *testing.T) {
 	}
 	for _, m := range plays {
 		for _, name := range strings.Split(m[1], "&") {
+			if name == "${VMOWN}" {
+				continue
+			}
 			file, ok := strings.CutPrefix(name, "linx/")
 			if !ok {
 				t.Errorf("Playback(%s): not one of Linx's own messages (linx/...)", name)

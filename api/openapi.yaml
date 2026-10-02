@@ -4151,6 +4151,283 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/voicemail:
+    get:
+      operationId: listVoicemail
+      summary: My voicemail
+      description: >-
+        The Voicemail tab (ADR-069, docs/ui/SCREENS_PHASE1F.md §12.1):
+        the boxes the signed-in person may see (their own, their ring
+        groups', and with `all` every box for an admin) and the newest 500
+        messages in them, newest first, without audio. `box` lists one
+        box. Signed-in browser sessions only (`not_a_session` for API
+        keys: the audio is people's voices); `voicemail.created` tells API
+        clients a message arrived.
+      tags: [voicemail]
+      parameters:
+        - name: box
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: all
+          in: query
+          description: Every box (admins only; ignored for others).
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: The boxes and their messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoicemailList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/voicemail/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      operationId: updateVoicemail
+      summary: Mark a voicemail heard or new
+      description: >-
+        Heard by the first person who marks it (a ring group's members see
+        "Heard by Sara"); `heard: false` makes it new again for everyone
+        who sees the box.
+      tags: [voicemail]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [heard]
+              properties:
+                heard:
+                  type: boolean
+      responses:
+        "204":
+          description: Saved.
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteVoicemail
+      summary: Delete a voicemail
+      description: Deleted for everyone who sees the box. Audited.
+      tags: [voicemail]
+      responses:
+        "204":
+          description: Deleted.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/voicemail/{id}/audio:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getVoicemailAudio
+      summary: A voicemail's audio
+      description: >-
+        16-bit PCM WAV made from the stored recording, with ranges for the
+        player. `download=1` names it as a file. Signed-in browser
+        sessions only. Served by a hand-written handler (excluded from
+        code generation).
+      tags: [voicemail]
+      parameters:
+        - name: download
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: The audio.
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/voicemail-count:
+    get:
+      operationId: getMyVoicemailCount
+      summary: How many new voicemails I have
+      description: >-
+        The sidebar badge: messages nobody has heard in the person's own
+        and ring groups' boxes. Fetched again when the Team websocket's
+        `voicemail` counter changes.
+      tags: [voicemail]
+      responses:
+        "200":
+          description: The count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [new]
+                properties:
+                  new:
+                    type: integer
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/voicemail-boxes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getVoicemailBox
+      summary: A voicemail box's settings
+      description: >-
+        Voicemail → Settings (docs/ui/SCREENS_PHASE1F.md §12.3), a ring
+        group's Voicemail section, People's Voicemail line. A box's id is
+        its person's extension id or its ring group's id.
+      tags: [voicemail]
+      responses:
+        "200":
+          description: The box.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoicemailBoxSettings"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateVoicemailBox
+      summary: Change a voicemail box
+      description: >-
+        On or off and email (the box's person, or an admin; 403
+        otherwise), and which greeting plays (also a ring group's
+        members). A box that's off plays "not available". A ring group's
+        box can't email (`email_not_for_groups`); email needs email set up
+        first (`email_not_set_up`); `own` needs a recording
+        (`greeting_not_recorded`). Audited.
+      tags: [voicemail]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/VoicemailBoxPatch"
+      responses:
+        "200":
+          description: The box as it now is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoicemailBoxSettings"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/voicemail-boxes/{id}/greetings/{kind}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [unavailable, closed]
+    get:
+      operationId: getVoicemailGreeting
+      summary: Hear a box's own greeting
+      description: >-
+        As a WAV. Served by a hand-written handler (excluded from code
+        generation).
+      tags: [voicemail]
+      responses:
+        "200":
+          description: The greeting.
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: "#/components/responses/Problem"
+    put:
+      operationId: putVoicemailGreeting
+      summary: Record a box's own greeting
+      description: >-
+        The browser's recording as a WAV (16-bit PCM, one channel, 8000
+        samples a second), half a second to 30 seconds; Linx converts it
+        for phones and plays it from now on. The box's person, its ring
+        group's members, or an admin. Audited. Served by a hand-written
+        handler (excluded from code generation).
+      tags: [voicemail]
+      requestBody:
+        required: true
+        content:
+          audio/wav:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          description: Saved and in use.
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteVoicemailGreeting
+      summary: Forget a box's own greeting
+      description: Linx's own greeting plays again. Audited.
+      tags: [voicemail]
+      responses:
+        "204":
+          description: Forgotten.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/voicemail-settings:
+    get:
+      operationId: getVoicemailSettings
+      summary: How long voicemail is kept
+      description: System → Settings (docs/ui/SCREENS_PHASE1F.md §12.5), with the space voicemail uses now.
+      tags: [voicemail]
+      security:
+        - bearer: [settings:read]
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoicemailSettings"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateVoicemailSettings
+      summary: Change how long voicemail is kept
+      description: >-
+        7 to 365 days. Older messages are deleted within the hour. Audited.
+      tags: [voicemail]
+      security:
+        - bearer: [settings:write]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [keep_days]
+              properties:
+                keep_days:
+                  type: integer
+                  minimum: 7
+                  maximum: 365
+      responses:
+        "200":
+          description: The settings as they now are.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoicemailSettings"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /oauth/token:
     post:
       operationId: oauthToken
@@ -8852,6 +9129,168 @@ components:
           format: date-time
           description: For `on_call` and `ringing`, when the call was answered or started ringing.
 
+    VoicemailBox:
+      type: object
+      required: [id, kind, owner, mine, member, removed, enabled, email, messages, new, bytes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [person, ring_group]
+        extension_id:
+          type: string
+          format: uuid
+        ring_group_id:
+          type: string
+          format: uuid
+        owner:
+          type: string
+          description: '"Sara Haddad (101)", "Sales".'
+        mine:
+          type: boolean
+          description: The signed-in person's own box.
+        member:
+          type: boolean
+          description: A ring group's the signed-in person is in.
+        removed:
+          type: boolean
+          description: The person was removed; the box stays until its messages expire.
+        enabled:
+          type: boolean
+        email:
+          type: boolean
+          description: New messages are emailed to the person (never for a ring group).
+        messages:
+          type: integer
+        new:
+          type: integer
+        bytes:
+          type: integer
+          format: int64
+
+    VoicemailMessage:
+      type: object
+      required: [id, box_id, caller_number, caller_name, received_at, duration_ms, heard_by_me]
+      properties:
+        id:
+          type: string
+          format: uuid
+        box_id:
+          type: string
+          format: uuid
+        caller_number:
+          type: string
+          description: The caller's number, or the calling person's extension; "" when withheld.
+        caller_name:
+          type: string
+          description: Plain text from the caller (show as text only), or the calling person's name.
+        caller_extension_id:
+          type: string
+          format: uuid
+          description: Set when a person called from their phone.
+        received_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+        heard_at:
+          type: string
+          format: date-time
+        heard_by:
+          type: string
+          description: Who heard it first.
+        heard_by_me:
+          type: boolean
+
+    VoicemailList:
+      type: object
+      required: [boxes, items, keep_days]
+      properties:
+        boxes:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoicemailBox"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoicemailMessage"
+        keep_days:
+          type: integer
+
+    VoicemailGreeting:
+      type: object
+      required: [recorded, in_use]
+      properties:
+        recorded:
+          type: boolean
+          description: The box has its own recording (false - Linx's own only).
+        in_use:
+          type: boolean
+          description: The recording plays (false - Linx's own plays).
+        recorded_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+
+    VoicemailBoxSettings:
+      type: object
+      required: [box, greetings, email_ready, can_switch]
+      properties:
+        box:
+          $ref: "#/components/schemas/VoicemailBox"
+        greetings:
+          type: object
+          required: [unavailable, closed]
+          properties:
+            unavailable:
+              $ref: "#/components/schemas/VoicemailGreeting"
+            closed:
+              $ref: "#/components/schemas/VoicemailGreeting"
+        email_to:
+          type: string
+          description: Where messages are emailed (a person's box).
+        email_ready:
+          type: boolean
+          description: Email is set up on this server.
+        can_switch:
+          type: boolean
+          description: The signed-in person may turn the box on or off and change its emails.
+
+    VoicemailBoxPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        email:
+          type: boolean
+        greetings:
+          type: object
+          additionalProperties: false
+          properties:
+            unavailable:
+              type: string
+              enum: [own, linx]
+            closed:
+              type: string
+              enum: [own, linx]
+
+    VoicemailSettings:
+      type: object
+      required: [keep_days, messages, bytes]
+      properties:
+        keep_days:
+          type: integer
+        messages:
+          type: integer
+        bytes:
+          type: integer
+          format: int64
+          description: The space messages and greetings take in the database.
+
     TeamList:
       type: object
       required: [items]
@@ -8860,6 +9299,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TeamMember"
+        voicemail:
+          type: integer
+          format: int64
+          description: >-
+            Live updates only: changes whenever a voicemail on this server
+            arrives, is heard or is deleted; fetch GET /me/voicemail-count
+            then.
 
     TurnCredentials:
       description: Credentials for Linx's relay, as an RTCIceServer (ADR-039).

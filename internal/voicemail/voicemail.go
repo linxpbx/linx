@@ -119,8 +119,11 @@ type Importer struct {
 	// WebAddress is the web app's address, for the email's link ("" for
 	// none).
 	WebAddress string
-	Now        func() time.Time
-	Log        *slog.Logger
+	// Changed is told when a tenant gets a message (the badge); may be
+	// nil.
+	Changed func(tenant uuid.UUID)
+	Now     func() time.Time
+	Log     *slog.Logger
 
 	once sync.Once
 	kick chan struct{}
@@ -318,6 +321,9 @@ func (im *Importer) importOne(ctx context.Context, src string) error {
 	im.remove(src+".ulaw", src+".txt")
 	if added {
 		im.Log.Info("voicemail kept", "message", m.ID, "box", box.ID, "seconds", int(m.Duration.Seconds()))
+		if im.Changed != nil {
+			im.Changed(box.TenantID)
+		}
 		im.mail(ctx, box, m)
 	}
 	return nil

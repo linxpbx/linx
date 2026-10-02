@@ -240,6 +240,23 @@ test("browsers call each other, one with UDP blocked", async () => {
   await aisha.getByRole("button", { name: "End call" }).click();
   await expect(aisha.getByTestId("call-panel")).toHaveCount(0);
 
+  // Voicemail part 2 (Phase 1F step 14): Aisha records her own greeting
+  // in the browser (the fake microphone's tone is her voice): recorded,
+  // made 8 kHz here, sent, converted and copied for Asterisk, which
+  // internal/browsertest checks can read it.
+  await aisha.goto("/voicemail");
+  await expect(aisha.getByRole("heading", { name: "Voicemail", exact: true })).toBeVisible();
+  await aisha.getByRole("main").getByRole("button", { name: "Settings" }).click();
+  await aisha.getByRole("button", { name: "Record", exact: true }).first().click();
+  const recorder = aisha.getByRole("dialog", { name: "Record your greeting" });
+  await recorder.getByRole("button", { name: "Record" }).click();
+  await aisha.waitForTimeout(3_000);
+  await recorder.getByRole("button", { name: "Stop" }).click();
+  await recorder.getByRole("button", { name: "Use this" }).click();
+  await expect(recorder.getByText("Saved. Callers hear it from now on.")).toBeVisible({ timeout: 15_000 });
+  await recorder.getByRole("button", { name: "Done" }).click();
+  await expect(aisha.getByText("recorded", { exact: false }).first()).toBeVisible();
+
   // Help comes inside the image (docs/HELP.md): signed out, Omar reads only
   // the sign-in guides; Aisha reads hers, pictures and search included, and
   // gets the same 404 as a missing guide for an admin one.

@@ -188,6 +188,9 @@ services:
       # Messages callers leave, as Asterisk records them (ADR-069): taken
       # into the database and deleted at once (internal/voicemail).
       - voicemail:/var/spool/linx-voicemail
+      # The voicemail greetings people recorded, copied from the database
+      # for Asterisk to play (internal/voicemail's Greetings).
+      - voicemail-greetings:/var/lib/linx/greetings
     # The server helper's socket (linx-ops-agent reaches it through docker
     # exec, docs/ADMIN.md §9): in memory, only this image's user can open it.
     tmpfs:
@@ -318,6 +321,11 @@ services:
       - trunk-status:/var/lib/linx/trunk-status
       # Records voicemail here for the control plane (ADR-069).
       - voicemail:/var/spool/linx-voicemail
+      # Plays the greetings people recorded (read only).
+      - type: volume
+        source: voicemail-greetings
+        target: /var/lib/linx/greetings
+        read_only: true
       # To check the control plane's ARI certificate (see control-plane).
       - type: volume
         source: step-ca
@@ -562,6 +570,18 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: uid=65532,gid=101,mode=2770,size=64m
+  # The voicemail greetings in use, for Asterisk to play (Phase 1F step
+  # 14): written by the control plane (owns it), read by Asterisk (group
+  # 101, passed on by the setgid folder). The database keeps them; this
+  # copy is made again at every start. In memory, only what's recorded
+  # (at most 240 KB a greeting, 30 seconds); 32 MB is over 130 of the
+  # longest.
+  voicemail-greetings:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=65532,gid=101,mode=2750,size=32m
   postgres-data:
   asterisk-state:
   step-ca:

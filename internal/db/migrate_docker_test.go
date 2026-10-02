@@ -21,14 +21,14 @@ func TestMigrateDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 34 {
+	if version != 35 {
 		t.Errorf("Migrate() version = %d, want 34", version)
 	}
 
 	for _, table := range []string{"tenant", "audit_log", "schema_migrations", "api_key", "oauth_client", "token_revocation",
 		"event_outbox", "webhook_endpoint", "webhook_delivery", "webhook_attempt", "outbound_allowlist",
 		"alert_channel", "alert", "alert_delivery", "alert_attempt", "extension", "device",
-		"app_user", "user_setup_link", "user_session", "backup_run", "backup_restore_request", "email_settings", "email_outbox", "voicemail_box", "voicemail_message"} {
+		"app_user", "user_setup_link", "user_session", "backup_run", "backup_restore_request", "email_settings", "email_outbox", "voicemail_box", "voicemail_message", "voicemail_greeting"} {
 		var exists bool
 		if err := pool.QueryRow(ctx,
 			"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)", table,
@@ -45,7 +45,7 @@ func TestMigrateDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version2 != 34 {
+	if version2 != 35 {
 		t.Errorf("second Migrate() version = %d, want 34", version2)
 	}
 }

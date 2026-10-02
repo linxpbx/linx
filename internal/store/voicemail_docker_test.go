@@ -260,3 +260,207 @@ func TestVoicemailDocker(t *testing.T) {
 		t.Errorf("linx_asterisk reads voicemail: %v, %v", read, err)
 	}
 }
+
+// TestVoicemailListeningDocker checks Phase 1F step 14 against real
+// Postgres (migration 0035): which boxes a person sees, the list, heard
+// and new, deleting, greetings, how long messages are kept, and the
+// routing sentences for a box that's off. It needs Docker: make
+// test-docker.
+func TestVoicemailListeningDocker(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool := dbtest.Start(t, ctx, "linx-voicemail-listen-test")
+	if _, err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	s := New(pool)
+	tenant, err := s.DefaultTenant(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	audit := auth.AuditEntry{TenantID: &tenant, Actor: "system", Action: "test", Result: auth.ResultOK}
+	newExtension := func(number, name string) pbx.Extension {
+		e := pbx.Extension{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, Number: number, DisplayName: name, Enabled: true,
+			Version: 1, CreatedAt: now, UpdatedAt: now}
+		if err := s.CreateExtension(ctx, e, audit); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	newUser := func(email string, ext *uuid.UUID) uuid.UUID {
+		u := auth.User{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, Email: email, Name: email[:4], Role: auth.RoleUser,
+			ExtensionID: ext, PasswordHash: "x", PasswordUpdatedAt: now, Version: 1, CreatedAt: now, UpdatedAt: now}
+		if err := s.CreateUser(ctx, u, audit); err != nil {
+			t.Fatal(err)
+		}
+		return u.ID
+	}
+	sara := newExtension("101", "Sara Haddad")
+	omar := newExtension("102", "Omar")
+	saraUser := newUser("sara@example.com", &sara.ID)
+	omarUser := newUser("omar@example.com", &omar.ID)
+	sales := routing.RingGroup{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, Name: "Sales", Number: "600", Strategy: routing.StrategyAll,
+		RingSeconds: 25, TurnSeconds: 15, Members: []routing.Member{{ExtensionID: sara.ID}}, Version: 1, CreatedAt: now, UpdatedAt: now}
+	sales.NoAnswer = routing.Destination{Kind: routing.KindVoicemail, RingGroupID: &sales.ID}
+	if err := s.CreateRingGroup(ctx, sales, audit); err != nil {
+		t.Fatal(err)
+	}
+	add := func(box uuid.UUID, source string, at time.Time, seconds int) uuid.UUID {
+		t.Helper()
+		m := voicemail.Message{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, BoxID: box, Source: source, CallerNumber: "0501234567",
+			ReceivedAt: at, Duration: time.Duration(seconds) * time.Second, Audio: make([]byte, seconds*voicemail.SampleRate), CreatedAt: at}
+		if ok, err := s.AddVoicemail(ctx, m, map[string]any{}); err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		return m.ID
+	}
+	forSara := add(sara.ID, "1.1", now.Add(-time.Hour), 2)
+	forSales := add(sales.ID, "1.2", now.Add(-time.Minute), 3)
+	add(omar.ID, "1.3", now, 1)
+	old := add(omar.ID, "1.4", now.Add(-61*24*time.Hour), 1)
+
+	boxes, err := s.VoicemailBoxes(ctx, tenant, saraUser)
+	if err != nil || len(boxes) != 3 {
+		t.Fatalf("boxes: %v, %d", err, len(boxes))
+	}
+	if b := boxes[0]; b.ID != sara.ID || !b.Mine || b.Count != 1 || b.New != 1 || b.Bytes != 2*voicemail.SampleRate {
+		t.Errorf("Sara's own box first: %+v", b)
+	}
+	if b := boxes[1]; b.ID != sales.ID || !b.Member || b.Mine || b.Count != 1 {
+		t.Errorf("then Sales, Sara's group: %+v", b)
+	}
+	if b := boxes[2]; b.ID != omar.ID || b.Mine || b.Member || b.Count != 2 {
+		t.Errorf("then Omar's, not hers: %+v", b)
+	}
+
+	list, err := s.VoicemailList(ctx, tenant, []uuid.UUID{sara.ID, sales.ID}, saraUser, 10)
+	if err != nil || len(list) != 2 || list[0].ID != forSales || list[1].ID != forSara || list[0].Duration != 3*time.Second {
+		t.Fatalf("Sara's list: %v, %+v", err, list)
+	}
+	if list[0].HeardAt != nil || list[0].Audio != nil {
+		t.Errorf("a listed message: %+v", list[0])
+	}
+
+	// Heard once is heard: Omar marking it later doesn't take Sara's name off.
+	if err := s.MarkVoicemail(ctx, tenant, forSales, &saraUser, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkVoicemail(ctx, tenant, forSales, &omarUser, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	list, _ = s.VoicemailList(ctx, tenant, []uuid.UUID{sales.ID}, omarUser, 10)
+	if l := list[0]; l.HeardAt == nil || !l.HeardAt.Equal(now) || l.HeardBy != "sara" || l.HeardByMe {
+		t.Errorf("heard by Sara, as Omar sees it: %+v", l)
+	}
+	if err := s.MarkVoicemail(ctx, tenant, forSales, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ = s.VoicemailList(ctx, tenant, []uuid.UUID{sales.ID}, saraUser, 10); list[0].HeardAt != nil || list[0].HeardBy != "" {
+		t.Errorf("new again: %+v", list[0])
+	}
+	if err := s.MarkVoicemail(ctx, tenant, uuid.New(), nil, now); !errors.Is(err, voicemail.ErrNotFound) {
+		t.Errorf("marking a message that isn't there: %v", err)
+	}
+	if m, err := s.VoicemailInfo(ctx, tenant, forSara); err != nil || m.Audio != nil || m.BoxID != sara.ID {
+		t.Errorf("info: %v, %+v", err, m)
+	}
+
+	// Greetings.
+	g, err := s.VoicemailGreetings(ctx, sara.ID)
+	if err != nil || g[voicemail.GreetingUnavailable].Recorded || g[voicemail.GreetingClosed].Recorded {
+		t.Fatalf("no greetings yet: %v, %+v", err, g)
+	}
+	if err := s.SetGreeting(ctx, tenant, sara.ID, voicemail.GreetingUnavailable, make([]byte, 3*voicemail.SampleRate), now, saraUser, audit); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGreeting(ctx, tenant, sara.ID, voicemail.GreetingUnavailable, make([]byte, 100), now, saraUser, audit); err == nil {
+		t.Error("a greeting shorter than half a second was kept")
+	}
+	g, _ = s.VoicemailGreetings(ctx, sara.ID)
+	if u := g[voicemail.GreetingUnavailable]; !u.Recorded || !u.InUse || u.Duration != 3*time.Second || !u.RecordedAt.Equal(now) {
+		t.Errorf("after recording: %+v", u)
+	}
+	inUse, err := s.GreetingsInUse(ctx)
+	if err != nil || len(inUse) != 1 || inUse[0].BoxID != sara.ID {
+		t.Errorf("in use: %v, %+v", err, inUse)
+	}
+	off, on := false, true
+	if err := s.UpdateVoicemailBox(ctx, tenant, sara.ID, voicemail.BoxPatch{UseOwn: map[string]bool{voicemail.GreetingUnavailable: false}}, audit); err != nil {
+		t.Fatal(err)
+	}
+	if inUse, _ = s.GreetingsInUse(ctx); len(inUse) != 0 {
+		t.Errorf("Linx's own again, but in use: %+v", inUse)
+	}
+	if a, err := s.GreetingAudio(ctx, sara.ID, voicemail.GreetingUnavailable); err != nil || len(a) != 3*voicemail.SampleRate {
+		t.Errorf("the recording is kept for later: %v, %d", err, len(a))
+	}
+	if err := s.DeleteGreeting(ctx, tenant, sara.ID, voicemail.GreetingUnavailable, audit); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GreetingAudio(ctx, sara.ID, voicemail.GreetingUnavailable); !errors.Is(err, voicemail.ErrNotFound) {
+		t.Errorf("after forgetting: %v", err)
+	}
+
+	// Off: the box, and the sentences say so.
+	if err := s.UpdateVoicemailBox(ctx, tenant, sara.ID, voicemail.BoxPatch{Enabled: &off, Email: &off}, audit); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := s.VoicemailBox(ctx, sara.ID); b.Enabled || b.Email {
+		t.Errorf("switched off: %+v", b)
+	}
+	exts, err := s.Extensions(ctx, tenant, []uuid.UUID{sara.ID, omar.ID})
+	if err != nil || len(exts) != 2 {
+		t.Fatal(err)
+	}
+	for _, e := range exts {
+		if e.VoicemailOff != (e.ID == sara.ID) {
+			t.Errorf("%s: voicemail off = %v", e.DisplayName, e.VoicemailOff)
+		}
+	}
+	if err := s.UpdateVoicemailBox(ctx, tenant, sales.ID, voicemail.BoxPatch{Enabled: &off}, audit); err != nil {
+		t.Fatal(err)
+	}
+	groups, _ := s.RingGroups(ctx, tenant)
+	if !groups[0].VoicemailOff {
+		t.Error("Sales' box is off, but its ring group doesn't say so")
+	}
+	if err := s.UpdateVoicemailBox(ctx, tenant, sales.ID, voicemail.BoxPatch{Enabled: &on}, audit); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateVoicemailBox(ctx, tenant, uuid.New(), voicemail.BoxPatch{Enabled: &on}, audit); !errors.Is(err, voicemail.ErrNotFound) {
+		t.Errorf("no such box: %v", err)
+	}
+
+	// Kept 60 days: the old message goes, the rest stay; then 7 days.
+	if days, err := s.VoicemailKeepDays(ctx); err != nil || days != 60 {
+		t.Errorf("kept %d days, %v", days, err)
+	}
+	tenants, err := s.ExpireVoicemail(ctx, now)
+	if err != nil || len(tenants) != 1 || tenants[0] != tenant {
+		t.Errorf("expiry: %v, %v", err, tenants)
+	}
+	if _, err := s.VoicemailInfo(ctx, tenant, old); !errors.Is(err, voicemail.ErrNotFound) {
+		t.Errorf("a 61-day-old message is still there: %v", err)
+	}
+	if tenants, _ = s.ExpireVoicemail(ctx, now); len(tenants) != 0 {
+		t.Errorf("nothing more to expire, but %v", tenants)
+	}
+	if err := s.SetVoicemailKeepDays(ctx, 3, audit); err == nil {
+		t.Error("kept 3 days")
+	}
+	if err := s.SetVoicemailKeepDays(ctx, 7, audit); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.VoicemailUsage(ctx, tenant)
+	if err != nil || u.Count != 3 || u.Bytes != 6*voicemail.SampleRate {
+		t.Errorf("usage: %v, %+v", err, u)
+	}
+
+	if err := s.DeleteVoicemail(ctx, tenant, forSara, audit); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteVoicemail(ctx, tenant, forSara, audit); !errors.Is(err, voicemail.ErrNotFound) {
+		t.Errorf("deleting twice: %v", err)
+	}
+}

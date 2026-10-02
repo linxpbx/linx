@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { navigate } from "@/hooks/useRoute";
 import { goToCompany } from "@/lib/company";
 import { hasScope } from "@/lib/roles";
+import { space } from "@/lib/voicemail";
 import { EmailCard } from "@/screens/SystemEmail";
 import { HelpAnswersCard } from "@/screens/SystemHelpAnswers";
 
@@ -31,6 +32,44 @@ function Row({ label, children, action }: { label: string; children: React.React
       <span className="min-w-0 flex-1 text-sm">{children}</span>
       {action}
     </div>
+  );
+}
+
+// --- How long voicemail is kept (docs/ui/SCREENS_PHASE1F.md §12.5) ----------------
+
+function KeepVoicemail({ canWrite }: { canWrite: boolean }) {
+  const [v, setV] = useState<components["schemas"]["VoicemailSettings"] | null>(null);
+  const [days, setDays] = useState("");
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    void api.GET("/api/v1/voicemail-settings").then(({ data }) => { if (data) { setV(data); setDays(String(data.keep_days)); } });
+  }, []);
+  if (!v) return null;
+  const n = Number(days);
+  const changed = days !== String(v.keep_days);
+  const save = async () => {
+    setError("");
+    const { data, error: err } = await api.PATCH("/api/v1/voicemail-settings", { body: { keep_days: n } });
+    if (!data) { setError(problemMessage(err)); return; }
+    setV(data);
+    setDays(String(data.keep_days));
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2500);
+  };
+  return (
+    <Row label="Keep voicemail" action={canWrite && changed && (
+      <Button size="sm" disabled={!Number.isInteger(n) || n < 7 || n > 365} onClick={() => void save()}>Save</Button>
+    )}>
+      <span className="flex flex-wrap items-center gap-2">
+        <Input aria-label="Days to keep voicemail" className="w-20 font-mono" inputMode="numeric" value={days} disabled={!canWrite}
+          onChange={(e) => setDays(e.target.value.replace(/\D/g, "").slice(0, 3))} />
+        days (7–365), then deleted.
+        <span className="text-muted-foreground">Voicemail uses {space(v.bytes)} ({v.messages} {v.messages === 1 ? "message" : "messages"}).</span>
+        {saved && <span role="status" className="text-status-available">Saved</span>}
+      </span>
+      {error && <span role="alert" className="mt-1 block text-destructive">{error}</span>}
+    </Row>
   );
 }
 
@@ -277,6 +316,7 @@ export function SystemSettingsScreen({ me, onSimpleModeChange }: { me: Me; onSim
           <Row label="Setup wizard" action={canWrite && <Button size="sm" variant="outline" onClick={() => navigate("/setup")}>Run it again</Button>}>
             Numbers, people, phone line and calls, step by step.
           </Row>
+          <KeepVoicemail canWrite={canWrite} />
         </SystemCard>
 
         <SystemCard title="Admins can sign in from">

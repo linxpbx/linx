@@ -38,6 +38,8 @@ What they do with it: [Your invite or set-password link](set-password-link).
 
 Open the person to change their **Name**, **Email**, **Role** or extension.
 
+Someone with an extension also has a **Voicemail** line: whether it's on, how many messages they have and whether they're emailed. **Turn off** stops callers leaving them messages (callers hear "not available"). See [Voicemail](voicemail).
+
 ## Danger zone
 
 - **Reset authenticator**: when they lost their phone and recovery codes ([Lost your authenticator or passkey](lost-authenticator)). It signs them out everywhere.

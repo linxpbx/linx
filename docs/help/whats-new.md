@@ -9,12 +9,18 @@ screens: []
 
 The newest changes come first. Each Linx update brings its own help pages, so these guides always match the version your server runs.
 
+## Voicemail you can listen to
+
+- **Voicemail** in the sidebar: your messages and your ring groups', newest first, with a number for the new ones. Play, **Call back**, download, mark as heard or new, delete. See [Voicemail](voicemail).
+- Record your own greeting in the browser (**Voicemail → Settings**), and one for outside office hours. Turn your voicemail or its emails on and off there too.
+- Ring groups get their own voicemail settings and greetings; People shows each person's voicemail with **Turn off**.
+- System → Settings, **Keep voicemail**: how many days messages are kept (60 unless you change it).
+
 ## Voicemail
 
 - Callers can leave a message. A person nobody answers, or who has no phone connected, goes to their voicemail, which says: "The person you called isn't available. Please leave a message after the tone." Outside office hours callers hear "We're closed right now, please leave a message".
 - Each new message is emailed to its person with the recording attached, once [email](email) is set up.
 - Everywhere you choose where calls go there's a **Voicemail** section: "Voicemail for Sales", "Voicemail for Sara Haddad (101)". A new [ring group](ring-groups) sends its unanswered calls to its own voicemail.
-- Listening in the web app, your own greeting and how long messages are kept come in the next update.
 
 ## Office hours and "When someone calls"
 

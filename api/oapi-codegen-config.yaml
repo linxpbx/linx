@@ -14,12 +14,14 @@ output-options:
   # response can't do, so they're hand-written too (services/control-plane/session.go,
   # passkey.go). Help (services/control-plane/help.go) serves both the signed-in
   # and the signed-out, pictures that aren't JSON, and answers that stream.
+  # Voicemail audio and greetings are WAV both ways (services/control-plane/voicemail.go).
   exclude-operation-ids: [oauthToken, askSecondStepResetSignedIn, uploadRestoreFile, getBackupDownloadFile, getSignInOptions, startCompanySignIn, startCompanyConfirm, companyCallback, startMyCompanyLink, createSession, deleteSession, verifySessionMfa, confirmSession, checkSetupLink, completeSetupLink, watchTeam,
     createPasskeySessionOptions, createPasskeySession, verifySessionMfaPasskeyOptions, verifySessionMfaPasskey,
     confirmSessionPasskeyOptions, confirmSessionPasskey, addMyPasskeyOptions, addMyPasskey,
     completeSetupLinkPasskeyOptions, completeSetupLinkPasskey,
     requestPasswordReset, checkResetLink, completeResetLink, completeResetLinkPasskeyOptions, completeResetLinkPasskey, askSecondStepReset,
-    listHelpGuides, getHelpGuide, searchHelp, getHelpPicture, answerHelpQuestion]
+    listHelpGuides, getHelpGuide, searchHelp, getHelpPicture, answerHelpQuestion,
+    getVoicemailAudio, getVoicemailGreeting, putVoicemailGreeting]
   # WebhookMessage is only referenced from the spec's `webhooks:` section,
   # which pruning doesn't follow.
   skip-prune: true

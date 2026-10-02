@@ -136,6 +136,12 @@ const DefaultMediaHost = "linx-asterisk-media"
 // spells it out.
 const VoicemailDir = "/var/spool/linx-voicemail"
 
+// GreetingsDir is where the control plane puts the voicemail greetings
+// people recorded (internal/voicemail's Greetings): "<box>-unavailable.ulaw"
+// and "<box>-closed.ulaw". Asterisk only reads it; linx-voicemail plays a
+// box's own file when it's there, Linx's own greeting otherwise.
+const GreetingsDir = "/var/lib/linx/greetings"
+
 // ConfigFromEnv reads the configuration from the environment, defaulting
 // every path to the layout compose.yaml mounts.
 func ConfigFromEnv(getenv func(string) string) Config {
@@ -1025,7 +1031,9 @@ exten => s,1,Dial(${ARG1},${ARG2})
  same => n,Return()
 
 ; Leaving a voicemail (ADR-069) in the box linx_route named (a uuid it
-; checked): the greeting (LABEL "closed": the we're-closed one), the tone,
+; checked): the greeting (LABEL "closed": the we're-closed one; the box's
+; own recording when the control plane put one in GreetingsDir, else
+; Linx's), the tone,
 ; then up to 3 minutes, ending on # or 10 seconds of quiet; "k" keeps what
 ; was said when the caller simply hangs up. As the call ends, h writes the
 ; note internal/voicemail reads next to the recording, then tells the
@@ -1035,8 +1043,14 @@ exten => s,1,Dial(${ARG1},${ARG2})
 exten => _[0-9a-f].,1,Answer()
  same => n,Set(VMBOX=${FILTER(0-9a-f-,${EXTEN})})
  same => n,Wait(0.5)
+ same => n,Set(VMOWN=/var/lib/linx/greetings/${VMBOX}-unavailable)
+ same => n,GotoIf($["${LABEL}" != "closed"]?mine)
+ same => n,Set(VMOWN=/var/lib/linx/greetings/${VMBOX}-closed)
+ same => n(mine),GotoIf($[${STAT(e,${VMOWN}.ulaw)}]?own)
  same => n,GotoIf($["${LABEL}" = "closed"]?closed)
  same => n,Playback(linx/vm-greeting)
+ same => n,Goto(tone)
+ same => n(own),Playback(${VMOWN})
  same => n,Goto(tone)
  same => n(closed),Playback(linx/vm-closed)
  same => n(tone),Playback(linx/beep)

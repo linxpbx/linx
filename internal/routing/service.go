@@ -181,6 +181,9 @@ func DestinationLabel(d Destination, groups map[uuid.UUID]RingGroup, exts map[uu
 	switch d.Kind {
 	case KindVoicemail:
 		if owner := voicemailOwner(d, groups, exts); owner != "" {
+			if voicemailOff(d, groups, exts) {
+				return "Voicemail for " + owner + " (off)"
+			}
 			return "Voicemail for " + owner
 		}
 	case KindExtension:
@@ -220,10 +223,25 @@ func voicemailOwner(d Destination, groups map[uuid.UUID]RingGroup, exts map[uuid
 	return ""
 }
 
+// voicemailOff reports whether box d is turned off (callers hear "not
+// available" instead, migration 0034's voicemail_dest).
+func voicemailOff(d Destination, groups map[uuid.UUID]RingGroup, exts map[uuid.UUID]ExtensionRef) bool {
+	if d.ExtensionID != nil {
+		return exts[*d.ExtensionID].VoicemailOff
+	}
+	if d.RingGroupID != nil {
+		return groups[*d.RingGroupID].VoicemailOff
+	}
+	return false
+}
+
 func destinationWords(d Destination, groups map[uuid.UUID]RingGroup, exts map[uuid.UUID]ExtensionRef) string {
 	switch d.Kind {
 	case KindVoicemail:
 		if owner := voicemailOwner(d, groups, exts); owner != "" {
+			if voicemailOff(d, groups, exts) {
+				return `callers hear "not available" (the voicemail for ` + owner + " is off)."
+			}
 			return "callers can leave a voicemail for " + owner + "."
 		}
 	case KindExtension, KindRingGroup:

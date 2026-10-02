@@ -2652,6 +2652,175 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/voicemail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My voicemail
+         * @description The Voicemail tab (ADR-069, docs/ui/SCREENS_PHASE1F.md §12.1): the boxes the signed-in person may see (their own, their ring groups', and with `all` every box for an admin) and the newest 500 messages in them, newest first, without audio. `box` lists one box. Signed-in browser sessions only (`not_a_session` for API keys: the audio is people's voices); `voicemail.created` tells API clients a message arrived.
+         */
+        get: operations["listVoicemail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/voicemail/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a voicemail
+         * @description Deleted for everyone who sees the box. Audited.
+         */
+        delete: operations["deleteVoicemail"];
+        options?: never;
+        head?: never;
+        /**
+         * Mark a voicemail heard or new
+         * @description Heard by the first person who marks it (a ring group's members see "Heard by Sara"); `heard: false` makes it new again for everyone who sees the box.
+         */
+        patch: operations["updateVoicemail"];
+        trace?: never;
+    };
+    "/api/v1/voicemail/{id}/audio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A voicemail's audio
+         * @description 16-bit PCM WAV made from the stored recording, with ranges for the player. `download=1` names it as a file. Signed-in browser sessions only. Served by a hand-written handler (excluded from code generation).
+         */
+        get: operations["getVoicemailAudio"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/voicemail-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many new voicemails I have
+         * @description The sidebar badge: messages nobody has heard in the person's own and ring groups' boxes. Fetched again when the Team websocket's `voicemail` counter changes.
+         */
+        get: operations["getMyVoicemailCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/voicemail-boxes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A voicemail box's settings
+         * @description Voicemail → Settings (docs/ui/SCREENS_PHASE1F.md §12.3), a ring group's Voicemail section, People's Voicemail line. A box's id is its person's extension id or its ring group's id.
+         */
+        get: operations["getVoicemailBox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a voicemail box
+         * @description On or off and email (the box's person, or an admin; 403 otherwise), and which greeting plays (also a ring group's members). A box that's off plays "not available". A ring group's box can't email (`email_not_for_groups`); email needs email set up first (`email_not_set_up`); `own` needs a recording (`greeting_not_recorded`). Audited.
+         */
+        patch: operations["updateVoicemailBox"];
+        trace?: never;
+    };
+    "/api/v1/voicemail-boxes/{id}/greetings/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                kind: "unavailable" | "closed";
+            };
+            cookie?: never;
+        };
+        /**
+         * Hear a box's own greeting
+         * @description As a WAV. Served by a hand-written handler (excluded from code generation).
+         */
+        get: operations["getVoicemailGreeting"];
+        /**
+         * Record a box's own greeting
+         * @description The browser's recording as a WAV (16-bit PCM, one channel, 8000 samples a second), half a second to 30 seconds; Linx converts it for phones and plays it from now on. The box's person, its ring group's members, or an admin. Audited. Served by a hand-written handler (excluded from code generation).
+         */
+        put: operations["putVoicemailGreeting"];
+        post?: never;
+        /**
+         * Forget a box's own greeting
+         * @description Linx's own greeting plays again. Audited.
+         */
+        delete: operations["deleteVoicemailGreeting"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/voicemail-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How long voicemail is kept
+         * @description System → Settings (docs/ui/SCREENS_PHASE1F.md §12.5), with the space voicemail uses now.
+         */
+        get: operations["getVoicemailSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change how long voicemail is kept
+         * @description 7 to 365 days. Older messages are deleted within the hour. Audited.
+         */
+        patch: operations["updateVoicemailSettings"];
+        trace?: never;
+    };
     "/oauth/token": {
         parameters: {
             query?: never;
@@ -5213,8 +5382,107 @@ export interface components {
              */
             since?: string;
         };
+        VoicemailBox: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "person" | "ring_group";
+            /** Format: uuid */
+            extension_id?: string;
+            /** Format: uuid */
+            ring_group_id?: string;
+            /** @description "Sara Haddad (101)", "Sales". */
+            owner: string;
+            /** @description The signed-in person's own box. */
+            mine: boolean;
+            /** @description A ring group's the signed-in person is in. */
+            member: boolean;
+            /** @description The person was removed; the box stays until its messages expire. */
+            removed: boolean;
+            enabled: boolean;
+            /** @description New messages are emailed to the person (never for a ring group). */
+            email: boolean;
+            messages: number;
+            new: number;
+            /** Format: int64 */
+            bytes: number;
+        };
+        VoicemailMessage: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            box_id: string;
+            /** @description The caller's number, or the calling person's extension; "" when withheld. */
+            caller_number: string;
+            /** @description Plain text from the caller (show as text only), or the calling person's name. */
+            caller_name: string;
+            /**
+             * Format: uuid
+             * @description Set when a person called from their phone.
+             */
+            caller_extension_id?: string;
+            /** Format: date-time */
+            received_at: string;
+            duration_ms: number;
+            /** Format: date-time */
+            heard_at?: string;
+            /** @description Who heard it first. */
+            heard_by?: string;
+            heard_by_me: boolean;
+        };
+        VoicemailList: {
+            boxes: components["schemas"]["VoicemailBox"][];
+            items: components["schemas"]["VoicemailMessage"][];
+            keep_days: number;
+        };
+        VoicemailGreeting: {
+            /** @description The box has its own recording (false - Linx's own only). */
+            recorded: boolean;
+            /** @description The recording plays (false - Linx's own plays). */
+            in_use: boolean;
+            /** Format: date-time */
+            recorded_at?: string;
+            duration_ms?: number;
+        };
+        VoicemailBoxSettings: {
+            box: components["schemas"]["VoicemailBox"];
+            greetings: {
+                unavailable: components["schemas"]["VoicemailGreeting"];
+                closed: components["schemas"]["VoicemailGreeting"];
+            };
+            /** @description Where messages are emailed (a person's box). */
+            email_to?: string;
+            /** @description Email is set up on this server. */
+            email_ready: boolean;
+            /** @description The signed-in person may turn the box on or off and change its emails. */
+            can_switch: boolean;
+        };
+        VoicemailBoxPatch: {
+            enabled?: boolean;
+            email?: boolean;
+            greetings?: {
+                /** @enum {string} */
+                unavailable?: "own" | "linx";
+                /** @enum {string} */
+                closed?: "own" | "linx";
+            };
+        };
+        VoicemailSettings: {
+            keep_days: number;
+            messages: number;
+            /**
+             * Format: int64
+             * @description The space messages and greetings take in the database.
+             */
+            bytes: number;
+        };
         TeamList: {
             items: components["schemas"]["TeamMember"][];
+            /**
+             * Format: int64
+             * @description Live updates only: changes whenever a voicemail on this server arrives, is heard or is deleted; fetch GET /me/voicemail-count then.
+             */
+            voicemail?: number;
         };
         /** @description Credentials for Linx's relay, as an RTCIceServer (ADR-039). */
         TurnCredentials: {
@@ -9507,6 +9775,297 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listVoicemail: {
+        parameters: {
+            query?: {
+                box?: string;
+                /** @description Every box (admins only; ignored for others). */
+                all?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The boxes and their messages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoicemailList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteVoicemail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateVoicemail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    heard: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getVoicemailAudio: {
+        parameters: {
+            query?: {
+                download?: boolean;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The audio. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/wav": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getMyVoicemailCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        new: number;
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getVoicemailBox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The box. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoicemailBoxSettings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateVoicemailBox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["VoicemailBoxPatch"];
+            };
+        };
+        responses: {
+            /** @description The box as it now is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoicemailBoxSettings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getVoicemailGreeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                kind: "unavailable" | "closed";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The greeting. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/wav": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    putVoicemailGreeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                kind: "unavailable" | "closed";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "audio/wav": string;
+            };
+        };
+        responses: {
+            /** @description Saved and in use. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteVoicemailGreeting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                kind: "unavailable" | "closed";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Forgotten. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getVoicemailSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoicemailSettings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateVoicemailSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": {
+                    keep_days: number;
+                };
+            };
+        };
+        responses: {
+            /** @description The settings as they now are. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoicemailSettings"];
+                };
             };
             default: components["responses"]["Problem"];
         };

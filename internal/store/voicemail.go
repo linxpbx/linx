@@ -7,7 +7,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
+	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/voicemail"
 	"linxpbx.com/linx/internal/webhook"
 )
@@ -102,3 +104,235 @@ func (s *Store) VoicemailMessage(ctx context.Context, tenant, id uuid.UUID) (voi
 }
 
 func msDuration(ms int64) time.Duration { return time.Duration(ms) * time.Millisecond }
+
+// VoicemailBoxes returns the tenant's boxes (migration 0034), each marked
+// as user's own or a ring group's user is in, with its message counts. A
+// message's bytes are its length (8 a millisecond), so nothing reads the
+// audio. Own box first, then groups, then people, by name.
+func (s *Store) VoicemailBoxes(ctx context.Context, tenant, user uuid.UUID) ([]voicemail.BoxView, error) {
+	rows, err := s.pool.Query(ctx, `WITH me AS (SELECT extension_id FROM app_user WHERE id = $2 AND tenant_id = $1)
+		SELECT b.id, b.tenant_id, b.extension_id, b.ring_group_id,
+			coalesce(e.display_name || ' (' || e.number || ')', g.name, ''), b.enabled, b.email,
+			coalesce(e.deleted_at IS NOT NULL, false),
+			b.extension_id IS NOT NULL AND b.extension_id = (SELECT extension_id FROM me),
+			b.ring_group_id IS NOT NULL AND EXISTS (SELECT 1 FROM ring_group_member m
+				WHERE m.ring_group_id = b.ring_group_id AND m.extension_id = (SELECT extension_id FROM me)),
+			count(v.id), count(v.id) FILTER (WHERE v.heard_at IS NULL), coalesce(sum(v.duration_ms), 0) * 8
+		FROM voicemail_box b
+		LEFT JOIN extension e ON e.id = b.extension_id
+		LEFT JOIN ring_group g ON g.id = b.ring_group_id
+		LEFT JOIN voicemail_message v ON v.box_id = b.id
+		WHERE b.tenant_id = $1
+		GROUP BY b.id, e.id, g.id
+		ORDER BY 9 DESC, b.ring_group_id IS NULL, lower(coalesce(e.display_name, g.name)), b.id`, tenant, user)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (voicemail.BoxView, error) {
+		var b voicemail.BoxView
+		err := r.Scan(&b.ID, &b.TenantID, &b.ExtensionID, &b.RingGroupID, &b.Owner, &b.Enabled, &b.Email,
+			&b.Removed, &b.Mine, &b.Member, &b.Count, &b.New, &b.Bytes)
+		return b, err
+	})
+}
+
+// VoicemailList returns the messages in boxes, newest first, without
+// their audio; who heard each, and whether it was user.
+func (s *Store) VoicemailList(ctx context.Context, tenant uuid.UUID, boxes []uuid.UUID, user uuid.UUID, limit int) ([]voicemail.Listed, error) {
+	rows, err := s.pool.Query(ctx, `SELECT v.id, v.tenant_id, v.box_id, v.source, v.caller_number, v.caller_name,
+			v.caller_extension_id, v.received_at, v.duration_ms, v.created_at, v.heard_at, coalesce(u.name, ''), coalesce(v.heard_by = $3, false)
+		FROM voicemail_message v LEFT JOIN app_user u ON u.id = v.heard_by
+		WHERE v.tenant_id = $1 AND v.box_id = ANY($2)
+		ORDER BY v.received_at DESC, v.id DESC LIMIT $4`, tenant, boxes, user, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (voicemail.Listed, error) {
+		var l voicemail.Listed
+		var ms int64
+		err := r.Scan(&l.ID, &l.TenantID, &l.BoxID, &l.Source, &l.CallerNumber, &l.CallerName, &l.CallerExtensionID,
+			&l.ReceivedAt, &ms, &l.CreatedAt, &l.HeardAt, &l.HeardBy, &l.HeardByMe)
+		l.Duration = msDuration(ms)
+		return l, err
+	})
+}
+
+// VoicemailInfo is VoicemailMessage without the audio.
+func (s *Store) VoicemailInfo(ctx context.Context, tenant, id uuid.UUID) (voicemail.Message, error) {
+	var m voicemail.Message
+	var ms int64
+	err := s.pool.QueryRow(ctx, `SELECT id, tenant_id, box_id, source, caller_number, caller_name, caller_extension_id,
+			received_at, duration_ms, created_at
+		FROM voicemail_message WHERE id = $1 AND tenant_id = $2`, id, tenant).Scan(
+		&m.ID, &m.TenantID, &m.BoxID, &m.Source, &m.CallerNumber, &m.CallerName, &m.CallerExtensionID,
+		&m.ReceivedAt, &ms, &m.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return m, voicemail.ErrNotFound
+	}
+	m.Duration = msDuration(ms)
+	return m, err
+}
+
+// MarkVoicemail marks a message heard by heardBy at at, or new (nil).
+func (s *Store) MarkVoicemail(ctx context.Context, tenant, id uuid.UUID, heardBy *uuid.UUID, at time.Time) error {
+	var tag pgconn.CommandTag
+	var err error
+	if heardBy == nil {
+		tag, err = s.pool.Exec(ctx, `UPDATE voicemail_message SET heard_at = NULL, heard_by = NULL
+			WHERE id = $1 AND tenant_id = $2`, id, tenant)
+	} else {
+		// Heard once is heard: the first person keeps the credit.
+		tag, err = s.pool.Exec(ctx, `UPDATE voicemail_message SET heard_at = coalesce(heard_at, $3),
+				heard_by = CASE WHEN heard_at IS NULL THEN $4 ELSE heard_by END
+			WHERE id = $1 AND tenant_id = $2`, id, tenant, at, *heardBy)
+	}
+	if err == nil && tag.RowsAffected() == 0 {
+		return voicemail.ErrNotFound
+	}
+	return err
+}
+
+// DeleteVoicemail deletes a message, audited.
+func (s *Store) DeleteVoicemail(ctx context.Context, tenant, id uuid.UUID, audit auth.AuditEntry) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `DELETE FROM voicemail_message WHERE id = $1 AND tenant_id = $2`, id, tenant)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return voicemail.ErrNotFound
+		}
+		return insertAudit(ctx, tx, audit)
+	})
+}
+
+// VoicemailGreetings is box's two greetings: recorded or not, in use.
+func (s *Store) VoicemailGreetings(ctx context.Context, box uuid.UUID) (map[string]voicemail.GreetingInfo, error) {
+	out := map[string]voicemail.GreetingInfo{voicemail.GreetingUnavailable: {}, voicemail.GreetingClosed: {}}
+	rows, err := s.pool.Query(ctx, `SELECT kind, in_use, recorded_at, length(audio) FROM voicemail_greeting WHERE box_id = $1`, box)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind string
+		var n int64
+		g := voicemail.GreetingInfo{Recorded: true}
+		if err := rows.Scan(&kind, &g.InUse, &g.RecordedAt, &n); err != nil {
+			return nil, err
+		}
+		g.Duration = time.Duration(n) * time.Second / voicemail.SampleRate
+		out[kind] = g
+	}
+	return out, rows.Err()
+}
+
+// UpdateVoicemailBox changes a box's switches and which greetings it
+// plays, audited.
+func (s *Store) UpdateVoicemailBox(ctx context.Context, tenant, id uuid.UUID, p voicemail.BoxPatch, audit auth.AuditEntry) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE voicemail_box SET enabled = coalesce($3, enabled), email = coalesce($4, email)
+			WHERE id = $1 AND tenant_id = $2`, id, tenant, p.Enabled, p.Email)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return voicemail.ErrNotFound
+		}
+		for kind, own := range p.UseOwn {
+			if _, err := tx.Exec(ctx, `UPDATE voicemail_greeting SET in_use = $3 WHERE box_id = $1 AND kind = $2`, id, kind, own); err != nil {
+				return err
+			}
+		}
+		return insertAudit(ctx, tx, audit)
+	})
+}
+
+// SetGreeting keeps box's new recording of kind, in use, audited.
+func (s *Store) SetGreeting(ctx context.Context, tenant, box uuid.UUID, kind string, audio []byte, at time.Time, by uuid.UUID, audit auth.AuditEntry) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO voicemail_greeting (box_id, kind, tenant_id, in_use, audio, recorded_at, recorded_by)
+			SELECT $1, $2, $3, true, $4, $5, $6 FROM voicemail_box WHERE id = $1 AND tenant_id = $3
+			ON CONFLICT (box_id, kind) DO UPDATE SET in_use = true, audio = EXCLUDED.audio,
+				recorded_at = EXCLUDED.recorded_at, recorded_by = EXCLUDED.recorded_by`, box, kind, tenant, audio, at, by)
+		if err != nil {
+			return err
+		}
+		return insertAudit(ctx, tx, audit)
+	})
+}
+
+// DeleteGreeting forgets box's recording of kind, audited.
+func (s *Store) DeleteGreeting(ctx context.Context, tenant, box uuid.UUID, kind string, audit auth.AuditEntry) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM voicemail_greeting WHERE box_id = $1 AND kind = $2 AND tenant_id = $3`, box, kind, tenant); err != nil {
+			return err
+		}
+		return insertAudit(ctx, tx, audit)
+	})
+}
+
+// GreetingAudio is box's recording of kind (mu-law).
+func (s *Store) GreetingAudio(ctx context.Context, box uuid.UUID, kind string) ([]byte, error) {
+	var audio []byte
+	err := s.pool.QueryRow(ctx, `SELECT audio FROM voicemail_greeting WHERE box_id = $1 AND kind = $2`, box, kind).Scan(&audio)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, voicemail.ErrNotFound
+	}
+	return audio, err
+}
+
+// GreetingsInUse lists every greeting in use, on every tenant, for
+// Asterisk's folder. A box that's off plays nothing, but its file stays
+// so turning it back on needs no copy.
+func (s *Store) GreetingsInUse(ctx context.Context) ([]voicemail.GreetingFile, error) {
+	rows, err := s.pool.Query(ctx, `SELECT box_id, kind, recorded_at FROM voicemail_greeting WHERE in_use`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (voicemail.GreetingFile, error) {
+		var g voicemail.GreetingFile
+		err := r.Scan(&g.BoxID, &g.Kind, &g.RecordedAt)
+		return g, err
+	})
+}
+
+// VoicemailKeepDays is how long messages are kept (migration 0035).
+func (s *Store) VoicemailKeepDays(ctx context.Context) (int, error) {
+	var days int
+	err := s.pool.QueryRow(ctx, `SELECT voicemail_keep_days FROM pbx_setting`).Scan(&days)
+	return days, err
+}
+
+// SetVoicemailKeepDays changes it, audited.
+func (s *Store) SetVoicemailKeepDays(ctx context.Context, days int, audit auth.AuditEntry) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE pbx_setting SET voicemail_keep_days = $1`, days); err != nil {
+			return err
+		}
+		return insertAudit(ctx, tx, audit)
+	})
+}
+
+// VoicemailUsage is the tenant's messages and the space they take, with
+// its greetings'.
+func (s *Store) VoicemailUsage(ctx context.Context, tenant uuid.UUID) (voicemail.Usage, error) {
+	var u voicemail.Usage
+	err := s.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM voicemail_message WHERE tenant_id = $1),
+			(SELECT coalesce(sum(duration_ms), 0) * 8 FROM voicemail_message WHERE tenant_id = $1)
+			+ (SELECT coalesce(sum(length(audio)), 0) FROM voicemail_greeting WHERE tenant_id = $1)`, tenant).Scan(&u.Count, &u.Bytes)
+	return u, err
+}
+
+// ExpireVoicemail deletes messages received more than the kept days
+// before now, returning the tenants that lost any.
+func (s *Store) ExpireVoicemail(ctx context.Context, now time.Time) ([]uuid.UUID, error) {
+	rows, err := s.pool.Query(ctx, `WITH gone AS (DELETE FROM voicemail_message
+			WHERE received_at < $1::timestamptz - make_interval(days => (SELECT voicemail_keep_days FROM pbx_setting))
+			RETURNING tenant_id)
+		SELECT DISTINCT tenant_id FROM gone`, now)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+}

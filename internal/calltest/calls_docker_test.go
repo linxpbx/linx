@@ -231,6 +231,31 @@ func TestCallsDocker(t *testing.T) {
 			t.Errorf("%d messages kept from a call with no audio", n)
 		}
 
+		// Carol records her own greeting (Phase 1F step 14): the control
+		// plane copies it into the folder Asterisk reads, and the next
+		// caller hears it instead of Linx's own.
+		_, err := e.pool.Exec(ctx, `INSERT INTO voicemail_greeting (box_id, kind, tenant_id, audio, recorded_at)
+			VALUES ($1, 'unavailable', $2, $3, now())`, carol.ext.ID, carol.ext.TenantID, make([]byte, 2*voicemail.SampleRate))
+		if err != nil {
+			t.Fatal(err)
+		}
+		greetings := &voicemail.Greetings{Dir: filepath.Join(e.dir, "greetings"), Store: e.store, Log: tracker.Log}
+		if err := greetings.Sync(ctx); err != nil {
+			t.Fatal(err)
+		}
+		own := voicemail.GreetingName(carol.ext.ID, voicemail.GreetingUnavailable)
+		os.Chmod(filepath.Join(e.dir, "greetings", own), 0o644) // Asterisk's uid isn't this test's
+		e.run("vm-own", "call.xml", alice, "-s", "103", "-d", "6000")
+		if !strings.Contains(e.asteriskLogs(), "Playing '"+asteriskconf.GreetingsDir+"/"+strings.TrimSuffix(own, ".ulaw")) {
+			t.Fatalf("Carol's own greeting wasn't played:\n%s", e.asteriskLogs())
+		}
+		if heard("vm-greeting") != greeting+1 {
+			t.Error("Linx's own greeting played as well as Carol's")
+		}
+		e.pool.Exec(ctx, `DELETE FROM voicemail_greeting WHERE box_id = $1`, carol.ext.ID)
+		greetings.Sync(ctx)
+		eventually(t, "the voicemail folder emptied", 15*time.Second, func() bool { return len(folder()) == 0 })
+
 		// A message with audio being kept is the browser suite's
 		// (internal/browsertest): SIPp sends no audio.
 	})

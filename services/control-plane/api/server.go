@@ -30,6 +30,7 @@ import (
 	"linxpbx.com/linx/internal/sso"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/turn"
+	"linxpbx.com/linx/internal/voicemail"
 	"linxpbx.com/linx/internal/webhook"
 )
 
@@ -68,6 +69,8 @@ type Server struct {
 	helpAnswers *helpanswers.Service
 	// Ring groups and destinations (SetRouting).
 	routing *routing.Service
+	// Voicemail listening and settings (SetVoicemail).
+	voicemail *voicemail.Service
 	// Email sending (SetEmail), and Linx's own address for its links.
 	email      *email.Service
 	webAddress string

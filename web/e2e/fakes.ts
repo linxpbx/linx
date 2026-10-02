@@ -74,6 +74,8 @@ export interface FakeOptions {
   email?: "on" | "failing";
   // A home: no office hours (docs/ui/SCREENS_PHASE1F.md §9).
   home?: boolean;
+  // Voicemail (docs/ui/SCREENS_PHASE1F.md §12): no messages at all.
+  noVoicemail?: boolean;
 }
 
 // Phone lines, numbers and routing (docs/ui/ADMIN_SCREENS_PHASE1E.md §6-9).
@@ -392,6 +394,55 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   };
   const idAfter = (p: string, prefix: string) => (p.startsWith(prefix) ? p.slice(prefix.length).split("/")[0] : null);
   const now = () => new Date().toISOString();
+
+  // Voicemail (docs/ui/SCREENS_PHASE1F.md §12): my box, Sales' and
+  // Support's (I'm in both), and the others' for "All boxes".
+  const atToday = (h: number, m: number, daysBack = 0) => {
+    const d = new Date();
+    d.setDate(d.getDate() - daysBack);
+    d.setHours(h, m, 0, 0);
+    if (daysBack === 0 && d.getTime() > Date.now()) d.setTime(Date.now() - 60_000);
+    return d.toISOString();
+  };
+  const mondayBack = (() => { const d = new Date().getDay(); return d === 1 ? 7 : (d + 6) % 7; })();
+  const vm = {
+    keep: 60,
+    boxes: [
+      { id: "e1001", kind: "person", extension_id: "e1001", owner: `${ME.name} (1001)`, mine: true, member: false, enabled: true, email: true },
+      { id: "g1", kind: "ring_group", ring_group_id: "g1", owner: "Sales", mine: false, member: true, enabled: true, email: false },
+      { id: "g2", kind: "ring_group", ring_group_id: "g2", owner: "Support", mine: false, member: true, enabled: true, email: false },
+      { id: "e1024", kind: "person", extension_id: "e1024", owner: "Sara Haddad (1024)", mine: false, member: false, enabled: true, email: true },
+    ] as Json[],
+    messages: (opts.noVoicemail ? [] : [
+      { id: "vm1", box_id: "g1", caller_number: "0501234567", caller_name: "", received_at: atToday(10, 42), duration_ms: 42_000, heard_by_me: false },
+      { id: "vm2", box_id: "e1001", caller_number: "+442079460000", caller_name: "", received_at: atToday(16, 5, 1), duration_ms: 70_000, heard_by_me: false },
+      { id: "vm3", box_id: "g1", caller_number: "+97142000100", caller_name: "Ahmed Ali", received_at: atToday(11, 30, 1), duration_ms: 31_000,
+        heard_at: atToday(12, 2, 1), heard_by: "Sara Haddad", heard_by_me: false },
+      { id: "vm4", box_id: "e1001", caller_number: "1042", caller_name: "Aisha Rahman", caller_extension_id: "e1042", received_at: atToday(9, 12, mondayBack),
+        duration_ms: 15_000, heard_at: atToday(9, 30, mondayBack), heard_by: ME.name, heard_by_me: true },
+      { id: "vm5", box_id: "e1024", caller_number: "0559876543", caller_name: "", received_at: atToday(8, 50), duration_ms: 20_000, heard_by_me: false },
+    ]) as Json[],
+    greetings: {
+      e1001: { unavailable: { recorded: true, in_use: true, recorded_at: atToday(9, 0, 29), duration_ms: 6_000 }, closed: { recorded: false, in_use: false } },
+    } as Record<string, Json>,
+  };
+  const vmBox = (b: Json) => {
+    const msgs = vm.messages.filter((m) => m.box_id === b.id);
+    return { ...b, messages: msgs.length, new: msgs.filter((m) => !m.heard_at).length,
+      bytes: msgs.reduce((n, m) => n + (m.duration_ms as number) * 8, 0) };
+  };
+  const vmSettings = (b: Json) => ({
+    box: vmBox(b), greetings: vm.greetings[b.id as string] ?? { unavailable: { recorded: false, in_use: false }, closed: { recorded: false, in_use: false } },
+    email_ready: !!opts.email, can_switch: !!b.mine || !!opts.admin, ...(b.kind === "person" && b.mine ? { email_to: ME.email } : {}),
+  });
+  // A tenth of a second of quiet, as the server's WAV.
+  const quietWav = () => {
+    const n = 800;
+    const b = Buffer.alloc(44 + n * 2);
+    b.write("RIFF", 0); b.writeUInt32LE(36 + n * 2, 4); b.write("WAVEfmt ", 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+    b.writeUInt32LE(8000, 24); b.writeUInt32LE(16000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write("data", 36); b.writeUInt32LE(n * 2, 40);
+    return b;
+  };
 
   // Office hours and "When someone calls" (docs/ui/SCREENS_PHASE1F.md §9-11).
   type Dest = { kind: string; extension_id?: string; ring_group_id?: string; message?: string };
@@ -1036,6 +1087,60 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       let n = 6000;
       while (groups.some((g) => g.number === String(n))) n++;
       return route.fulfill(json({ number: String(n) }));
+    }
+    if (p === "/api/v1/voicemail" && method === "GET") {
+      const box = url.searchParams.get("box");
+      const all = url.searchParams.get("all") === "true" && !!opts.admin;
+      const boxes = vm.boxes.filter((b) => box ? b.id === box : all || b.mine || b.member);
+      const ids = new Set(boxes.map((b) => b.id));
+      const items = vm.messages.filter((m) => ids.has(m.box_id as string)).sort((a, b) => String(b.received_at).localeCompare(String(a.received_at)));
+      return route.fulfill(json({ boxes: (all || box ? boxes : vm.boxes.filter((b) => b.mine || b.member)).map(vmBox), items, keep_days: vm.keep }));
+    }
+    if (p === "/api/v1/me/voicemail-count" && method === "GET") {
+      const mine = new Set(vm.boxes.filter((b) => b.mine || b.member).map((b) => b.id));
+      return route.fulfill(json({ new: vm.messages.filter((m) => mine.has(m.box_id as string) && !m.heard_at).length }));
+    }
+    if (p === "/api/v1/voicemail-settings") {
+      if (method === "PATCH") vm.keep = (route.request().postDataJSON() as { keep_days: number }).keep_days;
+      return route.fulfill(json({ keep_days: vm.keep, messages: vm.messages.length,
+        bytes: vm.messages.reduce((n, m) => n + (m.duration_ms as number) * 8, 0) + 48_000 }));
+    }
+    const vmId = idAfter(p, "/api/v1/voicemail/");
+    if (vmId && p.endsWith("/audio")) {
+      return route.fulfill({ status: 200, contentType: "audio/wav", body: quietWav() });
+    }
+    if (vmId && method === "PATCH") {
+      const m = vm.messages.find((x) => x.id === vmId);
+      if (!m) return route.fulfill(notFound());
+      const { heard } = route.request().postDataJSON() as { heard: boolean };
+      if (heard && !m.heard_at) Object.assign(m, { heard_at: now(), heard_by: ME.name, heard_by_me: true });
+      if (!heard) { delete m.heard_at; delete m.heard_by; m.heard_by_me = false; }
+      return route.fulfill({ status: 204 });
+    }
+    if (vmId && method === "DELETE") {
+      vm.messages = vm.messages.filter((x) => x.id !== vmId);
+      return route.fulfill({ status: 204 });
+    }
+    const boxId = idAfter(p, "/api/v1/voicemail-boxes/");
+    if (boxId) {
+      const b = vm.boxes.find((x) => x.id === boxId);
+      if (!b) return route.fulfill(notFound());
+      const kind = p.split("/greetings/")[1];
+      if (kind && method === "GET") return route.fulfill({ status: 200, contentType: "audio/wav", body: quietWav() });
+      if (kind && method === "PUT") {
+        const g = (vm.greetings[boxId] ??= { unavailable: { recorded: false, in_use: false }, closed: { recorded: false, in_use: false } }) as Record<string, Json>;
+        g[kind] = { recorded: true, in_use: true, recorded_at: now(), duration_ms: 4_000 };
+        return route.fulfill({ status: 204 });
+      }
+      if (method === "PATCH") {
+        const body = route.request().postDataJSON() as { enabled?: boolean; email?: boolean; greetings?: Record<string, string> };
+        if (body.enabled !== undefined) b.enabled = body.enabled;
+        if (body.email !== undefined) b.email = body.email;
+        const g = vm.greetings[boxId] as Record<string, Json> | undefined;
+        for (const [k, v] of Object.entries(body.greetings ?? {})) if (g?.[k]) g[k] = { ...g[k], in_use: v === "own" };
+        return route.fulfill(json(vmSettings(b)));
+      }
+      return route.fulfill(json(vmSettings(b)));
     }
     if (p === "/api/v1/ring-groups" && method === "GET") return route.fulfill(json({ items: groups.map(ringGroupView) }));
     if (p === "/api/v1/ring-groups" && method === "POST") {

@@ -733,11 +733,15 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	// /me/password-only are the signed-in person's own passkeys and sign-in
 	// choice (docs/ADMIN.md §5), refused to anything but a session;
 	// /me/sso-links* their own company accounts (§6), likewise, and
-	// /me/sessions* their own signed-in browsers (step 8).
+	// /me/sessions* their own signed-in browsers (step 8). Voicemail is a
+	// signed-in person's own boxes and their ring groups' (Phase 1F step
+	// 14), refused to anything but a session.
 	anyCredential := []string{"ChangeMyEmail", "CheckMyPassword", "ListMySessions", "SignOutMySession", "SignOutMyOtherSessions", "GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
 		"IssueMyWebPhone", "GetMyTurnCredentials", "SetMyPresence",
 		"ListMyPasskeys", "RenameMyPasskey", "RemoveMyPasskey", "AcceptPasswordOnly",
-		"ListMyCompanyLinks", "UnlinkMyCompanyAccount"}
+		"ListMyCompanyLinks", "UnlinkMyCompanyAccount",
+		"ListVoicemail", "UpdateVoicemail", "DeleteVoicemail", "GetMyVoicemailCount", "GetVoicemailBox", "UpdateVoicemailBox",
+		"DeleteVoicemailGreeting"}
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
 			sec := spec.Security

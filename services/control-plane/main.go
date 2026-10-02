@@ -397,7 +397,19 @@ func main() {
 	// message in the database, queues voicemail.created and emails it
 	// (the audio fetched as the email goes out).
 	voicemails := &voicemail.Importer{Dir: envOr(os.Getenv, "LINX_VOICEMAIL_DIR", asteriskconf.VoicemailDir), Store: st,
-		Mail: emailSvc, WebAddress: weburl.FromEnv(os.Getenv), Now: time.Now, Log: log}
+		Mail: emailSvc, WebAddress: weburl.FromEnv(os.Getenv), Changed: hub.VoicemailChanged, Now: time.Now, Log: log}
+	// Listening, greetings and how long messages are kept (step 14). The
+	// greetings in use are copied into a folder only Asterisk reads, kept
+	// the same as the database at every change and at start.
+	greetings := &voicemail.Greetings{Dir: envOr(os.Getenv, "LINX_GREETINGS_DIR", asteriskconf.GreetingsDir), Store: st, Log: log}
+	if _, err := os.Stat(greetings.Dir); err != nil {
+		log.Warn("no voicemail greetings folder; boxes play Linx's own greeting", "err", err)
+		greetings = nil
+	} else {
+		greetings.SyncLogged(context.Background())
+	}
+	voicemailSvc := &voicemail.Service{Store: st, EmailOn: emailSvc.On, Greetings: greetings, TimeZone: st.TimeZone,
+		Changed: hub.VoicemailChanged, Now: time.Now, Log: log}
 	emailSvc.Voicemail = voicemail.Attachment(st)
 	tracker.UserEvent = func(name string) {
 		if name == voicemail.EventName {
@@ -420,6 +432,7 @@ func main() {
 	})
 	runBackground(func(ctx context.Context) { sweepWebDevices(ctx, st, relay, webDeviceSweepInterval, log) })
 	runBackground(hub.Run)
+	runBackground(voicemailSvc.RunExpiry)
 	runBackground(trunkFiles.Run)
 	runBackground(trunkMonitor.Run)
 	runBackground(callAlerts.Run)
@@ -482,6 +495,7 @@ func main() {
 			s.SetHelpAnswers(helpAnswers)
 			s.SetEmail(emailSvc, weburl.FromEnv(os.Getenv))
 			s.SetRouting(&routing.Service{Store: st, Rules: st, Now: time.Now})
+			s.SetVoicemail(voicemailSvc)
 			s.SetReach(reachChecker.Run, reachLinks)
 			s.SetDNSRecords(reachChecker.Records)
 			s.SetOps(opsHub, st.Audit, func() time.Time {
@@ -504,6 +518,7 @@ func main() {
 	registerCompanyHandlers(mux, authn, accounts, ssoSvc, tenant, movedSvc.PasskeysMoved, log)
 	registerBackupFileHandlers(mux, authn, backups)
 	registerHelpHandlers(mux, authn, helpLib, helpAnswers, tenant, log)
+	registerVoicemailHandlers(mux, authn, voicemailSvc)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
 	// Everything else is the web client (ADR-037).

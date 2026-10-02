@@ -48,6 +48,10 @@ type teamHub struct {
 	subs map[uuid.UUID]map[*teamSub]struct{} // by tenant
 	last map[uuid.UUID][]byte
 	open map[uuid.UUID]int // by session
+	// vm counts each tenant's voicemail changes (Phase 1F step 14): the
+	// page fetches its own badge count when it moves, so no one's count
+	// goes to anyone else.
+	vm map[uuid.UUID]int64
 }
 
 type teamSub struct {
@@ -56,7 +60,8 @@ type teamSub struct {
 
 func newTeamHub(team *pbx.Team, log *slog.Logger) *teamHub {
 	return &teamHub{team: team, log: log, kick: make(chan struct{}, 1),
-		subs: map[uuid.UUID]map[*teamSub]struct{}{}, last: map[uuid.UUID][]byte{}, open: map[uuid.UUID]int{}}
+		subs: map[uuid.UUID]map[*teamSub]struct{}{}, last: map[uuid.UUID][]byte{}, open: map[uuid.UUID]int{},
+		vm: map[uuid.UUID]int64{}}
 }
 
 // acquire counts one more open list for session, unless it already has
@@ -85,6 +90,15 @@ func (h *teamHub) Changed() {
 	case h.kick <- struct{}{}:
 	default:
 	}
+}
+
+// VoicemailChanged says a tenant's voicemail arrived, was heard or was
+// deleted. Never blocks.
+func (h *teamHub) VoicemailChanged(tenant uuid.UUID) {
+	h.mu.Lock()
+	h.vm[tenant]++
+	h.mu.Unlock()
+	h.Changed()
 }
 
 // Run recomputes the list for every tenant someone is watching whenever
@@ -129,7 +143,12 @@ func (h *teamHub) snapshot(ctx context.Context, tenant uuid.UUID) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(controlplaneapi.TeamListBody(rows))
+	body := controlplaneapi.TeamListBody(rows)
+	h.mu.Lock()
+	vm := h.vm[tenant]
+	h.mu.Unlock()
+	body.Voicemail = &vm
+	return json.Marshal(body)
 }
 
 func (h *teamHub) publish(tenant uuid.UUID, b []byte) {

@@ -20,7 +20,7 @@ Choose **Change** next to a number. The steps are **Office hours**, **No answer*
    ![Choosing who rings during office hours](screen:incoming-wizard-hours)
 
 2. **No answer**: how long a person rings (25 seconds unless you change it), and where the call goes then: their voicemail (recommended, so callers can leave a message), someone else's voicemail, another person, a ring group, or **Nobody** (callers hear "not available"). A ring group decides this itself, in [Ring groups](ring-groups).
-3. **After hours**: outside office hours and on holidays, **Play "We're closed", then voicemail** (recommended: callers hear "We're closed right now, please leave a message"; choose whose voicemail under **Whose voicemail**), **Play "We're closed", then hang up**, or **Somewhere else**. Tick **Holidays go somewhere else** to send holidays somewhere of their own.
+3. **After hours**: outside office hours and on holidays, **Play "We're closed", then voicemail** (recommended: callers hear "We're closed right now, please leave a message"; choose whose voicemail under **Whose voicemail**; a box with its own "we're closed" greeting plays that instead, see [Voicemail](voicemail#your-greeting)), **Play "We're closed", then hang up**, or **Somewhere else**. Tick **Holidays go somewhere else** to send holidays somewhere of their own.
 
    ![After hours and holidays](screen:incoming-wizard-after)
 

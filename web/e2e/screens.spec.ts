@@ -619,6 +619,39 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-lines-detail`);
     });
 
+    test("voicemail", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true, email: "on" });
+      await page.goto("/voicemail");
+      await expect(page.getByRole("heading", { name: "Voicemail", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "NEW" })).toBeVisible();
+      await expect(page.getByText("Heard by Sara Haddad", { exact: false })).toBeVisible();
+      // The badge: two new in my box and Sales'; the tab's title says so too.
+      await expect(page.getByRole("button", { name: "Voicemail" })).toContainText("2");
+      await expect(page).toHaveTitle("(2) Linx");
+      await shot(page, `${scheme}-voicemail`);
+
+      // Playing to the end marks it heard.
+      await page.getByRole("button", { name: "Play the message from 0501234567" }).click();
+      await expect(page.getByRole("region", { name: "HEARD" })).toContainText("0501234567");
+
+      // Settings: my greeting, recorded; email on.
+      await page.getByRole("main").getByRole("button", { name: "Settings" }).click();
+      await expect(page.getByText("To mohammed@example.com", { exact: false })).toBeVisible();
+      await expect(page.getByText("recorded", { exact: false }).first()).toBeVisible();
+      await shot(page, `${scheme}-voicemail-settings`);
+      await page.getByRole("button", { name: "Record" }).last().click();
+      await expect(page.getByRole("heading", { name: /Record your .we.re closed. greeting/ })).toBeVisible();
+      await shot(page, `${scheme}-voicemail-record`);
+      await page.keyboard.press("Escape");
+    });
+
+    test("voicemail, empty", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, noVoicemail: true });
+      await page.goto("/voicemail");
+      await expect(page.getByText("No voicemail")).toBeVisible();
+      await shot(page, `${scheme}-voicemail-empty`);
+    });
+
     test("ring groups", async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
       await page.goto("/admin/ring-groups");
@@ -651,6 +684,7 @@ for (const scheme of ["light", "dark"] as const) {
       // choosing Support for Sales is greyed as a loop.
       await page.getByRole("row", { name: /^Sales/ }).click();
       await expect(page.getByText("Support (if nobody answers)")).toBeVisible();
+      await expect(page.getByText("Our own").first()).toBeVisible();
       await shot(page, `${scheme}-ring-groups-detail`);
       await page.getByRole("button", { name: "Edit" }).nth(3).click();
       await page.getByRole("combobox").click();
@@ -1130,6 +1164,7 @@ test.describe("phone width", () => {
     ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/status", "system-status", "Linx services"],
     ["/admin/system/backups", "system-backups", "Backups"], ["/admin/system/server", "system-server", "Server settings"],
     ["/admin/lines", "lines", "Phone lines"], ["/admin/incoming", "incoming", "Incoming calls"],
+    ["/voicemail", "voicemail", "Voicemail"],
     ["/admin/ring-groups", "ring-groups", "Ring groups"], ["/admin/office-hours", "office-hours", "Office hours"],
     ["/admin/outgoing", "outgoing", "Outgoing calls"], ["/admin/simulator", "simulator", "Call simulator"],
     ["/admin/connections", "connections", "Connections"],

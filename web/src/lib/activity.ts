@@ -8,6 +8,7 @@ const THINGS: Record<string, string> = {
   settings: "settings", alert_channel: "place for alerts", api_key: "API key", oauth_client: "app login",
   webhook: "webhook", webhook_delivery: "webhook delivery", outbound_allowlist: "home-network address", sso_provider: "company sign-in",
   backup: "backup", system: "service", sip: "browser phone line",
+  voicemail: "voicemail", voicemail_box: "voicemail box", voicemail_greeting: "voicemail greeting",
 };
 const VERBS: Record<string, string> = {
   create: "Added", update: "Changed", delete: "Removed", revoke: "Removed", disable: "Turned off", unlock: "Unlocked",
@@ -22,6 +23,7 @@ const SENTENCES: Record<string, string> = {
   "user.password_set": "Set a password", "user.password_only_accepted": "Chose to sign in with a password only",
   "backup.password_shown": "Showed a backup file's password", "sip.relay_closed": "Closed a browser phone line",
   "system.service_restart": "Restarted a service",
+  "voicemail_greeting.record": "Recorded a voicemail greeting", "voicemail.keep_days": "Changed how long voicemail is kept",
 };
 
 export interface AuditEntryLike {

@@ -31,7 +31,9 @@ The person calling never rings themselves, even when they're in the group.
 
 ## If nobody answers
 
-Choose where unanswered calls go: the group's own voicemail (recommended: callers leave a message, and everyone in the group will see it), someone's voicemail, a person, another ring group, *Play "We're closed" and hang up*, or **Nobody** (callers hear "not available"). Messages left for a group aren't emailed, since nobody owns the group's address.
+Choose where unanswered calls go: the group's own voicemail (recommended: callers leave a message, and everyone in the group will see it), someone's voicemail, a person, another ring group, *Play "We're closed" and hang up*, or **Nobody** (callers hear "not available"). Messages left for a group aren't emailed, since nobody owns the group's address. Everyone in the group hears them in [Voicemail](voicemail).
+
+The group's details have its **Voicemail** settings: on or off (admins), and its own greeting and "we're closed" greeting, which anyone in the group can record.
 
 A choice that would send calls round in circles (Sales to Support, and Support back to Sales) is greyed out, with the reason. Even so, Linx stops any call after 10 places.
 

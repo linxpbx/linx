@@ -11,6 +11,7 @@ import {
   DestinationPicker, NOT_AVAILABLE, OWN_VOICEMAIL, destinationLabel, type Destination, type ExtensionChoice, type RingGroup,
 } from "@/components/DestinationPicker";
 import { Dot } from "@/components/presence";
+import { VoicemailBoxPanel } from "@/components/VoicemailBox";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -497,6 +498,12 @@ function RingGroupSheet({ me, group, extensions, groups, onClose, onChanged, onR
               <p className="text-sm text-muted-foreground">Leave it empty for no number.</p>
             </div>,
             () => void save({ number: number.trim() }))}
+
+          {!readOnly && (
+            <section className="flex flex-col gap-3 rounded-md border p-3" aria-label="Voicemail box">
+              <VoicemailBoxPanel boxId={group.id} groupName={group.name} />
+            </section>
+          )}
 
           <section className="flex flex-col gap-1">
             <h3 className="text-sm font-semibold">Used by</h3>

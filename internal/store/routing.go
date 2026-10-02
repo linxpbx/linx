@@ -20,7 +20,8 @@ import (
 func (s *Store) RingGroups(ctx context.Context, tenant uuid.UUID) ([]routing.RingGroup, error) {
 	rows, err := s.pool.Query(ctx, `SELECT g.id, g.tenant_id, g.name, coalesce(g.number, ''), g.strategy, g.ring_seconds, g.turn_seconds,
 			g.no_answer_kind, coalesce(g.no_answer_extension_id, vb.extension_id), coalesce(g.no_answer_ring_group_id, vb.ring_group_id),
-			coalesce(g.no_answer_message, ''), g.version, g.created_at, g.updated_at
+			coalesce(g.no_answer_message, ''), g.version, g.created_at, g.updated_at,
+			NOT coalesce((SELECT own.enabled FROM voicemail_box own WHERE own.id = g.id), true)
 		FROM ring_group g LEFT JOIN voicemail_box vb ON vb.id = g.no_answer_voicemail_id
 		WHERE g.tenant_id = $1 ORDER BY lower(g.name), g.id`, tenant)
 	if err != nil {
@@ -32,7 +33,7 @@ func (s *Store) RingGroups(ctx context.Context, tenant uuid.UUID) ([]routing.Rin
 		var g routing.RingGroup
 		if err := rows.Scan(&g.ID, &g.TenantID, &g.Name, &g.Number, &g.Strategy, &g.RingSeconds, &g.TurnSeconds,
 			&g.NoAnswer.Kind, &g.NoAnswer.ExtensionID, &g.NoAnswer.RingGroupID, &g.NoAnswer.Message,
-			&g.Version, &g.CreatedAt, &g.UpdatedAt); err != nil {
+			&g.Version, &g.CreatedAt, &g.UpdatedAt, &g.VoicemailOff); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -70,8 +71,9 @@ func (s *Store) RingGroups(ctx context.Context, tenant uuid.UUID) ([]routing.Rin
 
 // Extensions returns the tenant's live extensions with these ids.
 func (s *Store) Extensions(ctx context.Context, tenant uuid.UUID, ids []uuid.UUID) ([]routing.ExtensionRef, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, number, display_name FROM extension
-		WHERE tenant_id = $1 AND id = ANY($2) AND deleted_at IS NULL`, tenant, ids)
+	rows, err := s.pool.Query(ctx, `SELECT e.id, e.number, e.display_name, NOT coalesce(b.enabled, true)
+		FROM extension e LEFT JOIN voicemail_box b ON b.id = e.id
+		WHERE e.tenant_id = $1 AND e.id = ANY($2) AND e.deleted_at IS NULL`, tenant, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +81,7 @@ func (s *Store) Extensions(ctx context.Context, tenant uuid.UUID, ids []uuid.UUI
 	out := []routing.ExtensionRef{}
 	for rows.Next() {
 		var e routing.ExtensionRef
-		if err := rows.Scan(&e.ID, &e.Number, &e.DisplayName); err != nil {
+		if err := rows.Scan(&e.ID, &e.Number, &e.DisplayName, &e.VoicemailOff); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

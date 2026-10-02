@@ -82,9 +82,11 @@ type RingGroup struct {
 	TurnSeconds int // one after another: each person
 	Members     []Member
 	NoAnswer    Destination
-	Version     int
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// VoicemailOff: the group's own box is turned off.
+	VoicemailOff bool
+	Version      int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // ExtensionRef is what the screens show for an extension destination.
@@ -92,6 +94,8 @@ type ExtensionRef struct {
 	ID          uuid.UUID
 	Number      string
 	DisplayName string
+	// VoicemailOff: the person's box is turned off.
+	VoicemailOff bool
 }
 
 // Span is one opening of a schedule on one weekday (0 Sunday … 6
