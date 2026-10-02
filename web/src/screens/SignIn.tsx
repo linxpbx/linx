@@ -990,8 +990,7 @@ function ResetLinkStep({ token, onDone, onSignedIn, onForgot }:
       passkeyAnswer={() => answerWithPasskey(`${path}/passkey`, { body: { password } })}
       onRefused={refused}
       footer={<p className="text-sm text-muted-foreground">
-        Lost your authenticator app and passkey? Ask your admin to reset them, or they can
-        run <code className="font-mono whitespace-nowrap">sudo linx user reset-2fa</code> on the server.
+        Lost your authenticator app, passkey and recovery codes? Ask your admin to reset your second step.
       </p>} />
   );
 }

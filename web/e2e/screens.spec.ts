@@ -201,7 +201,7 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Continue" }).click();
       await expect(page.getByRole("heading", { name: "Enter your code" })).toBeVisible();
       await expect(page.getByText("To finish, confirm with your authenticator app or passkey.", { exact: false })).toBeVisible();
-      await expect(page.getByText("sudo linx user reset-2fa")).toBeVisible();
+      await expect(page.getByText("Ask your admin to reset your second step.", { exact: false })).toBeVisible();
       await shot(page, `${scheme}-sign-in-forgot-second-step`);
       // A common password is refused only once the second step is sent:
       // back to choosing one, with why.

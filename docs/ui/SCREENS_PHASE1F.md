@@ -371,7 +371,7 @@ The emailed link opens:
   Type it again    [                ]
                    [ Continue ]
 ```
-Then **the second step, always** (the 1C code step or "Use my passkey"), with: "To finish, confirm with your authenticator app or passkey." Lost that too: "Ask your admin to reset it, or they can run sudo linx user reset-2fa on the server." Then:
+Then **the second step, always** (the 1C code step or "Use my passkey"), with: "To finish, confirm with your authenticator app or passkey." Lost that too: "Lost your authenticator app, passkey and recovery codes? Ask your admin to reset your second step." (No server commands on the sign-in pages: owner, 2026-10-02.) Then:
 ```
   ✓ Your password is changed.
   You've been signed out everywhere else.   [ Continue to Linx ]
