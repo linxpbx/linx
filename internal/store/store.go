@@ -19,7 +19,18 @@ import (
 
 // Store implements auth.Store and the API's credential management.
 type Store struct {
-	pool *pgxpool.Pool
+	pool querier
+	// routingWords puts routing changes into words (routing_changes.go).
+	routingWords RoutingWords
+}
+
+// querier is what the store runs SQL on: the pool, or one transaction (a
+// routing version read and rolled back, routing_changes.go).
+type querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 // New wraps a connection pool.

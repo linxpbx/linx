@@ -42,3 +42,7 @@ People you call see no number. Some phone companies ignore this.
 ![A call the simulator allowed](screen:simulator-allowed)
 
 ![A call in on Friday evening, outside office hours](screen:simulator-after-hours)
+
+## Undo
+
+Every change here can be undone: **Undo** shows for 10 seconds after you save, and System → **Routing changes** keeps the last 50. See [Undo and routing changes](routing-changes).

@@ -24,7 +24,9 @@ type Service struct {
 	// Rules is office hours, "When someone calls" and the simulator; nil
 	// leaves them out (ring groups alone).
 	Rules RulesStore
-	Now   func() time.Time
+	// Changes is undo for routing (changes.go); nil leaves it out.
+	Changes ChangeStore
+	Now     func() time.Time
 }
 
 var errNoPrincipal = errors.New("no principal on the request: authentication middleware is missing")

@@ -1573,6 +1573,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/routing-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Routing changes
+         * @description Every kept change to where calls go (ADR-071, docs/PHASE1F.md §9), newest first: numbers and lines, ring groups, office hours and holidays, "When someone calls", the order outgoing calls try the lines and what each calling level allows. The last 50 are kept. A request that makes one answers with its id in the `Linx-Routing-Change` header. A change that changed nothing is left out. Not paginated.
+         */
+        get: operations["listRoutingChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/routing-changes/{id}/put-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What putting a version back would change
+         * @description Compares the routing now with how it was just before change `id`.
+         */
+        get: operations["previewRoutingPutBack"];
+        put?: never;
+        /**
+         * Put a routing version back
+         * @description Puts the routing back as it was just before change `id`, as a new change (so it can be undone too). With `undo`, only while `id` is still the newest change (409 `routing_changed` otherwise), so "Saved. Undo" never undoes someone else's later change. 409 `cannot_put_back` when the version doesn't fit how things are now (a group's number is now an extension's). Turning on calls abroad or premium numbers needs a fresh "confirm it's you" (403 `confirm_required`), and changing outgoing calls also needs `trunks:write`.
+         */
+        post: operations["putRoutingBack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/calls/active": {
         parameters: {
             query?: never;
@@ -4533,6 +4579,62 @@ export interface components {
             turn_seconds?: number;
             member_ids?: string[];
             if_no_answer?: components["schemas"]["Destination"];
+        };
+        RoutingChangeList: {
+            items: components["schemas"]["RoutingChange"][];
+        };
+        RoutingChange: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            at: string;
+            /** @description Who made it, as in the activity log (`user:<id>`). */
+            actor: string;
+            /** @description The person's name; empty for an API key, an app or the server. */
+            actor_name: string;
+            /**
+             * @description `put_back`: a version put back from Routing changes; `undo`: from "Saved. Undo" (or Redo).
+             * @enum {string}
+             */
+            kind: "change" | "put_back" | "undo";
+            /**
+             * Format: date-time
+             * @description For `put_back` and `undo`, when the change whose version was put back was made.
+             */
+            put_back_at?: string;
+            /** @description In a few words ("Changed Sales", "Added the ring group Support"). */
+            summary: string;
+            /** @description What it changed, before and after, in the screens' sentences. Absent when it wasn't kept in words. */
+            changes?: components["schemas"]["RoutingItemChange"][];
+        };
+        RoutingItemChange: {
+            /** @enum {string} */
+            kind: "ring_group" | "schedule" | "number" | "line" | "outgoing" | "calling_level";
+            /** @description "Sales", a number, "Other calls on du"; "Old → New" when renamed. */
+            name: string;
+            /** @description The sentence before; absent when it was added. */
+            before?: string;
+            /** @description The sentence after; absent when it was removed. */
+            after?: string;
+        };
+        RoutingPutBackPreview: {
+            /** @description What putting it back would change (from now to the version). */
+            changes: components["schemas"]["RoutingItemChange"][];
+            /** @description It turns on calls abroad or premium numbers, so a session must confirm it's you. */
+            needs_confirm: boolean;
+            /** @description It changes outgoing calls, which needs `trunks:write` too. */
+            changes_outgoing: boolean;
+        };
+        RoutingPutBack: {
+            /** @description "Saved. Undo" (or Redo): only while this is still the newest change. */
+            undo?: boolean;
+        };
+        RoutingPutBackResult: {
+            /**
+             * Format: uuid
+             * @description The new change (undo it to redo).
+             */
+            id: string;
         };
         RingGroupList: {
             items: components["schemas"]["RingGroup"][];
@@ -8447,6 +8549,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Incoming"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listRoutingChanges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The changes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingChangeList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    previewRoutingPutBack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What it would change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingPutBackPreview"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    putRoutingBack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingPutBack"];
+            };
+        };
+        responses: {
+            /** @description Put back; the new change. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutingPutBackResult"];
                 };
             };
             default: components["responses"]["Problem"];

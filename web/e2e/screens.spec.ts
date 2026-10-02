@@ -716,6 +716,11 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Create" }).click();
       await expect(page.getByText("Calls ring Sara Haddad, then Reception, 15 seconds each. If nobody answers, the call goes to Sales.")).toBeVisible();
       await page.getByRole("button", { name: "Done" }).click();
+      // "Saved. Undo" after every routing change (ADR-071).
+      await expect(page.getByRole("status").getByText("Saved.")).toBeVisible();
+      await shot(page, `${scheme}-undo-toast`);
+      await page.getByRole("status").getByRole("button", { name: "Undo" }).click();
+      await expect(page.getByRole("status").getByRole("button", { name: "Redo" })).toBeVisible();
 
       // Sales' detail: Support sends its unanswered calls there, so
       // choosing Support for Sales is greyed as a loop.
@@ -832,6 +837,20 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: /Added person "Chen Wei"/ }).click();
       await expect(page.getByText("user.create")).toBeVisible();
       await shot(page, `${scheme}-system-activity-detail`);
+      await page.keyboard.press("Escape");
+
+      await page.goto("/admin/system/routing-changes");
+      await expect(page.getByText("Put back the version from")).toBeVisible();
+      await shot(page, `${scheme}-system-routing-changes`);
+      await page.getByRole("button", { name: "See the change" }).first().click();
+      await expect(page.getByText("Calls ring Sara Haddad, then Reception, 15 seconds each.", { exact: false })).toBeVisible();
+      await shot(page, `${scheme}-system-routing-changes-see`);
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "Put this back" }).first().click();
+      await expect(page.getByRole("dialog").getByText("+97142000102", { exact: true })).toBeVisible();
+      await shot(page, `${scheme}-system-routing-changes-put-back`);
+      await page.getByRole("button", { name: "Put it back" }).click();
+      await expect(page.getByRole("dialog")).toBeHidden();
 
       await page.goto("/admin/system/settings");
       await expect(page.getByRole("heading", { name: "Company sign-in" })).toBeVisible();
@@ -1206,6 +1225,7 @@ test.describe("phone width", () => {
     ["/admin/outgoing", "outgoing", "Outgoing calls"], ["/admin/simulator", "simulator", "Call simulator"],
     ["/admin/connections", "connections", "Connections"],
     ["/admin/system/alerts", "system-alerts", "Where alerts go"], ["/admin/system/activity", "system-activity", "System"],
+    ["/admin/system/routing-changes", "system-routing-changes", "System"],
     ["/admin/system/settings", "system-settings", "Admins can sign in from"],
     ["/admin/webhooks", "webhooks", "Webhooks"], ["/admin/api-keys", "api-keys", "API keys"],
     ["/help", "help", "Help"], ["/help/extensions", "help-guide", "Extensions"],
@@ -1371,7 +1391,7 @@ test.describe("system: server settings", () => {
   test("at home: a new domain shows what it needs first", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
     await page.goto("/admin/system/server");
-    await page.getByRole("button", { name: "Change" }).nth(1).click();
+    await page.getByRole("button", { name: "Change", exact: true }).nth(1).click();
     await expect(page.getByRole("button", { name: "Check", exact: true })).toBeDisabled();
     await page.getByLabel("New domain").fill("203.0.113.9");
     await page.getByRole("button", { name: "Check", exact: true }).click();
@@ -1395,7 +1415,7 @@ test.describe("system: server settings", () => {
   test("at home: another public port", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
     await page.goto("/admin/system/server");
-    await page.getByRole("button", { name: "Change" }).first().click();
+    await page.getByRole("button", { name: "Change", exact: true }).first().click();
     await page.getByRole("button", { name: "Advanced" }).click();
     await page.getByRole("radio", { name: /public port/ }).click();
     // The owner's warning comes first (docs/SIMPLER.md §2.5).
@@ -1422,7 +1442,7 @@ test.describe("system: server settings", () => {
   test("a server that stops answering: the page says so", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
     await page.goto("/admin/system/server");
-    await expect(page.getByRole("button", { name: "Change" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Change", exact: true }).first()).toBeVisible();
     // A port a move closed can drop requests rather than refuse them: the
     // page mustn't wait for ever (Demo A).
     await page.route("**/api/v1/server-settings", () => new Promise(() => {}));
@@ -1444,7 +1464,7 @@ test.describe("system: server settings", () => {
   test("rented, no key: another public port asks for one", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
     await page.goto("/admin/system/server");
-    await page.getByRole("button", { name: "Change" }).first().click();
+    await page.getByRole("button", { name: "Change", exact: true }).first().click();
     await page.getByRole("button", { name: "Advanced" }).click();
     await page.getByRole("radio", { name: /public port/ }).click();
     await page.getByRole("button", { name: "Use another port" }).click();
@@ -1466,7 +1486,7 @@ test.describe("system: server settings", () => {
   test("rented, no token: a new domain's DNS records to add first", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
     await page.goto("/admin/system/server");
-    await page.getByRole("button", { name: "Change" }).first().click();
+    await page.getByRole("button", { name: "Change", exact: true }).first().click();
     await expect(page.getByRole("radio", { name: "Another program passes Linx through" })).toBeVisible();
     // A proxy that unlocks the traffic is home only (decision 2026-09-30);
     // another public port is offered on rented servers too (ADR-064).
@@ -1474,7 +1494,7 @@ test.describe("system: server settings", () => {
     await expect(page.getByRole("radio", { name: /public port/ })).toBeVisible();
     await expect(page.getByRole("radio", { name: /unlocks the traffic/ })).toHaveCount(0);
     await page.getByRole("radio", { name: "Nothing else uses port 443 — Linx takes it" }).click();
-    await page.getByRole("button", { name: "Change" }).first().click();
+    await page.getByRole("button", { name: "Change", exact: true }).first().click();
     await page.getByLabel("New domain").fill("pbx.example.org");
     // The front door's editor is open too: its Check stays off until it changes.
     await expect(page.getByRole("button", { name: "Check", exact: true }).first()).toBeDisabled();
@@ -1534,7 +1554,7 @@ test.describe("repair page (port 6464)", () => {
     await fakeServer(page, { repair: "no-sign-in", serverSettings: "rented" });
     await page.goto("/repair");
     await expect(page.getByRole("heading", { name: "Fix this server's address" })).toBeVisible();
-    await page.getByRole("button", { name: "Change" }).nth(1).click();
+    await page.getByRole("button", { name: "Change", exact: true }).nth(1).click();
     await page.getByLabel("New domain").fill("pbx.example.org");
     await page.getByRole("button", { name: "Check", exact: true }).click();
     await expect(page.getByText("DNS records to add")).toBeVisible();

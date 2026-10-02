@@ -20,6 +20,7 @@ import { navigate } from "@/hooks/useRoute";
 import { hasScope, isReadOnlyAdmin } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { TimeSelect } from "@/components/TimeSelect";
+import { useRoutingPutBack } from "@/lib/routingUndo";
 import { zonedISO, zonedToday, zoneLabel, type Schedule } from "./OfficeHours";
 
 type Incoming = components["schemas"]["Incoming"];
@@ -400,6 +401,7 @@ export function IncomingCallsScreen({ me }: { me: Me }) {
     if (st.data) setHome(st.data.site_kind === "home");
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useRoutingPutBack(load);
 
   if (items === null) return <div className="p-6" aria-busy="true" />;
   const numbers = items.filter((i) => i.kind === "number");

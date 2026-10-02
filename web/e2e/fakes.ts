@@ -299,6 +299,29 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   const json = (body: unknown, status = 200) => ({
     status, contentType: status >= 400 ? "application/problem+json" : "application/json", body: JSON.stringify(body),
   });
+  // A routing change answers with its id, for "Saved. Undo" (ADR-071).
+  const routingSaved = <T extends object>(r: T) => ({ ...r, headers: { "Linx-Routing-Change": "rc-new" } });
+  const at = (daysAgo: number, h: number, m: number) => {
+    const d = new Date(Date.now() - daysAgo * 86_400_000);
+    d.setHours(h, m, 0, 0);
+    return d.toISOString();
+  };
+  const routingChanges = [
+    { id: "rc4", at: at(0, 10, 12), actor: "user:u1", actor_name: "Mohammed Ali", kind: "change", summary: "Changed Sales", changes: [{
+      kind: "ring_group", name: "Sales",
+      before: "Number 6000. Calls ring Sara Haddad and Reception together. If nobody answers in 25 seconds, callers can leave a voicemail for Sales.",
+      after: "Number 6000. Calls ring Sara Haddad, then Reception, 15 seconds each. If nobody answers, callers can leave a voicemail for Sales." }] },
+    { id: "rc3", at: at(0, 9, 40), actor: "user:u2", actor_name: "Sara Haddad", kind: "change", summary: "Changed +97142000102", changes: [{
+      kind: "number", name: "+97142000102",
+      before: "Calls to +97142000102 ring Sales (all at once). If nobody answers, callers can leave a voicemail for Sales.",
+      after: "Calls to +97142000102 ring Support (all at once). If nobody answers, callers can leave a voicemail for Support." }] },
+    { id: "rc2", at: at(3, 16, 0), actor: "user:u1", actor_name: "Mohammed Ali", kind: "change", summary: "Changed Office hours", changes: [{
+      kind: "schedule", name: "Office hours", before: "Open Mon–Fri 08:00–17:00. No holidays.",
+      after: "Open Mon–Fri 08:00–17:00. Closed on Eid al-Fitr (2027-03-20 to 2027-03-22)." }] },
+    { id: "rc1", at: at(3, 15, 58), actor: "user:u1", actor_name: "Mohammed Ali", kind: "put_back", put_back_at: at(3, 15, 30),
+      summary: "Changed Staff", changes: [{ kind: "calling_level", name: "Staff",
+        before: "Can call local numbers, service numbers, mobiles and abroad.", after: "Can call local numbers, service numbers and mobiles." }] },
+  ];
   const seed = seedPeople();
   const lines = seedLines(!!opts.noLines);
   const settings: Json = {
@@ -923,7 +946,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       const sc: Json = { id: `s${people.nextId++}`, name: body.name, version: 1, holidays: [],
         spans: [1, 2, 3, 4, 5].map((weekday) => ({ weekday, opens: "08:00", closes: "17:00" })) };
       schedules.push(sc);
-      return route.fulfill(json(scheduleView(sc), 201));
+      return route.fulfill(routingSaved(json(scheduleView(sc), 201)));
     }
     const scheduleId = idAfter(p, "/api/v1/schedules/");
     if (scheduleId && method === "PATCH") {
@@ -931,7 +954,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       if (!sc) return route.fulfill(notFound());
       Object.assign(sc, route.request().postDataJSON() as Json);
       sc.version = Number(sc.version) + 1;
-      return route.fulfill(json(scheduleView(sc)));
+      return route.fulfill(routingSaved(json(scheduleView(sc))));
     }
     if (scheduleId && method === "DELETE") {
       schedules.splice(schedules.findIndex((x) => x.id === scheduleId), 1);
@@ -957,7 +980,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         if (keep.rule) rules[incomingId] = keep.rule; else delete rules[incomingId];
         if (x) x[field] = before;
       }
-      return route.fulfill(json(view));
+      return route.fulfill(body.preview ? json(view) : routingSaved(json(view)));
     }
     if (p === "/api/v1/inbound-routes" && method === "GET") return route.fulfill(json({ items: lines.dids }));
     if (p === "/api/v1/trunks" && method === "GET") return route.fulfill(json({ items: lines.trunks }));
@@ -1196,6 +1219,15 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       }
       return route.fulfill(json(vmSettings(b)));
     }
+    if (p === "/api/v1/routing-changes" && method === "GET") return route.fulfill(json({ items: routingChanges }));
+    if (/^\/api\/v1\/routing-changes\/[^/]+\/put-back$/.test(p)) {
+      if (method === "POST") return route.fulfill(json({ id: "rc-put-back" }, 201));
+      const [sales, number] = [routingChanges[0]!.changes[0]!, routingChanges[1]!.changes[0]!];
+      return route.fulfill(json({ needs_confirm: false, changes_outgoing: false, changes: [
+        { kind: "ring_group", name: "Sales", before: sales.after, after: sales.before },
+        { kind: "number", name: "+97142000102", before: number.after, after: number.before },
+      ] }));
+    }
     if (p === "/api/v1/ring-groups" && method === "GET") return route.fulfill(json({ items: groups.map(ringGroupView) }));
     if (p === "/api/v1/ring-groups" && method === "POST") {
       const body = route.request().postDataJSON() as Partial<FakeRingGroup> & { member_ids: string[] };
@@ -1204,7 +1236,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         if_no_answer: body.if_no_answer ?? { kind: "voicemail" }, version: 1 };
       if (g.if_no_answer.kind === "voicemail" && !g.if_no_answer.extension_id && !g.if_no_answer.ring_group_id) g.if_no_answer = { kind: "voicemail", ring_group_id: g.id };
       groups.push(g);
-      return route.fulfill(json(ringGroupView(g), 201));
+      return route.fulfill(routingSaved(json(ringGroupView(g), 201)));
     }
     const groupId = idAfter(p, "/api/v1/ring-groups/");
     if (groupId && method === "PATCH") {
@@ -1213,11 +1245,11 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       Object.assign(g, route.request().postDataJSON() as Partial<FakeRingGroup>);
       if (g.number === "") g.number = undefined;
       g.version++;
-      return route.fulfill(json(ringGroupView(g)));
+      return route.fulfill(routingSaved(json(ringGroupView(g))));
     }
     if (groupId && method === "DELETE") {
       groups = groups.filter((x) => x.id !== groupId);
-      return route.fulfill({ status: 204 });
+      return route.fulfill(routingSaved({ status: 204 }));
     }
     if (p === "/api/v1/numbering/next" && method === "GET") {
       // The first free number in the people range (1111 when the fake's

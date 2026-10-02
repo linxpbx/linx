@@ -9,6 +9,11 @@ screens: []
 
 The newest changes come first. Each Linx update brings its own help pages, so these guides always match the version your server runs.
 
+## Undo for call routing
+
+- After every change to where calls go, **Saved.** and **Undo** show for 10 seconds. See [Undo and routing changes](routing-changes).
+- System → **Routing changes**: the last 50 changes, who made them, **See the change** (before and after), and **Put this back**.
+
 ## Call history
 
 - **Call history** in the sidebar: your calls, newest first, missed ones in red, with **Call** to ring back and each call's steps ("Rang Sales… nobody answered… left a voicemail"). The number on it counts the calls you missed since you last looked. See [Call history](call-history).

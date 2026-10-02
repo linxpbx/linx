@@ -107,7 +107,7 @@ func destColumns(d routing.Destination) (string, *uuid.UUID, *uuid.UUID, *uuid.U
 // 0034's trigger), so g can send its unanswered calls there.
 func (s *Store) CreateRingGroup(ctx context.Context, g routing.RingGroup, audit auth.AuditEntry) error {
 	kind, ext, grp, box, msg := destColumns(g.NoAnswer)
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.routingTx(ctx, g.TenantID, audit, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO ring_group (id, tenant_id, name, number, strategy, ring_seconds, turn_seconds,
 				no_answer_kind, no_answer_extension_id, no_answer_ring_group_id, no_answer_voicemail_id, no_answer_message,
 				version, created_at, updated_at)
@@ -126,7 +126,7 @@ func (s *Store) CreateRingGroup(ctx context.Context, g routing.RingGroup, audit 
 
 func (s *Store) UpdateRingGroup(ctx context.Context, g routing.RingGroup, audit auth.AuditEntry) error {
 	kind, ext, grp, box, msg := destColumns(g.NoAnswer)
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.routingTx(ctx, g.TenantID, audit, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE ring_group SET name = $4, number = $5, strategy = $6, ring_seconds = $7, turn_seconds = $8,
 				no_answer_kind = $9, no_answer_extension_id = $10, no_answer_ring_group_id = $11, no_answer_voicemail_id = $12,
 				no_answer_message = $13, version = version + 1, updated_at = $14
@@ -179,7 +179,7 @@ func setMembers(ctx context.Context, tx pgx.Tx, g routing.RingGroup) error {
 // DeleteRingGroup removes the group with its voicemail box and messages;
 // ErrInUse while something else sends calls to either.
 func (s *Store) DeleteRingGroup(ctx context.Context, tenant, id uuid.UUID, audit auth.AuditEntry) error {
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.routingTx(ctx, tenant, audit, func(tx pgx.Tx) error {
 		var used bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ring_group WHERE no_answer_voicemail_id = $1 AND id <> $1)
 				OR EXISTS (SELECT 1 FROM incoming_rule WHERE $1 IN (no_answer_voicemail_id, closed_voicemail_id, holiday_voicemail_id))`,

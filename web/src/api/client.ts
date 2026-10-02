@@ -2,6 +2,7 @@
 // api/openapi.yaml (`make api` regenerates schema.d.ts).
 import createClient, { type Middleware } from "openapi-fetch";
 import type { components, paths } from "./schema";
+import { routingUndo } from "@/lib/routingUndo";
 
 export type Me = components["schemas"]["Principal"];
 export type WebPhone = components["schemas"]["WebPhone"];
@@ -55,7 +56,7 @@ export const api = createClient<paths>({
   credentials: "same-origin",
   fetch: (req) => globalThis.fetch(req),
 });
-api.use(csrf, mergePatch);
+api.use(csrf, mergePatch, routingUndo);
 
 /** The plain-language message from a problem+json error, or a fallback. */
 export function problemMessage(error: unknown, fallback = "Something went wrong. Please try again."): string {

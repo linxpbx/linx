@@ -112,7 +112,7 @@ func (s *Store) OfficeHoursStates(ctx context.Context, tenant uuid.UUID, at time
 }
 
 func (s *Store) CreateOfficeHours(ctx context.Context, sc routing.Schedule, audit auth.AuditEntry) error {
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.routingTx(ctx, sc.TenantID, audit, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO schedule (id, tenant_id, name, version, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6)`, sc.ID, sc.TenantID, sc.Name, sc.Version, sc.CreatedAt, sc.UpdatedAt)
 		if err != nil {
@@ -129,7 +129,7 @@ func (s *Store) CreateOfficeHours(ctx context.Context, sc routing.Schedule, audi
 }
 
 func (s *Store) UpdateOfficeHours(ctx context.Context, sc routing.Schedule, audit auth.AuditEntry) error {
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.routingTx(ctx, sc.TenantID, audit, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `UPDATE schedule SET name = $4, version = version + 1, updated_at = $5
 			WHERE id = $1 AND tenant_id = $2 AND version = $3`, sc.ID, sc.TenantID, sc.Version, sc.Name, sc.UpdatedAt)
 		if err != nil {
@@ -179,7 +179,7 @@ func setScheduleParts(ctx context.Context, tx pgx.Tx, sc routing.Schedule) error
 }
 
 func (s *Store) DeleteOfficeHours(ctx context.Context, tenant, id uuid.UUID, audit auth.AuditEntry) error {
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.routingTx(ctx, tenant, audit, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `DELETE FROM schedule WHERE id = $1 AND tenant_id = $2`, id, tenant)
 		if err != nil {
 			if isRestrictViolation(err) {
@@ -287,7 +287,7 @@ func (s *Store) SetIncoming(ctx context.Context, in routing.Incoming, audit auth
 	if in.Rings != nil {
 		ext, grp = in.Rings.ExtensionID, in.Rings.RingGroupID
 	}
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	return s.routingTx(ctx, in.TenantID, audit, func(tx pgx.Tx) error {
 		var tag pgconn.CommandTag
 		var err error
 		if in.Kind == routing.IncomingLine {

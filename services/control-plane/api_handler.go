@@ -12,6 +12,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/backupschedule"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/routing"
 	"linxpbx.com/linx/internal/settings"
 	"linxpbx.com/linx/internal/sso"
 	"linxpbx.com/linx/internal/trunk"
@@ -50,6 +51,7 @@ func newAPIHandler(log *slog.Logger, store controlplaneapi.CredentialStore, auth
 	handler := controlplaneapi.HandlerFromMux(strict, http.NewServeMux())
 	handler = apihttp.Validator(spec, authn.Authorize)(handler)
 	handler = authn.Middleware(handler)
+	handler = routing.ChangeHeader(handler)
 	handler = apihttp.LimitBody(handler)
 	handler = apihttp.NoStore(handler)
 	return handler, nil

@@ -167,7 +167,16 @@ func (s *Store) ListTrunks(ctx context.Context, tenant uuid.UUID, before *uuid.U
 
 func (s *Store) UpdateTrunk(ctx context.Context, t trunk.Trunk, audit auth.AuditEntry) (trunk.Trunk, error) {
 	var out trunk.Trunk
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	rings := func(tx pgx.Tx) (bool, error) {
+		var changed bool
+		err := tx.QueryRow(ctx, `SELECT rings_extension_id IS DISTINCT FROM $3 OR rings_ring_group_id IS DISTINCT FROM $4
+			FROM trunk WHERE id = $1 AND tenant_id = $2`, t.ID, t.TenantID, t.RingsExtensionID, t.RingsRingGroupID).Scan(&changed)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return changed, err
+	}
+	err := s.routingTxIf(ctx, t.TenantID, audit, rings, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanTrunk(tx.QueryRow(ctx, `UPDATE trunk SET
 				name = $4, kind = $5, template = $6, host = $7, port = $8, transport = $9, media_encryption = $10,
@@ -236,7 +245,7 @@ func (s *Store) DeleteTrunk(ctx context.Context, tenant, id uuid.UUID, at time.T
 // every other trunk's, in one transaction (docs/TRUNKS.md §5).
 func (s *Store) SetOutboundOrder(ctx context.Context, tenant uuid.UUID, order []uuid.UUID, at time.Time, audit auth.AuditEntry) ([]trunk.Trunk, error) {
 	var out []trunk.Trunk
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.routingTx(ctx, tenant, audit, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `UPDATE trunk SET outbound_priority = NULL, version = version + 1, updated_at = $2
 			WHERE tenant_id = $1 AND outbound_priority IS NOT NULL`, tenant, at); err != nil {
 			return fmt.Errorf("clearing outbound order: %w", err)
@@ -343,7 +352,16 @@ func collectDIDs(rows pgx.Rows) ([]trunk.DID, error) {
 
 func (s *Store) UpdateDID(ctx context.Context, d trunk.DID, audit auth.AuditEntry) (trunk.DID, error) {
 	var out trunk.DID
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	rings := func(tx pgx.Tx) (bool, error) {
+		var changed bool
+		err := tx.QueryRow(ctx, `SELECT extension_id IS DISTINCT FROM $3 OR ring_group_id IS DISTINCT FROM $4
+			FROM trunk_did WHERE id = $1 AND tenant_id = $2`, d.ID, d.TenantID, d.ExtensionID, d.RingGroupID).Scan(&changed)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return changed, err
+	}
+	err := s.routingTxIf(ctx, d.TenantID, audit, rings, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanDID(tx.QueryRow(ctx, `UPDATE trunk_did SET label = $4, extension_id = $5, ring_group_id = $7, version = version + 1, updated_at = $6
 			WHERE id = $1 AND tenant_id = $2 AND version = $3 RETURNING `+didColumns,
@@ -564,7 +582,7 @@ func (s *Store) ListCallPermissionLevels(ctx context.Context, tenant uuid.UUID, 
 
 func (s *Store) UpdateCallPermissionLevel(ctx context.Context, l trunk.CallPermissionLevel, audit auth.AuditEntry) (trunk.CallPermissionLevel, error) {
 	var out trunk.CallPermissionLevel
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err := s.routingTx(ctx, l.TenantID, audit, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanCallPermissionLevel(tx.QueryRow(ctx, `UPDATE call_permission_level SET
 				name = $4, allowed_categories = $5, withhold_caller_id = $6, version = version + 1, updated_at = $7

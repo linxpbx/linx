@@ -502,7 +502,9 @@ func main() {
 			s.SetMoved(movedSvc)
 			s.SetHelpAnswers(helpAnswers)
 			s.SetEmail(emailSvc, weburl.FromEnv(os.Getenv))
-			s.SetRouting(&routing.Service{Store: st, Rules: st, Now: time.Now})
+			routingSvc := &routing.Service{Store: st, Rules: st, Changes: st, Now: time.Now}
+			st.SetRoutingWords(routingSvc.Words)
+			s.SetRouting(routingSvc)
 			s.SetVoicemail(voicemailSvc)
 			s.SetCallHistory(historySvc)
 			s.SetReach(reachChecker.Run, reachLinks)

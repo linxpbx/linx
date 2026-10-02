@@ -45,3 +45,7 @@ At home there are no office hours: every number rings the same all the time. **A
 ## Checking it
 
 To see what a call to one of your numbers does on a given day and time, use the [call simulator](calling-permissions#the-call-simulator) and choose **On** under **When**.
+
+## Undo
+
+Every change here can be undone: **Undo** shows for 10 seconds after you save, and System → **Routing changes** keeps the last 50. See [Undo and routing changes](routing-changes).

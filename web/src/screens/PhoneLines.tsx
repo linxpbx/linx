@@ -25,6 +25,7 @@ import { kindWords, ordinal, securityWords, sinceWords, trunkDot, trunkWords } f
 import { parseProviderText, type PastedSettings } from "@/lib/providerPaste";
 import { isReadOnlyAdmin } from "@/lib/roles";
 import { cn } from "@/lib/utils";
+import { useRoutingPutBack } from "@/lib/routingUndo";
 
 type Trunk = components["schemas"]["Trunk"];
 type Did = components["schemas"]["Did"];
@@ -991,6 +992,7 @@ export function PhoneLinesScreen({ me }: { me: Me }) {
     const t = window.setInterval(() => void load(), 15_000);
     return () => window.clearInterval(t);
   }, [load]);
+  useRoutingPutBack(load);
 
   const numbersOf = (id: string) => dids.filter((d) => d.trunk_id === id);
   const q = query.trim().toLowerCase();

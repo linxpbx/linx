@@ -2640,6 +2640,83 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/routing-changes:
+    get:
+      operationId: listRoutingChanges
+      summary: Routing changes
+      description: >-
+        Every kept change to where calls go (ADR-071, docs/PHASE1F.md §9),
+        newest first: numbers and lines, ring groups, office hours and
+        holidays, "When someone calls", the order outgoing calls try the
+        lines and what each calling level allows. The last 50 are kept. A
+        request that makes one answers with its id in the
+        `Linx-Routing-Change` header. A change that changed nothing is
+        left out. Not paginated.
+      tags: [routing]
+      security:
+        - bearer: [routing:read]
+      responses:
+        "200":
+          description: The changes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingChangeList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/routing-changes/{id}/put-back:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: previewRoutingPutBack
+      summary: What putting a version back would change
+      description: >-
+        Compares the routing now with how it was just before change `id`.
+      tags: [routing]
+      security:
+        - bearer: [routing:read]
+      responses:
+        "200":
+          description: What it would change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingPutBackPreview"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: putRoutingBack
+      summary: Put a routing version back
+      description: >-
+        Puts the routing back as it was just before change `id`, as a new
+        change (so it can be undone too). With `undo`, only while `id` is
+        still the newest change (409 `routing_changed` otherwise), so
+        "Saved. Undo" never undoes someone else's later change. 409
+        `cannot_put_back` when the version doesn't fit how things are now
+        (a group's number is now an extension's). Turning on calls abroad
+        or premium numbers needs a fresh "confirm it's you" (403
+        `confirm_required`), and changing outgoing calls also needs
+        `trunks:write`.
+      tags: [routing]
+      security:
+        - bearer: [routing:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutingPutBack"
+      responses:
+        "201":
+          description: Put back; the new change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingPutBackResult"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/calls/active:
     get:
       operationId: listActiveCalls
@@ -7438,6 +7515,99 @@ components:
             format: uuid
         if_no_answer:
           $ref: "#/components/schemas/Destination"
+
+    RoutingChangeList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutingChange"
+
+    RoutingChange:
+      type: object
+      required: [id, at, actor, actor_name, summary, kind]
+      properties:
+        id:
+          type: string
+          format: uuid
+        at:
+          type: string
+          format: date-time
+        actor:
+          type: string
+          description: Who made it, as in the activity log (`user:<id>`).
+        actor_name:
+          type: string
+          description: The person's name; empty for an API key, an app or the server.
+        kind:
+          type: string
+          enum: [change, put_back, undo]
+          description: >-
+            `put_back`: a version put back from Routing changes; `undo`:
+            from "Saved. Undo" (or Redo).
+        put_back_at:
+          type: string
+          format: date-time
+          description: For `put_back` and `undo`, when the change whose version was put back was made.
+        summary:
+          type: string
+          description: In a few words ("Changed Sales", "Added the ring group Support").
+        changes:
+          type: array
+          description: What it changed, before and after, in the screens' sentences. Absent when it wasn't kept in words.
+          items:
+            $ref: "#/components/schemas/RoutingItemChange"
+
+    RoutingItemChange:
+      type: object
+      required: [kind, name]
+      properties:
+        kind:
+          type: string
+          enum: [ring_group, schedule, number, line, outgoing, calling_level]
+        name:
+          type: string
+          description: '"Sales", a number, "Other calls on du"; "Old → New" when renamed.'
+        before:
+          type: string
+          description: The sentence before; absent when it was added.
+        after:
+          type: string
+          description: The sentence after; absent when it was removed.
+
+    RoutingPutBackPreview:
+      type: object
+      required: [changes, needs_confirm, changes_outgoing]
+      properties:
+        changes:
+          type: array
+          description: What putting it back would change (from now to the version).
+          items:
+            $ref: "#/components/schemas/RoutingItemChange"
+        needs_confirm:
+          type: boolean
+          description: It turns on calls abroad or premium numbers, so a session must confirm it's you.
+        changes_outgoing:
+          type: boolean
+          description: It changes outgoing calls, which needs `trunks:write` too.
+
+    RoutingPutBack:
+      type: object
+      properties:
+        undo:
+          type: boolean
+          description: '"Saved. Undo" (or Redo): only while this is still the newest change.'
+
+    RoutingPutBackResult:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The new change (undo it to redo).
 
     RingGroupList:
       type: object

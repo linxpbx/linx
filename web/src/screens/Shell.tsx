@@ -1,6 +1,6 @@
 // The app shell (WEB_SCREENS_PHASE1C.md §2): sidebar, top search bar, the
 // screen, and the call panel on the right while a call is on.
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Activity, BarChart3, CalendarClock, Check, CircleHelp, CircleUser, Clock, FlaskConical, Grid3x3, Hash, History, IdCard, Inbox, KeyRound, LogOut, Network,
   Phone, PhoneCall, PhoneIncoming, PhoneOutgoing, Search, Settings as SettingsIcon, Users, UsersRound, Video, Voicemail, Webhook,
@@ -23,10 +23,14 @@ import { cn } from "@/lib/utils";
 import { CallPanel, IncomingCall } from "./CallPanel";
 import { DIALABLE, matchTeam } from "./Dialer";
 
+// "Saved. Undo" for routing changes: only for those who can change routing,
+// loaded on its own (it brings "confirm it's you" with it).
+const UndoToast = lazy(() => import("@/components/UndoToast").then((m) => ({ default: m.UndoToast })));
+
 export type Screen = "dialer" | "team" | "calls" | "voicemail" | "settings" | "account" | "help" | "admin-home" | "admin-people" | "admin-extensions"
   | "admin-system-status" | "admin-system-backups" | "admin-system-server"
   | "admin-lines" | "admin-incoming" | "admin-ring-groups" | "admin-office-hours" | "admin-outgoing" | "admin-simulator" | "admin-connections"
-  | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings" | "admin-webhooks" | "admin-api-keys" | "admin-calls";
+  | "admin-system-alerts" | "admin-system-activity" | "admin-system-routing-changes" | "admin-system-settings" | "admin-webhooks" | "admin-api-keys" | "admin-calls";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
   { id: "dialer", label: "Dialer", path: "/", icon: Grid3x3 },
@@ -373,6 +377,7 @@ export function Shell({ me, screen, members, presence, voicemailNew = 0, callsMi
         </div>
       </div>
       {ringing && <IncomingCall call={ringing} />}
+      {hasScope(me, "routing:write") && <Suspense fallback={null}><UndoToast me={me} /></Suspense>}
     </div>
   );
 }

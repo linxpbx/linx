@@ -41,3 +41,7 @@ Adding and removing numbers is on each line's page ([Phone lines](phone-lines)).
 ## Trying a number
 
 **Try** next to a number opens the [call simulator](calling-permissions#the-call-simulator) with that number filled in.
+
+## Undo
+
+Every change here can be undone: **Undo** shows for 10 seconds after you save, and System → **Routing changes** keeps the last 50. See [Undo and routing changes](routing-changes).

@@ -22,6 +22,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import type { ColumnDef } from "@tanstack/react-table";
 import { navigate } from "@/hooks/useRoute";
 import { isReadOnlyAdmin } from "@/lib/roles";
+import { useRoutingPutBack } from "@/lib/routingUndo";
 
 type Extension = components["schemas"]["Extension"];
 type Strategy = RingGroup["strategy"];
@@ -581,6 +582,7 @@ export function RingGroupsScreen({ me }: { me: Me }) {
     if (ext.data) setExtensions(ext.data.items.filter((e: Extension) => e.enabled).map((e: Extension) => ({ id: e.id, number: e.number, display_name: e.display_name })));
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useRoutingPutBack(load);
 
   const q = query.trim().toLowerCase();
   const rows = useMemo(() => (groups ?? []).filter((g) => !q || g.name.toLowerCase().includes(q) || (g.number ?? "").includes(q)

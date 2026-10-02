@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
 const SERVER = "/admin/system/server";
 const SYSTEM_TABS: { label: string; path?: string }[] = [
   { label: "Status", path: "/admin/system/status" }, { label: "Alerts", path: "/admin/system/alerts" },
-  { label: "Activity", path: "/admin/system/activity" }, { label: "Settings", path: "/admin/system/settings" },
+  { label: "Activity", path: "/admin/system/activity" }, { label: "Routing changes", path: "/admin/system/routing-changes" },
+  { label: "Settings", path: "/admin/system/settings" },
   { label: "Backups", path: "/admin/system/backups" }, { label: "Server settings", path: SERVER },
 ];
 

@@ -54,3 +54,7 @@ When an extension is removed, it leaves its ring groups; a group that sent its u
 ## Sending a phone number to a ring group
 
 In [Incoming calls](incoming-numbers), choose **Change** next to the number and pick the group under **Office hours**. **Used by** on the group then lists the number.
+
+## Undo
+
+Every change here can be undone: **Undo** shows for 10 seconds after you save, and System → **Routing changes** keeps the last 50. See [Undo and routing changes](routing-changes).

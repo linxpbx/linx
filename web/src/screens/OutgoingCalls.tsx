@@ -15,6 +15,7 @@ import { navigate } from "@/hooks/useRoute";
 import { CATEGORY_SWITCHES, EXPERT_CATEGORY_SWITCHES, type NumberCategory } from "@/lib/categories";
 import { trunkDot, trunkWords } from "@/lib/lines";
 import { hasScope, isReadOnlyAdmin } from "@/lib/roles";
+import { useRoutingPutBack } from "@/lib/routingUndo";
 
 type Trunk = components["schemas"]["Trunk"];
 type Level = components["schemas"]["CallPermissionLevel"];
@@ -74,6 +75,7 @@ export function OutgoingCallsScreen({ me, simpleMode }: { me: Me; simpleMode: bo
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useRoutingPutBack(load);
 
   const say = (what: string) => { setSaved(what); window.setTimeout(() => setSaved(""), 2500); };
 

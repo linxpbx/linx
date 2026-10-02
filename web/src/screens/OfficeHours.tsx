@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { TimeSelect } from "@/components/TimeSelect";
 import { hasScope, isReadOnlyAdmin } from "@/lib/roles";
+import { useRoutingPutBack } from "@/lib/routingUndo";
 
 export type Schedule = components["schemas"]["Schedule"];
 type Span = components["schemas"]["Span"];
@@ -338,6 +339,7 @@ export function OfficeHoursScreen({ me }: { me: Me }) {
     if (st.data) setHome(st.data.site_kind === "home");
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useRoutingPutBack(load);
 
   const create = async (name: string) => {
     setError("");
