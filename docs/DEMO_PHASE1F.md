@@ -111,4 +111,5 @@ Run 2026-10-01 with the owner, at `344d0ae` (fixes below on top).
 - CI: `TestSIPRelay` failed twice on amd64: the relay registered a browser's connection just after accepting it, so a sign-out or a disabled person in between waited up to 15 s for the recheck. Now registered first (`internal/siprelay`).
 - Owner: re-test moving ports (key tick, the page following the move, no spinner) in Demo B, not now.
 - Fixed after the demo: doctor's UDP line on a rented server no longer says "127.0.0.1" and "your router's forward" (`c2a3781`).
-- Parked for after the demo: a **Show the steps** link for the front door you have; "Let Linx keep them right" in plainer words, and whether Linx should also follow a changing home address (asked); `docs/RESOURCES.md` §1 re-measured as own memory, not cache; `make screens` re-saves six help pictures each run (timing only).
+- Owner decisions after the demo (as recommended): **Let Linx update them for you** wording, and **Show the steps** for the front door in use, both done. Linx already followed a changing home address (linx-certd, every 5 minutes); Claude had wrongly said it didn't.
+- Still to do: `docs/RESOURCES.md` §1 re-measured as own memory, not cache; `make screens` re-saves a few help pictures each run (timing only).
