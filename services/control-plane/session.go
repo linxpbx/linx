@@ -59,6 +59,48 @@ func registerSessionHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 		writeJSON(w, http.StatusOK, statusBody(out))
 	}))))
 
+	// "Forgot your password?" (ADR-067): the same answer whether or not the
+	// email has an account.
+	mux.Handle("POST /api/v1/password-reset", apihttp.NoStore(apihttp.LimitBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body passwordResetBody
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		if err := accounts.RequestPasswordReset(r.Context(), tenant, body.Email, authn.IPs.ClientIP(r)); err != nil {
+			writeAccountError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))))
+
+	mux.Handle("GET /api/v1/reset-links/{token}", apihttp.NoStore(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, err := accounts.CheckResetLink(r.Context(), r.PathValue("token"), authn.IPs.ClientIP(r))
+		if err != nil {
+			writeAccountError(w, err)
+			return
+		}
+		methods := u.SecondStepMethods()
+		if methods == nil {
+			methods = []string{}
+		}
+		writeJSON(w, http.StatusOK, resetLinkInfoBody{Email: u.Email, Methods: methods})
+	})))
+
+	mux.Handle("POST /api/v1/reset-links/{token}", apihttp.NoStore(apihttp.LimitBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body resetLinkBody
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		out, err := accounts.CompleteReset(r.Context(), r.PathValue("token"), body.Password, auth.ResetProof{Code: body.Code},
+			authn.IPs.ClientIP(r), r.UserAgent())
+		if err != nil {
+			writeAccountError(w, err)
+			return
+		}
+		setSessionCookies(w, out)
+		writeJSON(w, http.StatusOK, statusBody(out))
+	}))))
+
 	// These two act on the caller's own existing session, so they go
 	// through the normal cookie-authentication and CSRF checks first.
 	mux.Handle("POST /api/v1/session/mfa", apihttp.NoStore(apihttp.LimitBody(authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +164,22 @@ type setupLinkInfoBody struct {
 	Role          string `json:"role"`
 	HasSecondStep bool   `json:"has_second_step"`
 	Passkeys      bool   `json:"passkeys_available"`
+}
+
+type passwordResetBody struct {
+	Email string `json:"email"`
+}
+
+type resetLinkInfoBody struct {
+	Email string `json:"email"`
+	// Methods is what finishes the reset: "authenticator", "passkey",
+	// "recovery_code"; none for an account with no second step.
+	Methods []string `json:"methods"`
+}
+
+type resetLinkBody struct {
+	Password string `json:"password"`
+	Code     string `json:"code,omitempty"`
 }
 
 type mfaCodeBody struct {

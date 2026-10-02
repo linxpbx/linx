@@ -30,6 +30,9 @@ type Limiters struct {
 	perMinute int
 	limit     rate.Limit
 	burst     int
+	// idle is how long an unused bucket is kept: at least as long as it
+	// takes to fill again, or forgetting it would hand out a fresh one.
+	idle time.Duration
 
 	mu       sync.Mutex
 	buckets  map[string]*bucket
@@ -49,8 +52,23 @@ func NewLimiters(perMinute, burst int) *Limiters {
 		perMinute: perMinute,
 		limit:     l,
 		burst:     burst,
+		idle:      limiterIdleExpiry,
 		buckets:   map[string]*bucket{},
 		overflow:  rate.NewLimiter(l, burst),
+	}
+}
+
+// NewLimitersPer allows n events per period per key, all n at once if
+// none were used lately (the password-reset limits: 3 an hour, ADR-067).
+func NewLimitersPer(n int, period time.Duration) *Limiters {
+	l := rate.Limit(float64(n) / period.Seconds())
+	return &Limiters{
+		perMinute: n,
+		limit:     l,
+		burst:     n,
+		idle:      max(period, limiterIdleExpiry),
+		buckets:   map[string]*bucket{},
+		overflow:  rate.NewLimiter(l, n),
 	}
 }
 
@@ -92,7 +110,7 @@ func (l *Limiters) get(key string, now time.Time) *rate.Limiter {
 	defer l.mu.Unlock()
 	if now.Sub(l.swept) > limiterSweepInterval {
 		for k, b := range l.buckets {
-			if now.Sub(b.lastSeen) > limiterIdleExpiry {
+			if now.Sub(b.lastSeen) > l.idle {
 				delete(l.buckets, k)
 			}
 		}

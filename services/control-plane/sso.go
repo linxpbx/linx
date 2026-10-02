@@ -36,7 +36,8 @@ func registerCompanyHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 			return
 		}
 		out := controlplaneapi.SignInOptions{Company: controlplaneapi.ToCompanyButtons(buttons),
-			CompanySignInRequired: required, PasskeysAvailable: accounts.WebAuthn != nil}
+			CompanySignInRequired: required, PasskeysAvailable: accounts.WebAuthn != nil,
+			PasswordReset: accounts.PasswordResetOffered(r.Context(), tenant)}
 		if passkeysMoved != nil && passkeysMoved(r.Context()) {
 			yes := true
 			out.PasskeysMoved = &yes

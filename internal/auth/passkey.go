@@ -142,14 +142,15 @@ const (
 	purposeCheck     = "check" // second step or "confirm it's you", in a session
 	purposeRegister  = "register"
 	purposeSetupLink = "setup_link"
+	purposeReset     = "reset" // the second step of an emailed password reset
 )
 
 type ceremony struct {
 	purpose string
 	tenant  uuid.UUID
-	user    uuid.UUID // register, check, setup_link
+	user    uuid.UUID // register, check, setup_link, reset
 	session uuid.UUID // register, check
-	link    uuid.UUID // setup_link
+	link    uuid.UUID // setup_link, reset
 	data    webauthn.SessionData
 	expires time.Time
 }
@@ -635,7 +636,7 @@ func (a *Accounts) BeginSetupLinkPasskey(ctx context.Context, linkToken string, 
 	if a.WebAuthn == nil {
 		return PasskeyCeremony{}, passkeysOff()
 	}
-	link, u, err := a.usableSetupLink(ctx, linkToken, ip, a.Now().UTC())
+	link, u, err := a.usableSetupLink(ctx, linkToken, LinkSetup, ip, a.Now().UTC())
 	if err != nil {
 		return PasskeyCeremony{}, err
 	}
@@ -662,7 +663,7 @@ func (a *Accounts) FinishSetupLinkPasskey(ctx context.Context, linkToken, token,
 		return SessionOutcome{}, err
 	}
 	now := a.Now().UTC()
-	link, u, err := a.usableSetupLink(ctx, linkToken, ip, now)
+	link, u, err := a.usableSetupLink(ctx, linkToken, LinkSetup, ip, now)
 	if err != nil {
 		return SessionOutcome{}, err
 	}

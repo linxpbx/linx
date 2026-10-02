@@ -152,10 +152,13 @@ func newTestEnv(t *testing.T) *testEnv {
 			s.SetHelpAnswers(&helpanswers.Service{Store: helpanswerstest.New(), Sealer: sender.Sealer, Help: testHelpLibrary(t),
 				Policy: policy, Resolver: resolver, Now: time.Now})
 			emailStore = emailtest.New()
-			s.SetEmail(&email.Service{Store: emailStore, Sealer: sender.Sealer, Policy: policy, Resolver: resolver, Now: time.Now,
+			emailSvc := &email.Service{Store: emailStore, Sealer: sender.Sealer, Policy: policy, Resolver: resolver, Now: time.Now,
 				Sender: &email.Sender{Now: time.Now, Dial: func(context.Context, string) (net.Conn, error) {
 					return nil, errors.New("no mail server in this test")
-				}}}, "https://pbx.example.com")
+				}}}
+			s.SetEmail(emailSvc, "https://pbx.example.com")
+			accounts.Mailer = accountMail{email: emailSvc, web: "https://pbx.example.com"}
+			accounts.Later = func(run func()) { run() }
 		})
 	if err != nil {
 		t.Fatalf("newAPIHandler: %v", err)

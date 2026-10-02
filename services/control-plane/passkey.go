@@ -131,6 +131,36 @@ func registerPasskeyHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 		setSessionCookies(w, out)
 		writeJSON(w, http.StatusOK, statusBody(out))
 	})
+
+	// A passkey as the second step of an emailed password reset (ADR-067):
+	// the new password comes with the answer, and changes only if it passes.
+	handle("POST /api/v1/reset-links/{token}/passkey/options", func(w http.ResponseWriter, r *http.Request) {
+		if !emptyJSON(w, r) {
+			return
+		}
+		writeCeremony(w)(accounts.BeginResetPasskey(r.Context(), r.PathValue("token"), authn.IPs.ClientIP(r)))
+	})
+	handle("POST /api/v1/reset-links/{token}/passkey", func(w http.ResponseWriter, r *http.Request) {
+		var body resetPasskeyBody
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		out, err := accounts.CompleteReset(r.Context(), r.PathValue("token"), body.Password,
+			auth.ResetProof{Ceremony: ceremonyToken(r), Credential: body.Credential}, authn.IPs.ClientIP(r), r.UserAgent())
+		clearCeremonyCookie(w)
+		if err != nil {
+			writeAccountError(w, err)
+			return
+		}
+		setSessionCookies(w, out)
+		writeJSON(w, http.StatusOK, statusBody(out))
+	})
+}
+
+// resetPasskeyBody is a reset's new password and the device's answer.
+type resetPasskeyBody struct {
+	Password   string          `json:"password"`
+	Credential json.RawMessage `json:"credential"`
 }
 
 // passkeyAnswerBody is the device's answer, as PublicKeyCredential's

@@ -351,11 +351,11 @@ func (s *Store) RecordLockedAttempt(ctx context.Context, tenant, user uuid.UUID,
 // "someone is guessing a password" alert (docs/WEB.md §4).
 const guessingAlertThreshold = 20
 
-const setupLinkColumns = `id, tenant_id, user_id, token_hash, created_at, expires_at, used_at`
+const setupLinkColumns = `id, tenant_id, user_id, token_hash, created_at, expires_at, used_at, purpose`
 
 func scanSetupLink(row pgx.Row) (auth.SetupLink, error) {
 	var l auth.SetupLink
-	err := row.Scan(&l.ID, &l.TenantID, &l.UserID, &l.TokenHash, &l.CreatedAt, &l.ExpiresAt, &l.UsedAt)
+	err := row.Scan(&l.ID, &l.TenantID, &l.UserID, &l.TokenHash, &l.CreatedAt, &l.ExpiresAt, &l.UsedAt, &l.Purpose)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return l, auth.ErrNotFound
 	}
@@ -363,8 +363,12 @@ func scanSetupLink(row pgx.Row) (auth.SetupLink, error) {
 }
 
 func (s *Store) CreateSetupLink(ctx context.Context, l auth.SetupLink) error {
-	_, err := s.pool.Exec(ctx, `INSERT INTO user_setup_link (id, tenant_id, user_id, token_hash, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`, l.ID, l.TenantID, l.UserID, l.TokenHash, l.CreatedAt, l.ExpiresAt)
+	purpose := l.Purpose
+	if purpose == "" {
+		purpose = auth.LinkSetup
+	}
+	_, err := s.pool.Exec(ctx, `INSERT INTO user_setup_link (id, tenant_id, user_id, token_hash, created_at, expires_at, purpose)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`, l.ID, l.TenantID, l.UserID, l.TokenHash, l.CreatedAt, l.ExpiresAt, purpose)
 	return err
 }
 

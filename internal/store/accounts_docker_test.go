@@ -269,8 +269,16 @@ func TestAccountsDocker(t *testing.T) {
 			t.Fatalf("CreateSetupLink: %v", err)
 		}
 		got, err := s.SetupLinkByTokenHash(ctx, auth.HashSecret("link-token"))
-		if err != nil || got.UsedAt != nil {
+		if err != nil || got.UsedAt != nil || got.Purpose != auth.LinkSetup {
 			t.Fatalf("fresh link: %+v, %v", got, err)
+		}
+		reset := auth.SetupLink{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, UserID: u.ID, Purpose: auth.LinkReset,
+			TokenHash: auth.HashSecret("reset-token"), CreatedAt: now, ExpiresAt: now.Add(auth.ResetLinkTTL)}
+		if err := s.CreateSetupLink(ctx, reset); err != nil {
+			t.Fatalf("CreateSetupLink (reset): %v", err)
+		}
+		if got, err := s.SetupLinkByTokenHash(ctx, auth.HashSecret("reset-token")); err != nil || got.Purpose != auth.LinkReset {
+			t.Fatalf("reset link: %+v, %v", got, err)
 		}
 		if err := s.ConsumeSetupLink(ctx, link.ID, now); err != nil {
 			t.Fatalf("ConsumeSetupLink: %v", err)

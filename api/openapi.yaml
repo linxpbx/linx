@@ -2680,6 +2680,173 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/password-reset:
+    post:
+      operationId: requestPasswordReset
+      summary: "\"Forgot your password?\": email a reset link"
+      description: >-
+        ADR-067. Always 202, as fast, whether or not the email has an
+        account (nobody can learn which do): the account is looked up and
+        the link emailed afterwards, only for an account that isn't disabled
+        and doesn't have to use company sign-in. The link works once, for 30
+        minutes. At most 3 an hour per email and 10 per address (still 202;
+        an address over its limit announces an alert). 409
+        `password_reset_off` when email isn't set up (the sign-in page only
+        shows the link when GET /sign-in-options says `password_reset`).
+        Served by a hand-written handler (excluded from code generation).
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+      responses:
+        "202":
+          description: If that's an account here, an email is on its way.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/reset-links/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: checkResetLink
+      summary: Check an emailed password-reset link before asking for a password
+      description: >-
+        200 with the person's email and what finishes the reset; 400
+        `reset_link_invalid` if it was used, is older than 30 minutes or
+        doesn't exist. A link that fails counts against the caller's address
+        like a failed sign-in. A set-password link isn't a reset link, nor
+        the other way round. Served by a hand-written handler.
+      tags: [sessions]
+      security: []
+      responses:
+        "200":
+          description: The link can be used.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetLinkInfo"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: completeResetLink
+      summary: Choose a new password with an emailed reset link
+      description: >-
+        For an account with a second step, `code` (authenticator or recovery
+        code) must be right too, or nothing changes and the link still works
+        (400 `second_step_required` without one; a wrong code counts towards
+        the account's lockout like signing in). Then the link is used up,
+        every other session ends, the person is signed in and emailed that
+        their password changed. An admin with no second step is let in on
+        the link alone and the other admins are alerted. Never resets an
+        authenticator. Served by a hand-written handler.
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  description: At least 12 characters.
+                code:
+                  type: string
+                  description: The authenticator (or recovery) code, for an account that has one.
+      responses:
+        "200":
+          description: Signed in (or, for an admin with no second step who never chose a password only, pending its setup).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/reset-links/{token}/passkey/options:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: completeResetLinkPasskeyOptions
+      summary: "Finish a password reset with a passkey (ask the device)"
+      description: >-
+        Returns the options for the browser's
+        PublicKeyCredential.parse*OptionsFromJSON for one of the link's
+        person's own passkeys, and sets the __Host-linx_passkey cookie (5
+        minutes, single use). Served by a hand-written handler.
+      tags: [sessions]
+      security: []
+      responses:
+        "200":
+          description: Options for navigator.credentials.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/reset-links/{token}/passkey:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: completeResetLinkPasskey
+      summary: "Finish a password reset with a passkey (the device's answer)"
+      description: >-
+        The new password and the device's answer to the challenge from
+        .../options. The password changes only if the answer passes (as
+        POST /reset-links/{token}). Served by a hand-written handler.
+      tags: [sessions]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password, credential]
+              properties:
+                password:
+                  type: string
+                credential:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Signed in; sets the session cookies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/users/{id}/setup-link:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -6081,7 +6248,7 @@ components:
 
     SignInOptions:
       type: object
-      required: [company, company_sign_in_required, passkeys_available]
+      required: [company, company_sign_in_required, passkeys_available, password_reset]
       properties:
         company:
           type: array
@@ -6098,6 +6265,24 @@ components:
           description: >-
             This server was restored from a backup made at another domain:
             passkeys from the old address don't work here (docs/INSTALL.md §8).
+        password_reset:
+          type: boolean
+          description: >-
+            Email is set up, so the page offers "Forgot your password?"
+            (ADR-067).
+
+    ResetLinkInfo:
+      type: object
+      required: [email, methods]
+      properties:
+        email:
+          type: string
+        methods:
+          type: array
+          items:
+            type: string
+            enum: [authenticator, passkey, recovery_code]
+          description: What finishes the reset; empty for an account with no second step.
 
     HelpGuideList:
       type: object

@@ -7,7 +7,7 @@ screens: [/admin/system/alerts]
 ---
 # Alerts
 
-Linx tells you when something needs you: a phone line down, a failed backup, someone guessing passwords, unusual calls abroad.
+Linx tells you when something needs you: a phone line down, a failed backup, someone guessing passwords or asking for many password resets, an admin with no second step resetting their password by email, unusual calls abroad.
 
 ![Alerts](screen:system-alerts)
 

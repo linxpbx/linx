@@ -61,17 +61,36 @@ type User struct {
 }
 
 // SetupLink is a one-time link a new person uses to pick their password
-// (docs/WEB.md §4).
+// (docs/WEB.md §4), or an emailed password-reset link (ADR-067): Purpose
+// says which, and neither works as the other.
 type SetupLink struct {
 	ID, TenantID, UserID uuid.UUID
 	TokenHash            []byte
 	CreatedAt, ExpiresAt time.Time
 	UsedAt               *time.Time
+	Purpose              string
+}
+
+// Link purposes.
+const (
+	LinkSetup = "setup"
+	LinkReset = "reset"
+)
+
+// purpose is l's purpose, a set-password link's when none was stored.
+func (l SetupLink) purpose() string {
+	if l.Purpose == "" {
+		return LinkSetup
+	}
+	return l.Purpose
 }
 
 // SetupLinkTTL is how long a set-password link works before it must be
 // reissued (docs/WEB.md §4).
 const SetupLinkTTL = 24 * time.Hour
+
+// ResetLinkTTL is how long an emailed password-reset link works (ADR-067).
+const ResetLinkTTL = 30 * time.Minute
 
 // UserStore is the database access people accounts and sessions need
 // (internal/store implements it).
@@ -159,11 +178,14 @@ type UserStore interface {
 }
 
 // AlertFirer is the admin-alert access sign-in needs: the "someone is
-// guessing a password" alert (docs/WEB.md §4, ADR-036). *alert.Engine
+// guessing a password" alert (docs/WEB.md §4, ADR-036), and the password
+// reset ones (ADR-067), which are events, so announced once. *alert.Engine
 // implements this.
 type AlertFirer interface {
 	Fire(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string) error
 	Resolve(ctx context.Context, tenant uuid.UUID, key string) error
+	// Announce tells the alert channels once; key must be new each time.
+	Announce(ctx context.Context, tenant uuid.UUID, key, severity, title, message, link string) error
 }
 
 func loginGuessKey(user uuid.UUID) string { return "login_guessing:" + user.String() }

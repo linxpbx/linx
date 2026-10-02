@@ -49,6 +49,10 @@ const (
 	KindTest   = "test"
 	KindInvite = "invite"
 	KindAlert  = "alert"
+	// KindReset is a "Forgot your password?" link, KindPasswordChanged
+	// the note after a password changes (ADR-067).
+	KindReset           = "password_reset"
+	KindPasswordChanged = "password_changed"
 )
 
 // Queue statuses.

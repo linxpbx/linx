@@ -347,7 +347,14 @@ func (f *fakeAccountStore) TouchSession(_ context.Context, id uuid.UUID, lastSee
 }
 
 type fakeAlerts struct {
-	fired, resolved []string
+	fired, resolved, announced []string
+	messages                   []string
+}
+
+func (f *fakeAlerts) Announce(_ context.Context, _ uuid.UUID, key, _, _, message, _ string) error {
+	f.announced = append(f.announced, key)
+	f.messages = append(f.messages, message)
+	return nil
 }
 
 func (f *fakeAlerts) Fire(_ context.Context, _ uuid.UUID, key, _, _, _, _ string) error {

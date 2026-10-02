@@ -385,6 +385,7 @@ func main() {
 		},
 	}
 	alertSender.Email, alertSender.WebAddress = emailSvc, weburl.FromEnv(os.Getenv)
+	accounts.Mailer = accountMail{email: emailSvc, web: weburl.FromEnv(os.Getenv)}
 	runBackground(worker.Run)
 	runBackground(engine.Run)
 	runBackground(emailSvc.Run)

@@ -47,9 +47,16 @@ type Accounts struct {
 	// it off: no domain set); Company is its storage (ADR-052).
 	CompanyProviders CompanyProviders
 	Company          CompanyStore
+	// Mailer sends reset links and "your password was changed" (ADR-067);
+	// nil means no email, so no "Forgot your password?".
+	Mailer Mailer
+	// Later runs a reset request's work after it's answered; nil runs it
+	// on a goroutine of its own (tests run it at once).
+	Later func(func())
 
 	ceremonies   ceremonies
 	companyFlows companyFlows
+	resets       resetLimits
 }
 
 func (a *Accounts) log() *slog.Logger {
@@ -259,7 +266,8 @@ func (a *Accounts) createSetupLinkWith(ctx context.Context, u User, token string
 		token = NewSecret()
 	}
 	now := a.Now().UTC()
-	l := SetupLink{ID: id, TenantID: u.TenantID, UserID: u.ID, TokenHash: HashSecret(token), CreatedAt: now, ExpiresAt: now.Add(SetupLinkTTL)}
+	l := SetupLink{ID: id, TenantID: u.TenantID, UserID: u.ID, TokenHash: HashSecret(token), CreatedAt: now, ExpiresAt: now.Add(SetupLinkTTL),
+		Purpose: LinkSetup}
 	if err := a.Store.CreateSetupLink(ctx, l); err != nil {
 		return "", err
 	}
@@ -732,7 +740,9 @@ func (a *Accounts) fireGuessing(ctx context.Context, tenant uuid.UUID, u User) {
 // usableSetupLink returns the link for token if it can still be used. A
 // token that can't counts against ip's failure budget, like a wrong
 // password: links are 256-bit, but nobody gets to try them at speed.
-func (a *Accounts) usableSetupLink(ctx context.Context, token string, ip netip.Addr, now time.Time) (SetupLink, User, error) {
+// purpose is the kind of link the caller takes: a reset link isn't a
+// set-password link, nor the other way round.
+func (a *Accounts) usableSetupLink(ctx context.Context, token, purpose string, ip netip.Addr, now time.Time) (SetupLink, User, error) {
 	ipKey := IPKey(ip)
 	if a.Failures != nil && a.Failures.Exhausted(ipKey, now) {
 		return SetupLink{}, User{}, tooManyFailuresErr()
@@ -740,6 +750,9 @@ func (a *Accounts) usableSetupLink(ctx context.Context, token string, ip netip.A
 	invalid := func() (SetupLink, User, error) {
 		if a.Failures != nil {
 			a.Failures.Allow(ipKey, now)
+		}
+		if purpose == LinkReset {
+			return SetupLink{}, User{}, invalidResetLink()
 		}
 		return SetupLink{}, User{}, invalidLink()
 	}
@@ -750,7 +763,7 @@ func (a *Accounts) usableSetupLink(ctx context.Context, token string, ip netip.A
 	if err != nil {
 		return SetupLink{}, User{}, err
 	}
-	if link.UsedAt != nil || !now.Before(link.ExpiresAt) {
+	if link.purpose() != purpose || link.UsedAt != nil || !now.Before(link.ExpiresAt) {
 		return invalid()
 	}
 	u, err := a.Store.User(ctx, link.TenantID, link.UserID)
@@ -768,7 +781,7 @@ func (a *Accounts) usableSetupLink(ctx context.Context, token string, ip netip.A
 // person: the page shows their email and offers the passkey and
 // password-only choices only to someone with no second step yet.
 func (a *Accounts) CheckSetupLink(ctx context.Context, token string, ip netip.Addr) (User, error) {
-	_, u, err := a.usableSetupLink(ctx, token, ip, a.Now().UTC())
+	_, u, err := a.usableSetupLink(ctx, token, LinkSetup, ip, a.Now().UTC())
 	return u, err
 }
 
@@ -785,7 +798,7 @@ func (a *Accounts) CompleteSetup(ctx context.Context, linkToken, password string
 		return SessionOutcome{}, badRequest("password_invalid", err.Error())
 	}
 	now := a.Now().UTC()
-	link, u, err := a.usableSetupLink(ctx, linkToken, ip, now)
+	link, u, err := a.usableSetupLink(ctx, linkToken, LinkSetup, ip, now)
 	if err != nil {
 		return SessionOutcome{}, err
 	}
@@ -1255,6 +1268,7 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 		return err
 	}
 	a.sessionsEnded(ctx, u.ID, nil)
+	a.passwordChangedEmail(ctx, u, now, ClientIPFromContext(ctx), sessionUserAgent(ctx))
 	return nil
 }
 
