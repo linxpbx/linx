@@ -13,7 +13,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { navigate } from "@/hooks/useRoute";
 import { cn } from "@/lib/utils";
-import { TimeSelect, zonedISO, zonedToday, zoneLabel } from "./OfficeHours";
+import { TimeSelect } from "@/components/TimeSelect";
+import { zonedISO, zonedToday, zoneLabel } from "./OfficeHours";
 
 type RouteTest = components["schemas"]["RouteTest"];
 type Extension = components["schemas"]["Extension"];

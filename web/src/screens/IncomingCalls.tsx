@@ -17,7 +17,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { navigate } from "@/hooks/useRoute";
 import { hasScope, isReadOnlyAdmin } from "@/lib/roles";
 import { cn } from "@/lib/utils";
-import { TimeSelect, zonedISO, zonedToday, zoneLabel, type Schedule } from "./OfficeHours";
+import { TimeSelect } from "@/components/TimeSelect";
+import { zonedISO, zonedToday, zoneLabel, type Schedule } from "./OfficeHours";
 
 type Incoming = components["schemas"]["Incoming"];
 type IncomingSet = components["schemas"]["IncomingSet"];

@@ -965,6 +965,17 @@ test.describe("setup wizard", () => {
     await shot(page, "setup-wizard-place");
     await page.getByRole("button", { name: "Business" }).click();
     await expect(page.getByRole("button", { name: "Next" })).toBeEnabled();
+    // A Sunday-to-Thursday business sets its week here; it's saved as its
+    // Office hours.
+    await page.getByRole("button", { name: "Sunday" }).click();
+    await page.getByRole("button", { name: "Friday" }).click();
+    await expect(page.getByRole("button", { name: "Friday" })).toHaveAttribute("aria-pressed", "false");
+    await shot(page, "setup-wizard-place-hours");
+    const saved = page.waitForRequest((r) => r.url().endsWith("/api/v1/schedules/s1") && r.method() === "PATCH");
+    await page.getByRole("button", { name: "Next" }).click();
+    const body = (await saved).postDataJSON() as { spans: { weekday: number; opens: string; closes: string }[] };
+    expect(body.spans.map((x) => x.weekday).sort()).toEqual([0, 1, 2, 3, 4]);
+    expect(body.spans.every((x) => x.opens === "08:00" && x.closes === "17:00")).toBe(true);
   });
 
   test("start: fresh or restore", async ({ page }) => {

@@ -10,8 +10,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { TimeSelect } from "@/components/TimeSelect";
 import { hasScope, isReadOnlyAdmin } from "@/lib/roles";
 
 export type Schedule = components["schemas"]["Schedule"];
@@ -96,24 +96,6 @@ function holidayDates(h: Holiday): string {
 
 function isPast(h: Holiday): boolean {
   return !h.every_year && h.last_day < new Date().toISOString().slice(0, 10);
-}
-
-/** Every quarter hour, 24-hour clock; closing can also be 24:00 (midnight). */
-const TIMES = Array.from({ length: 96 }, (_, i) => `${String(Math.floor(i / 4)).padStart(2, "0")}:${String((i % 4) * 15).padStart(2, "0")}`);
-
-export function TimeSelect({ value, onChange, label, closing, disabled }: {
-  value: string; onChange: (v: string) => void; label: string; closing?: boolean; disabled?: boolean;
-}) {
-  const options = closing ? [...TIMES.slice(1), "24:00"] : TIMES;
-  const list = options.includes(value) ? options : [...options, value].sort();
-  return (
-    <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className="w-24 font-mono tabular-nums" aria-label={label}><SelectValue /></SelectTrigger>
-      <SelectContent className="max-h-72">
-        {list.map((t) => <SelectItem key={t} value={t} className="font-mono tabular-nums">{t === "24:00" ? "24:00 (midnight)" : t}</SelectItem>)}
-      </SelectContent>
-    </Select>
-  );
 }
 
 function AddHolidayDialog({ open, onOpenChange, onAdd }: { open: boolean; onOpenChange: (v: boolean) => void; onAdd: (h: Holiday) => Promise<string> }) {

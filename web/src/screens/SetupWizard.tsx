@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
+import { TimeSelect } from "@/components/TimeSelect";
 import { avoidedRange, defaultRanges, pad, type Range } from "@/lib/numbering";
 import { cn } from "@/lib/utils";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
@@ -106,10 +107,55 @@ function StepShell({ step, title, lead, canSkip, nextLabel, nextDisabled, busy, 
 
 // --- Step 1: Place ---
 
-function PlaceStep(props: { value: "" | "home" | "business"; onChange: (v: "home" | "business") => void } & StepProps) {
-  const { value, onChange, ...shell } = props;
+/** A business's usual week (docs/PHASE1F.md §7): open days, from, to. */
+export type Week = { days: number[]; opens: string; closes: string; detailed: boolean };
+export const DEFAULT_WEEK: Week = { days: [1, 2, 3, 4, 5], opens: "08:00", closes: "17:00", detailed: false };
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** The week of saved office hours, or detailed when its days differ (a lunch break, a short Friday). */
+export function weekOf(spans: { weekday: number; opens: string; closes: string }[]): Week {
+  if (spans.length === 0) return { ...DEFAULT_WEEK, days: [] };
+  const first = spans[0]!;
+  const days = [...new Set(spans.map((s) => s.weekday))];
+  const same = spans.length === days.length && spans.every((s) => s.opens === first.opens && s.closes === first.closes);
+  return same ? { days, opens: first.opens, closes: first.closes, detailed: false } : { ...DEFAULT_WEEK, detailed: true };
+}
+
+function WeekPicker({ week, onChange }: { week: Week; onChange: (w: Week) => void }) {
+  if (week.detailed) {
+    return <p className="text-sm text-muted-foreground">Your office hours are already set day by day. Change them any time in Office hours.</p>;
+  }
+  const toggle = (d: number) => onChange({ ...week, days: week.days.includes(d) ? week.days.filter((x) => x !== d) : [...week.days, d] });
   return (
-    <StepShell {...shell} title="Where will you use Linx?" nextDisabled={!value}>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Open days">
+        {WEEK_ORDER.map((d) => {
+          const on = week.days.includes(d);
+          return (
+            <button key={d} type="button" onClick={() => toggle(d)} aria-pressed={on} aria-label={DAY_LONG[d]}
+              className={cn("h-9 w-12 rounded-md border text-sm", on ? "border-primary bg-primary text-primary-foreground" : "hover:bg-card")}>
+              {DAY_SHORT[d]}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span>From</span>
+        <TimeSelect value={week.opens} onChange={(v) => onChange({ ...week, opens: v })} label="Opens" />
+        <span>to</span>
+        <TimeSelect value={week.closes} onChange={(v) => onChange({ ...week, closes: v })} label="Closes" closing />
+      </div>
+    </div>
+  );
+}
+
+function PlaceStep(props: { value: "" | "home" | "business"; onChange: (v: "home" | "business") => void; week: Week; onWeek: (w: Week) => void } & StepProps) {
+  const { value, onChange, week, onWeek, ...shell } = props;
+  const badWeek = value === "business" && !week.detailed && (week.days.length === 0 || week.opens >= week.closes);
+  return (
+    <StepShell {...shell} title="Where will you use Linx?" nextDisabled={!value || badWeek}>
       <div className="grid gap-3 sm:grid-cols-2">
         {(["home", "business"] as const).map((k) => (
           <button key={k} type="button" onClick={() => onChange(k)}
@@ -119,7 +165,17 @@ function PlaceStep(props: { value: "" | "home" | "business"; onChange: (v: "home
           </button>
         ))}
       </div>
-      <p className="mt-4 text-sm text-muted-foreground">This only changes examples and suggestions. Everything works the same.</p>
+      {value === "business" ? (
+        <section className="mt-6 flex flex-col gap-3" aria-labelledby="open-when">
+          <h3 id="open-when" className="font-medium">When are you open?</h3>
+          <WeekPicker week={week} onChange={onWeek} />
+          <p className="text-sm text-muted-foreground">
+            Your numbers can ring people during these hours and say "We're closed" outside them. A lunch break, a short day and holidays are in Office hours, any time.
+          </p>
+        </section>
+      ) : (
+        <p className="mt-4 text-sm text-muted-foreground">At home every number rings the same all the time. You can add office hours later if you want them.</p>
+      )}
     </StepShell>
   );
 }
@@ -580,6 +636,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   const [error, setError] = useState("");
 
   const [siteKind, setSiteKind] = useState<"" | "home" | "business">("");
+  const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
   const [digits, setDigits] = useState(3);
   const [ranges, setRanges] = useState(defaultRanges(3));
   const [existingUsers, setExistingUsers] = useState<User[]>([]);
@@ -607,9 +664,11 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
 
   useEffect(() => {
     void (async () => {
-      const [{ data: setup }, { data: settings }] = await Promise.all([
-        api.GET("/api/v1/setup"), api.GET("/api/v1/settings"),
+      const [{ data: setup }, { data: settings }, { data: hours }] = await Promise.all([
+        api.GET("/api/v1/setup"), api.GET("/api/v1/settings"), api.GET("/api/v1/schedules"),
       ]);
+      const office = hours?.items.find((h) => h.name === "Office hours");
+      if (office) setWeek(weekOf(office.spans));
       if (setup?.completed) { setDone(true); setLoaded(true); return; }
       if (me.role === "system_admin") {
         const { data: r } = await api.GET("/api/v1/backup-restore");
@@ -703,6 +762,22 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
     }
     return true;
   }, [categories, confirmRun]);
+
+  // A business's week: saving "business" makes its Office hours (Monday to
+  // Friday 08:00-17:00), which then get the days and times chosen here.
+  const savePlace = async () => {
+    if (!(await saveSettingsPatch({ site_kind: siteKind }))) return false;
+    if (siteKind !== "business" || week.detailed) return true;
+    const { data: hours } = await api.GET("/api/v1/schedules");
+    const office = hours?.items.find((h) => h.name === "Office hours");
+    if (!office) return true;
+    const { error: err } = await api.PATCH("/api/v1/schedules/{id}", {
+      params: { path: { id: office.id } },
+      body: { spans: week.days.map((weekday) => ({ weekday, opens: week.opens, closes: week.closes })) },
+    });
+    if (err) { setError(problemMessage(err)); return false; }
+    return true;
+  };
 
   const saveSettingsPatch = async (patch: components["schemas"]["SettingsPatch"]) => {
     const { error: err } = await api.PATCH("/api/v1/settings", { body: patch });
@@ -818,8 +893,8 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   return (
     <>
       {step === 1 && (
-        <PlaceStep value={siteKind} onChange={(v) => setSiteKind(v)}
-          {...shellProps(true, async () => { if (await saveSettingsPatch({ site_kind: siteKind })) void advance(2); }, () => void advance(2))} />
+        <PlaceStep value={siteKind} onChange={(v) => setSiteKind(v)} week={week} onWeek={setWeek}
+          {...shellProps(true, async () => { if (await savePlace()) void advance(2); }, () => void advance(2))} />
       )}
       {step === 2 && (
         <CountryStep {...shellProps(true, () => void advance(3), () => void advance(3))} />

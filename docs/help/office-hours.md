@@ -15,7 +15,7 @@ The times are the server's time zone, the one chosen at install. The page says w
 
 ## The week
 
-A business gets **Office hours** when it's set up: Monday to Friday, 08:00 to 17:00. To change them, go to **Office hours**:
+A business gets **Office hours** when it's set up, with the days and times chosen under **When are you open?** in the [setup wizard](setup-wizard) (Monday to Friday, 08:00 to 17:00 unless changed there). To change them any time, go to **Office hours**:
 
 - Turn a day on or off with its switch.
 - Choose when it opens and closes. **24:00 (midnight)** means open until the end of that day.
