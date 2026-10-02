@@ -515,6 +515,17 @@ func Build(ctx context.Context, lk Lookup, rows []Row) (Call, error) {
 			}
 		}
 	}
+	// The dialplan tries the next line only when one is down or full, so
+	// every line before the last tried failed, whatever Asterisk wrote
+	// (a line that times out is "NO ANSWER" in its records).
+	// Ending on "no lines" means the last one failed too.
+	tried := len(lines) - 1
+	if end != nil && end.DContext == "linx-messages" && end.Dst == "no-lines" {
+		tried = len(lines)
+	}
+	for i := 0; i < tried; i++ {
+		lines[i].Outcome = "failed"
+	}
 	c.Steps = append(c.Steps, lines...)
 
 	// The result.

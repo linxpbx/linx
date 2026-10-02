@@ -256,10 +256,13 @@ func TestBuild(t *testing.T) {
 			},
 		},
 		{
+			// A line that times out is NO ANSWER in Asterisk's records
+			// (CONGESTION when it refuses at once); either way the call
+			// went on, so it couldn't take it.
 			name: "out on the second line",
 			rows: []Row{
 				row(15, 0, -1, 0, aliceCLID, "101", "+971501234569", "linx-outbound", "PJSIP/d_alice-00000015",
-					"PJSIP/trunk-01a0fc02-edfc-71b9-b6cc-ca047c70376a-00000016", 0, "CONGESTION", "1.21", "+971501234569", "", ""),
+					"PJSIP/trunk-01a0fc02-edfc-71b9-b6cc-ca047c70376a-00000016", 0, "NO ANSWER", "1.21", "+971501234569", "", ""),
 				row(16, 0, 0, 1, aliceCLID, "101", "+971501234569", "linx-outbound", "PJSIP/d_alice-00000015",
 					"PJSIP/trunk-"+backup.ID.String()+"-00000017", 1, "ANSWERED", "1.21", "+971501234569", "", ""),
 			},
@@ -286,7 +289,7 @@ func TestBuild(t *testing.T) {
 		{
 			name: "no lines",
 			rows: []Row{
-				row(18, 0, -1, 0, aliceCLID, "101", "0503333333", "linx-outbound", "PJSIP/d_alice-0000001a", "PJSIP/trunk-"+telnyx.ID.String()+"-0000001b", 0, "CONGESTION", "1.26", "0503333333", "", ""),
+				row(18, 0, -1, 0, aliceCLID, "101", "0503333333", "linx-outbound", "PJSIP/d_alice-0000001a", "PJSIP/trunk-"+telnyx.ID.String()+"-0000001b", 0, "NO ANSWER", "1.26", "0503333333", "", ""),
 				row(19, 0, 0, 6, aliceCLID, "101", "no-lines", "linx-messages", "PJSIP/d_alice-0000001a", "", 6, "ANSWERED", "1.26", "0503333333", "", ""),
 			},
 			result: ResultNoLines, dir: DirectionOutbound,
