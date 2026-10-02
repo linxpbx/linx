@@ -1,6 +1,6 @@
 # Phase 1F demo checklist
 
-Phase 1F has two demos (`docs/PHASE1F.md` §10 item 7). **Part A** (this one, after build step 8): getting to Linx from outside. Part B (email, call routing, voicemail, call history, undo, Phase 1 exit) is added here after step 17.
+Phase 1F has two demos (`docs/PHASE1F.md` §10 item 7). **Part A** (after build step 8): getting to Linx from outside. **Part B** (after build step 17, below Part A's results): email, call routing, voicemail, call history, undo, and Phase 1's exit test.
 
 ## Part A: front doors, DNS, public port
 
@@ -113,3 +113,129 @@ Run 2026-10-01 with the owner, at `344d0ae` (fixes below on top).
 - Fixed after the demo: doctor's UDP line on a rented server no longer says "127.0.0.1" and "your router's forward" (`c2a3781`).
 - Owner decisions after the demo (as recommended): **Let Linx update them for you** wording, and **Show the steps** for the front door in use, both done. Linx already followed a changing home address (linx-certd, every 5 minutes); Claude had wrongly said it didn't.
 - Still to do: `docs/RESOURCES.md` §1 re-measured as own memory, not cache; `make screens` re-saves a few help pictures each run (timing only).
+
+## Part B: email, call routing, voicemail, call history, undo, Phase 1 exit
+
+A hand-run check that Part B (`docs/PHASE1F.md` §11 steps 9–16) does what it promises, on the home server with the UCM landline, plus Phase 1's exit test and the port-move re-test you asked for on the VPS. Tick each box. Allow about three hours.
+
+**Part B exit:** Linx sends email through your own mail account (a test, an invite, an alert, a voicemail with the recording attached), and nobody can find out from **Forgot your password?** who has an account. A call to the landline rings a ring group, follows office hours, and goes to voicemail when nobody answers or when you're closed; the message is in the **Voicemail** tab and in your email. Every call is in **Call history** with its way through Linx in words, and the download opens in a spreadsheet without running anything. Every routing change can be undone, and putting back calls abroad asks "confirm it's you". **Phase 1 exit:** a browser on a network with UDP blocked calls another browser and a mobile through the landline, both relayed, with audio both ways; the call suite (SIPp) and the browser suite are green in CI.
+
+The examples use the home server `home.mym.ae` (192.168.1.213, behind Pangolin), the UCM6304's landline `042340100` (it rings extension 200), and the VPS `vps.mym.ae`. Use your own.
+
+### You need
+- The home server and the VPS as after Part A, each with an admin account (yours: extension 200 at home).
+- **An email account Linx can send from.** For Gmail: turn on 2-Step Verification, then make an **app password** at myaccount.google.com/apppasswords (16 letters; Linx keeps it sealed). Other providers: the Email card lists them.
+- **A second test person** at home with an email you can read: your own Gmail address with `+sara` before the `@` works (`you+sara@gmail.com` arrives in your inbox). Step 5 makes the person.
+- The **laptop** (you, 200), a **second browser** on the laptop (Firefox, or a Chrome window with another profile) for the test person, the **iPhone** (mobile calls to the landline), and the **iPad** on the iPhone's hotspot for step 13.
+- A spreadsheet app (Numbers or Excel) for the call history download.
+- In the VPS provider's firewall: allow **TCP 8443** in again for step 14.
+
+### 1. Docs
+- [ ] `docs/PHASE1F.md` §4–9, ADR-066 to 071 "As built" in `docs/DECISIONS.md`, and the "Phase 1F Part B review" at the end of `docs/THREAT_MODEL.md` read sensibly to you.
+
+### 2. On your computer
+```
+cd ~/Projects/linx
+git pull
+make lint          # ends with "lint: ok"
+make test          # nothing listed means all passed
+make screens       # screenshots in web/e2e/screenshots/
+GOOS=linux GOARCH=amd64 make build
+```
+- [ ] All finish without errors.
+- [ ] These screenshots look right to you: `light-system-settings-email.png`, `light-sign-in-forgot.png`, `light-sign-in-forgot-second-step.png`, `light-ring-groups.png`, `light-office-hours.png`, `light-incoming.png`, `light-incoming-wizard-after.png`, `light-simulator-after-hours.png`, `light-voicemail.png`, `light-voicemail-record.png`, `light-call-history.png`, `light-admin-calls-detail.png`, `light-system-routing-changes-see.png`, and the phone-width ones `phone-voicemail.png`, `phone-call-history.png`, `phone-system-routing-changes.png`.
+- [ ] The latest **CI** run on master is green in every job. The **call suite** (SIPp: ring groups, office hours, voicemail, call records) and the **browser suite** (one job per front door; in each, a browser with UDP blocked calls another browser and a line) are the automated half of the Phase 1 exit.
+
+### 3. Update both servers
+As in Part A step 3, for `home.mym.ae` and `vps.mym.ae`.
+- [ ] Both end with "Linx is running"; `sudo linx doctor` on each: nothing failing (its phone-system line now also checks that Asterisk may only add call records).
+
+### 4. Home: the front-door card (left from Part A)
+Part A step 4 on the home server: Server settings → **In front** → **Change** → address `192.168.1.212` → **Check**.
+- [ ] **Before you apply** shows the card with the three facts and **How to do this in**, Pangolin first. Cancel: nothing changes.
+
+### 5. Email
+System → **Settings** → **Email** → **Set up email**.
+- [ ] The list of providers: choose **Gmail or Google Workspace**; it asks only your address and the app password. **Save and send a test** → confirm it's you → the test arrives in your inbox within a minute → **Did it arrive?** → **Yes**.
+- [ ] The card shows **Sending as** your address and **Last sent**. Open it again: the password box is empty (Linx never shows it back).
+- [ ] Type a wrong app password and save: the card says what Gmail answered (e.g. "Username and Password not accepted"), in plain words. Put the right one back.
+- [ ] System → **Alerts** → add an **Email** channel to your address. Its test arrives.
+- [ ] People → **+ Add** → Sara, `you+sara@gmail.com`, extension 201: the invite arrives by email with a set-password link. Open it in the second browser, set Sara's password and her authenticator.
+- [ ] System → **Activity**: the email entries; none shows the app password.
+
+### 6. Forgot your password?
+In the second browser, signed out.
+- [ ] Sign-in page → **Forgot your password?** → type `nobody@example.com` → **Send the link**: "If that email has an account…". Then type Sara's email: the same words, just as fast. Only Sara's email gets a message.
+- [ ] Open Sara's link: new password (twice), then her authenticator code. She's signed in. Sign in again in her old tab: it was signed out.
+- [ ] Open the same link again: it says it was used, with **Send a new one**.
+- [ ] Sign out. Sign in with Sara's password, and on the code step choose **Ask my admin to reset it**: your Email alert channel gets the alert within a minute. (Don't reset it; this only checks the alert.)
+
+### 7. Ring groups
+Laptop as you (200), the second browser as Sara (201), both on the **Dialer** and **Available**.
+- [ ] Admin → **Ring groups** → **+ Add** → **Quick add** → "Sales", you and Sara, **All at once**. Its sentence reads right; note its number.
+- [ ] **Saved. Undo** appears at the bottom: don't press it yet.
+- [ ] From Sara's browser, dial Sales's number: your browser rings. Hang up.
+- [ ] Edit Sales → **One after another**, 15 seconds each. **Simulator** → call Sales's number: the steps show you first, then Sara.
+
+### 8. Incoming, office hours, "We're closed"
+- [ ] Admin → **Incoming** → the landline's card → **Change**: **Somewhere else** → Sales → **Follow office hours** → **After hours**: **Play "We're closed", then voicemail**, whose voicemail: Sales → the sentence reads right → **Save**.
+- [ ] iPhone: call `042340100`. Your browser rings, then Sara's after 15 seconds. Sara answers; both hear each other. Hang up.
+- [ ] Admin → **Office hours**: it says **Now: open** (if not, it's after hours already: skip to the next box). Change today's closing time to a few minutes ago → **Save hours** → it says **Now: closed**.
+- [ ] iPhone: call the landline again. You hear "We're closed", then the tone. Leave a short message ("test one") and hang up.
+- [ ] **Simulator** → **When**: tomorrow at 10:00 → the landline's number: steps say open, Sales; at 03:00: "We're closed", then Sales's voicemail.
+- [ ] Office hours → **Holidays** → add today as "Test day": it says **Now: closed** even within today's hours. Remove it again.
+
+### 9. Voicemail
+- [ ] Sara's browser: the **Voicemail** tab has a badge 1 within a few seconds (no reload). The message is in **Ring groups** → Sales, from your mobile number, with its length. **Play**: you hear "test one". It's now **Heard**.
+- [ ] Your browser: you see it too (you're in Sales). Ring-group messages aren't emailed (your decision): no email arrives for it.
+- [ ] Your **Voicemail** → **Settings**: **Email me new messages** on. **Greeting** → **Record**: say "You've reached the test line" → **Stop** → **Play** → **Use this**.
+- [ ] Office hours back as they were (put today's closing time back) → **Incoming** → the landline → **Just ring one person**: you (200), no answer → your voicemail.
+- [ ] iPhone: call the landline, don't answer on the laptop. After the ringing you hear your own greeting, then the tone. Leave "test two".
+- [ ] Your **Voicemail**: the message, badge 1. Your inbox: an email with the recording attached (a `.wav`, plays on the laptop).
+- [ ] From your browser, dial Sara (201); she doesn't answer; leave "for Sara". Your **Voicemail** → **All boxes** (admins see every box) → Sara's → **Play**. System → **Activity** shows that you listened to a message in Sara's box.
+- [ ] **⋯** → **Delete** "test one" in Sales: gone from both browsers.
+
+### 10. Call history
+- [ ] Your browser: **Call history** has a badge for the calls you missed; opening it clears it. Each call shows its way through Linx in words ("Rang Sales: … · Sara answered", "Rang you · no answer · left a message (0:05)"); **Listen** plays "test two".
+- [ ] **Missed only** and **Search number** (a few digits of your mobile) work. The Dialer's **Recent** shows the last 5.
+- [ ] Sara's history shows only her calls (none of yours alone).
+- [ ] Admin → **Calls**: everyone's calls; **Anyone** → Sara narrows it. **Download (CSV)** → open it in Numbers or Excel: one row per call, readable times, nothing runs, no warnings about formulas.
+- [ ] System → **Settings** → **Keep call history** shows 365 days; **Keep voicemail** 60 days.
+
+### 11. Undo and routing changes
+- [ ] Ring groups → Sales → change the ring time → **Save** → **Saved. Undo** → **Undo**: the old time is back.
+- [ ] System → **Routing changes**: every change from today, newest first, with who made it. **See the change** on the office-hours one shows before and after in sentences.
+- [ ] **Put this back** on the change that pointed the landline at Sales (step 8): the preview lists what will change → put it back → Incoming shows the landline as it was before step 8. Then **Undo** that, and it's back to "Just ring one person".
+- [ ] Admin → **Outgoing** → a calling level → turn **abroad** on → Save, then **Undo** (abroad off: no question asked). In Routing changes, **Redo** the undo (abroad on again): it asks you to confirm it's you. Then turn abroad off again.
+- [ ] System → **Activity**: `routing.undo` and `routing.put_back` entries.
+
+### 12. A restart doesn't stop calls
+- [ ] System → **Status** → the control plane → **Restart**. While it's restarting (about 10 seconds), call the landline from the iPhone: it still rings you. Don't answer: leave "test three".
+- [ ] Once the page is back: "test three" is in your Voicemail (the control plane picks it up when it starts) and in Call history.
+
+### 13. Phase 1 exit: UDP blocked
+The iPad on the iPhone's hotspot, signed in as Sara at `https://home.mym.ae`. Find the hotspot's public address: on the iPad, open `https://1.1.1.1/cdn-cgi/trace` and read `ip=`. On the home server:
+```
+sudo nft add table inet linxdemo
+sudo nft add chain inet linxdemo pre '{ type filter hook prerouting priority -300; }'
+sudo nft add rule inet linxdemo pre ip saddr HOTSPOT_IP meta l4proto udp counter drop
+```
+Reload Linx on the iPad.
+- [ ] **Web to web:** the iPad calls you (200) on the laptop. Both hear each other for 20 seconds; the iPad's chip says **Relayed**.
+- [ ] **Web to line:** the iPad dials your iPhone's mobile number. The iPhone rings, both hear each other; the chip says **Relayed**.
+- [ ] `sudo nft list table inet linxdemo` shows the counter above 0. **This is the Phase 1 exit test.**
+
+Undo it: `sudo nft delete table inet linxdemo`.
+
+### 14. VPS: moving ports again (your Part A request)
+Part A steps 8–10 on the VPS, looking especially at the three things fixed then:
+- [ ] With the move pending, **Check the key** shows its tick at once, and the move's **Check** isn't grey.
+- [ ] After **Apply**, the page opens `https://vps.mym.ae:8443` by itself, signed in again with the passkey.
+- [ ] Back to 443: no endless spinner; the page opens `https://vps.mym.ae` by itself.
+- [ ] On the VPS during an echo test from the iPhone, `docker stats --no-stream`: note the processor and memory in the Results. Remove TCP 8443 from the provider's firewall afterwards.
+
+### 15. Clean up
+- [ ] Home: Incoming as you want it (the landline ringing you, or back to Sales); delete the test messages; keep Sara or remove her (People → Sara → Remove). The Email alert channel can stay.
+
+### Results
+Not run yet.
