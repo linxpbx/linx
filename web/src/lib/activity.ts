@@ -24,6 +24,7 @@ const SENTENCES: Record<string, string> = {
   "backup.password_shown": "Showed a backup file's password", "sip.relay_closed": "Closed a browser phone line",
   "system.service_restart": "Restarted a service",
   "voicemail_greeting.record": "Recorded a voicemail greeting", "voicemail.keep_days": "Changed how long voicemail is kept",
+  "voicemail.play": "Listened to the voicemail of",
 };
 
 export interface AuditEntryLike {

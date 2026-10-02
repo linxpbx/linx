@@ -66,7 +66,9 @@ func registerVoicemailHandlers(mux *http.ServeMux, authn *auth.Authenticator, sv
 		if !ok {
 			return
 		}
-		m, err := svc.Audio(r.Context(), v, id)
+		p, _ := auth.PrincipalFromContext(r.Context())
+		m, err := svc.Audio(r.Context(), v, id, auth.AuditEntry{TenantID: &p.TenantID, Actor: p.Actor(),
+			IP: auth.ClientIPFromContext(r.Context()), Result: auth.ResultOK})
 		if err != nil {
 			writeAccountError(w, err)
 			return

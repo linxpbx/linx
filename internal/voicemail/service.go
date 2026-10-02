@@ -121,6 +121,8 @@ type ServiceStore interface {
 	VoicemailKeepDays(ctx context.Context) (int, error)
 	SetVoicemailKeepDays(ctx context.Context, days int, audit auth.AuditEntry) error
 	VoicemailUsage(ctx context.Context, tenant uuid.UUID) (Usage, error)
+	// Audit records an admin listening to someone else's message.
+	Audit(ctx context.Context, e auth.AuditEntry) error
 	// ExpireVoicemail deletes messages older than the kept days, returning
 	// the tenants that lost any.
 	ExpireVoicemail(ctx context.Context, now time.Time) ([]uuid.UUID, error)
@@ -252,10 +254,21 @@ func (s *Service) message(ctx context.Context, v Viewer, id uuid.UUID, audio boo
 	return m, b, err
 }
 
-// Audio is message id with its audio, for v to play or download.
-func (s *Service) Audio(ctx context.Context, v Viewer, id uuid.UUID) (Message, error) {
-	m, _, err := s.message(ctx, v, id, true)
-	return m, err
+// Audio is message id with its audio, for v to play or download. An
+// admin hearing a box that isn't theirs or their group's is written in
+// the activity log (owner, 2026-10-02); if that can't be written, the
+// audio isn't given.
+func (s *Service) Audio(ctx context.Context, v Viewer, id uuid.UUID, audit auth.AuditEntry) (Message, error) {
+	m, b, err := s.message(ctx, v, id, true)
+	if err != nil || b.Mine || b.Member {
+		return m, err
+	}
+	audit.Action, audit.Target = "voicemail.play", id.String()
+	audit.Detail = map[string]any{"box": b.ID, "name": b.Owner, "received_at": m.ReceivedAt}
+	if err := s.Store.Audit(ctx, audit); err != nil {
+		return Message{}, err
+	}
+	return m, nil
 }
 
 // FileName is m's name as a download: when it was left, in the server's
@@ -391,7 +404,7 @@ func (s *Service) SetGreeting(ctx context.Context, v Viewer, id uuid.UUID, kind 
 		return &apihttp.Error{Status: http.StatusBadRequest, Code: "greeting_invalid", Detail: upperFirst(err.Error()) + "."}
 	}
 	audit.Action, audit.Target = "voicemail_greeting.record", id.String()
-	audit.Detail = map[string]any{"kind": kind, "seconds": len(audio) / SampleRate}
+	audit.Detail = map[string]any{"kind": kind, "seconds": int(GreetingDuration(audio).Seconds())}
 	if err := s.Store.SetGreeting(ctx, v.Tenant, id, kind, audio, s.Now(), v.User, audit); err != nil {
 		return err
 	}
@@ -432,7 +445,7 @@ func (s *Service) Greeting(ctx context.Context, v Viewer, id uuid.UUID, kind str
 	if err != nil {
 		return nil, err
 	}
-	return WAV(audio), nil
+	return GreetingWAV(audio), nil
 }
 
 // KeepDays is how long messages are kept, with the space they use.

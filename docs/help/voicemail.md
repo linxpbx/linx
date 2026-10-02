@@ -17,7 +17,7 @@ When nobody answers, callers can leave a message. **Voicemail** in the sidebar s
 - **Call back** rings the caller from your browser.
 - **⋯** has **Mark as new** (or **Mark as heard**), **Download** (a WAV file every computer and phone plays) and **Delete**.
 - If you're in a [ring group](ring-groups), its messages show here too, marked "for Sales". When someone in the group has heard one, the others see "Heard by Sara". Deleting a group's message deletes it for everyone in the group.
-- The box at the top (**Mine**) lets you look at one group's messages only. Admins also get **All boxes**.
+- The box at the top (**Mine**) lets you look at one group's messages only. Admins also get **All boxes**; when an admin listens to someone else's message, it's written in the activity log (System → Activity).
 
 Messages are kept for 60 days and then deleted (an admin can change that, below). Each message can be up to 3 minutes long.
 

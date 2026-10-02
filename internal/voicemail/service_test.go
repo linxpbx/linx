@@ -114,7 +114,7 @@ func (f *fakeVM) VoicemailGreetings(_ context.Context, box uuid.UUID) (map[strin
 	out := map[string]GreetingInfo{}
 	for _, k := range []string{GreetingUnavailable, GreetingClosed} {
 		if a, ok := f.greetings[GreetingName(box, k)]; ok {
-			out[k] = GreetingInfo{Recorded: true, InUse: f.inUse[GreetingName(box, k)], Duration: time.Duration(len(a)) * time.Second / SampleRate}
+			out[k] = GreetingInfo{Recorded: true, InUse: f.inUse[GreetingName(box, k)], Duration: GreetingDuration(a)}
 		} else {
 			out[k] = GreetingInfo{}
 		}
@@ -164,6 +164,11 @@ func (f *fakeVM) GreetingAudio(_ context.Context, box uuid.UUID, kind string) ([
 	return a, nil
 }
 
+func (f *fakeVM) Audit(_ context.Context, a auth.AuditEntry) error {
+	f.audits = append(f.audits, a)
+	return nil
+}
+
 func (f *fakeVM) VoicemailKeepDays(context.Context) (int, error) { return f.keep, nil }
 
 func (f *fakeVM) SetVoicemailKeepDays(_ context.Context, d int, _ auth.AuditEntry) error {
@@ -206,7 +211,7 @@ func TestServiceWhoSeesWhat(t *testing.T) {
 		t.Errorf("Sara listing Bob's box: %v", err)
 	}
 	bobs := f.msgIn(f.bob)
-	if _, err := s.Audio(ctx, sara, bobs); code(err) != "not_found" {
+	if _, err := s.Audio(ctx, sara, bobs, auth.AuditEntry{}); code(err) != "not_found" {
 		t.Errorf("Sara playing Bob's message: %v", err)
 	}
 	if err := s.Mark(ctx, sara, bobs, true); code(err) != "not_found" {
@@ -239,8 +244,16 @@ func TestServiceWhoSeesWhat(t *testing.T) {
 	if boxes, _, _ := s.List(ctx, admin, nil, true); len(boxes) != 3 {
 		t.Errorf("an admin's All boxes has %d", len(boxes))
 	}
-	if _, err := s.Audio(ctx, admin, bobs); err != nil {
+	before := len(f.audits)
+	if _, err := s.Audio(ctx, admin, bobs, auth.AuditEntry{}); err != nil {
 		t.Errorf("an admin playing Bob's message: %v", err)
+	}
+	if len(f.audits) != before+1 || f.audits[before].Action != "voicemail.play" || f.audits[before].Detail["name"] != "Bob (102)" {
+		t.Errorf("an admin hearing Bob's message isn't in the activity log: %+v", f.audits[before:])
+	}
+	f.viewerExt = f.sara // Sara again
+	if _, err := s.Audio(ctx, sara, f.msgIn(f.sara), auth.AuditEntry{}); err != nil || len(f.audits) != before+1 {
+		t.Errorf("Sara hearing her own message: %v, logged %d", err, len(f.audits)-before-1)
 	}
 }
 
@@ -287,13 +300,13 @@ func TestServiceBoxSettings(t *testing.T) {
 	if _, err := s.Update(ctx, sara, f.sales, BoxPatch{UseOwn: map[string]bool{GreetingUnavailable: true}}, auth.AuditEntry{}); code(err) != "greeting_not_recorded" {
 		t.Errorf("own greeting before recording: %v", err)
 	}
-	if err := s.SetGreeting(ctx, sara, f.sales, GreetingClosed, WAV(tone(3)), auth.AuditEntry{}); err != nil {
+	if err := s.SetGreeting(ctx, sara, f.sales, GreetingClosed, GreetingWAV(speech(3)), auth.AuditEntry{}); err != nil {
 		t.Fatalf("a member recording the group's greeting: %v", err)
 	}
-	if err := s.SetGreeting(ctx, sara, f.sales, "weekend", WAV(tone(3)), auth.AuditEntry{}); code(err) != "not_found" {
+	if err := s.SetGreeting(ctx, sara, f.sales, "weekend", GreetingWAV(speech(3)), auth.AuditEntry{}); code(err) != "not_found" {
 		t.Errorf("an unknown greeting: %v", err)
 	}
-	if err := s.SetGreeting(ctx, sara, f.bob, GreetingClosed, WAV(tone(3)), auth.AuditEntry{}); code(err) != "not_found" {
+	if err := s.SetGreeting(ctx, sara, f.bob, GreetingClosed, GreetingWAV(speech(3)), auth.AuditEntry{}); code(err) != "not_found" {
 		t.Errorf("recording Bob's greeting: %v", err)
 	}
 	if err := s.SetGreeting(ctx, sara, f.sara, GreetingUnavailable, []byte("RIFF"), auth.AuditEntry{}); code(err) != "greeting_invalid" {
@@ -306,7 +319,7 @@ func TestServiceBoxSettings(t *testing.T) {
 	if _, err := s.Update(ctx, sara, f.sales, BoxPatch{UseOwn: map[string]bool{GreetingClosed: false}}, auth.AuditEntry{}); err != nil || f.inUse[GreetingName(f.sales, GreetingClosed)] {
 		t.Errorf("back to Linx's own: %v", err)
 	}
-	if wav, err := s.Greeting(ctx, sara, f.sales, GreetingClosed); err != nil || len(wav) != 44+2*3*SampleRate {
+	if wav, err := s.Greeting(ctx, sara, f.sales, GreetingClosed); err != nil || len(wav) != 44+2*3*GreetingRate {
 		t.Errorf("hearing it: %v, %d bytes", err, len(wav))
 	}
 
