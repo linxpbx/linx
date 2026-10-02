@@ -81,11 +81,12 @@ type ChangeStore interface {
 	// RoutingChanges returns every kept change, newest first.
 	RoutingChanges(ctx context.Context, tenant uuid.UUID) ([]Change, error)
 	// WithRoutingBefore runs fn on the routing as it was just before
-	// change id, as it would be put back now; nothing is kept.
-	WithRoutingBefore(ctx context.Context, tenant, id uuid.UUID, fn func(StateStore) error) error
-	// PutRoutingBack puts it back as a new change; with ifLatest only
-	// while id is the newest change (ErrVersionChanged).
-	PutRoutingBack(ctx context.Context, tenant, id uuid.UUID, ifLatest bool, audit auth.AuditEntry) (uuid.UUID, error)
+	// change id, as it would be put back now; nothing is kept. It
+	// returns the newest change then.
+	WithRoutingBefore(ctx context.Context, tenant, id uuid.UUID, fn func(StateStore) error) (newest uuid.UUID, err error)
+	// PutRoutingBack puts it back as a new change, only while newest is
+	// still the newest change (ErrVersionChanged).
+	PutRoutingBack(ctx context.Context, tenant, id, newest uuid.UUID, audit auth.AuditEntry) (uuid.UUID, error)
 }
 
 // PutBackError is a version that can't be put back as things are now.
@@ -379,6 +380,10 @@ type PutBackPreview struct {
 	NeedConfirm bool
 	// Outgoing: it changes outgoing calls (needs trunks:write too).
 	Outgoing bool
+	// newest is the newest change when this was worked out: the put-back
+	// happens only while it still is, so what was checked is what's put
+	// back.
+	newest uuid.UUID
 }
 
 // costly are the calling categories where phone fraud costs money:
@@ -393,17 +398,18 @@ func (s *Service) preview(ctx context.Context, tenant, id uuid.UUID) (PutBackPre
 	}
 	var then []Item
 	var thenOut Outgoing
-	if err := s.Changes.WithRoutingBefore(ctx, tenant, id, func(st StateStore) error {
+	newest, err := s.Changes.WithRoutingBefore(ctx, tenant, id, func(st StateStore) error {
 		var err error
 		then, thenOut, err = s.items(ctx, st)
 		return err
-	}); err != nil {
+	})
+	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return PutBackPreview{}, changeNotFound()
 		}
 		return PutBackPreview{}, err
 	}
-	pv := PutBackPreview{Changes: Diff(now, then)}
+	pv := PutBackPreview{Changes: Diff(now, then), newest: newest}
 	for _, c := range pv.Changes {
 		if c.Kind == ItemOutgoing || c.Kind == ItemLevel {
 			pv.Outgoing = true
@@ -446,6 +452,9 @@ func (s *Service) PreviewPutBack(ctx context.Context, id uuid.UUID) (PutBackPrev
 // newest change, so it never undoes someone else's later change too.
 // Turning on calls abroad or premium numbers needs "confirm it's you",
 // and changing outgoing calls trunks:write, as when changed directly.
+// Those are checked against the routing the put-back replaces: if it
+// changed after the check, it's checked again (a put-back) or refused
+// (an undo).
 func (s *Service) PutBack(ctx context.Context, id uuid.UUID, undo bool) (uuid.UUID, error) {
 	if err := s.changes(); err != nil {
 		return uuid.Nil, err
@@ -454,9 +463,22 @@ func (s *Service) PutBack(ctx context.Context, id uuid.UUID, undo bool) (uuid.UU
 	if err != nil {
 		return uuid.Nil, err
 	}
+	for try := 1; ; try++ {
+		change, err := s.putBack(ctx, p, id, undo)
+		if errors.Is(err, ErrVersionChanged) && !undo && try < 3 {
+			continue
+		}
+		return change, putBackAPIError(err)
+	}
+}
+
+func (s *Service) putBack(ctx context.Context, p auth.Principal, id uuid.UUID, undo bool) (uuid.UUID, error) {
 	pv, err := s.preview(ctx, p.TenantID, id)
 	if err != nil {
-		return uuid.Nil, putBackAPIError(err)
+		return uuid.Nil, err
+	}
+	if undo && pv.newest != id {
+		return uuid.Nil, ErrVersionChanged
 	}
 	if pv.Outgoing && !p.Has("trunks:write") {
 		return uuid.Nil, &apihttp.Error{Status: http.StatusForbidden, Code: "insufficient_scope",
@@ -475,8 +497,7 @@ func (s *Service) PutBack(ctx context.Context, id uuid.UUID, undo bool) (uuid.UU
 	if err != nil {
 		return uuid.Nil, err
 	}
-	change, err := s.Changes.PutRoutingBack(ctx, p.TenantID, id, undo, a)
-	return change, putBackAPIError(err)
+	return s.Changes.PutRoutingBack(ctx, p.TenantID, id, pv.newest, a)
 }
 
 func putBackAPIError(err error) error {

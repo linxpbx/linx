@@ -175,26 +175,40 @@ func (s *Store) RoutingChanges(ctx context.Context, tenant uuid.UUID) ([]routing
 
 // WithRoutingBefore runs fn on the routing as it was just before change
 // id: the version is put back in a transaction that is always rolled
-// back, so fn reads it with the usual queries. routing.ErrNotFound when
-// the change isn't kept; a *routing.PutBackError when it can't be put
-// back as things are now.
-func (s *Store) WithRoutingBefore(ctx context.Context, tenant, id uuid.UUID, fn func(routing.StateStore) error) error {
+// back, so fn reads it with the usual queries. It returns the newest
+// change, as it was then. routing.ErrNotFound when the change isn't
+// kept; a *routing.PutBackError when it can't be put back as things are
+// now.
+func (s *Store) WithRoutingBefore(ctx context.Context, tenant, id uuid.UUID, fn func(routing.StateStore) error) (uuid.UUID, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if err := lockRouting(ctx, tx, tenant); err != nil {
-		return err
+		return uuid.Nil, err
+	}
+	newest, err := newestRoutingChange(ctx, tx, tenant)
+	if err != nil {
+		return uuid.Nil, err
 	}
 	before, err := routingBefore(ctx, tx, tenant, id)
 	if err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	if err := restoreRouting(ctx, tx, tenant, before); err != nil {
-		return err
+		return uuid.Nil, err
 	}
-	return fn(&Store{pool: tx})
+	return newest, fn(&Store{pool: tx})
+}
+
+func newestRoutingChange(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT id FROM routing_change WHERE tenant_id = $1 ORDER BY at DESC, id DESC LIMIT 1`, tenant).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, routing.ErrNotFound
+	}
+	return id, err
 }
 
 func routingBefore(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID) ([]byte, error) {
@@ -207,26 +221,28 @@ func routingBefore(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID) ([]byte
 }
 
 // PutRoutingBack puts back the routing as it was just before change id,
-// as a new change (which it returns). With ifLatest, only while id is
-// still the newest change (routing.ErrVersionChanged otherwise): the
-// "Saved. Undo" button must not undo someone else's later change too.
-func (s *Store) PutRoutingBack(ctx context.Context, tenant, id uuid.UUID, ifLatest bool, audit auth.AuditEntry) (uuid.UUID, error) {
+// as a new change (which it returns), only while newest is still the
+// newest change (routing.ErrVersionChanged otherwise): what the caller
+// checked (and "Saved. Undo", which passes id itself) must be what's
+// replaced, never someone else's later change.
+func (s *Store) PutRoutingBack(ctx context.Context, tenant, id, newest uuid.UUID, audit auth.AuditEntry) (uuid.UUID, error) {
 	var change uuid.UUID
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		if err := lockRouting(ctx, tx, tenant); err != nil {
 			return err
 		}
 		var at time.Time
-		var latest bool
-		err := tx.QueryRow(ctx, `SELECT at, id = (SELECT id FROM routing_change WHERE tenant_id = $2 ORDER BY at DESC, id DESC LIMIT 1)
-			FROM routing_change WHERE id = $1 AND tenant_id = $2`, id, tenant).Scan(&at, &latest)
+		err := tx.QueryRow(ctx, `SELECT at FROM routing_change WHERE id = $1 AND tenant_id = $2`, id, tenant).Scan(&at)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return routing.ErrNotFound
 		}
 		if err != nil {
 			return err
 		}
-		if ifLatest && !latest {
+		if now, err := newestRoutingChange(ctx, tx, tenant); err != nil || now != newest {
+			if err != nil {
+				return err
+			}
 			return routing.ErrVersionChanged
 		}
 		before, err := routingBefore(ctx, tx, tenant, id)

@@ -175,8 +175,17 @@ func TestRoutingChangesDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A preview keeps nothing.
-	if err := s.WithRoutingBefore(ctx, tenant, salesChange, func(st routing.StateStore) error {
+	newest := func() uuid.UUID {
+		t.Helper()
+		changes, err := s.RoutingChanges(ctx, tenant)
+		if err != nil || len(changes) == 0 {
+			t.Fatalf("routing changes: %v", err)
+		}
+		return changes[0].ID
+	}
+
+	// A preview keeps nothing, and says which change was the newest.
+	seen, err := s.WithRoutingBefore(ctx, tenant, salesChange, func(st routing.StateStore) error {
 		groups, err := st.RingGroups(ctx, tenant)
 		if err != nil {
 			return err
@@ -185,20 +194,28 @@ func TestRoutingChangesDocker(t *testing.T) {
 			t.Errorf("in the preview: %+v", groups)
 		}
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if seen != newest() {
+		t.Errorf("the preview's newest change %v, want %v", seen, newest())
 	}
 	if g := group(support.ID); g == nil || group(sales.ID).Number != "601" {
 		t.Fatal("the preview was kept")
 	}
 
 	// "Undo" of the Sales change refuses: routing changed since.
-	if _, err := s.PutRoutingBack(ctx, tenant, salesChange, true, audit); !errors.Is(err, routing.ErrVersionChanged) {
+	if _, err := s.PutRoutingBack(ctx, tenant, salesChange, salesChange, audit); !errors.Is(err, routing.ErrVersionChanged) {
 		t.Errorf("undo of an older change: %v", err)
+	}
+	// So does a put-back checked against routing that changed since.
+	if _, err := s.PutRoutingBack(ctx, tenant, salesChange, salesChange, audit); !errors.Is(err, routing.ErrVersionChanged) {
+		t.Errorf("a put-back checked before a later change: %v", err)
 	}
 
 	// Putting back the version before the Sales change.
-	putBack, err := s.PutRoutingBack(ctx, tenant, salesChange, false, audit)
+	putBack, err := s.PutRoutingBack(ctx, tenant, salesChange, seen, audit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +264,7 @@ func TestRoutingChangesDocker(t *testing.T) {
 
 	// Undoing the put-back gives the later routing again; Support comes
 	// back with an empty box.
-	if _, err := s.PutRoutingBack(ctx, tenant, putBack, true, audit); err != nil {
+	if _, err := s.PutRoutingBack(ctx, tenant, putBack, putBack, audit); err != nil {
 		t.Fatal(err)
 	}
 	g = group(sales.ID)
@@ -270,7 +287,7 @@ func TestRoutingChangesDocker(t *testing.T) {
 	newExtension("600", "Omar")
 	before := group(sales.ID)
 	var pb *routing.PutBackError
-	if _, err := s.PutRoutingBack(ctx, tenant, salesChange, false, audit); !errors.As(err, &pb) {
+	if _, err := s.PutRoutingBack(ctx, tenant, salesChange, newest(), audit); !errors.As(err, &pb) {
 		t.Errorf("putting back 600 over an extension: %v", err)
 	}
 	if g := group(sales.ID); g.Number != before.Number || g.Strategy != before.Strategy {
@@ -292,7 +309,7 @@ func TestRoutingChangesDocker(t *testing.T) {
 	if n := count(); n != KeepRoutingChanges {
 		t.Errorf("%d changes kept, want %d", n, KeepRoutingChanges)
 	}
-	if _, err := s.PutRoutingBack(ctx, tenant, salesChange, false, audit); !errors.Is(err, routing.ErrNotFound) {
+	if _, err := s.PutRoutingBack(ctx, tenant, salesChange, newest(), audit); !errors.Is(err, routing.ErrNotFound) {
 		t.Errorf("putting back a pruned change: %v", err)
 	}
 
