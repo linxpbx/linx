@@ -14,6 +14,10 @@ Server settings change how the server itself is set up: the domain, what's in fr
 - In the browser: System → **Server settings**.
 - From the server: `sudo linx setup`, then choose the browser. It checks that Linx's address works and prints the link to Server settings. Nothing else reopens.
 
+## What's in front
+
+The **In front** row says what sits in front of Linx. **Show the steps** shows what it needs, as when you chose it: for a front door that passes Linx through, the three facts and **How to do this in** for each product. **Change** picks another; see [Front doors](front-doors).
+
 ## DNS records
 
 The **DNS** row lists the records your domain needs, and checks each one at your domain's own name servers (so there's no waiting for other servers to catch up):
@@ -22,27 +26,27 @@ The **DNS** row lists the records your domain needs, and checks each one at your
 - `turn.` in front of it, for call audio through firewalls;
 - at home, `sip.` in front of it, pointing at this server on your network, for desk phones and phone systems.
 
-It also names your DNS company, told from the name servers, so you know where to add them. Each record says **Right**, what it shows instead, or **Not found yet**; a record Linx keeps right itself says so. After changing a record, press **Check again**: changes can take a few minutes to show. At Cloudflare, keep Proxy off (grey cloud, "DNS only").
+It also names your DNS company, told from the name servers, so you know where to add them. Each record says **Right**, what it shows instead, or **Not found yet**; a record Linx updates for you says so. After changing a record, press **Check again**: changes can take a few minutes to show. At Cloudflare, keep Proxy off (grey cloud, "DNS only").
 
 In the name field, many DNS companies want only the first part (`turn`, `sip`), and `@` for the domain itself.
 
 ![DNS records](screen:system-server-dns)
 
-## Keeping the records right automatically
+## Letting Linx update the records for you
 
 A home connection's address changes from time to time. Linx can follow it and change the records itself, at any of these DNS companies: Cloudflare, DuckDNS, Route 53, GoDaddy, Namecheap, Porkbun, DigitalOcean, Hetzner, deSEC and OVH.
 
-1. In the **DNS** row, press **Set it up automatically** (or, under the records, **Let Linx keep these right at** your company).
+1. In the **DNS** row, press **Set it up automatically** (or, under the records, **Let Linx update these at** your company **for you**).
 2. Check the **DNS company**: it starts on the one your name servers show. Fill in what it asks for; the page says where to find it at that company.
 3. **Check the key**: Linx reads your domain's records with it and changes nothing. It says "This key can change … records", or the company's own reason.
 4. **Apply**, then confirm it's you.
 
-![Records kept right automatically](screen:system-server-dns-automatic)
+![Records Linx updates for you](screen:system-server-dns-automatic)
 
-Linx then looks at your address every five minutes and changes your domain, `turn.` and (at home) `sip.` when it moves. It only changes a record it made, or one that already pointed at the right address; anything else stays as it is. The records card says at which company Linx keeps them, and when the address last changed.
+Linx then looks at your address every five minutes and changes your domain, `turn.` and (at home) `sip.` when it moves. It only changes a record it made, or one that already pointed at the right address; anything else stays as it is. The records card says at which company Linx updates them, and when the address last changed.
 
 - **Replace key**: a new key, or another company.
-- **Stop**: Linx stops changing the records; they stay as they are. The key still renews the certificate. **Let Linx keep them right** starts again.
+- **Stop**: Linx stops changing the records; they stay as they are. The key still renews the certificate. **Let Linx update them for you** starts again.
 - Not in the list? Choose **Not in the list** and add the records by hand.
 
 Some companies have limits worth knowing: GoDaddy and Namecheap only let some accounts use their API, Namecheap only accepts the addresses on its own list, and deSEC keeps records for at least an hour, so a new address takes up to an hour to reach everyone.

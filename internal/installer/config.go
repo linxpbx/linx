@@ -284,7 +284,7 @@ func dnsByHandYAML(on bool) string {
 		return ""
 	}
 	return `  # The DNS records are kept by hand: Linx doesn't change them (the key
-  # still gets the certificate). Remove this line to let Linx keep them right.
+  # still gets the certificate). Remove this line to let Linx update them for you.
   dns_by_hand: true
 `
 }

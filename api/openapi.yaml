@@ -7257,6 +7257,29 @@ components:
         public_port:
           type: integer
           description: For `public-port`, the public port browsers use (docs/SIMPLER.md §2.5).
+        door_setup:
+          description: What the front door in use needs (Show the steps), as "Before you apply" shows it for a new one.
+          type: object
+          required: [files, steps]
+          properties:
+            files:
+              type: array
+              items:
+                type: object
+                required: [title, text]
+                properties:
+                  title:
+                    type: string
+                  path:
+                    type: string
+                  text:
+                    type: string
+            steps:
+              type: array
+              items:
+                type: string
+            card:
+              $ref: "#/components/schemas/FrontDoorCard"
         address:
           type: string
           description: Linx's web address now, https://<domain> with the public port unless it's 443.

@@ -4339,6 +4339,16 @@ export interface components {
             turn_udp_port?: number;
             /** @description For `public-port`, the public port browsers use (docs/SIMPLER.md §2.5). */
             public_port?: number;
+            /** @description What the front door in use needs (Show the steps), as "Before you apply" shows it for a new one. */
+            door_setup?: {
+                files: {
+                    title: string;
+                    path?: string;
+                    text: string;
+                }[];
+                steps: string[];
+                card?: components["schemas"]["FrontDoorCard"];
+            };
             /** @description Linx's web address now, https://<domain> with the public port unless it's 443. */
             address?: string;
             /** @description The front doors this server may use. */

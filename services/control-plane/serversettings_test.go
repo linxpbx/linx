@@ -89,11 +89,18 @@ func TestServerSettingsEndpoints(t *testing.T) {
 	}
 
 	e.serverSettings.view = &install.ServerView{Where: install.WhereHome, FrontDoor: "pangolin", Domain: "example.com", Provider: "cloudflare",
-		Token: "saved", Profile: "lite", Profiles: []install.ProfileOption{{Name: "lite", Description: "small"}}, ExpiresAt: time.Now().Add(time.Hour)}
+		Token: "saved", Profile: "lite", Profiles: []install.ProfileOption{{Name: "lite", Description: "small"}}, ExpiresAt: time.Now().Add(time.Hour),
+		DoorSetup: &install.DoorSetup{Steps: []string{"On your router, keep TCP port 443 going to your front door."},
+			Card: &install.DoorCard{Proxy: "192.168.1.211", Guides: []install.DoorGuide{{ID: "pangolin", Title: "Pangolin", Steps: []string{"Open Traefik's file."}}}}}}
 	code, body := get()
 	settings, _ := body["settings"].(map[string]any)
 	if code != http.StatusOK || body["open"] != true || settings["token_saved"] != true || settings["domain"] != "example.com" {
 		t.Fatalf("open: %d %v", code, body)
+	}
+	// Show the steps: the front door in use, its card whole.
+	door, _ := settings["door_setup"].(map[string]any)
+	if card, _ := door["card"].(map[string]any); card["proxy"] != "192.168.1.211" {
+		t.Errorf("door setup: %v", settings["door_setup"])
 	}
 
 	// A change needs "confirm it's you".

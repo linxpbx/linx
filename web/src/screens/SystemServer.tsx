@@ -165,6 +165,9 @@ function Settings({ me, s, client, onChanged, onMoved }:
   const [editDomain, setEditDomain] = useState(false);
   const [domain, setDomain] = useState("");
   const [editDoor, setEditDoor] = useState(false);
+  // Show the steps: what the front door in use needs, any time (owner,
+  // Demo A: seeing them took a pretend change).
+  const [showSteps, setShowSteps] = useState(false);
   const [door, setDoor] = useState<string>(doorChoice(s.front_door));
   const [advanced, setAdvanced] = useState(ADVANCED_DOORS.includes(s.front_door));
   const [proxy, setProxy] = useState(s.proxy_address ?? "");
@@ -312,6 +315,24 @@ function Settings({ me, s, client, onChanged, onMoved }:
             {s.proxy_address && PROXY_DOORS.includes(s.front_door) && <span className="text-muted-foreground"> at {s.proxy_address}</span>}
             {s.front_door === "public-port" && <span className="text-muted-foreground"> on port {s.public_port}: {address}</span>}
             <ChangeLink open={editDoor} label="Change" disabled={running} onClick={() => setEditDoor(true)} />
+            {s.door_setup && !editDoor && (
+              <Button variant="link" className="ms-3 h-auto p-0" aria-expanded={showSteps} onClick={() => setShowSteps(!showSteps)}>
+                {showSteps ? "Hide the steps" : "Show the steps"}
+              </Button>
+            )}
+            {s.door_setup && showSteps && !editDoor && (
+              <div className="mt-3 flex flex-col gap-2 text-sm">
+                {s.door_setup.card
+                  ? <FrontDoorCard card={s.door_setup.card} router={s.door_setup.steps} />
+                  : <ul className="list-disc space-y-1 ps-5">{s.door_setup.steps.map((line) => <li key={line}>{line}</li>)}</ul>}
+                {(s.door_setup.files ?? []).map((f) => (
+                  <Disclosure key={f.title} label={`Show ${f.title}`}>
+                    {f.path && <p className="mb-2 text-muted-foreground">Goes in {f.path}.</p>}
+                    <CopyBlock text={f.text} label={f.title} />
+                  </Disclosure>
+                ))}
+              </div>
+            )}
             {editDoor && (
               <div className="mt-3 flex max-w-md flex-col gap-3">
                 <RadioGroup value={door} aria-label="What's in front of this server" className="gap-2" onValueChange={(d) => {
@@ -409,10 +430,10 @@ function Settings({ me, s, client, onChanged, onMoved }:
             {s.token_saved
               ? s.dns_by_hand
                 ? `${company} key added. You keep the records yourself.`
-                : `${company}, kept right automatically ✓`
+                : `${company}: Linx updates them for you ✓`
               : "No key: the certificate renews through port 443, and DNS records are yours to keep."}
             {s.token_saved && s.dns_by_hand && byHand === null &&
-              <ChangeLink open={false} label="Let Linx keep them right" disabled={running} onClick={() => setByHand(false)} />}
+              <ChangeLink open={false} label="Let Linx update them for you" disabled={running} onClick={() => setByHand(false)} />}
             <ChangeLink open={addToken} label={s.token_saved ? "Replace key" : "Set it up automatically"} disabled={running}
               onClick={() => {
                 setAddToken(true);
@@ -425,13 +446,13 @@ function Settings({ me, s, client, onChanged, onMoved }:
               <p role="status" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                 {byHand
                   ? "Linx stops changing the records; they stay as they are now. The key still renews the certificate. Press Apply."
-                  : `Linx keeps the records right again at ${company}. Press Apply.`}
+                  : `Linx updates the records for you again at ${company}. Press Apply.`}
                 <Button variant="link" className="h-auto p-0" onClick={() => setByHand(null)}>Cancel</Button>
               </p>
             )}
             {addToken && (
               <div className="mt-3 flex max-w-md flex-col gap-3">
-                <h3 className="font-display text-base font-semibold">Keep the records right automatically</h3>
+                <h3 className="font-display text-base font-semibold">Let Linx update the records for you</h3>
                 <DnsKeyFields idPrefix="server-dns" domain={newDomain || s.domain} address={s.public_address} detected={detected}
                   value={dnsKey} onChange={setDnsKey} disabled={running} />
                 {dnsKey.provider !== BY_HAND && (

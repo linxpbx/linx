@@ -186,6 +186,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     portainer: false, portainer_allowed: opts.serverSettings === "home", apply: { state: "" }, steps: [], keep: [],
     expires_at: new Date(Date.now() + 4 * 3600_000).toISOString(),
     proxy_address: opts.serverSettings === "home" ? "192.168.1.30" : undefined,
+    door_setup: opts.serverSettings === "home" ? doorSetup("example.com", "192.168.1.30") : undefined,
     front_doors: opts.serverSettings === "home" ? ["linx-443", "proxy", "home-only", "public-port", "http-proxy"] : ["linx-443", "proxy", "public-port"],
     address: "https://example.com",
     public_address: "203.0.113.5", lan_address: opts.serverSettings === "home" ? "192.168.1.212" : undefined,

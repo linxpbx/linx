@@ -96,7 +96,7 @@ func serverSettingsView(v install.ServerView) (ServerSettingsView, error) {
 		"profile": v.Profile, "profiles": profiles, "profile_pick": v.ProfilePick, "profile_reason": v.ProfileReason,
 		"portainer": v.Portainer, "portainer_allowed": v.PortainerAllowed,
 		"apply": map[string]string{"state": v.Apply.State, "detail": v.Apply.Detail}, "steps": steps, "keep": keep,
-		"expires_at": v.ExpiresAt,
+		"expires_at": v.ExpiresAt, "door_setup": doorSetup(v.DoorSetup),
 	})
 	if err != nil {
 		return ServerSettingsView{}, err
@@ -215,11 +215,7 @@ func previewServerSettings(ctx context.Context, src ServerSettingsSource, c inst
 		out.Steps = []string{}
 	}
 	if p.Setup != nil {
-		setup := map[string]any{"files": orEmpty(p.Setup.Files), "steps": orEmpty(p.Setup.Steps)}
-		if p.Setup.Card != nil {
-			setup["card"] = p.Setup.Card
-		}
-		b, err := json.Marshal(setup)
+		b, err := json.Marshal(doorSetup(p.Setup))
 		if err != nil {
 			return out, err
 		}
@@ -228,6 +224,19 @@ func previewServerSettings(ctx context.Context, src ServerSettingsSource, c inst
 		}
 	}
 	return out, nil
+}
+
+// doorSetup is a front door's steps in the API's shape, card and all (nil
+// for none).
+func doorSetup(s *install.DoorSetup) map[string]any {
+	if s == nil {
+		return nil
+	}
+	out := map[string]any{"files": orEmpty(s.Files), "steps": orEmpty(s.Steps)}
+	if s.Card != nil {
+		out["card"] = s.Card
+	}
+	return out
 }
 
 func orEmpty[T any](s []T) []T {

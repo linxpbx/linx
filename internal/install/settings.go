@@ -39,6 +39,9 @@ type ServerView struct {
 	ProxyAddress string `json:"proxy_address,omitempty"`
 	TURNUDPPort  int    `json:"turn_udp_port,omitempty"`
 	PublicPort   int    `json:"public_port,omitempty"`
+	// DoorSetup is what the front door in use needs (Show the steps; nil
+	// when it needs nothing).
+	DoorSetup *DoorSetup `json:"door_setup,omitempty"`
 	// Address is Linx's web address now (with the public port unless 443).
 	Address string `json:"address"`
 	// FrontDoors are the front doors this server may use

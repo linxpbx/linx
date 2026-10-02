@@ -100,6 +100,7 @@ func (w webSettings) View(ctx context.Context) (install.ServerView, error) {
 		PublicAddress:    w.publicAddress(ctx),
 	}
 	v.FrontDoors = installer.FrontDoorsFor(v.Where)
+	v.DoorSetup = installer.DoorSetup(c, w.lan)
 	if w.lan.OK() {
 		v.LANAddress = w.lan.Address.String()
 	}

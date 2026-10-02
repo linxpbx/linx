@@ -146,7 +146,7 @@ for (const scheme of ["light", "dark"] as const) {
       await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
       await page.goto("/admin/system/server");
       const card = page.getByRole("region", { name: "Records for example.com" });
-      await expect(card.getByText("Linx keeps these right itself at Porkbun.")).toBeVisible();
+      await expect(card.getByText("Linx updates these at Porkbun for you, even when your address changes.")).toBeVisible();
       await expect(card.getByText("(94.200.1.9 → 94.200.1.10)", { exact: false })).toBeVisible();
       await card.scrollIntoViewIfNeeded();
       await shot(page, `${scheme}-system-server-dns-automatic`);
@@ -1066,7 +1066,7 @@ test.describe("system: server settings", () => {
   test("at home: size, Portainer, then the change's steps", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
     await page.goto("/admin/system/server");
-    await expect(page.getByText("Porkbun, kept right automatically ✓")).toBeVisible();
+    await expect(page.getByText("Porkbun: Linx updates them for you ✓")).toBeVisible();
     await expect(page.getByRole("button", { name: "Apply" })).toBeDisabled();
     await page.getByRole("radio", { name: /Standard/ }).click();
     await page.getByLabel("Portainer").click();
@@ -1086,7 +1086,7 @@ test.describe("system: server settings", () => {
     await expect(page.getByLabel("Portainer")).toHaveCount(0);
     await expect(page.getByText("Portainer is offered only on a server at home")).toBeVisible();
     // The company the name servers show, named on the records card's button.
-    await page.getByRole("button", { name: "Let Linx keep these right at Porkbun" }).click();
+    await page.getByRole("button", { name: "Let Linx update these at Porkbun for you" }).click();
     await expect(page.getByLabel("DNS company")).toContainText("Porkbun");
     await expect(page.getByText("(from its name servers)")).toBeVisible();
     await expect(page.getByRole("button", { name: "Check the key" })).toBeDisabled();
@@ -1097,7 +1097,7 @@ test.describe("system: server settings", () => {
     await page.getByLabel("Secret key", { exact: true }).fill("sk1_0123456789abcdef");
     await page.getByRole("button", { name: "Check the key" }).click();
     await expect(page.getByText("This key can change example.com's records.")).toBeVisible();
-    await page.getByRole("heading", { name: "Keep the records right automatically" }).scrollIntoViewIfNeeded();
+    await page.getByRole("heading", { name: "Let Linx update the records for you" }).scrollIntoViewIfNeeded();
     await shot(page, "system-server-dns-key");
     // Another company: only what it asks for.
     await page.getByLabel("DNS company").click();
@@ -1182,6 +1182,18 @@ test.describe("system: server settings", () => {
     await expect(page.getByText("Linx is restarting with the new settings")).toBeVisible({ timeout: 25_000 });
   });
 
+  test("at home: show the steps for the front door in use", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "home" });
+    await page.goto("/admin/system/server");
+    // No pretend change needed to see them (owner, Demo A).
+    await page.getByRole("button", { name: "Show the steps" }).click();
+    await expect(page.getByText("How to do this in")).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Pangolin" })).toBeVisible();
+    await shot(page, "system-server-show-steps");
+    await page.getByRole("button", { name: "Hide the steps" }).click();
+    await expect(page.getByText("How to do this in")).toHaveCount(0);
+  });
+
   test("rented, no key: another public port asks for one", async ({ page }) => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, serverSettings: "rented" });
     await page.goto("/admin/system/server");
@@ -1191,7 +1203,7 @@ test.describe("system: server settings", () => {
     await page.getByRole("button", { name: "Use another port" }).click();
     await expect(page.getByText("Linx will open TCP 8443 and UDP 443 on this server's firewall")).toBeVisible();
     // Certificates can't be checked on port 443: the DNS key form opens.
-    await expect(page.getByRole("heading", { name: "Keep the records right automatically" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Let Linx update the records for you" })).toBeVisible();
     await shot(page, "system-server-public-port-rented");
     // The key's Check answers for the key, and the move's Check still
     // works after it (Demo A: the tick never came, and Check stayed grey).
@@ -1267,7 +1279,7 @@ test.describe("repair page (port 6464)", () => {
     await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, repair: "sign-in", serverSettings: "home" });
     await page.goto("/repair");
     await expect(page.getByRole("heading", { name: "Fix this server's address" })).toBeVisible();
-    await expect(page.getByText("Porkbun, kept right automatically ✓")).toBeVisible();
+    await expect(page.getByText("Porkbun: Linx updates them for you ✓")).toBeVisible();
     await shot(page, "repair-settings");
   });
 

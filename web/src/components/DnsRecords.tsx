@@ -84,8 +84,8 @@ export function DnsRecords({ className, onLoaded, onAutomatic }: {
       <div className="flex flex-col gap-1">
         <p>
           {auto
-            ? `Linx keeps these right itself at ${auto.company}.`
-            : allKept ? "Linx keeps these right itself, with your DNS key." : `Add these at the company that runs ${where}'s DNS.`}
+            ? `Linx updates these at ${auto.company} for you, even when your address changes.`
+            : allKept ? "Linx updates these for you, with your DNS key, even when your address changes." : `Add these at the company that runs ${where}'s DNS.`}
         </p>
         {auto && (auto.changed_at || auto.error) && (
           <p className="break-words text-muted-foreground">
@@ -127,9 +127,9 @@ export function DnsRecords({ className, onLoaded, onAutomatic }: {
       </div>
       {onAutomatic && !auto && (
         <div className="flex flex-col gap-2 border-t pt-3">
-          <p>Your address changes from time to time? Let Linx keep these right:</p>
+          <p>Your address changes from time to time? Let Linx update these for you:</p>
           <Button variant="outline" className="w-fit" onClick={onAutomatic}>
-            {ours ? `Let Linx keep these right at ${ours.name}` : "Set it up automatically"}
+            {ours ? `Let Linx update these at ${ours.name} for you` : "Set it up automatically"}
           </Button>
         </div>
       )}
