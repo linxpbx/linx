@@ -754,6 +754,7 @@ Private GitHub repository with GitHub Actions. Multi-arch builds run on native `
 
 ## ADR-067 — Password reset by email (owner decision, approved 2026-09-30, `docs/PHASE1F.md` §5)
 **Decision.** Offered only when email is set up; same answer and timing for any email; one-use hashed link for 30 minutes; the second step is still required; other sessions ended; rate limits and an alert. Never resets the authenticator.
+**As built (2026-10-02, `docs/PHASE1F.md` §5).** As decided, with one change for safety: the new password is sent with the second step and changes only once that passes, so the mailbox alone changes nothing. The password-only admin's alert and the many-resets alert are announced once (alerts can't be dismissed by hand). Reset links are their own kind of link (migration 0031).
 
 ## ADR-068 — Call routing decided in the database (owner decision, approved 2026-09-30, `docs/PHASE1F.md` §6–7)
 **Decision.** One destinations list (person, ring group, voicemail box, message and hang up; menus and queues later). Ring groups, office hours, holidays and per-number rules live in tables the control plane owns; the dialplan asks a database function for the next step (at most 10 steps a call), so calls keep working through a control-plane restart (ADR-034) and the call simulator uses the same function. Asterisk stays read-only on routing.
