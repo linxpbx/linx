@@ -9,6 +9,12 @@ screens: []
 
 The newest changes come first. Each Linx update brings its own help pages, so these guides always match the version your server runs.
 
+## Office hours and "When someone calls"
+
+- **Office hours** in the admin sidebar: the days and times you're open, and holidays. See [Office hours and holidays](office-hours).
+- **Incoming calls**: each number has **Change**, a short wizard for who rings, what happens if nobody answers, and what happens outside office hours, with one sentence saying what a caller gets. A number can ring a ring group now. See [Incoming calls](incoming-numbers).
+- The call simulator (**Simulator**) asks **When**, and shows a call step by step.
+
 ## Ring groups
 
 - **Ring groups** in the admin sidebar: several people rung for one call, all at once or one after another, and where unanswered calls go. See [Ring groups](ring-groups).

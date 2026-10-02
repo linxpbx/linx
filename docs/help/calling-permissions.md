@@ -36,6 +36,9 @@ People you call see no number. Some phone companies ignore this.
 **Simulator** shows where a call would go, without making it. This is exactly what a real call does.
 
 - **From extension** and a **Number**, then **Check**: **Allowed** and the line it goes out on, or **Not allowed** and why, with **Change what phones can call**.
-- **Which way**: someone calling in to **Your number** shows which extension rings.
+- **Which way**: someone calling in to **Your number** shows what happens, step by step: who rings, and if nobody answers, what next. Under **When**, **Now** or **On** a day and time (the server's time zone), since office hours and holidays change it.
+- Dialling another extension or a ring group's number from **From extension** shows the same steps.
 
 ![A call the simulator allowed](screen:simulator-allowed)
+
+![A call in on Friday evening, outside office hours](screen:simulator-after-hours)

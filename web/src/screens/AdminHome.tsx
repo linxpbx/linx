@@ -192,7 +192,7 @@ export function AdminHomeScreen({ me, systemStatus, members }: { me: Me; systemS
   });
   if (hasLine && canRouting) {
     items.push({
-      id: "did", label: "Send your phone number to someone", done: !!dids?.some((d) => d.extension_id),
+      id: "did", label: "Send your phone number to someone", done: !!dids?.some((d) => d.extension_id || d.ring_group_id),
       action: "Choose", onAction: () => navigate("/admin/incoming"),
     });
   }

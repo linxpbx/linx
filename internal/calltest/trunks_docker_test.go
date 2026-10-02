@@ -31,6 +31,7 @@ import (
 	"linxpbx.com/linx/internal/dbsecret"
 	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/routing"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/trunkconf"
 	"linxpbx.com/linx/internal/trunkstatus"
@@ -315,6 +316,83 @@ func TestTrunksDocker(t *testing.T) {
 		}
 		if after := strings.Count(e.logs(provider), "INVITE for"); after != before {
 			t.Errorf("a call from one trunk went out on another")
+		}
+
+		// Office hours (docs/PHASE1F.md §7): the same number rings Bob while
+		// open, says "We're closed" when closed, and follows the holiday's
+		// own choice on a holiday. The times are fixed by the hours
+		// themselves (open all week, or never), so the test doesn't
+		// depend on when it runs.
+		d, err := svc.CreateDID(admin, pt.ID, trunk.DIDInput{Number: "+97142000106", ExtensionID: &bob.ext.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		hours := routing.Schedule{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, Name: "Test hours", Version: 1,
+			CreatedAt: time.Now(), UpdatedAt: time.Now()}
+		for day := range 7 {
+			hours.Spans = append(hours.Spans, routing.Span{Weekday: day, Opens: "00:00", Closes: "24:00"})
+		}
+		if err := e.store.CreateOfficeHours(ctx, hours, e.audit("schedule.create")); err != nil {
+			t.Fatal(err)
+		}
+		setRule := func() {
+			t.Helper()
+			list, err := e.store.IncomingList(ctx, e.tenant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, in := range list {
+				if in.ID == d.ID {
+					in.Rule = &routing.Rule{NoAnswerSeconds: 10, NoAnswer: routing.Destination{Kind: routing.KindMessage, Message: routing.MessageNotAvailable},
+						ScheduleID: &hours.ID, Closed: routing.Destination{Kind: routing.KindMessage, Message: routing.MessageClosed},
+						Holiday: &routing.Destination{Kind: routing.KindMessage, Message: routing.MessageNotAvailable}}
+					if err := e.store.SetIncoming(ctx, in, e.audit("incoming.set")); err != nil {
+						t.Fatal(err)
+					}
+					return
+				}
+			}
+			t.Fatal("the number isn't in the Incoming list")
+		}
+		setRule()
+		if out, err := e.execSIPp(peer, "provider-call.xml", "-s", "+97142000106", "-d", "1500"); err != nil {
+			t.Fatalf("open: the call to Bob: %v\n%s\n%s", err, out, e.asteriskLogs())
+		}
+		heard := func(name string) int { return strings.Count(e.asteriskLogs(), "Playing 'linx/"+name+".g722'") }
+		saveHours := func() {
+			t.Helper()
+			list, err := e.store.OfficeHours(ctx, e.tenant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, sc := range list {
+				if sc.ID == hours.ID {
+					sc.Spans, sc.Holidays = hours.Spans, hours.Holidays
+					if err := e.store.UpdateOfficeHours(ctx, sc, e.audit("schedule.update")); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+		}
+		hours.Spans = nil
+		saveHours()
+		closed := heard("closed")
+		if out, err := e.execSIPp(peer, "provider-call-message.xml", "-s", "+97142000106"); err != nil {
+			t.Fatalf("closed: %v\n%s\n%s", err, out, e.asteriskLogs())
+		}
+		if heard("closed") != closed+1 {
+			t.Errorf(`closed: the caller didn't hear "We're closed"`)
+		}
+		today := time.Now().UTC()
+		hours.Holidays = []routing.Holiday{{Name: "Test day", FirstDay: today.AddDate(0, 0, -1).Format(time.DateOnly),
+			LastDay: today.AddDate(0, 0, 1).Format(time.DateOnly)}}
+		saveHours()
+		notAvailable := heard("not-available")
+		if out, err := e.execSIPp(peer, "provider-call-message.xml", "-s", "+97142000106"); err != nil {
+			t.Fatalf("holiday: %v\n%s\n%s", err, out, e.asteriskLogs())
+		}
+		if heard("not-available") != notAvailable+1 {
+			t.Errorf(`holiday: the caller didn't hear the holiday's own message`)
 		}
 	})
 

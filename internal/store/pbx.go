@@ -215,6 +215,15 @@ func (s *Store) DeleteExtension(ctx context.Context, tenant, id uuid.UUID, at ti
 			WHERE no_answer_extension_id = $1`, id, at); err != nil {
 			return err
 		}
+		// Numbers' "When someone calls" that sent calls to it play "not
+		// available" instead.
+		for _, part := range []string{"no_answer", "closed", "holiday"} {
+			if _, err := tx.Exec(ctx, `UPDATE incoming_rule SET `+part+`_kind = 'message', `+part+`_extension_id = NULL,
+					`+part+`_message = 'not-available', updated_at = $2
+				WHERE `+part+`_extension_id = $1`, id, at); err != nil {
+				return err
+			}
+		}
 		ev, err := extensionEvent(e, "extension.deleted", at)
 		if err != nil {
 			return err

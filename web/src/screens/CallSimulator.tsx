@@ -1,8 +1,9 @@
-// Call simulator (docs/ui/ADMIN_SCREENS_PHASE1E.md §9): where a call would
-// go, without making it. POST /route-test asks the same database function
-// real calls use.
+// Call simulator (docs/ui/ADMIN_SCREENS_PHASE1E.md §9, SCREENS_PHASE1F.md
+// §11): where a call would go, without making it, step by step. POST
+// /route-test asks the same database functions real calls use, at the
+// moment chosen (office hours and holidays depend on it).
 import { useEffect, useState, type FormEvent } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Clock, X } from "lucide-react";
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { navigate } from "@/hooks/useRoute";
 import { cn } from "@/lib/utils";
+import { TimeSelect, zonedISO, zonedToday, zoneLabel } from "./OfficeHours";
 
 type RouteTest = components["schemas"]["RouteTest"];
 type Extension = components["schemas"]["Extension"];
@@ -47,12 +49,18 @@ export function CallSimulatorScreen({ me }: { me: Me }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [recent, setRecent] = useState<Recent[]>(readRecent);
+  const [zone, setZone] = useState("UTC");
+  const [whenNow, setWhenNow] = useState(true);
+  const [day, setDay] = useState("");
+  const [time, setTime] = useState("20:00");
 
   useEffect(() => {
     void Promise.all([
       api.GET("/api/v1/extensions", { params: { query: { limit: 200 } } }),
       api.GET("/api/v1/inbound-routes", { params: { query: { limit: 200 } } }),
-    ]).then(([e, d]) => {
+      api.GET("/api/v1/schedules"),
+    ]).then(([e, d, sc]) => {
+      if (sc.data) { setZone(sc.data.time_zone); setDay((x) => x || zonedToday(sc.data.time_zone)); }
       if (e.data) {
         setExtensions(e.data.items);
         setFrom((f) => f || (e.data.items.find((x) => x.number === me.extension) ?? e.data.items[0])?.number || "");
@@ -71,19 +79,24 @@ export function CallSimulatorScreen({ me }: { me: Me }) {
     setBusy(true);
     setError("");
     const { data, error: err } = await api.POST("/api/v1/route-test", {
-      body: dir === "in" ? { direction: "inbound", number: num } : { direction: "outbound", number: num, ...(fromExt ? { from: fromExt } : {}) },
+      body: dir === "in"
+        ? { direction: "inbound", number: num, ...(!whenNow && day && time ? { at: zonedISO(day, time, zone) } : {}) }
+        : { direction: "outbound", number: num, ...(fromExt ? { from: fromExt } : {}) },
     });
     setBusy(false);
     if (!data) { setError(problemMessage(err)); setResult(null); return; }
     setResult(data);
-    const ok = dir === "in" ? data.reason === "routed" : !!data.allowed;
+    const ok = dir === "in" ? data.reason === "routed" && !!data.allowed : !!data.allowed;
     const next = [{ direction: dir, number: num, from: dir === "out" ? fromExt : undefined, ok },
       ...recent.filter((r) => !(r.direction === dir && r.number === num))].slice(0, 5);
     setRecent(next);
     writeRecent(next);
   };
 
-  const ok = result ? (direction === "in" ? result.reason === "routed" : !!result.allowed) : false;
+  const ok = result ? (direction === "in" ? result.reason === "routed" && !!result.allowed : !!result.allowed) : false;
+  const steps = result?.steps ?? [];
+  // A number that rings nobody at that moment by choice (closed, a holiday) isn't a problem.
+  const byChoice = !!result && direction === "in" && !ok && result.reason === "routed";
   return (
     <div className="w-full max-w-3xl px-4 py-6 md:px-6">
       <h1 className="font-display text-3xl font-semibold tracking-tight">Call simulator</h1>
@@ -132,23 +145,55 @@ export function CallSimulatorScreen({ me }: { me: Me }) {
                 <Input id="sim-did" className="w-56 font-mono" value={number} onChange={(e) => setNumber(e.target.value)} />
               )}
             </div>
-            <Button type="submit" disabled={busy || !number.trim()} aria-busy={busy}>Check</Button>
           </div>
         )}
+        {direction === "in" && (
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">When</span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <RadioGroup value={whenNow ? "now" : "at"} onValueChange={(v) => setWhenNow(v === "now")} className="flex items-center gap-4" aria-label="When">
+                <label htmlFor="sim-now" className="flex cursor-pointer items-center gap-2 text-sm">
+                  <RadioGroupItem id="sim-now" value="now" /> Now
+                </label>
+                <label htmlFor="sim-at" className="flex cursor-pointer items-center gap-2 text-sm">
+                  <RadioGroupItem id="sim-at" value="at" /> On
+                </label>
+              </RadioGroup>
+              <Input type="date" value={day} onChange={(e) => { setDay(e.target.value); setWhenNow(false); }} className="w-40" aria-label="Day" />
+              <TimeSelect value={time} onChange={(v) => { setTime(v); setWhenNow(false); }} label="Time" />
+            </div>
+            <span className="text-xs text-muted-foreground">{zoneLabel(zone)} time, the server's.</span>
+          </div>
+        )}
+        {direction === "in" && <Button type="submit" className="self-start" disabled={busy || !number.trim()} aria-busy={busy}>Check</Button>}
       </form>
 
       {error && <p role="alert" className="mt-4 text-sm font-medium text-destructive">{error}</p>}
 
       {result && (
-        <div className={cn("mt-6 flex flex-col gap-2 rounded-lg border p-4", ok ? "border-status-available/50" : "border-status-busy/50")} aria-live="polite">
+        <div className={cn("mt-6 flex flex-col gap-2 rounded-lg border p-4", ok ? "border-status-available/50" : byChoice ? "" : "border-status-busy/50")} aria-live="polite">
           <p className="flex items-center gap-2 font-medium">
-            {ok ? <Check aria-hidden="true" className="size-5 text-status-available" /> : <X aria-hidden="true" className="size-5 text-status-busy" />}
+            {ok ? <Check aria-hidden="true" className="size-5 text-status-available" />
+              : byChoice ? <Clock aria-hidden="true" className="size-5 text-muted-foreground" />
+              : <X aria-hidden="true" className="size-5 text-status-busy" />}
             {direction === "in"
-              ? (ok ? `Rings ${result.extension ? `extension ${result.extension.number} (${result.extension.display_name})` : "an extension"}` : "Rings nobody")
+              ? (ok ? "It rings" : byChoice ? "Nobody rings for it then, as chosen" : "Rings nobody")
+              : steps.length > 0 ? "A call inside Linx"
               : result.category === "emergency" ? "Always allowed: emergency"
               : ok ? "Allowed" : result.reason === "no_lines" ? "Would fail: no phone line can take it" : "Not allowed"}
           </p>
-          <p className="whitespace-pre-wrap text-sm">{result.words}</p>
+          {result.when && <p className="text-sm font-medium">{result.when}</p>}
+          {steps.length > 0 ? (
+            <ol className="flex flex-col gap-1.5 text-sm" aria-label="What happens">
+              {steps.map((st, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">{i + 1}</span>
+                  <span>{steps[i - 1]?.rings ? <span className="text-muted-foreground">Nobody answered: </span> : null}{st.words}</span>
+                </li>
+              ))}
+            </ol>
+          ) : <p className="whitespace-pre-wrap text-sm">{result.words}</p>}
+          {steps.length > 0 && direction === "out" && <p className="text-sm text-muted-foreground">{result.words}</p>}
           {direction === "out" && (result.lines?.length ?? 0) > 0 && (
             <ul className="text-sm text-muted-foreground">
               {result.lines!.map((l, i) => (
@@ -163,11 +208,10 @@ export function CallSimulatorScreen({ me }: { me: Me }) {
           {direction === "out" && result.reason === "no_lines" && (
             <Button size="sm" variant="outline" className="self-start" onClick={() => navigate("/admin/lines")}>Connect a line</Button>
           )}
-          {direction === "in" && !ok && (
+          {direction === "in" && !ok && !byChoice && (
             <Button size="sm" variant="outline" className="self-start" onClick={() => navigate("/admin/incoming")}>Choose where it rings</Button>
           )}
           <p className="text-xs text-muted-foreground">This is exactly what a real call does.</p>
-          {direction === "in" && <p className="text-xs text-muted-foreground">Office hours and groups will show here when they arrive.</p>}
         </div>
       )}
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -70,6 +71,7 @@ func toTrunk(t trunk.Trunk) Trunk {
 		out.UnencryptedConfirmedBy = &t.UnencryptedConfirmedBy
 	}
 	out.RingsExtensionId = t.RingsExtensionID
+	out.RingsRingGroupId = t.RingsRingGroupID
 	return out
 }
 
@@ -357,7 +359,11 @@ func (s *Server) TestTrunk(ctx context.Context, req TestTrunkRequestObject) (Tes
 
 func (s *Server) TestRoute(ctx context.Context, req TestRouteRequestObject) (TestRouteResponseObject, error) {
 	if req.Body.Direction != nil && *req.Body.Direction == RouteTestRequestDirectionInbound {
-		return s.testInboundRoute(ctx, req.Body.Number)
+		at := time.Now()
+		if req.Body.At != nil {
+			at = *req.Body.At
+		}
+		return s.testInboundRoute(ctx, req.Body.Number, at)
 	}
 	fail := func(e *apihttp.Error) (TestRouteResponseObject, error) {
 		return TestRoutedefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
@@ -388,6 +394,23 @@ func (s *Server) TestRoute(ctx context.Context, req TestRouteRequestObject) (Tes
 	if err != nil {
 		return nil, err
 	}
+	// Another extension or a ring group: the steps it rings (ADR-068).
+	if s.routing != nil {
+		sim, ok, err := s.routing.SimulateInternal(ctx, *req.Body.From, strings.TrimSpace(req.Body.Number))
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			r, err := s.numbering.Classify(ctx, country, req.Body.Number)
+			if err != nil {
+				return nil, err
+			}
+			allowed, reason := true, RouteTestReasonRouted
+			out := RouteTest{Category: RouteTestCategory(r.Category), Kind: "A number inside Linx", Allowed: &allowed, Reason: &reason,
+				Words: fmt.Sprintf("%s is inside Linx: no phone line is used.", strings.TrimSpace(req.Body.Number)), Steps: simSteps(sim)}
+			return TestRoute200JSONResponse(out), nil
+		}
+	}
 	r, err := s.numbering.Route(ctx, ext.ID, req.Body.Number)
 	if err != nil {
 		return nil, err
@@ -397,7 +420,7 @@ func (s *Server) TestRoute(ctx context.Context, req TestRouteRequestObject) (Tes
 
 // testInboundRoute is POST /route-test's inbound direction (docs/ADMIN.md
 // §9): where a call to one of your phone numbers ends up.
-func (s *Server) testInboundRoute(ctx context.Context, number string) (TestRouteResponseObject, error) {
+func (s *Server) testInboundRoute(ctx context.Context, number string, at time.Time) (TestRouteResponseObject, error) {
 	country, err := s.numbering.Country(ctx)
 	if err != nil {
 		return nil, err
@@ -415,6 +438,35 @@ func (s *Server) testInboundRoute(ctx context.Context, number string) (TestRoute
 		out.Reason, out.Words = &reason, fmt.Sprintf("%q isn't one of your phone numbers.", number)
 	case err != nil:
 		return nil, err
+	case s.routing != nil:
+		// Office hours, ring groups, if nobody answers: step by step, from
+		// the function real calls use (ADR-068).
+		sim, _, err := s.routing.SimulateNumber(ctx, did.Number, at)
+		if err != nil {
+			return nil, err
+		}
+		reason := RouteTestReasonRouted
+		allowed = len(sim.Steps) > 0 && sim.Steps[0].Rings
+		if !allowed && did.ExtensionID == nil && did.RingGroupID == nil {
+			reason = RouteTestReasonNotAssigned
+		}
+		out.Reason, out.Steps = &reason, simSteps(sim)
+		if sim.When != "" {
+			out.When = &sim.When
+		}
+		words := make([]string, 0, len(sim.Steps))
+		for _, st := range sim.Steps {
+			words = append(words, st.Words)
+		}
+		out.Words = strings.Join(words, " ")
+		if did.ExtensionID != nil {
+			if ext, err := s.pbx.GetExtension(ctx, *did.ExtensionID); err == nil {
+				out.Extension = &struct {
+					DisplayName string `json:"display_name"`
+					Number      string `json:"number"`
+				}{ext.DisplayName, ext.Number}
+			}
+		}
 	case did.ExtensionID == nil:
 		reason := RouteTestReasonNotAssigned
 		out.Reason, out.Words = &reason, fmt.Sprintf(`%s doesn't ring anyone yet (callers hear "not in use").`, did.Number)

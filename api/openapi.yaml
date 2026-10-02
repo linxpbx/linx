@@ -2496,6 +2496,149 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/schedules:
+    get:
+      operationId: listSchedules
+      summary: List office-hours schedules
+      description: >-
+        Every schedule, by name (docs/PHASE1F.md §7): "Office hours", made
+        at setup for a business, and any more added. `now` is the same
+        open/closed answer calls get. Not paginated: at most 20.
+      tags: [routing]
+      security:
+        - bearer: [routing:read]
+      responses:
+        "200":
+          description: The schedules.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createSchedule
+      summary: Add a schedule
+      description: >-
+        Without `spans`, Monday to Friday 08:00-17:00. Not idempotent:
+        retrying fails on the name.
+      tags: [routing]
+      security:
+        - bearer: [routing:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleCreate"
+      responses:
+        "201":
+          description: The new schedule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/schedules/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      operationId: updateSchedule
+      summary: Change a schedule
+      description: >-
+        JSON Merge Patch: `spans` and `holidays` each replace the whole
+        list. Send `If-Match` with the schedule's `etag` to refuse the
+        change (412) if someone else changed it first.
+      tags: [routing]
+      security:
+        - bearer: [routing:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/SchedulePatch"
+      responses:
+        "200":
+          description: The schedule as it now is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteSchedule
+      summary: Remove a schedule
+      description: >-
+        Refused (409 `schedule_in_use`) while a number's "When someone
+        calls" uses it.
+      tags: [routing]
+      security:
+        - bearer: [routing:write]
+      responses:
+        "204":
+          description: Removed.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/incoming:
+    get:
+      operationId: listIncoming
+      summary: Where each number's calls go
+      description: >-
+        Every phone number, and every line's calls for none of its numbers,
+        with its "When someone calls" (docs/PHASE1F.md §7) and the sentence
+        saying what a caller gets. Not paginated.
+      tags: [routing]
+      security:
+        - bearer: [routing:read]
+      responses:
+        "200":
+          description: The numbers and lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomingList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/incoming/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    put:
+      operationId: setIncoming
+      summary: Set where a number's calls go
+      description: >-
+        `id` is a phone number's (`kind` number) or a line's (`kind` line).
+        Replaces the whole "When someone calls". `just_ring` sets only who
+        it rings, all the time (the quick change). Send `If-Match` with its
+        `etag` to refuse the change (412) if someone else changed it first.
+      tags: [routing]
+      security:
+        - bearer: [routing:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncomingSet"
+      responses:
+        "200":
+          description: As it now is.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Incoming"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/calls/active:
     get:
       operationId: listActiveCalls
@@ -5606,6 +5749,11 @@ components:
             Where this line's calls for none of its numbers ring (an analog
             landline often sends no number, docs/SIMPLER.md §1.2). Absent:
             they hear "not in use".
+        rings_ring_group_id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: The ring group this line's calls for none of its numbers ring (set in Incoming).
         login:
           $ref: "#/components/schemas/TrunkLogin"
         wireguard_profile_id:
@@ -5818,7 +5966,12 @@ components:
         extension_id:
           type: string
           format: uuid
-          description: Absent means calls to this number hear "not in use".
+          description: Absent (and no `ring_group_id`) means calls to this number hear "not in use".
+        ring_group_id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: The ring group it rings (set in Incoming, `PUT /incoming/{id}`).
         created_at:
           type: string
           format: date-time
@@ -5967,6 +6120,12 @@ components:
         from:
           type: string
           description: Outbound only. The calling extension's number. Without it, only what kind of number it is.
+        at:
+          type: string
+          format: date-time
+          description: >-
+            When the call is made (office hours and holidays depend on it).
+            Leave out for now.
 
     RouteTest:
       type: object
@@ -6016,6 +6175,27 @@ components:
         words:
           type: string
           description: The whole decision in plain words, as `linx route test` prints it.
+        when:
+          type: string
+          description: >-
+            Inbound, for a number with office hours: the moment in the
+            server's time zone and whether it's open ("Friday 20:00 (Asia/Dubai
+            time): outside office hours").
+        steps:
+          type: array
+          description: >-
+            A call to one of your numbers, or from an extension to another
+            one or a ring group: where it goes, step by step, if nobody
+            answers along the way (the same function real calls use).
+          items:
+            type: object
+            required: [words, rings]
+            properties:
+              words:
+                type: string
+              rings:
+                type: boolean
+                description: This step rings someone (the next one happens if nobody answers).
 
     InternationalAlert:
       type: object
@@ -6228,8 +6408,8 @@ components:
     Destination:
       description: >-
         Where a call goes (ADR-068): an extension, a ring group, or a
-        message and hang up (`not-available`). Voicemail boxes join in a
-        later version.
+        message and hang up (`not-available`, or `closed`: "We're
+        closed"). Voicemail boxes join in a later version.
       type: object
       additionalProperties: false
       required: [kind]
@@ -6245,11 +6425,239 @@ components:
           format: uuid
         message:
           type: string
-          enum: [not-available]
+          enum: [not-available, closed]
         label:
           type: string
           readOnly: true
           description: The destination in a few words ("Sara Haddad (101)", "Sales").
+
+    Span:
+      description: Open from `opens` to `closes` on one weekday, in the server's time zone.
+      type: object
+      additionalProperties: false
+      required: [weekday, opens, closes]
+      properties:
+        weekday:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: 0 Sunday … 6 Saturday.
+        opens:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        closes:
+          type: string
+          pattern: "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$"
+          description: After `opens`; 24:00 is midnight at the day's end.
+
+    Holiday:
+      description: Closed all day, from `first_day` to `last_day`.
+      type: object
+      additionalProperties: false
+      required: [name, first_day, last_day]
+      properties:
+        name:
+          type: string
+          maxLength: 60
+        first_day:
+          type: string
+          format: date
+        last_day:
+          type: string
+          format: date
+        every_year:
+          type: boolean
+          description: The same dates every year (a fixed holiday; Eid moves, so not for it).
+
+    Schedule:
+      type: object
+      required: [id, name, spans, holidays, words, now, used_by, created_at, updated_at, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        spans:
+          type: array
+          items:
+            $ref: "#/components/schemas/Span"
+        holidays:
+          type: array
+          items:
+            $ref: "#/components/schemas/Holiday"
+        words:
+          type: string
+          description: The hours in a few words ("Mon–Fri 08:00–17:00").
+        now:
+          type: object
+          required: [open]
+          description: The same answer a call gets right now.
+          properties:
+            open:
+              type: boolean
+            holiday:
+              type: string
+              description: The holiday closing it today.
+            changes_at:
+              type: string
+              format: date-time
+              description: When it next opens or closes (absent if not within a month).
+        used_by:
+          type: array
+          description: The numbers and lines whose "When someone calls" uses it.
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        etag:
+          type: string
+
+    ScheduleList:
+      type: object
+      required: [time_zone, items]
+      properties:
+        time_zone:
+          type: string
+          description: The server's time zone, which every schedule is in ("Asia/Dubai").
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Schedule"
+
+    ScheduleCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 60
+        spans:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/Span"
+        holidays:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/Holiday"
+
+    SchedulePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 60
+        spans:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/Span"
+        holidays:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/Holiday"
+
+    Incoming:
+      description: >-
+        "When someone calls" one number (`kind` number) or a line's calls
+        for none of its numbers (`kind` line).
+      type: object
+      required: [id, kind, line_id, line_name, line_kind, if_no_answer_seconds, if_no_answer, after_hours, just_ring, words, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The number's id, or the line's.
+        kind:
+          type: string
+          enum: [number, line]
+        number:
+          type: string
+        label:
+          type: string
+        line_id:
+          type: string
+          format: uuid
+        line_name:
+          type: string
+        line_kind:
+          type: string
+        rings:
+          $ref: "#/components/schemas/Destination"
+        if_no_answer_seconds:
+          type: integer
+          description: How long a person is rung (a ring group decides for itself).
+        if_no_answer:
+          $ref: "#/components/schemas/Destination"
+        schedule_id:
+          type: string
+          format: uuid
+          description: Absent means the same all the time.
+        after_hours:
+          $ref: "#/components/schemas/Destination"
+        holidays:
+          $ref: "#/components/schemas/Destination"
+        just_ring:
+          type: boolean
+          description: Only who it rings is set (the quick change); everything else is the default.
+        words:
+          type: string
+          description: What a caller gets, in plain sentences.
+        etag:
+          type: string
+
+    IncomingList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Incoming"
+
+    IncomingSet:
+      type: object
+      additionalProperties: false
+      properties:
+        rings:
+          $ref: "#/components/schemas/Destination"
+        just_ring:
+          type: boolean
+          description: Set only `rings`, all the time, and forget the rest.
+        preview:
+          type: boolean
+          description: Check it and return it with its sentence, without saving (the wizard's live sentence).
+        if_no_answer_seconds:
+          type: integer
+          minimum: 5
+          maximum: 300
+        if_no_answer:
+          $ref: "#/components/schemas/Destination"
+        schedule_id:
+          type: string
+          format: uuid
+          description: Leave out for the same all the time.
+        after_hours:
+          $ref: "#/components/schemas/Destination"
+        holidays:
+          $ref: "#/components/schemas/Destination"
+          description: Leave out for the same as `after_hours`.
 
     RingGroupMember:
       type: object
@@ -6304,7 +6712,7 @@ components:
             properties:
               kind:
                 type: string
-                enum: [ring_group]
+                enum: [ring_group, number, line]
               id:
                 type: string
                 format: uuid
@@ -6312,7 +6720,7 @@ components:
                 type: string
               how:
                 type: string
-                enum: [if_nobody_answers]
+                enum: [if_nobody_answers, rings, after_hours, holidays]
         words:
           type: string
           description: What a caller gets, in one plain sentence.

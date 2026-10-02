@@ -422,7 +422,8 @@ func TestTrunksDocker(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err := s.CreateDID(ctx, trunk.DID{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, TrunkID: e164.ID, Number: "+97142000403",
+		did403 := uuid.Must(uuid.NewV7())
+		if err := s.CreateDID(ctx, trunk.DID{ID: did403, TenantID: tenant, TrunkID: e164.ID, Number: "+97142000403",
 			ExtensionID: &manager.ID, Version: 1, CreatedAt: now, UpdatedAt: now}, audit("did.create")); err != nil {
 			t.Fatal(err)
 		}
@@ -455,7 +456,8 @@ func TestTrunksDocker(t *testing.T) {
 		}
 
 		// Calls in: a trunk reaches its own DIDs, however the number is
-		// written, and nothing else.
+		// written, and nothing else. A call starts at the number (d:<id>,
+		// migration 0033), which knows where it goes.
 		ext := func(endpoint, dialled string) string {
 			var n []string
 			rows, err := pool.Query(ctx, `SELECT * FROM asterisk.linx_inbound($1, $2)`, endpoint, dialled)
@@ -470,7 +472,8 @@ func TestTrunksDocker(t *testing.T) {
 			return strings.Join(n, ",")
 		}
 		mine := "trunk-" + e164.ID.String()
-		for dialled, want := range map[string]string{"+97142000403": "403", "97142000403": "403", "042000403": "403",
+		d403 := "d:" + did403.String()
+		for dialled, want := range map[string]string{"+97142000403": d403, "97142000403": d403, "042000403": d403,
 			"+97142000404": "", "0501234567": ""} {
 			if got := ext(mine, dialled); got != want {
 				t.Errorf("linx_inbound(%s) = %q, want %q", dialled, got, want)
@@ -485,9 +488,9 @@ func TestTrunksDocker(t *testing.T) {
 		if _, err := s.UpdateExtension(ctx, manager, audit("extension.update")); err != nil {
 			t.Fatal(err)
 		}
-		var rows int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM asterisk.linx_inbound($1, '+97142000403') x WHERE x = ''`, mine).Scan(&rows); err != nil || rows != 1 {
-			t.Errorf("DID of a turned-off extension: %d rows, %v", rows, err)
+		var next string
+		if err := pool.QueryRow(ctx, `SELECT next FROM asterisk.linx_route($1, '')`, d403).Scan(&next); err != nil || next != "m:not-in-use" {
+			t.Errorf("DID of a turned-off extension goes to %q, %v; want m:not-in-use", next, err)
 		}
 	})
 
@@ -584,8 +587,8 @@ func TestTrunksDocker(t *testing.T) {
 			}
 			return strings.Join(n, ",")
 		}
-		if got := rings(); got != "405" {
-			t.Errorf("linx_line_rings = %q, want 405", got)
+		if got := rings(); got != "l:"+gw.ID.String() {
+			t.Errorf("linx_line_rings = %q, want l:<line>", got)
 		}
 		// Asterisk's own login may call it, and only it of the trunk table.
 		var role string

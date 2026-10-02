@@ -55,3 +55,25 @@ func SetSIPDomain(ctx context.Context, pool *pgxpool.Pool, domain string) error 
 	}
 	return nil
 }
+
+// SetTimeZone records the server's time zone (TZ, from setup), which office
+// hours are in (migration 0033's schedule_open_at). Run at every start,
+// like SetSIPDomain. A name Postgres doesn't know becomes UTC, with an
+// error saying so, rather than a zone that would fail every call.
+func SetTimeZone(ctx context.Context, pool *pgxpool.Pool, zone string) error {
+	if zone == "" {
+		zone = "UTC"
+	}
+	tag, err := pool.Exec(ctx, `UPDATE pbx_setting SET time_zone = $1
+		WHERE EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = $1)`, zone)
+	if err != nil {
+		return fmt.Errorf("time zone: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		if _, err := pool.Exec(ctx, `UPDATE pbx_setting SET time_zone = 'UTC'`); err != nil {
+			return fmt.Errorf("time zone: %w", err)
+		}
+		return fmt.Errorf("time zone %q isn't one the database knows: using UTC", zone)
+	}
+	return nil
+}

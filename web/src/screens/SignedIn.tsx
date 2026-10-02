@@ -26,6 +26,7 @@ const ExtensionsScreen = lazy(() => import("./Extensions").then((m) => ({ defaul
 const PhoneLinesScreen = lazy(() => import("./PhoneLines").then((m) => ({ default: m.PhoneLinesScreen })));
 const IncomingCallsScreen = lazy(() => import("./IncomingCalls").then((m) => ({ default: m.IncomingCallsScreen })));
 const RingGroupsScreen = lazy(() => import("./RingGroups").then((m) => ({ default: m.RingGroupsScreen })));
+const OfficeHoursScreen = lazy(() => import("./OfficeHours").then((m) => ({ default: m.OfficeHoursScreen })));
 const OutgoingCallsScreen = lazy(() => import("./OutgoingCalls").then((m) => ({ default: m.OutgoingCallsScreen })));
 const CallSimulatorScreen = lazy(() => import("./CallSimulator").then((m) => ({ default: m.CallSimulatorScreen })));
 const ConnectionsScreen = lazy(() => import("./Connections").then((m) => ({ default: m.ConnectionsScreen })));
@@ -110,6 +111,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
       : path === "/admin/system/server" && me.role === "system_admin" ? "admin-system-server"
       : path === "/admin/lines" ? "admin-lines" : path === "/admin/incoming" ? "admin-incoming"
       : path === "/admin/ring-groups" ? "admin-ring-groups"
+      : path === "/admin/office-hours" ? "admin-office-hours"
       : path === "/admin/outgoing" ? "admin-outgoing" : path === "/admin/simulator" ? "admin-simulator"
       : path === "/admin/connections" ? "admin-connections"
       : path === "/admin/webhooks" ? "admin-webhooks" : path === "/admin/api-keys" ? "admin-api-keys"
@@ -138,6 +140,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
               : screen === "admin-lines" ? <PhoneLinesScreen me={me} />
               : screen === "admin-incoming" ? <IncomingCallsScreen me={me} />
               : screen === "admin-ring-groups" ? <RingGroupsScreen me={me} />
+              : screen === "admin-office-hours" ? <OfficeHoursScreen me={me} />
               : screen === "admin-outgoing" ? <OutgoingCallsScreen me={me} simpleMode={simpleMode} />
               : screen === "admin-simulator" ? <CallSimulatorScreen me={me} />
               : screen === "admin-connections" ? <ConnectionsScreen me={me} />

@@ -83,6 +83,16 @@ export function RingsSelect({ id, value, onChange, extensions, disabled, label }
   );
 }
 
+/** Where a number goes when it's more than one person: set in Incoming. */
+function InIncoming({ what }: { what: string }) {
+  return (
+    <span className="flex items-center gap-2 text-sm text-muted-foreground">
+      {what}
+      <Button size="sm" variant="ghost" onClick={() => navigate("/admin/incoming")}>Change in Incoming</Button>
+    </span>
+  );
+}
+
 function StatusLine({ t }: { t: Trunk }) {
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -870,8 +880,10 @@ function LineSheet({ me, trunk: initial, dids, extensions, readOnly, onClose, on
             {numbers.map((d) => (
               <div key={d.id} className="flex flex-wrap items-center gap-2 rounded-md border p-2.5 text-sm">
                 <span className="min-w-0 flex-1 break-all font-mono">{d.number}</span>
-                <RingsSelect id={`rings-${d.id}`} label={`${d.number} rings`} value={d.extension_id} extensions={extensions}
-                  disabled={readOnly} onChange={(v) => void setRings(d, v)} />
+                {d.ring_group_id ? <InIncoming what="Rings a ring group" /> : (
+                  <RingsSelect id={`rings-${d.id}`} label={`${d.number} rings`} value={d.extension_id} extensions={extensions}
+                    disabled={readOnly} onChange={(v) => void setRings(d, v)} />
+                )}
                 {!readOnly && <Button size="sm" variant="outline" onClick={() => void removeNumber(d)}>Remove</Button>}
               </div>
             ))}
@@ -888,8 +900,10 @@ function LineSheet({ me, trunk: initial, dids, extensions, readOnly, onClose, on
             )}
             <div className="mt-2 flex flex-col gap-2">
               <Label htmlFor="line-other">Calls for any other number ring</Label>
-              <RingsSelect id="line-other" label="Calls for any other number ring" value={trunk.rings_extension_id} extensions={extensions}
-                disabled={readOnly || busy} onChange={(v) => void patch({ rings_extension_id: v ?? "" })} />
+              {trunk.rings_ring_group_id ? <InIncoming what="A ring group" /> : (
+                <RingsSelect id="line-other" label="Calls for any other number ring" value={trunk.rings_extension_id} extensions={extensions}
+                  disabled={readOnly || busy} onChange={(v) => void patch({ rings_extension_id: v ?? "" })} />
+              )}
               <p className="text-sm text-muted-foreground">For calls that come with none of these numbers, like a landline that sends none.</p>
             </div>
           </section>

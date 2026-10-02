@@ -37,6 +37,10 @@ function FormError({ message }: { message: string }) {
   if (!message) return null;
   return <p role="alert" className="text-sm font-medium text-destructive">{message}</p>;
 }
+const USED_HOW: Record<RingGroup["used_by"][number]["how"], string> = {
+  if_nobody_answers: "if nobody answers", rings: "rings it", after_hours: "outside office hours", holidays: "on holidays",
+};
+
 function Recommended() {
   return <span className="ms-2 rounded-sm bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">Recommended</span>;
 }
@@ -414,6 +418,8 @@ function RingGroupSheet({ me, group, extensions, groups, onClose, onChanged, onR
   };
 
   const nobodyCanRing = group.members.length > 0 && !group.members.some((m) => m.can_ring);
+  // Phone numbers are changed in Incoming, not from here.
+  const numbersUsing = group.used_by.filter((u) => u.kind !== "ring_group");
   const row = (title: string, key: Editing, shown: ReactNode, editor: ReactNode, onSave: () => void) => (
     <section className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -491,7 +497,7 @@ function RingGroupSheet({ me, group, extensions, groups, onClose, onChanged, onR
             <h3 className="text-sm font-semibold">Used by</h3>
             {group.used_by.length === 0
               ? <p className="text-sm text-muted-foreground">{group.number ? `Nothing sends calls here yet; people can dial ${group.number}.` : "Nothing sends calls here yet."}</p>
-              : group.used_by.map((u) => <p key={u.id} className="text-sm">{u.name} (if nobody answers)</p>)}
+              : group.used_by.map((u) => <p key={`${u.id}-${u.how}`} className="text-sm">{u.name} ({USED_HOW[u.how]})</p>)}
           </section>
 
           <FormError message={error} />
@@ -500,7 +506,16 @@ function RingGroupSheet({ me, group, extensions, groups, onClose, onChanged, onR
             <section className="rounded-md border border-destructive/30 p-3">
               <h3 className="text-sm font-semibold text-destructive">Danger zone</h3>
               <div className="mt-2">
-                <Button size="sm" variant="outline" onClick={() => { setMoveTo(NOT_AVAILABLE); setRemoving(true); }}>Remove {group.name}</Button>
+                {numbersUsing.length > 0 ? (
+                  <div className="flex flex-col items-start gap-2">
+                    <p className="text-sm text-muted-foreground">
+                      {numbersUsing.map((u) => u.name).join(" and ")} {numbersUsing.length === 1 ? "sends" : "send"} calls here. Change that in Incoming first.
+                    </p>
+                    <Button size="sm" variant="outline" onClick={() => navigate("/admin/incoming")}>Go to Incoming</Button>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => { setMoveTo(NOT_AVAILABLE); setRemoving(true); }}>Remove {group.name}</Button>
+                )}
               </div>
             </section>
           )}

@@ -663,8 +663,33 @@ for (const scheme of ["light", "dark"] as const) {
       await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
       await page.goto("/admin/incoming");
       await expect(page.getByRole("heading", { name: "Incoming calls" })).toBeVisible();
-      await expect(page.getByText("Callers hear that the number isn't available.")).toBeVisible();
+      await expect(page.getByText("Calls to +97142000102 ring Sales (all at once) Mon–Fri 08:00–17:00.", { exact: false })).toBeVisible();
       await shot(page, `${scheme}-incoming`);
+
+      // "When someone calls": the wizard, its sentence rebuilt as you pick.
+      await page.getByRole("button", { name: "Change where +97142000101 goes" }).click();
+      await expect(page.getByRole("heading", { name: "When someone calls +97142000101" })).toBeVisible();
+      await page.getByText("Follow office hours").click();
+      await expect(page.getByRole("dialog").getByText("Calls to +97142000101 ring Reception (1110) Mon–Fri 08:00–17:00.", { exact: false })).toBeVisible();
+      await shot(page, `${scheme}-incoming-wizard-hours`);
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByText("Holidays go somewhere else").click();
+      await page.locator("#wiz-holidays-to").click();
+      await page.getByRole("option", { name: /Front desk/ }).click();
+      await expect(page.getByRole("dialog").getByText("On holidays, the call goes to Front desk.", { exact: false })).toBeVisible();
+      await shot(page, `${scheme}-incoming-wizard-after`);
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Save" }).click();
+      await expect(page.getByText("Try it: what happens at")).toBeVisible();
+      await shot(page, `${scheme}-incoming-wizard-check`);
+      await page.keyboard.press("Escape");
+
+      await page.goto("/admin/office-hours");
+      await expect(page.getByRole("heading", { name: "Office hours" })).toBeVisible();
+      await expect(page.getByText("Now: open (closes at", { exact: false })).toBeVisible();
+      await expect(page.getByText("National Day")).toBeVisible();
+      await shot(page, `${scheme}-office-hours`);
 
       await page.goto("/admin/outgoing");
       await expect(page.getByRole("heading", { name: "Which line first" })).toBeVisible();
@@ -685,6 +710,15 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Check", exact: true }).click();
       await expect(page.getByRole("button", { name: "Change what phones can call" })).toBeVisible();
       await shot(page, `${scheme}-simulator-refused`);
+      // A call in, on Friday evening: outside office hours.
+      await page.getByText("Someone calls in").click();
+      await page.getByLabel("Your number").click();
+      await page.getByRole("option", { name: "+97142000102" }).click();
+      await page.getByText("On", { exact: true }).click();
+      await page.getByLabel("Day").fill("2026-10-02");
+      await page.getByRole("button", { name: "Check", exact: true }).click();
+      await expect(page.getByText("outside office hours", { exact: false })).toBeVisible();
+      await shot(page, `${scheme}-simulator-after-hours`);
 
       await page.goto("/admin/connections");
       await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
@@ -694,6 +728,13 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Add", exact: true }).click();
       await expect(page.getByText('"Provider VPN" is added.')).toBeVisible();
       await shot(page, `${scheme}-connections-added`);
+    });
+
+    test("office hours at home", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true, home: true });
+      await page.goto("/admin/office-hours");
+      await expect(page.getByText("At home there are no office hours", { exact: false })).toBeVisible();
+      await shot(page, `${scheme}-office-hours-home`);
     });
 
     test("system: alerts, activity, settings", async ({ page }) => {
@@ -1078,7 +1119,7 @@ test.describe("phone width", () => {
     ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/status", "system-status", "Linx services"],
     ["/admin/system/backups", "system-backups", "Backups"], ["/admin/system/server", "system-server", "Server settings"],
     ["/admin/lines", "lines", "Phone lines"], ["/admin/incoming", "incoming", "Incoming calls"],
-    ["/admin/ring-groups", "ring-groups", "Ring groups"],
+    ["/admin/ring-groups", "ring-groups", "Ring groups"], ["/admin/office-hours", "office-hours", "Office hours"],
     ["/admin/outgoing", "outgoing", "Outgoing calls"], ["/admin/simulator", "simulator", "Call simulator"],
     ["/admin/connections", "connections", "Connections"],
     ["/admin/system/alerts", "system-alerts", "Where alerts go"], ["/admin/system/activity", "system-activity", "System"],

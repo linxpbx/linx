@@ -20,7 +20,7 @@ var _ trunk.Store = (*Store)(nil)
 const trunkColumns = `id, tenant_id, name, kind, template, host, port, transport, media_encryption, cert_trust,
 	pinned_certificate, username, password_enc, dial_format, codecs, caller_id_number, max_calls,
 	wireguard_profile_id, outbound_priority, unencrypted_confirmed_by, unencrypted_confirmed_at,
-	enabled, version, created_at, updated_at, status, status_detail, status_since, digest_hash, rings_extension_id`
+	enabled, version, created_at, updated_at, status, status_detail, status_since, digest_hash, rings_extension_id, rings_ring_group_id`
 
 func scanTrunk(row pgx.Row) (trunk.Trunk, error) {
 	var t trunk.Trunk
@@ -28,7 +28,7 @@ func scanTrunk(row pgx.Row) (trunk.Trunk, error) {
 	err := row.Scan(&t.ID, &t.TenantID, &t.Name, &t.Kind, &t.Template, &t.Host, &t.Port, &t.Transport,
 		&t.MediaEncryption, &t.CertTrust, &pinnedCert, &t.Username, &t.PasswordEnc, &t.DialFormat, &t.Codecs,
 		&callerID, &t.MaxCalls, &t.WireGuardProfileID, &t.OutboundPriority, &confirmedBy, &t.UnencryptedConfirmedAt,
-		&t.Enabled, &t.Version, &t.CreatedAt, &t.UpdatedAt, &t.Status, &t.StatusDetail, &t.StatusSince, &digest, &t.RingsExtensionID)
+		&t.Enabled, &t.Version, &t.CreatedAt, &t.UpdatedAt, &t.Status, &t.StatusDetail, &t.StatusSince, &digest, &t.RingsExtensionID, &t.RingsRingGroupID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, trunk.ErrNotFound
 	}
@@ -174,12 +174,12 @@ func (s *Store) UpdateTrunk(ctx context.Context, t trunk.Trunk, audit auth.Audit
 				cert_trust = $11, pinned_certificate = $12, username = $13, password_enc = $14, dial_format = $15,
 				codecs = $16, caller_id_number = $17, max_calls = $18, wireguard_profile_id = $19,
 				unencrypted_confirmed_by = $20, unencrypted_confirmed_at = $21, enabled = $22, version = version + 1,
-				updated_at = $23, digest_hash = $24, rings_extension_id = $25
+				updated_at = $23, digest_hash = $24, rings_extension_id = $25, rings_ring_group_id = $26
 			WHERE id = $1 AND tenant_id = $2 AND version = $3 RETURNING `+trunkColumns,
 			t.ID, t.TenantID, t.Version, t.Name, t.Kind, t.Template, t.Host, t.Port, t.Transport, t.MediaEncryption,
 			t.CertTrust, emptyStrToNil(t.PinnedCertificate), t.Username, t.PasswordEnc, t.DialFormat, t.Codecs,
 			emptyStrToNil(t.CallerIDNumber), t.MaxCalls, t.WireGuardProfileID, emptyStrToNil(t.UnencryptedConfirmedBy),
-			t.UnencryptedConfirmedAt, t.Enabled, t.UpdatedAt, emptyStrToNil(t.DigestHash), t.RingsExtensionID))
+			t.UnencryptedConfirmedAt, t.Enabled, t.UpdatedAt, emptyStrToNil(t.DigestHash), t.RingsExtensionID, t.RingsRingGroupID))
 		if isConstraintViolation(err, ringsExtensionFK) {
 			return trunk.ErrExtensionNotFound
 		}
@@ -272,11 +272,11 @@ func (s *Store) SetOutboundOrder(ctx context.Context, tenant uuid.UUID, order []
 	return out, err
 }
 
-const didColumns = `id, tenant_id, trunk_id, number, label, extension_id, version, created_at, updated_at`
+const didColumns = `id, tenant_id, trunk_id, number, label, extension_id, ring_group_id, version, created_at, updated_at`
 
 func scanDID(row pgx.Row) (trunk.DID, error) {
 	var d trunk.DID
-	err := row.Scan(&d.ID, &d.TenantID, &d.TrunkID, &d.Number, &d.Label, &d.ExtensionID, &d.Version, &d.CreatedAt, &d.UpdatedAt)
+	err := row.Scan(&d.ID, &d.TenantID, &d.TrunkID, &d.Number, &d.Label, &d.ExtensionID, &d.RingGroupID, &d.Version, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, trunk.ErrNotFound
 	}
@@ -345,9 +345,9 @@ func (s *Store) UpdateDID(ctx context.Context, d trunk.DID, audit auth.AuditEntr
 	var out trunk.DID
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
-		out, err = scanDID(tx.QueryRow(ctx, `UPDATE trunk_did SET label = $4, extension_id = $5, version = version + 1, updated_at = $6
+		out, err = scanDID(tx.QueryRow(ctx, `UPDATE trunk_did SET label = $4, extension_id = $5, ring_group_id = $7, version = version + 1, updated_at = $6
 			WHERE id = $1 AND tenant_id = $2 AND version = $3 RETURNING `+didColumns,
-			d.ID, d.TenantID, d.Version, d.Label, d.ExtensionID, d.UpdatedAt))
+			d.ID, d.TenantID, d.Version, d.Label, d.ExtensionID, d.UpdatedAt, d.RingGroupID))
 		if errors.Is(err, trunk.ErrNotFound) {
 			var exists bool
 			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM trunk_did WHERE id = $1 AND tenant_id = $2)`,

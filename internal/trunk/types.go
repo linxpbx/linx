@@ -118,7 +118,10 @@ type Trunk struct {
 	DigestHash string
 	// RingsExtensionID is where the line's calls for none of its numbers
 	// ring (docs/SIMPLER.md §1.2); nil: they hear "not in use".
-	RingsExtensionID     *uuid.UUID
+	RingsExtensionID *uuid.UUID
+	// RingsRingGroupID is the ring group they ring instead (set in
+	// Incoming, internal/routing); setting RingsExtensionID clears it.
+	RingsRingGroupID     *uuid.UUID
 	Enabled              bool
 	Version              int
 	CreatedAt, UpdatedAt time.Time
@@ -152,8 +155,11 @@ type DID struct {
 	Number                string
 	Label                 string
 	ExtensionID           *uuid.UUID
-	Version               int
-	CreatedAt, UpdatedAt  time.Time
+	// RingGroupID is the ring group it rings instead (set in Incoming,
+	// internal/routing); setting ExtensionID clears it.
+	RingGroupID          *uuid.UUID
+	Version              int
+	CreatedAt, UpdatedAt time.Time
 }
 
 // WireGuardProfile is a tunnel trunks can be reached through

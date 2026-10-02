@@ -148,6 +148,10 @@ func main() {
 		log.Error("phone system domain", "err", err)
 		os.Exit(1)
 	}
+	// Office hours are in the server's time zone (TZ, set by setup).
+	if err := db.SetTimeZone(startCtx, pool, os.Getenv("TZ")); err != nil {
+		log.Warn("office hours time zone", "err", err)
+	}
 
 	// Outgoing calls are decided in the database from libphonenumber's data
 	// (ADR-044); a new version of the library brings new data.
@@ -459,7 +463,7 @@ func main() {
 			s.SetMoved(movedSvc)
 			s.SetHelpAnswers(helpAnswers)
 			s.SetEmail(emailSvc, weburl.FromEnv(os.Getenv))
-			s.SetRouting(&routing.Service{Store: st, Now: time.Now})
+			s.SetRouting(&routing.Service{Store: st, Rules: st, Now: time.Now})
 			s.SetReach(reachChecker.Run, reachLinks)
 			s.SetDNSRecords(reachChecker.Records)
 			s.SetOps(opsHub, st.Audit, func() time.Time {

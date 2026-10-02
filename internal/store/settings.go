@@ -46,6 +46,13 @@ func (s *Store) UpdateSettings(ctx context.Context, in settings.Settings, audit 
 		if err != nil {
 			return err
 		}
+		// A business gets its "Office hours" (Mon-Fri 08:00-17:00) the first
+		// time it says so (migration 0033); a home gets none.
+		if out.SiteKind == "business" && audit.TenantID != nil {
+			if _, err := tx.Exec(ctx, `SELECT schedule_add_default($1, now())`, *audit.TenantID); err != nil {
+				return err
+			}
+		}
 		if audit.TenantID != nil {
 			ev, err := webhook.NewEvent(*audit.TenantID, "settings.updated", map[string]any{
 				"country": out.Country, "extension_digits": out.ExtensionDigits, "site_kind": out.SiteKind,

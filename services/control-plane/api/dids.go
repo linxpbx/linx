@@ -16,6 +16,9 @@ func toDid(d trunk.DID) Did {
 	if d.ExtensionID != nil {
 		out.ExtensionId = d.ExtensionID
 	}
+	if d.RingGroupID != nil {
+		out.RingGroupId = d.RingGroupID
+	}
 	return out
 }
 

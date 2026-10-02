@@ -16,6 +16,7 @@ export type RingGroup = components["schemas"]["RingGroup"];
 export type ExtensionChoice = { id: string; number: string; display_name: string };
 
 export const NOT_AVAILABLE: Destination = { kind: "message", message: "not-available" };
+export const CLOSED: Destination = { kind: "message", message: "closed" };
 
 /** A destination in a few words, as lists show it. */
 export function destinationLabel(d: Destination | undefined, extensions: ExtensionChoice[], groups: RingGroup[]): string {
@@ -28,7 +29,7 @@ export function destinationLabel(d: Destination | undefined, extensions: Extensi
     const g = groups.find((x) => x.id === d.ring_group_id);
     if (g) return g.name;
   }
-  if (d.kind === "message") return "Nobody (callers hear \"not available\")";
+  if (d.kind === "message") return d.message === "closed" ? "Play \"We're closed\" and hang up" : "Nobody (callers hear \"not available\")";
   return d.label ?? "—";
 }
 
@@ -54,8 +55,12 @@ function Section({ title }: { title: string }) {
   return <p className="px-2 pb-1 pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>;
 }
 
-export function DestinationPicker({ id, value, onChange, extensions, groups, self, onNewGroup }: {
+export function DestinationPicker({ id, value, onChange, extensions, groups, self, onNewGroup, ringOnly, placeholder }: {
   id?: string; value: Destination | undefined; onChange: (d: Destination) => void;
+  /** Only people and ring groups (who a number rings). */
+  ringOnly?: boolean;
+  /** Shown when nothing is chosen. */
+  placeholder?: string;
   extensions: ExtensionChoice[]; groups: RingGroup[];
   /** The ring group being edited: choices leading back to it are greyed. */
   self?: string;
@@ -92,7 +97,7 @@ export function DestinationPicker({ id, value, onChange, extensions, groups, sel
       <PopoverTrigger asChild>
         <Button id={id} type="button" variant="outline" role="combobox" aria-expanded={open} aria-haspopup="listbox"
           className="w-full justify-between font-normal">
-          <span className="truncate">{destinationLabel(value, extensions, groups)}</span>
+          <span className="truncate">{value ? destinationLabel(value, extensions, groups) : (placeholder ?? "—")}</span>
           <ChevronDown aria-hidden="true" className="size-4 opacity-60" />
         </Button>
       </PopoverTrigger>
@@ -116,10 +121,13 @@ export function DestinationPicker({ id, value, onChange, extensions, groups, sel
               + New ring group…
             </button>
           )}
-          <Section title="Voicemail" />
-          {later("Voicemail boxes: coming soon")}
-          <Section title="Other" />
-          {option("m-na", NOT_AVAILABLE, "Nobody (callers hear \"not available\")")}
+          {!ringOnly && <>
+            <Section title="Voicemail" />
+            {later("Voicemail boxes: coming soon")}
+            <Section title="Other" />
+            {option("m-closed", CLOSED, "Play \"We're closed\" and hang up")}
+            {option("m-na", NOT_AVAILABLE, "Nobody (callers hear \"not available\")")}
+          </>}
           {later("Menus and queues: coming later")}
         </div>
       </PopoverContent>

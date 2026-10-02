@@ -2,7 +2,7 @@
 // screen, and the call panel on the right while a call is on.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
-  Activity, BarChart3, Check, CircleHelp, CircleUser, Clock, FlaskConical, Grid3x3, Hash, IdCard, Inbox, KeyRound, LogOut, Network,
+  Activity, BarChart3, CalendarClock, Check, CircleHelp, CircleUser, Clock, FlaskConical, Grid3x3, Hash, IdCard, Inbox, KeyRound, LogOut, Network,
   Phone, PhoneCall, PhoneIncoming, PhoneOutgoing, Search, Settings as SettingsIcon, Users, UsersRound, Video, Voicemail, Webhook,
   Home as HomeIcon,
 } from "lucide-react";
@@ -25,7 +25,7 @@ import { DIALABLE, matchTeam } from "./Dialer";
 
 export type Screen = "dialer" | "team" | "settings" | "account" | "help" | "admin-home" | "admin-people" | "admin-extensions"
   | "admin-system-status" | "admin-system-backups" | "admin-system-server"
-  | "admin-lines" | "admin-incoming" | "admin-ring-groups" | "admin-outgoing" | "admin-simulator" | "admin-connections"
+  | "admin-lines" | "admin-incoming" | "admin-ring-groups" | "admin-office-hours" | "admin-outgoing" | "admin-simulator" | "admin-connections"
   | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings" | "admin-webhooks" | "admin-api-keys";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
@@ -49,6 +49,7 @@ const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
   { label: "Phone lines", icon: PhoneCall, path: "/admin/lines" },
   { label: "Incoming", icon: PhoneIncoming, path: "/admin/incoming" },
   { label: "Ring groups", icon: UsersRound, path: "/admin/ring-groups" },
+  { label: "Office hours", icon: CalendarClock, path: "/admin/office-hours" },
   { label: "Outgoing", icon: PhoneOutgoing, path: "/admin/outgoing" },
   { label: "Simulator", icon: FlaskConical, path: "/admin/simulator" },
   { label: "System", icon: Activity, path: "/admin/system/status" },
@@ -58,7 +59,7 @@ const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
   "/admin/system/status": "admin-system-status", "/admin/system/backups": "admin-system-backups",
   "/admin/system/server": "admin-system-server",
   "/admin/lines": "admin-lines", "/admin/incoming": "admin-incoming",
-  "/admin/ring-groups": "admin-ring-groups", "/admin/outgoing": "admin-outgoing",
+  "/admin/ring-groups": "admin-ring-groups", "/admin/office-hours": "admin-office-hours", "/admin/outgoing": "admin-outgoing",
   "/admin/simulator": "admin-simulator", "/admin/connections": "admin-connections",
   "/admin/webhooks": "admin-webhooks", "/admin/api-keys": "admin-api-keys",
 };
@@ -71,8 +72,11 @@ const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users; path?: string }[] =
 
 function NavItem({ active, label, icon: Icon, onClick, disabled, badge, dot }:
   { active?: boolean; label: string; icon: typeof Users; onClick?: () => void; disabled?: boolean; badge?: number; dot?: boolean }) {
+  // The admin list is longer than a short window: keep the page's own row in view.
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (active) ref.current?.scrollIntoView({ block: "nearest" }); }, [active]);
   const item = (
-    <button type="button" onClick={onClick} aria-current={active ? "page" : undefined}
+    <button ref={ref} type="button" onClick={onClick} aria-current={active ? "page" : undefined}
       aria-disabled={disabled || undefined} tabIndex={disabled ? -1 : undefined}
       className={cn(
         "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",

@@ -886,8 +886,10 @@ verify_server_hostname = yes
 // LINX_OUTBOUND(endpoint,number): the outgoing-call decision (migration
 // 0018's linx_outbound): reason, category, withhold (1/0), lines.
 //
-// LINX_INBOUND(endpoint,number): the extension a call from a trunk to one
-// of its DIDs rings; no row if that trunk doesn't own the number.
+// LINX_INBOUND(endpoint,number): where a call from a trunk to one of its
+// DIDs starts (d:<id>, migration 0033); no row if that trunk doesn't own
+// the number. LINX_LINE_RINGS(endpoint): the same for the line's calls for
+// none of its numbers (l:<id>), no row if it sends them nowhere.
 //
 // LINX_ROUTE(dest,caller): one step of a call's way (migration 0032's
 // linx_route, ADR-068): action, targets (a Dial() string ringing every
@@ -941,10 +943,12 @@ readsql = SELECT * FROM linx_line_rings('${SQL_ESC(${ARG1})}')
 // contact). The caller's name and number are untrusted: filtered to plain
 // characters and shortened before anything else sees them. The call
 // passes through linx-trunk-did with the DID that matched as its extension,
-// which is how the control plane's call events learn it. A call for none of
-// the trunk's numbers rings the line's own "calls on this line ring…"
-// extension if it has one (LINX_LINE_RINGS, docs/SIMPLER.md §1.2: an
-// analog landline often sends no number), else hears "not in use".
+// which is how the control plane's call events learn it, then goes where
+// that number's "When someone calls" sends it (office hours, holidays, if
+// nobody answers: linx_route's d:<id>). A call for none of the trunk's
+// numbers goes where the line's own "calls on this line ring…" sends it
+// (l:<id>, docs/SIMPLER.md §1.2: an analog landline often sends no
+// number), else hears "not in use".
 const extensionsConf = `; Rendered by linx-asterisk-entrypoint.
 [general]
 static = yes
@@ -1067,11 +1071,11 @@ exten => s,1,Set(CALLERID(name)=${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40})
  same => n,Set(TARGET=${LINX_LINE_RINGS(${CHANNEL(endpoint)})})
  same => n,GotoIf($[${ODBCROWS} < 1]?linx-messages,not-in-use,1)
  same => n,GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
- same => n,Set(DEST=e:${TARGET})
+ same => n,Set(DEST=${TARGET})
  same => n,Set(CALLER=)
  same => n,Goto(linx-route,s,1)
  same => n(found),GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
- same => n,Set(DEST=e:${TARGET})
+ same => n,Set(DEST=${TARGET})
  same => n,Set(CALLER=)
  same => n,Set(DID=${FILTER(0-9+,${DID})})
  same => n,GotoIf($["${DID}" = ""]?linx-route,s,1)
@@ -1092,6 +1096,12 @@ exten => not-in-use,1,Answer()
 exten => not-available,1,Answer()
  same => n,Wait(0.5)
  same => n,Playback(linx/not-available)
+ same => n,Hangup()
+
+; Outside office hours or on a holiday (migration 0033).
+exten => closed,1,Answer()
+ same => n,Wait(0.5)
+ same => n,Playback(linx/closed)
  same => n,Hangup()
 
 ; The caller's permission level doesn't include this kind of number.

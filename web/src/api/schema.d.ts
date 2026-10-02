@@ -1481,6 +1481,98 @@ export interface paths {
         patch: operations["updateRingGroup"];
         trace?: never;
     };
+    "/api/v1/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List office-hours schedules
+         * @description Every schedule, by name (docs/PHASE1F.md §7): "Office hours", made at setup for a business, and any more added. `now` is the same open/closed answer calls get. Not paginated: at most 20.
+         */
+        get: operations["listSchedules"];
+        put?: never;
+        /**
+         * Add a schedule
+         * @description Without `spans`, Monday to Friday 08:00-17:00. Not idempotent: retrying fails on the name.
+         */
+        post: operations["createSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/schedules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a schedule
+         * @description Refused (409 `schedule_in_use`) while a number's "When someone calls" uses it.
+         */
+        delete: operations["deleteSchedule"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a schedule
+         * @description JSON Merge Patch: `spans` and `holidays` each replace the whole list. Send `If-Match` with the schedule's `etag` to refuse the change (412) if someone else changed it first.
+         */
+        patch: operations["updateSchedule"];
+        trace?: never;
+    };
+    "/api/v1/incoming": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where each number's calls go
+         * @description Every phone number, and every line's calls for none of its numbers, with its "When someone calls" (docs/PHASE1F.md §7) and the sentence saying what a caller gets. Not paginated.
+         */
+        get: operations["listIncoming"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incoming/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set where a number's calls go
+         * @description `id` is a phone number's (`kind` number) or a line's (`kind` line). Replaces the whole "When someone calls". `just_ring` sets only who it rings, all the time (the quick change). Send `If-Match` with its `etag` to refuse the change (412) if someone else changed it first.
+         */
+        put: operations["setIncoming"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/calls/active": {
         parameters: {
             query?: never;
@@ -3510,6 +3602,11 @@ export interface components {
              * @description Where this line's calls for none of its numbers ring (an analog landline often sends no number, docs/SIMPLER.md §1.2). Absent: they hear "not in use".
              */
             rings_extension_id?: string;
+            /**
+             * Format: uuid
+             * @description The ring group this line's calls for none of its numbers ring (set in Incoming).
+             */
+            readonly rings_ring_group_id?: string;
             login?: components["schemas"]["TrunkLogin"];
             /**
              * Format: uuid
@@ -3619,9 +3716,14 @@ export interface components {
             label: string;
             /**
              * Format: uuid
-             * @description Absent means calls to this number hear "not in use".
+             * @description Absent (and no `ring_group_id`) means calls to this number hear "not in use".
              */
             extension_id?: string;
+            /**
+             * Format: uuid
+             * @description The ring group it rings (set in Incoming, `PUT /incoming/{id}`).
+             */
+            readonly ring_group_id?: string;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -3697,6 +3799,11 @@ export interface components {
             number: string;
             /** @description Outbound only. The calling extension's number. Without it, only what kind of number it is. */
             from?: string;
+            /**
+             * Format: date-time
+             * @description When the call is made (office hours and holidays depend on it). Leave out for now.
+             */
+            at?: string;
         };
         RouteTest: {
             /** @enum {string} */
@@ -3725,6 +3832,14 @@ export interface components {
             };
             /** @description The whole decision in plain words, as `linx route test` prints it. */
             words: string;
+            /** @description Inbound, for a number with office hours: the moment in the server's time zone and whether it's open ("Friday 20:00 (Asia/Dubai time): outside office hours"). */
+            when?: string;
+            /** @description A call to one of your numbers, or from an extension to another one or a ring group: where it goes, step by step, if nobody answers along the way (the same function real calls use). */
+            steps?: {
+                words: string;
+                /** @description This step rings someone (the next one happens if nobody answers). */
+                rings: boolean;
+            }[];
         };
         /** @description The "unusual calling abroad" alert fires when an hour has more than this many minutes, or calls, to numbers abroad (docs/TRUNKS.md §9). */
         InternationalAlert: {
@@ -3827,7 +3942,7 @@ export interface components {
             items: components["schemas"]["CallPermissionLevel"][];
             next_cursor?: string;
         };
-        /** @description Where a call goes (ADR-068): an extension, a ring group, or a message and hang up (`not-available`). Voicemail boxes join in a later version. */
+        /** @description Where a call goes (ADR-068): an extension, a ring group, or a message and hang up (`not-available`, or `closed`: "We're closed"). Voicemail boxes join in a later version. */
         Destination: {
             /** @enum {string} */
             kind: "extension" | "ring_group" | "message";
@@ -3836,9 +3951,125 @@ export interface components {
             /** Format: uuid */
             ring_group_id?: string;
             /** @enum {string} */
-            message?: "not-available";
+            message?: "not-available" | "closed";
             /** @description The destination in a few words ("Sara Haddad (101)", "Sales"). */
             readonly label?: string;
+        };
+        /** @description Open from `opens` to `closes` on one weekday, in the server's time zone. */
+        Span: {
+            /** @description 0 Sunday … 6 Saturday. */
+            weekday: number;
+            opens: string;
+            /** @description After `opens`; 24:00 is midnight at the day's end. */
+            closes: string;
+        };
+        /** @description Closed all day, from `first_day` to `last_day`. */
+        Holiday: {
+            name: string;
+            /** Format: date */
+            first_day: string;
+            /** Format: date */
+            last_day: string;
+            /** @description The same dates every year (a fixed holiday; Eid moves, so not for it). */
+            every_year?: boolean;
+        };
+        Schedule: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            spans: components["schemas"]["Span"][];
+            holidays: components["schemas"]["Holiday"][];
+            /** @description The hours in a few words ("Mon–Fri 08:00–17:00"). */
+            words: string;
+            /** @description The same answer a call gets right now. */
+            now: {
+                open: boolean;
+                /** @description The holiday closing it today. */
+                holiday?: string;
+                /**
+                 * Format: date-time
+                 * @description When it next opens or closes (absent if not within a month).
+                 */
+                changes_at?: string;
+            };
+            /** @description The numbers and lines whose "When someone calls" uses it. */
+            used_by: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            }[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            etag: string;
+        };
+        ScheduleList: {
+            /** @description The server's time zone, which every schedule is in ("Asia/Dubai"). */
+            time_zone: string;
+            items: components["schemas"]["Schedule"][];
+        };
+        ScheduleCreate: {
+            name: string;
+            spans?: components["schemas"]["Span"][];
+            holidays?: components["schemas"]["Holiday"][];
+        };
+        SchedulePatch: {
+            name?: string;
+            spans?: components["schemas"]["Span"][];
+            holidays?: components["schemas"]["Holiday"][];
+        };
+        /** @description "When someone calls" one number (`kind` number) or a line's calls for none of its numbers (`kind` line). */
+        Incoming: {
+            /**
+             * Format: uuid
+             * @description The number's id, or the line's.
+             */
+            id: string;
+            /** @enum {string} */
+            kind: "number" | "line";
+            number?: string;
+            label?: string;
+            /** Format: uuid */
+            line_id: string;
+            line_name: string;
+            line_kind: string;
+            rings?: components["schemas"]["Destination"];
+            /** @description How long a person is rung (a ring group decides for itself). */
+            if_no_answer_seconds: number;
+            if_no_answer: components["schemas"]["Destination"];
+            /**
+             * Format: uuid
+             * @description Absent means the same all the time.
+             */
+            schedule_id?: string;
+            after_hours: components["schemas"]["Destination"];
+            holidays?: components["schemas"]["Destination"];
+            /** @description Only who it rings is set (the quick change); everything else is the default. */
+            just_ring: boolean;
+            /** @description What a caller gets, in plain sentences. */
+            words: string;
+            etag: string;
+        };
+        IncomingList: {
+            items: components["schemas"]["Incoming"][];
+        };
+        IncomingSet: {
+            rings?: components["schemas"]["Destination"];
+            /** @description Set only `rings`, all the time, and forget the rest. */
+            just_ring?: boolean;
+            /** @description Check it and return it with its sentence, without saving (the wizard's live sentence). */
+            preview?: boolean;
+            if_no_answer_seconds?: number;
+            if_no_answer?: components["schemas"]["Destination"];
+            /**
+             * Format: uuid
+             * @description Leave out for the same all the time.
+             */
+            schedule_id?: string;
+            after_hours?: components["schemas"]["Destination"];
+            /** @description Leave out for the same as `after_hours`. */
+            holidays?: components["schemas"]["Destination"];
         };
         RingGroupMember: {
             /** Format: uuid */
@@ -3869,12 +4100,12 @@ export interface components {
             /** @description What sends calls here. */
             used_by: {
                 /** @enum {string} */
-                kind: "ring_group";
+                kind: "ring_group" | "number" | "line";
                 /** Format: uuid */
                 id: string;
                 name: string;
                 /** @enum {string} */
-                how: "if_nobody_answers";
+                how: "if_nobody_answers" | "rings" | "after_hours" | "holidays";
             }[];
             /** @description What a caller gets, in one plain sentence. */
             words: string;
@@ -7569,6 +7800,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RingGroup"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listSchedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The schedules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleCreate"];
+            };
+        };
+        responses: {
+            /** @description The new schedule. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateSchedule: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["SchedulePatch"];
+            };
+        };
+        responses: {
+            /** @description The schedule as it now is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listIncoming: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The numbers and lines. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setIncoming: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncomingSet"];
+            };
+        };
+        responses: {
+            /** @description As it now is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Incoming"];
                 };
             };
             default: components["responses"]["Problem"];

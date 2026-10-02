@@ -645,7 +645,7 @@ func (s *Service) UpdateTrunk(ctx context.Context, id uuid.UUID, patch TrunkPatc
 		changes["wireguard_profile_id"] = t.WireGuardProfileID
 	}
 	if patch.RingsExtensionID != nil {
-		t.RingsExtensionID = *patch.RingsExtensionID
+		t.RingsExtensionID, t.RingsRingGroupID = *patch.RingsExtensionID, nil
 		changes["rings_extension_id"] = t.RingsExtensionID
 	}
 	if patch.Enabled != nil {
@@ -912,6 +912,7 @@ func (s *Service) UpdateDID(ctx context.Context, id uuid.UUID, patch DIDPatch, i
 			}
 			d.ExtensionID = &extID
 		}
+		d.RingGroupID = nil
 		changes["extension_id"] = d.ExtensionID
 	}
 	d.UpdatedAt = s.Now().UTC()

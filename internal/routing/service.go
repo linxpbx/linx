@@ -21,6 +21,9 @@ import (
 // Service is what the API's ring group endpoints do.
 type Service struct {
 	Store Store
+	// Rules is office hours, "When someone calls" and the simulator; nil
+	// leaves them out (ring groups alone).
+	Rules RulesStore
 	Now   func() time.Time
 }
 
@@ -81,12 +84,13 @@ type View struct {
 	Words         string
 }
 
-// UsedBy is one place that sends calls to a ring group.
+// UsedBy is one place that sends calls to a ring group (or follows a
+// schedule).
 type UsedBy struct {
-	Kind string // KindRingGroup (phone numbers join in step 12)
+	Kind string // KindRingGroup, IncomingNumber or IncomingLine
 	ID   uuid.UUID
 	Name string
-	How  string // "if_nobody_answers"
+	How  string // "if_nobody_answers", "rings", "after_hours", "holidays" ("schedule" for a schedule)
 }
 
 // ListRingGroups returns every ring group, by name.
@@ -145,6 +149,13 @@ func (s *Service) views(ctx context.Context, tenant uuid.UUID, groups []RingGrou
 	for _, g := range groups {
 		byID[g.ID] = g
 	}
+	var incoming []Incoming
+	if s.Rules != nil {
+		var err error
+		if incoming, err = s.Rules.IncomingList(ctx, tenant); err != nil {
+			return nil, err
+		}
+	}
 	out := make([]View, 0, len(groups))
 	for _, g := range groups {
 		v := View{RingGroup: g, UsedBy: []UsedBy{}}
@@ -155,6 +166,7 @@ func (s *Service) views(ctx context.Context, tenant uuid.UUID, groups []RingGrou
 				v.UsedBy = append(v.UsedBy, UsedBy{Kind: KindRingGroup, ID: o.ID, Name: o.Name, How: "if_nobody_answers"})
 			}
 		}
+		v.UsedBy = append(v.UsedBy, incomingUses(incoming, g.ID)...)
 		out = append(out, v)
 	}
 	return out, nil
@@ -177,6 +189,10 @@ func DestinationLabel(d Destination, groups map[uuid.UUID]RingGroup, exts map[uu
 				return g.Name
 			}
 		}
+	case KindMessage:
+		if d.Message == MessageClosed {
+			return `"We're closed" message`
+		}
 	}
 	return `"Not available" message`
 }
@@ -186,6 +202,10 @@ func destinationWords(d Destination, groups map[uuid.UUID]RingGroup, exts map[uu
 	case KindExtension, KindRingGroup:
 		if label := DestinationLabel(d, groups, exts); label != `"Not available" message` {
 			return "the call goes to " + label + "."
+		}
+	case KindMessage:
+		if d.Message == MessageClosed {
+			return `callers hear "We're closed".`
 		}
 	}
 	return `callers hear "not available".`
@@ -382,7 +402,7 @@ func (s *Service) DeleteRingGroup(ctx context.Context, id uuid.UUID) error {
 	}
 	if errors.Is(err, ErrInUse) {
 		return &apihttp.Error{Status: http.StatusConflict, Code: "ring_group_in_use",
-			Detail: "Another ring group sends its unanswered calls here. Choose where they go instead first."}
+			Detail: "Another ring group or a phone number sends calls here. Choose where they go instead first."}
 	}
 	return err
 }
@@ -461,8 +481,8 @@ func checkDestination(g *RingGroup, exts map[uuid.UUID]ExtensionRef, all []RingG
 		}
 		d.ExtensionID, d.Message = nil, ""
 	case KindMessage:
-		if d.Message != MessageNotAvailable {
-			return invalid("destination_invalid", `The message can be "not-available".`)
+		if d.Message != MessageNotAvailable && d.Message != MessageClosed {
+			return invalid("destination_invalid", `The message can be "not-available" or "closed".`)
 		}
 		d.ExtensionID, d.RingGroupID = nil, nil
 	default:

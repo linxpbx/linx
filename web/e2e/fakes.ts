@@ -72,6 +72,8 @@ export interface FakeOptions {
   // Email (ADR-066): "on" sends through Google Workspace; "failing" has
   // emails waiting after the password was refused; absent: not set up.
   email?: "on" | "failing";
+  // A home: no office hours (docs/ui/SCREENS_PHASE1F.md §9).
+  home?: boolean;
 }
 
 // Phone lines, numbers and routing (docs/ui/ADMIN_SCREENS_PHASE1E.md §6-9).
@@ -298,7 +300,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   const settings: Json = {
     country: "AE", extension_digits: 3,
     extension_ranges: [{ kind: "people", from: 100, to: 599 }, { kind: "groups", from: 600, to: 699 }, { kind: "reserved", from: 700, to: 899 }],
-    site_kind: "business", simple_mode: true, admin_network_restricted: false, admin_networks: [], company_sign_in_required: false,
+    site_kind: opts.home ? "home" : "business", simple_mode: true, admin_network_restricted: false, admin_networks: [], company_sign_in_required: false,
     default_call_permission_level_id: opts.setupCompleted ? "0199f1" : undefined, setup_step: opts.setupStep ?? 1,
   };
   const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
@@ -389,6 +391,63 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   };
   const idAfter = (p: string, prefix: string) => (p.startsWith(prefix) ? p.slice(prefix.length).split("/")[0] : null);
   const now = () => new Date().toISOString();
+
+  // Office hours and "When someone calls" (docs/ui/SCREENS_PHASE1F.md §9-11).
+  type Dest = { kind: string; extension_id?: string; ring_group_id?: string; message?: string };
+  type Rule = { seconds: number; no_answer: Dest; schedule_id?: string; after_hours: Dest; holidays?: Dest };
+  const year = new Date().getFullYear();
+  const schedules: Json[] = opts.home ? [] : [{
+    id: "s1", name: "Office hours", version: 1,
+    spans: [1, 2, 3, 4, 5].map((weekday) => ({ weekday, opens: "08:00", closes: "17:00" })),
+    holidays: [
+      { name: "National Day", first_day: `${year}-12-02`, last_day: `${year}-12-03`, every_year: true },
+      { name: "Eid al-Fitr", first_day: `${year + 1}-03-20`, last_day: `${year + 1}-03-22`, every_year: false },
+      { name: "Eid al-Adha", first_day: `${year - 1}-06-06`, last_day: `${year - 1}-06-08`, every_year: false },
+    ],
+  }];
+  const scheduleView = (sc: Json) => ({
+    ...sc, words: (sc.spans as unknown[]).length ? "Mon–Fri 08:00–17:00" : "Never open",
+    now: { open: true, changes_at: new Date(new Date().setUTCHours(13, 0, 0, 0)).toISOString() },
+    used_by: Object.entries(rules).filter(([, r]) => r.schedule_id === sc.id).map(([id]) => ({ id, name: String(lines.dids.find((d) => d.id === id)?.number ?? id) })),
+    created_at: now(), updated_at: now(), etag: `"${String(sc.version)}"`,
+  });
+  const rules: Record<string, Rule> = opts.home ? {} : {
+    "0199f2": { seconds: 20, no_answer: { kind: "ring_group", ring_group_id: "g3" }, after_hours: { kind: "message", message: "closed" } },
+    "0199f3": { seconds: 25, no_answer: { kind: "message", message: "not-available" }, schedule_id: "s1", after_hours: { kind: "message", message: "closed" } },
+  };
+  const ringsOf: Record<string, Dest | undefined> = { "0199f3": { kind: "ring_group", ring_group_id: "g1" } };
+  const destLabel = (d: Dest | undefined) => {
+    if (!d) return "";
+    if (d.kind === "extension") { const e = people.extensions.find((x) => x.id === d.extension_id); return e ? `${e.display_name} (${e.number})` : ""; }
+    if (d.kind === "ring_group") return groups.find((g) => g.id === d.ring_group_id)?.name ?? "";
+    return d.message === "closed" ? "\"We're closed\" message" : "\"Not available\" message";
+  };
+  const destWords = (d: Dest) => (d.kind === "message" ? (d.message === "closed" ? "callers hear \"We're closed\"." : "callers hear \"not available\".")
+    : `the call goes to ${destLabel(d)}.`);
+  const incomingView = (kind: "number" | "line", x: Json): Json => {
+    const id = String(x.id);
+    const rings: Dest | undefined = ringsOf[id] ?? (kind === "number" ? (x.extension_id ? { kind: "extension", extension_id: String(x.extension_id) } : undefined)
+      : (x.rings_extension_id ? { kind: "extension", extension_id: String(x.rings_extension_id) } : undefined));
+    const r = rules[id];
+    const line = lines.trunks.find((t) => t.id === (kind === "number" ? x.trunk_id : x.id));
+    const subject = kind === "number" ? `Calls to ${String(x.number)}` : `Calls on ${String(line?.name)} for none of its numbers`;
+    const group = rings?.kind === "ring_group" ? groups.find((g) => g.id === rings.ring_group_id) : undefined;
+    const who = group ? `${group.name} (${group.strategy === "all" ? "all at once" : "one after another"})` : destLabel(rings);
+    const hours = r?.schedule_id ? " Mon–Fri 08:00–17:00" : "";
+    let words = who ? `${subject} ring ${who}${hours}.` : `${subject} ring nobody${hours}: callers hear the number isn't in use.`;
+    if (group) words += ` If nobody answers, ${destWords(group.if_no_answer)}`;
+    else if (who) words += r ? ` If nobody answers in ${r.seconds} seconds, ${destWords(r.no_answer)}` : " If nobody answers in 30 seconds, callers hear \"not available\".";
+    if (r?.schedule_id) words += r.holidays ? ` At other times, ${destWords(r.after_hours)} On holidays, ${destWords(r.holidays)}` : ` At other times and on holidays, ${destWords(r.after_hours)}`;
+    const withLabel = (d: Dest) => ({ ...d, label: destLabel(d) });
+    return {
+      id, kind, ...(kind === "number" ? { number: x.number, ...(x.label ? { label: x.label } : {}) } : {}),
+      line_id: line?.id, line_name: line?.name, line_kind: line?.kind, ...(rings ? { rings: withLabel(rings) } : {}),
+      if_no_answer_seconds: r?.seconds ?? 30, if_no_answer: withLabel(r?.no_answer ?? { kind: "message", message: "not-available" }),
+      ...(r?.schedule_id ? { schedule_id: r.schedule_id } : {}), after_hours: withLabel(r?.after_hours ?? { kind: "message", message: "closed" }),
+      ...(r?.holidays ? { holidays: withLabel(r.holidays) } : {}), just_ring: !r, words, etag: '"1"',
+    };
+  };
+  const incomingList = () => [...lines.dids.map((d) => incomingView("number", d)), ...lines.trunks.map((t) => incomingView("line", t))];
 
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
@@ -764,6 +823,48 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       system.providers.push(pr);
       return route.fulfill(json(pr, 201));
     }
+    if (p === "/api/v1/schedules" && method === "GET") return route.fulfill(json({ time_zone: "Asia/Dubai", items: schedules.map(scheduleView) }));
+    if (p === "/api/v1/schedules" && method === "POST") {
+      const body = route.request().postDataJSON() as { name: string };
+      const sc: Json = { id: `s${people.nextId++}`, name: body.name, version: 1, holidays: [],
+        spans: [1, 2, 3, 4, 5].map((weekday) => ({ weekday, opens: "08:00", closes: "17:00" })) };
+      schedules.push(sc);
+      return route.fulfill(json(scheduleView(sc), 201));
+    }
+    const scheduleId = idAfter(p, "/api/v1/schedules/");
+    if (scheduleId && method === "PATCH") {
+      const sc = schedules.find((x) => x.id === scheduleId);
+      if (!sc) return route.fulfill(notFound());
+      Object.assign(sc, route.request().postDataJSON() as Json);
+      sc.version = Number(sc.version) + 1;
+      return route.fulfill(json(scheduleView(sc)));
+    }
+    if (scheduleId && method === "DELETE") {
+      schedules.splice(schedules.findIndex((x) => x.id === scheduleId), 1);
+      return route.fulfill({ status: 204 });
+    }
+    if (p === "/api/v1/incoming" && method === "GET") return route.fulfill(json({ items: incomingList() }));
+    const incomingId = idAfter(p, "/api/v1/incoming/");
+    if (incomingId && method === "PUT") {
+      const body = route.request().postDataJSON() as { rings?: Dest; just_ring?: boolean; if_no_answer_seconds?: number; if_no_answer?: Dest;
+        schedule_id?: string; after_hours?: Dest; holidays?: Dest; preview?: boolean };
+      const keep = { rings: ringsOf[incomingId], rule: rules[incomingId] };
+      ringsOf[incomingId] = body.rings?.kind === "ring_group" ? body.rings : undefined;
+      const x = lines.dids.find((d) => d.id === incomingId) ?? lines.trunks.find((t) => t.id === incomingId);
+      const field = lines.dids.includes(x as Json) ? "extension_id" : "rings_extension_id";
+      const before = x?.[field];
+      if (x) x[field] = body.rings?.kind === "extension" ? body.rings.extension_id : undefined;
+      if (body.just_ring) delete rules[incomingId];
+      else rules[incomingId] = { seconds: body.if_no_answer_seconds ?? 25, no_answer: body.if_no_answer ?? { kind: "message", message: "not-available" },
+        schedule_id: body.schedule_id, after_hours: body.after_hours ?? { kind: "message", message: "closed" }, holidays: body.holidays };
+      const view = incomingView(lines.dids.includes(x as Json) ? "number" : "line", x as Json);
+      if (body.preview) {
+        ringsOf[incomingId] = keep.rings;
+        if (keep.rule) rules[incomingId] = keep.rule; else delete rules[incomingId];
+        if (x) x[field] = before;
+      }
+      return route.fulfill(json(view));
+    }
     if (p === "/api/v1/inbound-routes" && method === "GET") return route.fulfill(json({ items: lines.dids }));
     if (p === "/api/v1/trunks" && method === "GET") return route.fulfill(json({ items: lines.trunks }));
     if (p === "/api/v1/trunks" && method === "POST") {
@@ -869,7 +970,21 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       return route.fulfill(json(lines.level));
     }
     if (p === "/api/v1/route-test" && method === "POST") {
-      const body = route.request().postDataJSON() as { direction?: string; number: string; from?: string };
+      const body = route.request().postDataJSON() as { direction?: string; number: string; from?: string; at?: string };
+      if (body.direction === "inbound" && body.number === "+97142000102") {
+        // Sales' number: office hours, step by step (§11).
+        const at = body.at ? new Date(body.at) : new Date();
+        const local = new Date(at.getTime() + 4 * 3_600_000);
+        const day = local.getUTCDay();
+        const open = day >= 1 && day <= 5 && local.getUTCHours() >= 8 && local.getUTCHours() < 17;
+        const when = `${local.toLocaleDateString("en-GB", { timeZone: "UTC", weekday: "long", day: "numeric", month: "short" })} ${local.toISOString().slice(11, 16)} (Asia/Dubai time): ${open ? "during" : "outside"} office hours`;
+        const steps = open
+          ? [{ words: "Rings Sales: Mohammed and Sara Haddad together, for 25 seconds (Omar Khalil: can't ring right now, skipped).", rings: true },
+            { words: "Plays \"Nobody can take your call right now\", then hangs up.", rings: false }]
+          : [{ words: "Plays \"We're closed\", then hangs up.", rings: false }];
+        return route.fulfill(json({ category: "landline", kind: "Landline number in the UAE", reason: "routed", allowed: open, when, steps,
+          words: steps.map((x) => x.words).join(" ") }));
+      }
       if (body.direction === "inbound") {
         const d = lines.dids.find((x) => x.number === body.number);
         const ext = d?.extension_id ? people.extensions.find((e) => e.id === d.extension_id) : undefined;

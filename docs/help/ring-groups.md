@@ -31,7 +31,7 @@ The person calling never rings themselves, even when they're in the group.
 
 ## If nobody answers
 
-Choose where unanswered calls go: a person, another ring group, or **Nobody** (callers hear "not available"). A voicemail box for the group comes with voicemail, in a later update.
+Choose where unanswered calls go: a person, another ring group, *Play "We're closed" and hang up*, or **Nobody** (callers hear "not available"). A voicemail box for the group comes with voicemail, in a later update.
 
 A choice that would send calls round in circles (Sales to Support, and Support back to Sales) is greyed out, with the reason. Even so, Linx stops any call after 10 places.
 
@@ -45,10 +45,10 @@ A number is either an extension's or a ring group's, never both.
 
 Choose a group to open it. Each part has its own **Edit**. **Used by** lists what sends calls to it.
 
-**Remove** asks first where those calls should go instead, then removes the group. Its number stops working at once.
+**Remove** asks first where those calls should go instead, then removes the group. A group a phone number rings can't be removed until that number rings someone else. Its number stops working at once.
 
 When an extension is removed, it leaves its ring groups; a group that sent its unanswered calls to that extension plays "not available" instead.
 
 ## Sending a phone number to a ring group
 
-Phone numbers ring an extension for now ([Incoming calls](incoming-numbers)); choosing a ring group for a number, and office hours, come in the next update.
+In [Incoming calls](incoming-numbers), choose **Change** next to the number and pick the group under **Office hours**. **Used by** on the group then lists the number.
