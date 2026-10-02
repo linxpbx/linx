@@ -119,6 +119,11 @@ interface FakeUser {
   has_password: boolean; password_only: boolean; company_sign_in: string[]; disabled: boolean; locked: boolean;
   created_at: string; updated_at: string; etag: string;
 }
+interface FakeRingGroup {
+  id: string; name: string; number?: string; strategy: "all" | "in_turn"; ring_seconds: number; turn_seconds: number;
+  member_ids: string[]; if_no_answer: { kind: "extension" | "ring_group" | "message"; extension_id?: string; ring_group_id?: string; message?: "not-available" };
+  version: number;
+}
 interface FakeDevice {
   id: string; extension_id: string; name: string; kind: string; sip_username: string; enabled: boolean; online: boolean;
   revoked_at?: string; created_at: string; updated_at: string; etag: string;
@@ -351,6 +356,37 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   };
   const notFound = () => json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "No." }, 404);
   const people = { extensions: seed.extensions, users: seed.users, devices: seed.devices, nextId: 2000 };
+  // Ring groups (docs/ui/SCREENS_PHASE1F.md §8): three, one sending its
+  // unanswered calls to another.
+  let groups: FakeRingGroup[] = [
+    { id: "g1", name: "Sales", number: "6000", strategy: "all", ring_seconds: 25, turn_seconds: 15, member_ids: ["e1001", "e1024", "e1110"],
+      if_no_answer: { kind: "message", message: "not-available" }, version: 1 },
+    { id: "g2", name: "Support", number: "6001", strategy: "in_turn", ring_seconds: 25, turn_seconds: 15, member_ids: ["e1024", "e1001"],
+      if_no_answer: { kind: "ring_group", ring_group_id: "g1" }, version: 1 },
+    { id: "g3", name: "Front desk", strategy: "all", ring_seconds: 20, turn_seconds: 15, member_ids: ["e1110"],
+      if_no_answer: { kind: "extension", extension_id: "e1024" }, version: 1 },
+  ];
+  // As the server describes a group (internal/routing's Words).
+  const ringGroupView = (g: FakeRingGroup) => {
+    const members = g.member_ids.map((id) => people.extensions.find((e) => e.id === id)).filter((e) => !!e)
+      .map((e) => ({ extension_id: e.id, number: e.number, display_name: e.display_name, can_ring: people.devices.some((d) => d.extension_id === e.id && d.online) }));
+    const names = members.map((m) => m.display_name);
+    const d = g.if_no_answer;
+    const ext = d.kind === "extension" ? people.extensions.find((e) => e.id === d.extension_id) : undefined;
+    const other = d.kind === "ring_group" ? groups.find((x) => x.id === d.ring_group_id) : undefined;
+    const label = ext ? `${ext.display_name} (${ext.number})` : other ? other.name : "\"Not available\" message";
+    const then = ext || other ? `the call goes to ${label}.` : "callers hear \"not available\".";
+    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
+    const words = g.strategy === "in_turn" && names.length > 1
+      ? `Calls ring ${names.join(", then ")}, ${g.turn_seconds} seconds each. If nobody answers, ${then}`
+      : `Calls ring ${list}${names.length > 1 ? " together" : ""}. If nobody answers in ${g.ring_seconds} seconds, ${then}`;
+    return {
+      id: g.id, name: g.name, number: g.number, strategy: g.strategy, ring_seconds: g.ring_seconds, turn_seconds: g.turn_seconds,
+      members, if_no_answer: { ...d, label }, words,
+      used_by: groups.filter((o) => o.if_no_answer.ring_group_id === g.id).map((o) => ({ kind: "ring_group", id: o.id, name: o.name, how: "if_nobody_answers" })),
+      created_at: now(), updated_at: now(), etag: `"${g.version}"`,
+    };
+  };
   const idAfter = (p: string, prefix: string) => (p.startsWith(prefix) ? p.slice(prefix.length).split("/")[0] : null);
   const now = () => new Date().toISOString();
 
@@ -874,6 +910,33 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         ],
       }));
     }
+    if (p === "/api/v1/numbering/next" && method === "GET" && url.searchParams.get("kind") === "groups") {
+      let n = 6000;
+      while (groups.some((g) => g.number === String(n))) n++;
+      return route.fulfill(json({ number: String(n) }));
+    }
+    if (p === "/api/v1/ring-groups" && method === "GET") return route.fulfill(json({ items: groups.map(ringGroupView) }));
+    if (p === "/api/v1/ring-groups" && method === "POST") {
+      const body = route.request().postDataJSON() as Partial<FakeRingGroup> & { member_ids: string[] };
+      const g: FakeRingGroup = { id: `g${people.nextId++}`, name: body.name ?? "", number: body.number, strategy: body.strategy ?? "all",
+        ring_seconds: body.ring_seconds ?? 25, turn_seconds: body.turn_seconds ?? 15, member_ids: body.member_ids,
+        if_no_answer: body.if_no_answer ?? { kind: "message", message: "not-available" }, version: 1 };
+      groups.push(g);
+      return route.fulfill(json(ringGroupView(g), 201));
+    }
+    const groupId = idAfter(p, "/api/v1/ring-groups/");
+    if (groupId && method === "PATCH") {
+      const g = groups.find((x) => x.id === groupId);
+      if (!g) return route.fulfill(json({ title: "Not found", status: 404, code: "not_found" }, 404));
+      Object.assign(g, route.request().postDataJSON() as Partial<FakeRingGroup>);
+      if (g.number === "") g.number = undefined;
+      g.version++;
+      return route.fulfill(json(ringGroupView(g)));
+    }
+    if (groupId && method === "DELETE") {
+      groups = groups.filter((x) => x.id !== groupId);
+      return route.fulfill({ status: 204 });
+    }
     if (p === "/api/v1/numbering/next" && method === "GET") {
       // The first free number in the people range (1111 when the fake's
       // ranges don't say, as the older screens expect).
@@ -958,6 +1021,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       return route.fulfill(json({ email: "sara@example.com", methods: p.endsWith("/nostep") ? [] : ["authenticator", "passkey", "recovery_code"] }));
     }
     if (p.startsWith("/api/v1/reset-links/") && p.endsWith("/ask-admin") && method === "POST") return route.fulfill({ status: 202 });
+    if (p === "/api/v1/session/mfa/ask-admin" && method === "POST") return route.fulfill({ status: 202 });
     if (p.startsWith("/api/v1/reset-links/") && method === "POST") {
       const { password, code } = route.request().postDataJSON() as { password: string; code?: string };
       if (password === "password123456") {

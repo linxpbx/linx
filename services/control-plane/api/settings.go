@@ -92,8 +92,12 @@ func (s *Server) UpdateSettings(ctx context.Context, req UpdateSettingsRequestOb
 	return UpdateSettings200JSONResponse(toSettings(out)), nil
 }
 
-func (s *Server) NextExtensionNumber(ctx context.Context, _ NextExtensionNumberRequestObject) (NextExtensionNumberResponseObject, error) {
-	n, err := s.settings.NextNumber(ctx)
+func (s *Server) NextExtensionNumber(ctx context.Context, req NextExtensionNumberRequestObject) (NextExtensionNumberResponseObject, error) {
+	kind := settings.RangePeople
+	if req.Params.Kind != nil && *req.Params.Kind == NextExtensionNumberParamsKindGroups {
+		kind = settings.RangeGroups
+	}
+	n, err := s.settings.NextNumber(ctx, kind)
 	if err != nil {
 		e, err := apiError(err)
 		if e == nil {

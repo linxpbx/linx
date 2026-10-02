@@ -268,8 +268,10 @@ func joinNumbers(nums []string) string {
 	return out
 }
 
-// NextNumber returns the next free number in the people range.
-func (s *Service) NextNumber(ctx context.Context) (string, error) {
+// NextNumber returns the next free number in the plan's range of that
+// kind: RangePeople for an extension, RangeGroups for a ring group. Both
+// skip every number an extension or a ring group already has.
+func (s *Service) NextNumber(ctx context.Context, kind string) (string, error) {
 	p, ok := auth.PrincipalFromContext(ctx)
 	if !ok {
 		return "", errNoPrincipal
@@ -278,19 +280,23 @@ func (s *Service) NextNumber(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	what := "people"
+	if kind == RangeGroups {
+		what = "groups"
+	}
 	for _, r := range cur.ExtensionRanges {
-		if r.Kind == RangePeople {
+		if r.Kind == kind {
 			n, err := s.Store.NextFreeExtensionNumber(ctx, p.TenantID, cur.Country, cur.ExtensionDigits, r.From, r.To)
 			if err != nil {
 				return "", err
 			}
 			if n == "" {
-				return "", invalid("no_numbers_free", "Every number in the people range is used. Widen it in Settings first.")
+				return "", invalid("no_numbers_free", "Every number in the "+what+" range is used. Widen it in Settings first.")
 			}
 			return n, nil
 		}
 	}
-	return "", invalid("range_missing", "There is no people range in the numbering plan.")
+	return "", invalid("range_missing", "There is no "+what+" range in the numbering plan.")
 }
 
 // SetDefaultCallPermissionLevel points every new extension without an

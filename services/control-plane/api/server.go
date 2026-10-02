@@ -25,6 +25,7 @@ import (
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/reach"
+	"linxpbx.com/linx/internal/routing"
 	"linxpbx.com/linx/internal/settings"
 	"linxpbx.com/linx/internal/sso"
 	"linxpbx.com/linx/internal/trunk"
@@ -65,6 +66,8 @@ type Server struct {
 	moved          *moved.Service
 	// Help's written answers (SetHelpAnswers).
 	helpAnswers *helpanswers.Service
+	// Ring groups and destinations (SetRouting).
+	routing *routing.Service
 	// Email sending (SetEmail), and Linx's own address for its links.
 	email      *email.Service
 	webAddress string

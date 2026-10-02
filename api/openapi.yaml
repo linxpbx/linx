@@ -119,11 +119,21 @@ paths:
   /api/v1/numbering/next:
     get:
       operationId: nextExtensionNumber
-      summary: The next free extension number
-      description: The lowest unused number in the people range (docs/ADMIN.md §4).
+      summary: The next free extension or ring group number
+      description: >-
+        The lowest number in the numbering plan's people range (or, with
+        `kind=groups`, its groups range) that no extension or ring group
+        has (docs/ADMIN.md §4).
       tags: [settings]
       security:
         - bearer: [extensions:read]
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [people, groups]
+            default: people
       responses:
         "200":
           description: The next free number.
@@ -2374,6 +2384,118 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/ring-groups:
+    get:
+      operationId: listRingGroups
+      summary: List ring groups
+      description: >-
+        Every ring group, by name (ADR-068, docs/PHASE1F.md §6). Not
+        paginated: a server has at most 200.
+      tags: [routing]
+      security:
+        - bearer: [routing:read]
+      responses:
+        "200":
+          description: The ring groups.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RingGroupList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createRingGroup
+      summary: Add a ring group
+      description: >-
+        Not idempotent: retrying adds a second group (or fails on its name).
+        Unanswered calls default to the "not available" message.
+      tags: [routing]
+      security:
+        - bearer: [routing:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RingGroupCreate"
+      responses:
+        "201":
+          description: The new ring group.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RingGroup"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/ring-groups/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getRingGroup
+      summary: Get a ring group
+      tags: [routing]
+      security:
+        - bearer: [routing:read]
+      responses:
+        "200":
+          description: The ring group.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RingGroup"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateRingGroup
+      summary: Change a ring group
+      description: >-
+        JSON Merge Patch: only the fields sent change (`member_ids`
+        replaces the whole list, in order). A `if_no_answer` that would
+        bring calls back to this group is refused (422 `routing_loop`).
+        Send `If-Match` with the group's `etag` to refuse the change (412)
+        if someone else changed it first.
+      tags: [routing]
+      security:
+        - bearer: [routing:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/RingGroupPatch"
+      responses:
+        "200":
+          description: The ring group as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RingGroup"
+        default:
+          $ref: "#/components/responses/Problem"
+    delete:
+      operationId: deleteRingGroup
+      summary: Remove a ring group
+      description: >-
+        Refused (409 `ring_group_in_use`) while something in `used_by` still
+        sends calls here: point those somewhere else first.
+      tags: [routing]
+      security:
+        - bearer: [routing:write]
+      responses:
+        "204":
+          description: Removed.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/calls/active:
     get:
       operationId: listActiveCalls
@@ -2798,6 +2920,24 @@ paths:
         hand-written handler.
       tags: [sessions]
       security: []
+      responses:
+        "202":
+          description: The admins were asked.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/session/mfa/ask-admin:
+    post:
+      operationId: askSecondStepResetSignedIn
+      summary: "\"Ask my admin to reset it\" from the sign-in code step"
+      description: >-
+        The same as a reset link's ask-admin, from a session that has
+        passed the password but not the second step (the session cookie
+        stands in for the emailed link). Changes nothing about the
+        account. At most one alert an hour per person (still 202). 400
+        `no_second_step` for an account without one, `already_signed_in`
+        for a full session. Served by a hand-written handler.
+      tags: [sessions]
       responses:
         "202":
           description: The admins were asked.
@@ -6084,6 +6224,184 @@ components:
             $ref: "#/components/schemas/CallPermissionLevel"
         next_cursor:
           type: string
+
+    Destination:
+      description: >-
+        Where a call goes (ADR-068): an extension, a ring group, or a
+        message and hang up (`not-available`). Voicemail boxes join in a
+        later version.
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [extension, ring_group, message]
+        extension_id:
+          type: string
+          format: uuid
+        ring_group_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          enum: [not-available]
+        label:
+          type: string
+          readOnly: true
+          description: The destination in a few words ("Sara Haddad (101)", "Sales").
+
+    RingGroupMember:
+      type: object
+      required: [extension_id, number, display_name, can_ring]
+      properties:
+        extension_id:
+          type: string
+          format: uuid
+        number:
+          type: string
+        display_name:
+          type: string
+        can_ring:
+          type: boolean
+          description: A phone or browser of it is connected and its person isn't on Do not disturb.
+
+    RingGroup:
+      description: Several extensions rung for one call (docs/PHASE1F.md §6).
+      type: object
+      required: [id, name, strategy, ring_seconds, turn_seconds, members, if_no_answer, used_by, words, created_at, updated_at, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        number:
+          type: string
+          description: Its own number, so people can dial it or transfer a call to it. Absent when it has none.
+        strategy:
+          type: string
+          enum: [all, in_turn]
+          description: All at once, or one after another in the members' order.
+        ring_seconds:
+          type: integer
+          description: All at once, how long everyone rings before `if_no_answer`.
+        turn_seconds:
+          type: integer
+          description: One after another, how long each person rings.
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/RingGroupMember"
+        if_no_answer:
+          $ref: "#/components/schemas/Destination"
+        used_by:
+          type: array
+          description: What sends calls here.
+          items:
+            type: object
+            required: [kind, id, name, how]
+            properties:
+              kind:
+                type: string
+                enum: [ring_group]
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              how:
+                type: string
+                enum: [if_nobody_answers]
+        words:
+          type: string
+          description: What a caller gets, in one plain sentence.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: Send as If-Match when changing it.
+
+    RingGroupCreate:
+      type: object
+      additionalProperties: false
+      required: [name, member_ids]
+      properties:
+        name:
+          type: string
+          maxLength: 60
+        number:
+          type: string
+          description: Its own number (2 to 6 digits), not an extension's. Leave out for none.
+        strategy:
+          type: string
+          enum: [all, in_turn]
+          description: Defaults to all.
+        ring_seconds:
+          type: integer
+          minimum: 5
+          maximum: 300
+          description: Defaults to 25.
+        turn_seconds:
+          type: integer
+          minimum: 5
+          maximum: 120
+          description: Defaults to 15.
+        member_ids:
+          type: array
+          description: Extensions, in the order "one after another" rings them.
+          minItems: 1
+          maxItems: 50
+          items:
+            type: string
+            format: uuid
+        if_no_answer:
+          $ref: "#/components/schemas/Destination"
+
+    RingGroupPatch:
+      description: JSON Merge Patch; fields not sent stay as they are.
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 60
+        number:
+          type: string
+          description: Empty removes it.
+        strategy:
+          type: string
+          enum: [all, in_turn]
+        ring_seconds:
+          type: integer
+          minimum: 5
+          maximum: 300
+        turn_seconds:
+          type: integer
+          minimum: 5
+          maximum: 120
+        member_ids:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: string
+            format: uuid
+        if_no_answer:
+          $ref: "#/components/schemas/Destination"
+
+    RingGroupList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RingGroup"
 
     TokenRequest:
       type: object

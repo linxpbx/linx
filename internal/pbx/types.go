@@ -33,6 +33,9 @@ var (
 	// created or patched with a call_permission_level_id that doesn't
 	// exist (docs/TRUNKS.md §5).
 	ErrCallPermissionLevelNotFound = errors.New("call permission level not found")
+	// ErrNumberIsRingGroup is returned for an extension number a ring
+	// group already has (migration 0032).
+	ErrNumberIsRingGroup = errors.New("number is a ring group's")
 )
 
 // ReservedNumberError is returned for an extension number that looks like

@@ -15,7 +15,7 @@ Once you're in, go to My account and replace your authenticator app or add a new
 
 ## You have no recovery codes left
 
-Ask your admin to reset it. If you've also forgotten your password, use **Forgot your password?** on the sign-in page and choose **Ask my admin to reset it** on the code step: your admins get an alert. In People they can choose **Reset authenticator**: it removes your authenticator app and passkeys and signs you out everywhere. Your password stays. Sign in with it, then set up a new second step.
+Ask your admin to reset it: sign in with your password and choose **Ask my admin to reset it** under the code. If you've also forgotten your password, use **Forgot your password?** on the sign-in page first, and choose the same button on the link's code step. Either way your admins get an alert. In People they can choose **Reset authenticator**: it removes your authenticator app and passkeys and signs you out everywhere. Your password stays. Sign in with it, then set up a new second step.
 
 - An admin's reset is done by a system admin.
 - If you're the only system admin, reset it on the server:

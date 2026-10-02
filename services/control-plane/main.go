@@ -44,6 +44,7 @@ import (
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/ops"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/routing"
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
 	"linxpbx.com/linx/internal/settings"
@@ -458,6 +459,7 @@ func main() {
 			s.SetMoved(movedSvc)
 			s.SetHelpAnswers(helpAnswers)
 			s.SetEmail(emailSvc, weburl.FromEnv(os.Getenv))
+			s.SetRouting(&routing.Service{Store: st, Now: time.Now})
 			s.SetReach(reachChecker.Run, reachLinks)
 			s.SetDNSRecords(reachChecker.Records)
 			s.SetOps(opsHub, st.Audit, func() time.Time {

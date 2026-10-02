@@ -23,4 +23,4 @@ Adding and removing numbers is on each line's page ([Phone lines](phone-lines)).
 
 To check where a call would go without making one, use the [call simulator](calling-permissions#the-call-simulator).
 
-Ring groups, office hours and voicemail come in a later update.
+[Ring groups](ring-groups) ring several people at once; sending a phone number to one, office hours and voicemail come in a later update.

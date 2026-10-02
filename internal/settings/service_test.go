@@ -230,12 +230,16 @@ func TestNextNumber(t *testing.T) {
 	svc := &Service{Store: st, Now: time.Now}
 	ctx := testCtx(uuid.New())
 
-	n, err := svc.NextNumber(ctx)
+	n, err := svc.NextNumber(ctx, RangePeople)
 	if err != nil {
 		t.Fatalf("NextNumber: %v", err)
 	}
 	if n != "102" {
 		t.Errorf("NextNumber = %q, want 102", n)
+	}
+	st.used["600"] = true
+	if n, err := svc.NextNumber(ctx, RangeGroups); err != nil || n != "601" {
+		t.Errorf("NextNumber(groups) = %q, %v; want 601", n, err)
 	}
 }
 

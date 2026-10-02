@@ -113,6 +113,19 @@ func registerSessionHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 		w.WriteHeader(http.StatusAccepted)
 	}))))
 
+	// The same from the sign-in page's code step: the pending session (the
+	// right password) asks instead of an emailed link.
+	mux.Handle("POST /api/v1/session/mfa/ask-admin", apihttp.NoStore(apihttp.LimitBody(authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !emptyJSON(w, r) {
+			return
+		}
+		if err := accounts.AskSecondStepResetSignedIn(r.Context()); err != nil {
+			writeAccountError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})))))
+
 	// These two act on the caller's own existing session, so they go
 	// through the normal cookie-authentication and CSRF checks first.
 	mux.Handle("POST /api/v1/session/mfa", apihttp.NoStore(apihttp.LimitBody(authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

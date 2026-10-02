@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Activity, BarChart3, Check, CircleHelp, CircleUser, Clock, FlaskConical, Grid3x3, Hash, IdCard, Inbox, KeyRound, LogOut, Network,
-  Phone, PhoneCall, PhoneIncoming, PhoneOutgoing, Search, Settings as SettingsIcon, Users, Video, Voicemail, Webhook,
+  Phone, PhoneCall, PhoneIncoming, PhoneOutgoing, Search, Settings as SettingsIcon, Users, UsersRound, Video, Voicemail, Webhook,
   Home as HomeIcon,
 } from "lucide-react";
 import type { Me, Presence, TeamMember } from "@/api/client";
@@ -25,7 +25,7 @@ import { DIALABLE, matchTeam } from "./Dialer";
 
 export type Screen = "dialer" | "team" | "settings" | "account" | "help" | "admin-home" | "admin-people" | "admin-extensions"
   | "admin-system-status" | "admin-system-backups" | "admin-system-server"
-  | "admin-lines" | "admin-incoming" | "admin-outgoing" | "admin-simulator" | "admin-connections"
+  | "admin-lines" | "admin-incoming" | "admin-ring-groups" | "admin-outgoing" | "admin-simulator" | "admin-connections"
   | "admin-system-alerts" | "admin-system-activity" | "admin-system-settings" | "admin-webhooks" | "admin-api-keys";
 
 const NAV: { id: Screen; label: string; path: string; icon: typeof Users }[] = [
@@ -48,6 +48,7 @@ const ADMIN_NAV: { label: string; icon: typeof Users; path?: string }[] = [
   { label: "Extensions", icon: Hash, path: "/admin/extensions" },
   { label: "Phone lines", icon: PhoneCall, path: "/admin/lines" },
   { label: "Incoming", icon: PhoneIncoming, path: "/admin/incoming" },
+  { label: "Ring groups", icon: UsersRound, path: "/admin/ring-groups" },
   { label: "Outgoing", icon: PhoneOutgoing, path: "/admin/outgoing" },
   { label: "Simulator", icon: FlaskConical, path: "/admin/simulator" },
   { label: "System", icon: Activity, path: "/admin/system/status" },
@@ -56,7 +57,8 @@ const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
   "/admin": "admin-home", "/admin/people": "admin-people", "/admin/extensions": "admin-extensions",
   "/admin/system/status": "admin-system-status", "/admin/system/backups": "admin-system-backups",
   "/admin/system/server": "admin-system-server",
-  "/admin/lines": "admin-lines", "/admin/incoming": "admin-incoming", "/admin/outgoing": "admin-outgoing",
+  "/admin/lines": "admin-lines", "/admin/incoming": "admin-incoming",
+  "/admin/ring-groups": "admin-ring-groups", "/admin/outgoing": "admin-outgoing",
   "/admin/simulator": "admin-simulator", "/admin/connections": "admin-connections",
   "/admin/webhooks": "admin-webhooks", "/admin/api-keys": "admin-api-keys",
 };

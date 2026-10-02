@@ -45,6 +45,9 @@ func (s *Store) CreateExtension(ctx context.Context, e pbx.Extension, audit auth
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 			e.ID, e.TenantID, e.Number, e.DisplayName, emptyStrToNil(e.Email), e.Enabled, e.CallPermissionLevelID, e.Version, e.CreatedAt, e.UpdatedAt)
 		if err != nil {
+			if constraintIs(err, "number_used_by_ring_group") {
+				return pbx.ErrNumberIsRingGroup
+			}
 			if IsUniqueViolation(err) {
 				return pbx.ErrDuplicate
 			}
@@ -119,6 +122,9 @@ func (s *Store) UpdateExtension(ctx context.Context, e pbx.Extension, audit auth
 			return pbx.ErrNotFound
 		}
 		if err != nil {
+			if constraintIs(err, "number_used_by_ring_group") {
+				return pbx.ErrNumberIsRingGroup
+			}
 			if IsUniqueViolation(err) {
 				return pbx.ErrDuplicate
 			}
@@ -197,6 +203,16 @@ func (s *Store) DeleteExtension(ctx context.Context, tenant, id uuid.UUID, at ti
 		}
 		if _, err := tx.Exec(ctx, `UPDATE trunk SET rings_extension_id = NULL, version = version + 1, updated_at = $2
 			WHERE rings_extension_id = $1`, id, at); err != nil {
+			return err
+		}
+		// It leaves its ring groups, and a group that sent unanswered
+		// calls to it plays "not available" instead.
+		if _, err := tx.Exec(ctx, `DELETE FROM ring_group_member WHERE extension_id = $1`, id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE ring_group SET no_answer_kind = 'message', no_answer_extension_id = NULL,
+				no_answer_message = 'not-available', version = version + 1, updated_at = $2
+			WHERE no_answer_extension_id = $1`, id, at); err != nil {
 			return err
 		}
 		ev, err := extensionEvent(e, "extension.deleted", at)
@@ -370,6 +386,13 @@ func reservedNumber(err error, number string) *pbx.ReservedNumberError {
 		return &pbx.ReservedNumberError{Number: number, Reason: pgErr.Detail, Country: pgErr.Hint}
 	}
 	return nil
+}
+
+// constraintIs reports whether err is the database refusing a row for the
+// named constraint (or a trigger's RAISE naming it).
+func constraintIs(err error, name string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.ConstraintName == name
 }
 
 func emptyStrToNil(s string) *string {

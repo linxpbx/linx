@@ -110,6 +110,11 @@ func reserved(r *ReservedNumberError) *apihttp.Error {
 	return invalid("number_reserved", numbering.ClashText(r.Number, r.Reason, r.Country))
 }
 
+func numberIsRingGroup(number string) *apihttp.Error {
+	return &apihttp.Error{Status: http.StatusConflict, Code: "number_duplicate",
+		Detail: fmt.Sprintf("Number %s belongs to a ring group. Pick another one.", number)}
+}
+
 func checkDisplayName(name string) error {
 	n := len([]rune(name))
 	if n < 1 || n > 100 {
@@ -170,6 +175,9 @@ func (s *Service) CreateExtension(ctx context.Context, in ExtensionInput) (Exten
 		a.Detail["call_permission_level_id"] = e.CallPermissionLevelID
 	}
 	if err := s.Store.CreateExtension(ctx, e, a); err != nil {
+		if errors.Is(err, ErrNumberIsRingGroup) {
+			return Extension{}, numberIsRingGroup(e.Number)
+		}
 		if errors.Is(err, ErrDuplicate) {
 			return Extension{}, &apihttp.Error{Status: http.StatusConflict, Code: "number_duplicate",
 				Detail: fmt.Sprintf("Extension %s already exists.", e.Number)}
@@ -278,6 +286,9 @@ func (s *Service) UpdateExtension(ctx context.Context, id uuid.UUID, patch Exten
 	}
 	if errors.Is(err, ErrNotFound) {
 		return Extension{}, notFound("extension")
+	}
+	if errors.Is(err, ErrNumberIsRingGroup) {
+		return Extension{}, numberIsRingGroup(e.Number)
 	}
 	if errors.Is(err, ErrDuplicate) {
 		return Extension{}, &apihttp.Error{Status: http.StatusConflict, Code: "number_duplicate",

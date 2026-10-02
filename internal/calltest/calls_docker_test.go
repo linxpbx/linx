@@ -17,11 +17,13 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/ari"
 	"linxpbx.com/linx/internal/calltest/sipws"
 	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/routing"
 	"linxpbx.com/linx/internal/siprelay"
 )
 
@@ -33,7 +35,9 @@ import (
 // callers hearing messages (ADR-041) and browsers' devices signing in over
 // the secure websocket on linx-sipws (docs/WEB.md §2), and through the
 // control plane's /sip relay (docs/WEB.md §5): session-bound lines, the
-// relay's refusals, and the audio addresses Asterisk offers them.
+// relay's refusals, and the audio addresses Asterisk offers them. Phase
+// 1F adds ring groups (ADR-068): all at once, one after another, "if
+// nobody answers", and a loop ending after 10 places.
 func TestCallsDocker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -173,6 +177,73 @@ func TestCallsDocker(t *testing.T) {
 		// out at once.
 		docker(t, ctx, "rm", "--force", callee)
 		eventually(t, "Bob offline after his connection dropped", 10*time.Second, func() bool { return !online(bob) })
+	})
+
+	t.Run("ring groups", func(t *testing.T) {
+		dave := e.newPhone("109", "Dave")
+		bobRings := e.sipp("bob-group", "register.xml", bob, "-oocsf", "/scenarios/ring.xml", "-d", "120000")
+		daveAnswers := e.sipp("dave-group", "register.xml", dave, "-oocsf", "/scenarios/answer.xml", "-d", "120000")
+		defer docker(t, ctx, "rm", "--force", bobRings, daveAnswers)
+		eventually(t, "Bob and Dave online", 15*time.Second, func() bool { return online(bob) && online(dave) })
+
+		now := time.Now().UTC()
+		group := func(name, number, strategy string, members []phone, noAnswer routing.Destination) routing.RingGroup {
+			t.Helper()
+			g := routing.RingGroup{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, Name: name, Number: number, Strategy: strategy,
+				RingSeconds: 25, TurnSeconds: 5, NoAnswer: noAnswer, Version: 1, CreatedAt: now, UpdatedAt: now}
+			for _, m := range members {
+				g.Members = append(g.Members, routing.Member{ExtensionID: m.ext.ID})
+			}
+			if err := e.store.CreateRingGroup(ctx, g, e.audit("ring_group.create")); err != nil {
+				t.Fatal(err)
+			}
+			return g
+		}
+		notAvailable := routing.Destination{Kind: routing.KindMessage, Message: routing.MessageNotAvailable}
+		answeredBy := func(to, want string) map[string]any {
+			t.Helper()
+			ended := e.callEnded(to)
+			by, _ := ended["answered_by"].(map[string]any)
+			if ended["outcome"] != pbx.OutcomeAnswered || by["extension"] != want {
+				t.Errorf("call to %s: %v, want answered by %s", to, ended, want)
+			}
+			return ended
+		}
+
+		// All at once: Bob and Dave ring together, Dave answers.
+		group("Sales", "600", routing.StrategyAll, []phone{bob, dave}, notAvailable)
+		e.run("group-all", "call.xml", alice, "-s", "600", "-d", "1000")
+		answeredBy("600", "109")
+
+		// One after another: Bob rings for 5 seconds, then Dave answers.
+		group("Support", "601", routing.StrategyInTurn, []phone{bob, dave}, notAvailable)
+		began := time.Now()
+		e.run("group-turn", "call.xml", alice, "-s", "601", "-d", "1000")
+		answeredBy("601", "109")
+		if took := time.Since(began); took < 5*time.Second {
+			t.Errorf("Dave answered after %s: Bob's 5 seconds were skipped", took)
+		}
+
+		// If nobody answers (Carol never signs in), the call goes to Dave.
+		group("Reception", "602", routing.StrategyAll, []phone{carol}, routing.Destination{Kind: routing.KindExtension, ExtensionID: &dave.ext.ID})
+		e.run("group-next", "call.xml", alice, "-s", "602", "-d", "1000")
+		answeredBy("602", "109")
+
+		// A loop the screens would refuse, made directly: it ends after 10
+		// places with "not available" (nothing rang: Carol never signed in).
+		l1 := group("Loop one", "603", routing.StrategyAll, []phone{carol}, notAvailable)
+		l2 := group("Loop two", "", routing.StrategyAll, []phone{carol}, routing.Destination{Kind: routing.KindRingGroup, RingGroupID: &l1.ID})
+		l1.NoAnswer = routing.Destination{Kind: routing.KindRingGroup, RingGroupID: &l2.ID}
+		if err := e.store.UpdateRingGroup(ctx, l1, e.audit("ring_group.update")); err != nil {
+			t.Fatal(err)
+		}
+		e.run("group-loop", "call-message.xml", alice, "-s", "603")
+		if got := e.callEnded("603")["outcome"]; got != pbx.OutcomeNotAvailable {
+			t.Errorf("loop: outcome %v, want not_available", got)
+		}
+		if logs := e.asteriskLogs(); strings.Contains(logs, "linx_route") && strings.Contains(logs, "ERROR") {
+			t.Errorf("routing errors:\n%s", logs)
+		}
 	})
 
 	t.Run("wrong password", func(t *testing.T) {

@@ -14,7 +14,7 @@ output-options:
   # response can't do, so they're hand-written too (services/control-plane/session.go,
   # passkey.go). Help (services/control-plane/help.go) serves both the signed-in
   # and the signed-out, pictures that aren't JSON, and answers that stream.
-  exclude-operation-ids: [oauthToken, uploadRestoreFile, getBackupDownloadFile, getSignInOptions, startCompanySignIn, startCompanyConfirm, companyCallback, startMyCompanyLink, createSession, deleteSession, verifySessionMfa, confirmSession, checkSetupLink, completeSetupLink, watchTeam,
+  exclude-operation-ids: [oauthToken, askSecondStepResetSignedIn, uploadRestoreFile, getBackupDownloadFile, getSignInOptions, startCompanySignIn, startCompanyConfirm, companyCallback, startMyCompanyLink, createSession, deleteSession, verifySessionMfa, confirmSession, checkSetupLink, completeSetupLink, watchTeam,
     createPasskeySessionOptions, createPasskeySession, verifySessionMfaPasskeyOptions, verifySessionMfaPasskey,
     confirmSessionPasskeyOptions, confirmSessionPasskey, addMyPasskeyOptions, addMyPasskey,
     completeSetupLinkPasskeyOptions, completeSetupLinkPasskey,

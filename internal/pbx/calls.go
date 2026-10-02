@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -86,11 +87,14 @@ type ActiveCall struct {
 	To        string
 	// Ringing is the extension this call rings, once Linx knows it (an
 	// outside caller's number rings the extension its DID points to).
-	Ringing    string
-	State      string
-	StartedAt  time.Time
-	AnsweredAt *time.Time
-	AnsweredBy *CallParty
+	Ringing string
+	// RingingExtensions are the extensions whose phones are ringing for it
+	// right now (several for a ring group).
+	RingingExtensions []string
+	State             string
+	StartedAt         time.Time
+	AnsweredAt        *time.Time
+	AnsweredBy        *CallParty
 }
 
 // OutsideCall is an outgoing call as the CallWatcher sees it.
@@ -150,7 +154,8 @@ type call struct {
 	from       CallParty
 	to         string
 	ringing    string
-	outside    numbering.Result // outbound: what was dialled
+	ringingNow map[string]string // ringing legs' channel ids → their extension
+	outside    numbering.Result  // outbound: what was dialled
 	wentOut    bool
 	startedAt  time.Time
 	answeredAt *time.Time
@@ -177,6 +182,12 @@ func (t *CallTracker) ActiveCalls() []ActiveCall {
 	for _, c := range t.calls {
 		a := ActiveCall{ID: c.id, Direction: c.direction, TrunkID: c.trunkID, From: c.from, To: c.to, Ringing: c.ringing,
 			StartedAt: c.startedAt, AnsweredAt: c.answeredAt, AnsweredBy: c.answeredBy}
+		for _, ext := range c.ringingNow {
+			if !slices.Contains(a.RingingExtensions, ext) {
+				a.RingingExtensions = append(a.RingingExtensions, ext)
+			}
+		}
+		slices.Sort(a.RingingExtensions)
 		switch {
 		case c.answeredAt != nil:
 			a.State = CallAnswered
@@ -495,7 +506,10 @@ func (t *CallTracker) observe(ch *ari.Channel) {
 		c.where = ch.Dialplan.Context + "/" + ch.Dialplan.Exten
 		switch ch.Dialplan.Context {
 		case "linx-ring":
-			c.ringing = ch.Dialplan.Exten
+			// A ring group without a number of its own rings as "s".
+			if ch.Dialplan.Exten != "s" {
+				c.ringing = ch.Dialplan.Exten
+			}
 		case didContext:
 			if did := cleanNumber(ch.Dialplan.Exten); did != "" && c.direction == DirectionInbound {
 				c.to = did
@@ -527,7 +541,26 @@ func (t *CallTracker) dial(ctx context.Context, ev ari.Event, at time.Time) {
 	if number == "" {
 		number = c.outside.Dial
 	}
+	ringing := !outLeg && slices.Contains([]string{"", "RINGING", "PROGRESS", "PROCEEDING"}, ev.DialStatus)
+	_, known := c.ringingNow[ev.Peer.ID]
+	if !ringing {
+		delete(c.ringingNow, ev.Peer.ID)
+	}
 	t.mu.Unlock()
+	if ringing && !known {
+		// Which extension this leg rings, for the Team list (a ring
+		// group rings several at once).
+		if p, _, ok := t.party(ctx, ev.Peer.Endpoint()); ok && p.Extension != "" {
+			t.mu.Lock()
+			if c.ringingNow == nil {
+				c.ringingNow = map[string]string{}
+			}
+			if _, live := t.legs[ev.Peer.ID]; live {
+				c.ringingNow[ev.Peer.ID] = p.Extension
+			}
+			t.mu.Unlock()
+		}
+	}
 	if !answered {
 		return
 	}
@@ -546,6 +579,9 @@ func (t *CallTracker) destroyed(ctx context.Context, ev ari.Event, at time.Time)
 		return
 	}
 	t.mu.Lock()
+	if owner, ok := t.legs[ev.Channel.ID]; ok && t.calls[owner] != nil {
+		delete(t.calls[owner].ringingNow, ev.Channel.ID)
+	}
 	delete(t.legs, ev.Channel.ID)
 	c := t.calls[ev.Channel.ID]
 	if c == nil {

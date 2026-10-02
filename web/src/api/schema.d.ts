@@ -96,8 +96,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The next free extension number
-         * @description The lowest unused number in the people range (docs/ADMIN.md §4).
+         * The next free extension or ring group number
+         * @description The lowest number in the numbering plan's people range (or, with `kind=groups`, its groups range) that no extension or ring group has (docs/ADMIN.md §4).
          */
         get: operations["nextExtensionNumber"];
         put?: never;
@@ -1430,6 +1430,57 @@ export interface paths {
         patch: operations["updateCallPermissionLevel"];
         trace?: never;
     };
+    "/api/v1/ring-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List ring groups
+         * @description Every ring group, by name (ADR-068, docs/PHASE1F.md §6). Not paginated: a server has at most 200.
+         */
+        get: operations["listRingGroups"];
+        put?: never;
+        /**
+         * Add a ring group
+         * @description Not idempotent: retrying adds a second group (or fails on its name). Unanswered calls default to the "not available" message.
+         */
+        post: operations["createRingGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ring-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a ring group */
+        get: operations["getRingGroup"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a ring group
+         * @description Refused (409 `ring_group_in_use`) while something in `used_by` still sends calls here: point those somewhere else first.
+         */
+        delete: operations["deleteRingGroup"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a ring group
+         * @description JSON Merge Patch: only the fields sent change (`member_ids` replaces the whole list, in order). A `if_no_answer` that would bring calls back to this group is refused (422 `routing_loop`). Send `If-Match` with the group's `etag` to refuse the change (412) if someone else changed it first.
+         */
+        patch: operations["updateRingGroup"];
+        trace?: never;
+    };
     "/api/v1/calls/active": {
         parameters: {
             query?: never;
@@ -1650,6 +1701,26 @@ export interface paths {
          * @description From an emailed reset link's second step: announces an alert asking the admins to check it's really this person and reset their authenticator in People. Changes nothing about the account; the link still works. At most one alert an hour per person (still 202). 400 `no_second_step` for an account without one. Served by a hand-written handler.
          */
         post: operations["askSecondStepReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/mfa/ask-admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * "Ask my admin to reset it" from the sign-in code step
+         * @description The same as a reset link's ask-admin, from a session that has passed the password but not the second step (the session cookie stands in for the emailed link). Changes nothing about the account. At most one alert an hour per person (still 202). 400 `no_second_step` for an account without one, `already_signed_in` for a full session. Served by a hand-written handler.
+         */
+        post: operations["askSecondStepResetSignedIn"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3756,6 +3827,96 @@ export interface components {
             items: components["schemas"]["CallPermissionLevel"][];
             next_cursor?: string;
         };
+        /** @description Where a call goes (ADR-068): an extension, a ring group, or a message and hang up (`not-available`). Voicemail boxes join in a later version. */
+        Destination: {
+            /** @enum {string} */
+            kind: "extension" | "ring_group" | "message";
+            /** Format: uuid */
+            extension_id?: string;
+            /** Format: uuid */
+            ring_group_id?: string;
+            /** @enum {string} */
+            message?: "not-available";
+            /** @description The destination in a few words ("Sara Haddad (101)", "Sales"). */
+            readonly label?: string;
+        };
+        RingGroupMember: {
+            /** Format: uuid */
+            extension_id: string;
+            number: string;
+            display_name: string;
+            /** @description A phone or browser of it is connected and its person isn't on Do not disturb. */
+            can_ring: boolean;
+        };
+        /** @description Several extensions rung for one call (docs/PHASE1F.md §6). */
+        RingGroup: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description Its own number, so people can dial it or transfer a call to it. Absent when it has none. */
+            number?: string;
+            /**
+             * @description All at once, or one after another in the members' order.
+             * @enum {string}
+             */
+            strategy: "all" | "in_turn";
+            /** @description All at once, how long everyone rings before `if_no_answer`. */
+            ring_seconds: number;
+            /** @description One after another, how long each person rings. */
+            turn_seconds: number;
+            members: components["schemas"]["RingGroupMember"][];
+            if_no_answer: components["schemas"]["Destination"];
+            /** @description What sends calls here. */
+            used_by: {
+                /** @enum {string} */
+                kind: "ring_group";
+                /** Format: uuid */
+                id: string;
+                name: string;
+                /** @enum {string} */
+                how: "if_nobody_answers";
+            }[];
+            /** @description What a caller gets, in one plain sentence. */
+            words: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Send as If-Match when changing it. */
+            etag: string;
+        };
+        RingGroupCreate: {
+            name: string;
+            /** @description Its own number (2 to 6 digits), not an extension's. Leave out for none. */
+            number?: string;
+            /**
+             * @description Defaults to all.
+             * @enum {string}
+             */
+            strategy?: "all" | "in_turn";
+            /** @description Defaults to 25. */
+            ring_seconds?: number;
+            /** @description Defaults to 15. */
+            turn_seconds?: number;
+            /** @description Extensions, in the order "one after another" rings them. */
+            member_ids: string[];
+            if_no_answer?: components["schemas"]["Destination"];
+        };
+        /** @description JSON Merge Patch; fields not sent stay as they are. */
+        RingGroupPatch: {
+            name?: string;
+            /** @description Empty removes it. */
+            number?: string;
+            /** @enum {string} */
+            strategy?: "all" | "in_turn";
+            ring_seconds?: number;
+            turn_seconds?: number;
+            member_ids?: string[];
+            if_no_answer?: components["schemas"]["Destination"];
+        };
+        RingGroupList: {
+            items: components["schemas"]["RingGroup"][];
+        };
         TokenRequest: {
             /** @constant */
             grant_type: "client_credentials";
@@ -4940,7 +5101,9 @@ export interface operations {
     };
     nextExtensionNumber: {
         parameters: {
-            query?: never;
+            query?: {
+                kind?: "people" | "groups";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7289,6 +7452,128 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    listRingGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ring groups. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RingGroupList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createRingGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RingGroupCreate"];
+            };
+        };
+        responses: {
+            /** @description The new ring group. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RingGroup"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getRingGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ring group. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RingGroup"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteRingGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateRingGroup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["RingGroupPatch"];
+            };
+        };
+        responses: {
+            /** @description The ring group as it now is. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RingGroup"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     listActiveCalls: {
         parameters: {
             query?: never;
@@ -7677,6 +7962,25 @@ export interface operations {
             path: {
                 token: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The admins were asked. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    askSecondStepResetSignedIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

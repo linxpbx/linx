@@ -106,6 +106,7 @@ func (s *Store) NextFreeExtensionNumber(ctx context.Context, tenant uuid.UUID, c
 	err := s.pool.QueryRow(ctx, `
 		SELECT t.n FROM (SELECT lpad(gs::text, $2::int, '0') AS n FROM generate_series($3::int, $4::int) AS gs) t
 		WHERE NOT EXISTS (SELECT 1 FROM extension e WHERE e.tenant_id = $1 AND e.deleted_at IS NULL AND e.number = t.n)
+		  AND NOT EXISTS (SELECT 1 FROM ring_group g WHERE g.tenant_id = $1 AND g.number = t.n)
 		  AND numbering_extension_clash($5, t.n) IS NULL
 		ORDER BY t.n LIMIT 1`, tenant, digits, from, to, country).Scan(&n)
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -153,7 +153,13 @@ function SignInSteps({ initialStep = "password", initialMethods = [], setupToken
       return <ResetLinkStep token={resetToken ?? ""} onDone={next} onSignedIn={onSignedIn}
         onForgot={() => { window.history.replaceState(null, "", signInHome()); setStep("forgot"); }} />;
     case "code":
-      return <CodeStep methods={methods} onDone={onSignedIn} onTimedOut={timedOut} onStartOver={restart} />;
+      return (
+        <CodeStep methods={methods} onDone={onSignedIn} onTimedOut={timedOut} onStartOver={restart}
+          footer={<AskAdmin ask={() => api.POST("/api/v1/session/mfa/ask-admin")} after={<>
+            They'll check it's really you, then reset your second step. After that, sign in again with your password
+            and set up a new one.
+          </>} />} />
+      );
     case "enroll":
       return <SecondStepSetup onDone={onSignedIn} onTimedOut={timedOut} onStartOver={restart} />;
     case "choose-password":
@@ -989,16 +995,20 @@ function ResetLinkStep({ token, onDone, onSignedIn, onForgot }:
       sendCode={(code) => api.POST("/api/v1/reset-links/{token}", { params: { path: { token } }, body: { password, code } })}
       passkeyAnswer={() => answerWithPasskey(`${path}/passkey`, { body: { password } })}
       onRefused={refused}
-      footer={<AskAdmin token={token} />} />
+      footer={<AskAdmin ask={() => api.POST("/api/v1/reset-links/{token}/ask-admin", { params: { path: { token } } })} after={<>
+        They'll check it's really you, then reset your second step. After that, use <span className="font-medium text-foreground">Forgot your password?</span> again
+        to choose your new password and set up a new second step.
+      </>} />} />
   );
 }
 
 /**
  * "Ask my admin to reset it": someone who has lost every second step asks
- * the admins from the reset link (owner, 2026-10-02). Nothing changes until
- * an admin has checked it's them and reset it in People.
+ * the admins, from the reset link or the sign-in code step (owner,
+ * 2026-10-02). Nothing changes until an admin has checked it's them and
+ * reset it in People.
  */
-function AskAdmin({ token }: { token: string }) {
+function AskAdmin({ ask, after }: { ask: () => Promise<{ response: Response; error?: unknown }>; after: ReactNode }) {
   const [state, setState] = useState<"idle" | "busy" | "asked">("idle");
   const [error, setError] = useState("");
   if (state === "asked") {
@@ -1008,10 +1018,7 @@ function AskAdmin({ token }: { token: string }) {
           <CircleCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-available" />
           Your admin has been asked.
         </p>
-        <p className="mt-1 text-muted-foreground">
-          They'll check it's really you, then reset your second step. After that, use <span className="font-medium text-foreground">Forgot your password?</span> again
-          to choose your new password and set up a new second step.
-        </p>
+        <p className="mt-1 text-muted-foreground">{after}</p>
       </div>
     );
   }
@@ -1022,7 +1029,7 @@ function AskAdmin({ token }: { token: string }) {
         onClick={async () => {
           setState("busy");
           setError("");
-          const { response, error: err } = await api.POST("/api/v1/reset-links/{token}/ask-admin", { params: { path: { token } } });
+          const { response, error: err } = await ask();
           if (response.ok) setState("asked");
           else {
             setState("idle");

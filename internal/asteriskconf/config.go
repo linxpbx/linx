@@ -883,24 +883,21 @@ verify_server_hostname = yes
 // funcOdbcConf defines the dialplan's database lookups, all through the
 // asterisk schema (the linx_asterisk role can read nothing else):
 //
-// LINX_RING_TARGETS(number): a Dial() string ringing every enabled device
-// of that extension ("PJSIP/d_a&PJSIP/d_b"), read from the
-// linx_ring_targets view. No row at all means no such extension; one row
-// with an empty string means the extension exists but has no devices. The
-// dialplan tells the two apart with ${ODBCROWS}. Device usernames match
-// ^d_[A-Za-z0-9]{8}$ (migration 0005), so nothing from the database can
-// smuggle dial options into the string.
-//
 // LINX_OUTBOUND(endpoint,number): the outgoing-call decision (migration
 // 0018's linx_outbound): reason, category, withhold (1/0), lines.
 //
 // LINX_INBOUND(endpoint,number): the extension a call from a trunk to one
 // of its DIDs rings; no row if that trunk doesn't own the number.
+//
+// LINX_ROUTE(dest,caller): one step of a call's way (migration 0032's
+// linx_route, ADR-068): action, targets (a Dial() string ringing every
+// enabled device of the extension or group, from the linx_ring_targets
+// view), seconds, next, counts, label. No row means no such place.
 const funcOdbcConf = `; Rendered by linx-asterisk-entrypoint.
-[RING_TARGETS]
+[ROUTE]
 prefix = LINX
 dsn = asterisk
-readsql = SELECT coalesce(string_agg('PJSIP/' || aor, '&' ORDER BY aor), '') FROM linx_ring_targets WHERE number = '${SQL_ESC(${ARG1})}' HAVING count(*) > 0
+readsql = SELECT * FROM linx_route('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}')
 
 [OUTBOUND]
 prefix = LINX
@@ -972,24 +969,49 @@ exten => _XXXXXX,1,Goto(linx-local,${EXTEN},1)
 exten => _[0-9*#+].,1,Goto(linx-outbound,${EXTEN},1)
 exten => _[0-9*#+],1,Goto(linx-outbound,${EXTEN},1)
 
-; A short number from a phone: an extension, or else maybe an outside one
-; (999 is 3 digits; extensions can't take such numbers, migration 0016).
+; A short number from a phone: an extension or a ring group, or else
+; maybe an outside one (999 is 3 digits; extensions and ring groups can't
+; take such numbers, migrations 0016 and 0032). Its first step is already
+; asked, so linx-route starts at "got".
 [linx-local]
-exten => _X.,1,Set(TARGETS=${LINX_RING_TARGETS(${EXTEN})})
+exten => _X.,1,Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(n:${EXTEN},${CALLERID(num)})})
  same => n,GotoIf($[${ODBCROWS} < 1]?linx-outbound,${EXTEN},1)
  same => n,GotoIf($["${CALLERID(num)}" = "${EXTEN}"]?linx-messages,not-available,1)
- same => n,Goto(linx-ring,${EXTEN},1)
+ same => n,Set(CALLER=${CALLERID(num)})
+ same => n,Set(STEPS=1)
+ same => n,Goto(linx-route,s,got)
 
-; Rings an extension, for phones (through linx-local) and for trunks' calls
-; to a DID (linx-trunk-call).
-[linx-ring]
-exten => _X.,1,Set(TARGETS=${LINX_RING_TARGETS(${EXTEN})})
+; Where a call goes, one step at a time (ADR-068): DEST is the next place
+; (migration 0032's linx_route explains the text), CALLER the calling
+; extension ('' from a line). A step rings (linx-ring), goes straight on
+; when nobody there can ring, or ends on a message. At most 10 places a
+; call, so a loop the screens missed still ends.
+[linx-route]
+exten => s,1,Set(STEPS=1)
+ same => n(again),Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(${DEST},${CALLER})})
  same => n,GotoIf($[${ODBCROWS} < 1]?linx-messages,not-in-use,1)
- same => n,GotoIf($["${TARGETS}" = ""]?linx-messages,not-available,1)
- same => n,Dial(${TARGETS},30)
- same => n,GotoIf($["${DIALSTATUS}" = "ANSWER"]?done)
+ same => n(got),GotoIf($["${ACTION}" = "message"]?linx-messages,${TARGETS},1)
+ same => n,GotoIf($["${ACTION}" != "dial"]?follow)
+ same => n,GotoIf($["${LABEL}" = ""]?nolabel)
+ same => n,Gosub(linx-ring,${LABEL},1(${TARGETS},${SECS}))
+ same => n,Goto(rang)
+ same => n(nolabel),Gosub(linx-ring,s,1(${TARGETS},${SECS}))
+ same => n(rang),GotoIf($["${DIALSTATUS}" = "ANSWER"]?done)
+ same => n(follow),Set(DEST=${NEXT})
+ same => n,GotoIf($["${COUNTS}" != "1"]?again)
+ same => n,Set(STEPS=$[${STEPS} + 1])
+ same => n,GotoIf($[${STEPS} <= 10]?again)
  same => n,Goto(linx-messages,not-available,1)
  same => n(done),Hangup()
+
+; Rings one step's phones: an extension's, or a ring group's (its number,
+; or s when it has none). Only the context and number are for the control
+; plane's call events, which tell from them what is ringing.
+[linx-ring]
+exten => _X.,1,Dial(${ARG1},${ARG2})
+ same => n,Return()
+exten => s,1,Dial(${ARG1},${ARG2})
+ same => n,Return()
 
 [linx-outbound]
 exten => _[0-9*#+].,1,Set(ARRAY(REASON,CATEGORY,WITHHOLD,LINES)=${LINX_OUTBOUND(${CHANNEL(endpoint)},${EXTEN})})
@@ -1045,17 +1067,21 @@ exten => s,1,Set(CALLERID(name)=${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40})
  same => n,Set(TARGET=${LINX_LINE_RINGS(${CHANNEL(endpoint)})})
  same => n,GotoIf($[${ODBCROWS} < 1]?linx-messages,not-in-use,1)
  same => n,GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
- same => n,Goto(linx-ring,${TARGET},1)
+ same => n,Set(DEST=e:${TARGET})
+ same => n,Set(CALLER=)
+ same => n,Goto(linx-route,s,1)
  same => n(found),GotoIf($["${TARGET}" = ""]?linx-messages,not-in-use,1)
+ same => n,Set(DEST=e:${TARGET})
+ same => n,Set(CALLER=)
  same => n,Set(DID=${FILTER(0-9+,${DID})})
- same => n,GotoIf($["${DID}" = ""]?linx-ring,${TARGET},1)
+ same => n,GotoIf($["${DID}" = ""]?linx-route,s,1)
  same => n,Goto(linx-trunk-did,${DID},1)
 
 ; Only so the control plane's call events can tell which number was
 ; dialled: the channel passes through this context with the DID as its
-; extension, then rings the DID's extension.
+; extension, then goes where the DID sends it.
 [linx-trunk-did]
-exten => _[0-9+].,1,Goto(linx-ring,${TARGET},1)
+exten => _[0-9+].,1,Goto(linx-route,s,1)
 
 [linx-messages]
 exten => not-in-use,1,Answer()

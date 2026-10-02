@@ -158,6 +158,40 @@ func TestAnsweredCall(t *testing.T) {
 	}
 }
 
+// TestRingGroupCall: a ring group (number 600) rings 101 and 102 at
+// once; both show as ringing until 102 answers, and the call stays "to
+// 600".
+func TestRingGroupCall(t *testing.T) {
+	tr, st := newTracker()
+	st.add("d_carol003", "103", "Carol's phone")
+	ctx := context.Background()
+	caller := ch("1", "d_carol003", "Ring", "linx-extensions", "600", "")
+	tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(0), Channel: caller})
+	a := ch("2", "d_alice001", "Down", "linx-ring", "s", "")
+	b := ch("3", "d_bob00002", "Down", "linx-ring", "s", "")
+	caller.Dialplan = ari.Dialplan{Context: "linx-ring", Exten: "600", AppName: "Dial"}
+	for _, leg := range []*ari.Channel{a, b} {
+		tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(0), Channel: leg})
+		tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(0), Caller: caller, Peer: leg})
+		tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(0), Caller: caller, Peer: leg, DialStatus: "RINGING"})
+	}
+	calls := tr.ActiveCalls()
+	if len(calls) != 1 || calls[0].To != "600" || calls[0].Ringing != "600" || !equal(calls[0].RingingExtensions, []string{"101", "102"}) {
+		t.Fatalf("while ringing: %+v", calls)
+	}
+	team := TeamStatuses([]TeamMember{{Extension: "101", Name: "Alice"}, {Extension: "102", Name: "Bob"}}, calls)
+	if team[0].Status != TeamRinging || team[1].Status != TeamRinging {
+		t.Errorf("team while ringing: %+v", team)
+	}
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(2), Caller: caller, Peer: b, DialStatus: "ANSWER"})
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(2), Caller: caller, Peer: a, DialStatus: "CANCEL"})
+	tr.handle(ctx, ari.Event{Type: "ChannelDestroyed", Timestamp: at(2), Channel: a})
+	calls = tr.ActiveCalls()
+	if len(calls) != 1 || calls[0].AnsweredBy == nil || calls[0].AnsweredBy.Extension != "102" || len(calls[0].RingingExtensions) != 0 {
+		t.Fatalf("after answer: %+v", calls)
+	}
+}
+
 func TestCallOutcomes(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {

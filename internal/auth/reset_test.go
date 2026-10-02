@@ -304,3 +304,24 @@ func TestAskSecondStepReset(t *testing.T) {
 	}
 	wantCode(t, a.AskSecondStepReset(ctx, m.links[plain.Email], ip), "no_second_step")
 }
+
+// TestAskSecondStepResetSignedIn: the same from the sign-in code step, the
+// pending session (the right password) standing in for the emailed link.
+func TestAskSecondStepResetSignedIn(t *testing.T) {
+	a, _, alerts, _ := newResetAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	u, _ := enrolledUser(t, a, adminCtx, "sara@example.com", RoleUser, "the first passphrase here")
+	wantCode(t, a.AskSecondStepResetSignedIn(ctx), "not_a_session")
+	pending := WithSession(ctx, UserSession{TenantID: tenant, UserID: u.ID})
+	for i := 0; i < 2; i++ {
+		if err := a.AskSecondStepResetSignedIn(pending); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(alerts.announced) != 1 || !strings.Contains(alerts.messages[0], "after signing in with their password") {
+		t.Fatalf("alerts: %v %v", alerts.announced, alerts.messages)
+	}
+	wantCode(t, a.AskSecondStepResetSignedIn(WithSession(ctx, UserSession{TenantID: tenant, UserID: u.ID, MFAVerified: true})), "already_signed_in")
+}

@@ -9,6 +9,10 @@ screens: []
 
 The newest changes come first. Each Linx update brings its own help pages, so these guides always match the version your server runs.
 
+## Ring groups
+
+- **Ring groups** in the admin sidebar: several people rung for one call, all at once or one after another, and where unanswered calls go. See [Ring groups](ring-groups).
+
 ## Light or dark, by hand
 
 - The **Appearance** button at the top right of every page: **Light**, **Dark** or **Match this device**, kept in this browser. See [My account](my-account#light-or-dark).

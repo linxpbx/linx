@@ -441,6 +441,29 @@ func (a *Accounts) AskSecondStepReset(ctx context.Context, linkToken string, ip 
 	if err != nil {
 		return err
 	}
+	return a.askAdmin(ctx, u, ip, now, "using a password-reset link emailed to them")
+}
+
+// AskSecondStepResetSignedIn is the same "Ask my admin to reset it" on the
+// sign-in page's code step (owner, 2026-10-02): the request's pending
+// session, which only the right password makes, stands in for the emailed
+// link.
+func (a *Accounts) AskSecondStepResetSignedIn(ctx context.Context) error {
+	sess, ok := SessionFromContext(ctx)
+	if !ok {
+		return notASession()
+	}
+	if sess.MFAVerified {
+		return badRequest("already_signed_in", "You're already signed in: reset your authenticator in My account.")
+	}
+	u, err := a.Store.User(ctx, sess.TenantID, sess.UserID)
+	if err != nil {
+		return err
+	}
+	return a.askAdmin(ctx, u, ClientIPFromContext(ctx), a.Now().UTC(), "after signing in with their password")
+}
+
+func (a *Accounts) askAdmin(ctx context.Context, u User, ip netip.Addr, now time.Time, how string) error {
 	if !u.HasSecondStep() {
 		return badRequest("no_second_step", "Your account has no second step to reset: choose a new password instead.")
 	}
@@ -459,7 +482,7 @@ func (a *Accounts) AskSecondStepReset(ctx context.Context, linkToken string, ip 
 	return a.Alerts.Announce(ctx, u.TenantID, fmt.Sprintf("%s%s:%d", askAdminPrefix, u.ID, now.Unix()), "warning",
 		fmt.Sprintf("%s asked for their second step to be reset", u.Name),
 		fmt.Sprintf("%s (%s) says they've lost their authenticator app, passkeys and recovery codes, and asked from %s, "+
-			"using a password-reset link emailed to them. Check it's really them (call them, or ask in person), "+
+			"%s. Check it's really them (call them, or ask in person), "+
 			"then choose Reset authenticator on their row in People. If it wasn't them, do nothing and tell them.",
-			u.Name, u.Email, ip), "/admin/people")
+			u.Name, u.Email, ip, how), "/admin/people")
 }

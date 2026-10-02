@@ -269,6 +269,10 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("heading", { name: "Enter your code" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Use a passkey instead" })).toBeVisible();
       await shot(page, `${scheme}-signin-code`);
+      // Lost every second step: the right password lets them ask the admins.
+      await page.getByRole("button", { name: "Ask my admin to reset it" }).click();
+      await expect(page.getByText("sign in again with your password and set up a new one")).toBeVisible();
+      await shot(page, `${scheme}-signin-code-asked`);
     });
 
     test("passkey as the second step", async ({ page }) => {
@@ -613,6 +617,46 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("heading", { name: "UCM landlines" })).toBeVisible();
       await expect(page.getByText("Calls for any other number ring")).toBeVisible();
       await shot(page, `${scheme}-lines-detail`);
+    });
+
+    test("ring groups", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
+      await page.goto("/admin/ring-groups");
+      await expect(page.getByRole("heading", { name: "Ring groups" })).toBeVisible();
+      await expect(page.getByRole("row", { name: /Support/ })).toContainText("2 people, in turn");
+      await shot(page, `${scheme}-ring-groups`);
+
+      // Guide me, as far as "How should it ring?" with one after another.
+      await page.getByRole("button", { name: "+ Add" }).click();
+      await page.getByRole("button", { name: /Guide me/ }).click();
+      await page.getByLabel("Name").fill("Accounts");
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("checkbox", { name: /Sara Haddad/ }).click();
+      await page.getByRole("checkbox", { name: /Reception/ }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByText("One after another").click();
+      await expect(page.getByRole("button", { name: "Move Reception up" })).toBeVisible();
+      await shot(page, `${scheme}-ring-groups-add-how`);
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("combobox").click();
+      await expect(page.getByRole("option", { name: /Sales/ })).toBeVisible();
+      await shot(page, `${scheme}-destination-picker`);
+      await page.getByRole("option", { name: /Sales/ }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Create" }).click();
+      await expect(page.getByText("Calls ring Sara Haddad, then Reception, 15 seconds each. If nobody answers, the call goes to Sales.")).toBeVisible();
+      await page.getByRole("button", { name: "Done" }).click();
+
+      // Sales' detail: Support sends its unanswered calls there, so
+      // choosing Support for Sales is greyed as a loop.
+      await page.getByRole("row", { name: /^Sales/ }).click();
+      await expect(page.getByText("Support (if nobody answers)")).toBeVisible();
+      await shot(page, `${scheme}-ring-groups-detail`);
+      await page.getByRole("button", { name: "Edit" }).nth(3).click();
+      await page.getByRole("combobox").click();
+      await expect(page.getByRole("option", { name: /Support/ })).toBeDisabled();
+      await expect(page.getByText("Support already sends its unanswered calls here")).toBeVisible();
+      await page.keyboard.press("Escape");
     });
 
     test("incoming, outgoing, simulator, connections", async ({ page }) => {
@@ -1034,6 +1078,7 @@ test.describe("phone width", () => {
     ["/admin/extensions", "extensions", "Extensions"], ["/admin/system/status", "system-status", "Linx services"],
     ["/admin/system/backups", "system-backups", "Backups"], ["/admin/system/server", "system-server", "Server settings"],
     ["/admin/lines", "lines", "Phone lines"], ["/admin/incoming", "incoming", "Incoming calls"],
+    ["/admin/ring-groups", "ring-groups", "Ring groups"],
     ["/admin/outgoing", "outgoing", "Outgoing calls"], ["/admin/simulator", "simulator", "Call simulator"],
     ["/admin/connections", "connections", "Connections"],
     ["/admin/system/alerts", "system-alerts", "Where alerts go"], ["/admin/system/activity", "system-activity", "System"],
