@@ -201,8 +201,11 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Continue" }).click();
       await expect(page.getByRole("heading", { name: "Enter your code" })).toBeVisible();
       await expect(page.getByText("To finish, confirm with your authenticator app or passkey.", { exact: false })).toBeVisible();
-      await expect(page.getByText("Ask your admin to reset your second step.", { exact: false })).toBeVisible();
+      await expect(page.getByText("Lost your authenticator app, passkey and recovery codes?")).toBeVisible();
       await shot(page, `${scheme}-sign-in-forgot-second-step`);
+      await page.getByRole("button", { name: "Ask my admin to reset it" }).click();
+      await expect(page.getByText("Your admin has been asked.")).toBeVisible();
+      await shot(page, `${scheme}-sign-in-forgot-asked`);
       // A common password is refused only once the second step is sent:
       // back to choosing one, with why.
       await page.getByLabel("6-digit code").fill("123456");

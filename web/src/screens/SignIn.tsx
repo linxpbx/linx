@@ -989,9 +989,50 @@ function ResetLinkStep({ token, onDone, onSignedIn, onForgot }:
       sendCode={(code) => api.POST("/api/v1/reset-links/{token}", { params: { path: { token } }, body: { password, code } })}
       passkeyAnswer={() => answerWithPasskey(`${path}/passkey`, { body: { password } })}
       onRefused={refused}
-      footer={<p className="text-sm text-muted-foreground">
-        Lost your authenticator app, passkey and recovery codes? Ask your admin to reset your second step.
-      </p>} />
+      footer={<AskAdmin token={token} />} />
+  );
+}
+
+/**
+ * "Ask my admin to reset it": someone who has lost every second step asks
+ * the admins from the reset link (owner, 2026-10-02). Nothing changes until
+ * an admin has checked it's them and reset it in People.
+ */
+function AskAdmin({ token }: { token: string }) {
+  const [state, setState] = useState<"idle" | "busy" | "asked">("idle");
+  const [error, setError] = useState("");
+  if (state === "asked") {
+    return (
+      <div role="status" className="rounded-md border p-3 text-sm">
+        <p className="flex items-start gap-2 font-medium">
+          <CircleCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-status-available" />
+          Your admin has been asked.
+        </p>
+        <p className="mt-1 text-muted-foreground">
+          They'll check it's really you, then reset your second step. After that, use <span className="font-medium text-foreground">Forgot your password?</span> again
+          to choose your new password and set up a new second step.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-start gap-2 border-t pt-4 text-sm">
+      <p className="text-muted-foreground">Lost your authenticator app, passkey and recovery codes?</p>
+      <Button type="button" variant="outline" size="sm" disabled={state === "busy"} aria-busy={state === "busy"}
+        onClick={async () => {
+          setState("busy");
+          setError("");
+          const { response, error: err } = await api.POST("/api/v1/reset-links/{token}/ask-admin", { params: { path: { token } } });
+          if (response.ok) setState("asked");
+          else {
+            setState("idle");
+            setError(problemMessage(err));
+          }
+        }}>
+        Ask my admin to reset it
+      </Button>
+      <FormError message={error} />
+    </div>
   );
 }
 

@@ -18,7 +18,7 @@ output-options:
     createPasskeySessionOptions, createPasskeySession, verifySessionMfaPasskeyOptions, verifySessionMfaPasskey,
     confirmSessionPasskeyOptions, confirmSessionPasskey, addMyPasskeyOptions, addMyPasskey,
     completeSetupLinkPasskeyOptions, completeSetupLinkPasskey,
-    requestPasswordReset, checkResetLink, completeResetLink, completeResetLinkPasskeyOptions, completeResetLinkPasskey,
+    requestPasswordReset, checkResetLink, completeResetLink, completeResetLinkPasskeyOptions, completeResetLinkPasskey, askSecondStepReset,
     listHelpGuides, getHelpGuide, searchHelp, getHelpPicture, answerHelpQuestion]
   # WebhookMessage is only referenced from the spec's `webhooks:` section,
   # which pruning doesn't follow.

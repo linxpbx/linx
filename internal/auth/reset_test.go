@@ -265,3 +265,42 @@ func TestLimitersPerKeepTheHour(t *testing.T) {
 		t.Fatal("not allowed again after the hour")
 	}
 }
+
+// "Ask my admin to reset it": only from a working reset link, for an
+// account with a second step; the admins hear once an hour; nothing about
+// the account changes and the link still works.
+func TestAskSecondStepReset(t *testing.T) {
+	a, st, alerts, m := newResetAccounts(t)
+	ctx := context.Background()
+	tenant := uuid.New()
+	adminCtx := WithPrincipal(ctx, adminPrincipal(tenant))
+	ip := netip.MustParseAddr("203.0.113.45")
+	u, _ := enrolledUser(t, a, adminCtx, "sara@example.com", RoleUser, "the first passphrase here")
+	wantCode(t, a.AskSecondStepReset(ctx, "not-a-link", ip), "reset_link_invalid")
+	if err := a.RequestPasswordReset(ctx, tenant, u.Email, ip); err != nil {
+		t.Fatal(err)
+	}
+	token := m.links[u.Email]
+	before := st.users[u.ID]
+	for i := 0; i < 3; i++ {
+		if err := a.AskSecondStepReset(ctx, token, ip); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(alerts.announced) != 1 || !strings.HasPrefix(alerts.announced[0], askAdminPrefix) || !strings.Contains(alerts.messages[0], u.Email) {
+		t.Fatalf("alerts: %v %v", alerts.announced, alerts.messages)
+	}
+	after := st.users[u.ID]
+	if !after.MFAEnabled || after.PasswordHash != before.PasswordHash {
+		t.Fatal("asking changed the account")
+	}
+	if _, err := a.CheckResetLink(ctx, token, ip); err != nil {
+		t.Fatalf("the link should still work: %v", err)
+	}
+
+	plain := resetUser(t, st, tenant, "yusuf@example.com", RoleUser, "the first passphrase here")
+	if err := a.RequestPasswordReset(ctx, tenant, plain.Email, ip); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, a.AskSecondStepReset(ctx, m.links[plain.Email], ip), "no_second_step")
+}

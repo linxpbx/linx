@@ -957,6 +957,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       }
       return route.fulfill(json({ email: "sara@example.com", methods: p.endsWith("/nostep") ? [] : ["authenticator", "passkey", "recovery_code"] }));
     }
+    if (p.startsWith("/api/v1/reset-links/") && p.endsWith("/ask-admin") && method === "POST") return route.fulfill({ status: 202 });
     if (p.startsWith("/api/v1/reset-links/") && method === "POST") {
       const { password, code } = route.request().postDataJSON() as { password: string; code?: string };
       if (password === "password123456") {

@@ -1634,6 +1634,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reset-links/{token}/ask-admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * "Ask my admin to reset it": lost every second step
+         * @description From an emailed reset link's second step: announces an alert asking the admins to check it's really this person and reset their authenticator in People. Changes nothing about the account; the link still works. At most one alert an hour per person (still 202). 400 `no_second_step` for an account without one. Served by a hand-written handler.
+         */
+        post: operations["askSecondStepReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reset-links/{token}/passkey/options": {
         parameters: {
             query?: never;
@@ -7644,6 +7666,27 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionStatus"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    askSecondStepReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The admins were asked. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

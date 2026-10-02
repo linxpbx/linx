@@ -101,6 +101,18 @@ func registerSessionHandlers(mux *http.ServeMux, authn *auth.Authenticator, acco
 		writeJSON(w, http.StatusOK, statusBody(out))
 	}))))
 
+	// "Ask my admin to reset it": lost every second step (owner, 2026-10-02).
+	mux.Handle("POST /api/v1/reset-links/{token}/ask-admin", apihttp.NoStore(apihttp.LimitBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !emptyJSON(w, r) {
+			return
+		}
+		if err := accounts.AskSecondStepReset(r.Context(), r.PathValue("token"), authn.IPs.ClientIP(r)); err != nil {
+			writeAccountError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))))
+
 	// These two act on the caller's own existing session, so they go
 	// through the normal cookie-authentication and CSRF checks first.
 	mux.Handle("POST /api/v1/session/mfa", apihttp.NoStore(apihttp.LimitBody(authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

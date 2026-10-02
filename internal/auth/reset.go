@@ -55,6 +55,7 @@ const (
 const (
 	resetManyPrefix  = "password_reset_many:"
 	resetAdminPrefix = "password_reset_admin:"
+	askAdminPrefix   = "second_step_reset_asked:"
 )
 
 // resetLimits are the in-memory reset budgets (like the other limiters:
@@ -63,6 +64,7 @@ type resetLimits struct {
 	once            sync.Once
 	byEmail, byAddr *Limiters
 	alerted         *Limiters
+	asked           *Limiters
 }
 
 func (r *resetLimits) init() {
@@ -70,6 +72,7 @@ func (r *resetLimits) init() {
 		r.byEmail = NewLimitersPer(ResetsPerEmail, resetPeriod)
 		r.byAddr = NewLimitersPer(ResetsPerAddress, resetPeriod)
 		r.alerted = NewLimitersPer(1, resetPeriod)
+		r.asked = NewLimitersPer(1, resetPeriod)
 	})
 }
 
@@ -423,4 +426,40 @@ func (a *Accounts) passwordChangedEmail(ctx context.Context, u User, at time.Tim
 func sessionUserAgent(ctx context.Context) string {
 	sess, _ := SessionFromContext(ctx)
 	return sess.UserAgent
+}
+
+// AskSecondStepReset is "Ask my admin to reset it" on a reset link's second
+// step (owner, 2026-10-02): someone who has lost their authenticator app,
+// passkeys and recovery codes asks the admins, who check it's really them
+// and choose Reset authenticator in People. Only the emailed link can ask,
+// so nobody can ask for someone else without their mailbox; nothing about
+// the account changes, and the link still works. The admins hear about it
+// at most once an hour per person.
+func (a *Accounts) AskSecondStepReset(ctx context.Context, linkToken string, ip netip.Addr) error {
+	now := a.Now().UTC()
+	_, u, err := a.usableSetupLink(ctx, linkToken, LinkReset, ip, now)
+	if err != nil {
+		return err
+	}
+	if !u.HasSecondStep() {
+		return badRequest("no_second_step", "Your account has no second step to reset: choose a new password instead.")
+	}
+	a.resets.init()
+	if !a.resets.asked.Allow(u.ID.String(), now) {
+		return nil
+	}
+	actor := "user:" + u.ID.String()
+	if err := a.Store.Audit(ctx, AuditEntry{TenantID: &u.TenantID, Actor: actor, IP: ip,
+		Action: "user.second_step_reset_asked", Target: actor, Result: ResultOK}); err != nil {
+		return err
+	}
+	if a.Alerts == nil {
+		return nil
+	}
+	return a.Alerts.Announce(ctx, u.TenantID, fmt.Sprintf("%s%s:%d", askAdminPrefix, u.ID, now.Unix()), "warning",
+		fmt.Sprintf("%s asked for their second step to be reset", u.Name),
+		fmt.Sprintf("%s (%s) says they've lost their authenticator app, passkeys and recovery codes, and asked from %s, "+
+			"using a password-reset link emailed to them. Check it's really them (call them, or ask in person), "+
+			"then choose Reset authenticator on their row in People. If it wasn't them, do nothing and tell them.",
+			u.Name, u.Email, ip), "/admin/people")
 }
