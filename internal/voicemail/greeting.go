@@ -17,9 +17,10 @@ import (
 
 // Greetings (docs/ui/SCREENS_PHASE1F.md §12.3-12.4): a box's own
 // "unavailable" and "closed" greetings, recorded in the browser. The
-// browser sends plain 16-bit audio at 8 kHz (it does the resampling, so
-// nothing here decodes a compressed format); Linx keeps it as mu-law like
-// the messages, and copies the greetings in use into a folder Asterisk
+// browser sends plain 16-bit audio at 16 kHz (it does the resampling, so
+// nothing here decodes a compressed format); Linx keeps it as it came,
+// which is Asterisk's slin16 (as clear as Linx's own messages, owner
+// 2026-10-02), and copies the greetings in use into a folder Asterisk
 // reads, where the dialplan plays a box's own file when it's there.
 
 // Greeting kinds.
@@ -28,15 +29,19 @@ const (
 	GreetingClosed      = "closed"
 )
 
-// Greeting limits: at most 30 seconds (the recording dialog stops there),
-// at least half a second.
+// GreetingRate is a greeting's samples a second: 16-bit, one channel, so
+// 32 KB a second.
+const GreetingRate = 16000
+
+// Greeting limits: at most 30 seconds (the recording dialog stops there,
+// a second more is allowed), at least half a second.
 const (
 	MaxGreetingSeconds = 30
-	minGreetingBytes   = SampleRate / 2
-	maxGreetingBytes   = MaxGreetingSeconds*SampleRate + SampleRate
-	// MaxGreetingUpload is the largest WAV the upload takes: 16-bit audio
-	// at 8 kHz is twice the mu-law, plus its header.
-	MaxGreetingUpload = 2*maxGreetingBytes + 1024
+	minGreetingBytes   = GreetingRate // half a second, 2 bytes a sample
+	maxGreetingBytes   = 2 * GreetingRate * (MaxGreetingSeconds + 1)
+	// MaxGreetingUpload is the largest WAV the upload takes: the audio and
+	// its header.
+	MaxGreetingUpload = maxGreetingBytes + 1024
 )
 
 // ValidGreetingKind reports whether kind is a greeting kind.
@@ -46,13 +51,13 @@ func ValidGreetingKind(kind string) bool {
 
 // Upload mistakes, in words for the person recording.
 var (
-	ErrGreetingFormat = errors.New("send the greeting as a WAV file: 16-bit, one channel, 8000 samples a second")
+	ErrGreetingFormat = errors.New("send the greeting as a WAV file: 16-bit, one channel, 16000 samples a second")
 	ErrGreetingShort  = errors.New("the greeting is shorter than half a second; record it again")
 	ErrGreetingLong   = fmt.Errorf("a greeting can be at most %d seconds", MaxGreetingSeconds)
 )
 
-// GreetingFromWAV checks a browser's WAV (16-bit PCM, mono, 8 kHz) and
-// returns it as mu-law.
+// GreetingFromWAV checks a browser's WAV (16-bit PCM, mono, 16 kHz) and
+// returns its audio: little-endian 16-bit samples, Asterisk's slin16.
 func GreetingFromWAV(b []byte) ([]byte, error) {
 	if len(b) < 12 || string(b[0:4]) != "RIFF" || string(b[8:12]) != "WAVE" {
 		return nil, ErrGreetingFormat
@@ -75,7 +80,7 @@ func GreetingFromWAV(b []byte) ([]byte, error) {
 			}
 			fmtOK = binary.LittleEndian.Uint16(body[0:]) == 1 && // PCM
 				binary.LittleEndian.Uint16(body[2:]) == 1 && // mono
-				binary.LittleEndian.Uint32(body[4:]) == SampleRate &&
+				binary.LittleEndian.Uint32(body[4:]) == GreetingRate &&
 				binary.LittleEndian.Uint16(body[14:]) == 16
 		case "data":
 			data = body[:size&^1]
@@ -85,39 +90,37 @@ func GreetingFromWAV(b []byte) ([]byte, error) {
 	if !fmtOK || data == nil {
 		return nil, ErrGreetingFormat
 	}
-	n := len(data) / 2
 	switch {
-	case n < minGreetingBytes:
+	case len(data) < minGreetingBytes:
 		return nil, ErrGreetingShort
-	case n > maxGreetingBytes:
+	case len(data) > maxGreetingBytes:
 		return nil, ErrGreetingLong
 	}
-	out := make([]byte, n)
-	for i := range out {
-		out[i] = linearToUlaw(int16(binary.LittleEndian.Uint16(data[2*i:])))
-	}
-	return out, nil
+	return append([]byte(nil), data...), nil
 }
 
-// linearToUlaw is G.711's mu-law compression (the inverse of
-// ulawToLinear).
-func linearToUlaw(s int16) byte {
-	const bias, clip = 0x84, 32635
-	v := int(s)
-	sign := 0
-	if v < 0 {
-		v, sign = -v, 0x80
-	}
-	if v > clip {
-		v = clip
-	}
-	v += bias
-	exp := 7
-	for mask := 0x4000; v&mask == 0 && exp > 0; mask >>= 1 {
-		exp--
-	}
-	mant := (v >> (exp + 3)) & 0x0f
-	return ^byte(sign | exp<<4 | mant)
+// GreetingDuration is how long a greeting's audio plays.
+func GreetingDuration(audio []byte) time.Duration {
+	return time.Duration(len(audio)) * time.Second / (2 * GreetingRate)
+}
+
+// GreetingWAV is a greeting's audio as a WAV file, for its play button.
+func GreetingWAV(audio []byte) []byte {
+	out := make([]byte, 44+len(audio))
+	copy(out[0:], "RIFF")
+	binary.LittleEndian.PutUint32(out[4:], uint32(36+len(audio)))
+	copy(out[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(out[16:], 16)
+	binary.LittleEndian.PutUint16(out[20:], 1) // PCM
+	binary.LittleEndian.PutUint16(out[22:], 1) // mono
+	binary.LittleEndian.PutUint32(out[24:], GreetingRate)
+	binary.LittleEndian.PutUint32(out[28:], GreetingRate*2)
+	binary.LittleEndian.PutUint16(out[32:], 2)
+	binary.LittleEndian.PutUint16(out[34:], 16)
+	copy(out[36:], "data")
+	binary.LittleEndian.PutUint32(out[40:], uint32(len(audio)))
+	copy(out[44:], audio)
+	return out
 }
 
 // GreetingFile is one greeting in use, for the folder.
@@ -128,16 +131,16 @@ type GreetingFile struct {
 }
 
 // GreetingName is a greeting's file name in the folder (the dialplan's
-// linx-voicemail builds the same name).
+// linx-voicemail builds the same name; .sln16 tells Asterisk the format).
 func GreetingName(box uuid.UUID, kind string) string {
-	return box.String() + "-" + kind + ".ulaw"
+	return box.String() + "-" + kind + ".sln16"
 }
 
 // GreetingStore is what the folder is made from (internal/store).
 type GreetingStore interface {
 	// GreetingsInUse lists every greeting in use, on every tenant.
 	GreetingsInUse(ctx context.Context) ([]GreetingFile, error)
-	// GreetingAudio returns one greeting's mu-law audio.
+	// GreetingAudio returns one greeting's audio (slin16).
 	GreetingAudio(ctx context.Context, box uuid.UUID, kind string) ([]byte, error)
 }
 
@@ -194,9 +197,9 @@ func (g *Greetings) write(ctx context.Context, path string, w GreetingFile) erro
 	if err != nil {
 		return err
 	}
-	// Not .ulaw, so the dialplan never sees it; a leftover goes at the
+	// Not .sln16, so the dialplan never sees it; a leftover goes at the
 	// next Sync.
-	tmp := strings.TrimSuffix(path, ".ulaw") + ".tmp"
+	tmp := strings.TrimSuffix(path, ".sln16") + ".tmp"
 	if err := os.WriteFile(tmp, audio, 0o640); err != nil {
 		_ = os.Remove(tmp)
 		return err

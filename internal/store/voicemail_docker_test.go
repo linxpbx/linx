@@ -371,7 +371,7 @@ func TestVoicemailListeningDocker(t *testing.T) {
 	if err != nil || g[voicemail.GreetingUnavailable].Recorded || g[voicemail.GreetingClosed].Recorded {
 		t.Fatalf("no greetings yet: %v, %+v", err, g)
 	}
-	if err := s.SetGreeting(ctx, tenant, sara.ID, voicemail.GreetingUnavailable, make([]byte, 3*voicemail.SampleRate), now, saraUser, audit); err != nil {
+	if err := s.SetGreeting(ctx, tenant, sara.ID, voicemail.GreetingUnavailable, make([]byte, 3*2*voicemail.GreetingRate), now, saraUser, audit); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetGreeting(ctx, tenant, sara.ID, voicemail.GreetingUnavailable, make([]byte, 100), now, saraUser, audit); err == nil {
@@ -392,7 +392,7 @@ func TestVoicemailListeningDocker(t *testing.T) {
 	if inUse, _ = s.GreetingsInUse(ctx); len(inUse) != 0 {
 		t.Errorf("Linx's own again, but in use: %+v", inUse)
 	}
-	if a, err := s.GreetingAudio(ctx, sara.ID, voicemail.GreetingUnavailable); err != nil || len(a) != 3*voicemail.SampleRate {
+	if a, err := s.GreetingAudio(ctx, sara.ID, voicemail.GreetingUnavailable); err != nil || len(a) != 3*2*voicemail.GreetingRate {
 		t.Errorf("the recording is kept for later: %v, %d", err, len(a))
 	}
 	if err := s.DeleteGreeting(ctx, tenant, sara.ID, voicemail.GreetingUnavailable, audit); err != nil {
@@ -453,7 +453,7 @@ func TestVoicemailListeningDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	u, err := s.VoicemailUsage(ctx, tenant)
-	if err != nil || u.Count != 3 || u.Bytes != 6*voicemail.SampleRate {
+	if err != nil || u.Count != 3 || u.Bytes != 6*voicemail.SampleRate { // the greeting was forgotten
 		t.Errorf("usage: %v, %+v", err, u)
 	}
 

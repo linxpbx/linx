@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { encodeWav, GREETING_RATE } from "./wav";
 
 describe("encodeWav", () => {
-  it("writes the WAV Linx takes for a greeting: 16-bit, mono, 8 kHz", () => {
+  it("writes the WAV Linx takes for a greeting: 16-bit, mono, 16 kHz", () => {
     const wav = encodeWav(new Float32Array([0, 1, -1, 2, 0.5]));
     const v = new DataView(wav.buffer);
     const ascii = (at: number, n: number) => String.fromCharCode(...wav.slice(at, at + n));

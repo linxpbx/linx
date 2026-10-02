@@ -574,14 +574,14 @@ volumes:
   # 14): written by the control plane (owns it), read by Asterisk (group
   # 101, passed on by the setgid folder). The database keeps them; this
   # copy is made again at every start. In memory, only what's recorded
-  # (at most 240 KB a greeting, 30 seconds); 32 MB is over 130 of the
-  # longest.
+  # (16 kHz, 32 KB a second: a 10-second greeting is 320 KB, the longest
+  # 960 KB); 64 MB is about 200 ten-second greetings.
   voicemail-greetings:
     driver: local
     driver_opts:
       type: tmpfs
       device: tmpfs
-      o: uid=65532,gid=101,mode=2750,size=32m
+      o: uid=65532,gid=101,mode=2750,size=64m
   postgres-data:
   asterisk-state:
   step-ca:

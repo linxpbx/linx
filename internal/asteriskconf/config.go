@@ -137,8 +137,8 @@ const DefaultMediaHost = "linx-asterisk-media"
 const VoicemailDir = "/var/spool/linx-voicemail"
 
 // GreetingsDir is where the control plane puts the voicemail greetings
-// people recorded (internal/voicemail's Greetings): "<box>-unavailable.ulaw"
-// and "<box>-closed.ulaw". Asterisk only reads it; linx-voicemail plays a
+// people recorded (internal/voicemail's Greetings): "<box>-unavailable.sln16"
+// and "<box>-closed.sln16" (16 kHz, as clear as Linx's own messages). Asterisk only reads it; linx-voicemail plays a
 // box's own file when it's there, Linx's own greeting otherwise.
 const GreetingsDir = "/var/lib/linx/greetings"
 
@@ -1046,7 +1046,7 @@ exten => _[0-9a-f].,1,Answer()
  same => n,Set(VMOWN=/var/lib/linx/greetings/${VMBOX}-unavailable)
  same => n,GotoIf($["${LABEL}" != "closed"]?mine)
  same => n,Set(VMOWN=/var/lib/linx/greetings/${VMBOX}-closed)
- same => n(mine),GotoIf($[${STAT(e,${VMOWN}.ulaw)}]?own)
+ same => n(mine),GotoIf($[${STAT(e,${VMOWN}.sln16)}]?own)
  same => n,GotoIf($["${LABEL}" = "closed"]?closed)
  same => n,Playback(linx/vm-greeting)
  same => n,Goto(tone)

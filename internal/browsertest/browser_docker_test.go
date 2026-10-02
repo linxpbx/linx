@@ -759,10 +759,10 @@ func (h *harness) voicemailKept(t *testing.T) {
 	}
 	var n int
 	fmt.Sscanf(row[1], "%d", &n)
-	if n < 2*8000 || n > 31*8000 {
-		t.Errorf("Aisha's greeting is %d bytes; she spoke for about 3 seconds (8000 a second)", n)
+	if n < 2*32000 || n > 31*32000 {
+		t.Errorf("Aisha's greeting is %d bytes; she spoke for about 3 seconds (32000 a second)", n)
 	}
-	file := asteriskconf.GreetingsDir + "/" + row[0] + "-unavailable.ulaw"
+	file := asteriskconf.GreetingsDir + "/" + row[0] + "-unavailable.sln16"
 	if got := strings.Fields(h.docker("exec", "linx-asterisk", "wc", "-c", file)); len(got) == 0 || got[0] != row[1] {
 		listing, _ := exec.Command("docker", "exec", "linx-asterisk", "ls", "-ln", asteriskconf.GreetingsDir).CombinedOutput()
 		t.Errorf("Asterisk reads %v of %s bytes from %s:\n%s", got, row[1], file, listing)

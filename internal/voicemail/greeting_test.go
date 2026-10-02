@@ -14,21 +14,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// linearToUlaw undoes ulawToLinear for every code (but -0, which is +0).
-func TestUlawRoundTrip(t *testing.T) {
-	for i := range 256 {
-		if i == 0x7f {
-			continue
-		}
-		if got := linearToUlaw(ulawToLinear[i]); got != byte(i) {
-			t.Errorf("linearToUlaw(%d) = %#x, want %#x", ulawToLinear[i], got, i)
-		}
-	}
-	if linearToUlaw(32767) != 0x80 || linearToUlaw(-32768) != 0x00 {
-		t.Error("the loudest samples should clip to the largest codes")
-	}
-}
-
 func tone(seconds float64) []byte {
 	b := make([]byte, int(seconds*SampleRate))
 	for i := range b {
@@ -37,16 +22,26 @@ func tone(seconds float64) []byte {
 	return b
 }
 
+// speech is seconds of 16 kHz 16-bit audio, a greeting as the browser
+// sends it (in GreetingWAV's file).
+func speech(seconds float64) []byte {
+	b := make([]byte, 2*int(seconds*GreetingRate))
+	for i := range b {
+		b[i] = byte(i % 251)
+	}
+	return b
+}
+
 func TestGreetingFromWAV(t *testing.T) {
-	audio := tone(2)
-	got, err := GreetingFromWAV(WAV(audio))
+	audio := speech(2)
+	got, err := GreetingFromWAV(GreetingWAV(audio))
 	if err != nil || string(got) != string(audio) {
 		t.Fatalf("a 2-second greeting: %v (same audio: %v)", err, string(got) == string(audio))
 	}
 
 	// Another chunk before the audio, and a data length the recorder
 	// didn't know yet.
-	w := WAV(audio)
+	w := GreetingWAV(audio)
 	list := append([]byte("LIST\x04\x00\x00\x00INFO"), w[36:]...)
 	odd := append(append([]byte{}, w[:36]...), list...)
 	if got, err := GreetingFromWAV(odd); err != nil || len(got) != len(audio) {
@@ -59,7 +54,7 @@ func TestGreetingFromWAV(t *testing.T) {
 	}
 
 	wrongRate := append([]byte{}, w...)
-	binary.LittleEndian.PutUint32(wrongRate[24:], 48000)
+	binary.LittleEndian.PutUint32(wrongRate[24:], 8000)
 	stereo := append([]byte{}, w...)
 	binary.LittleEndian.PutUint16(stereo[22:], 2)
 	for name, c := range map[string]struct {
@@ -67,13 +62,13 @@ func TestGreetingFromWAV(t *testing.T) {
 		want error
 	}{
 		"not a WAV":    {[]byte("hello, this is not audio"), ErrGreetingFormat},
-		"48 kHz":       {wrongRate, ErrGreetingFormat},
+		"8 kHz":        {wrongRate, ErrGreetingFormat},
 		"stereo":       {stereo, ErrGreetingFormat},
 		"no audio":     {w[:36], ErrGreetingFormat},
-		"too short":    {WAV(tone(0.3)), ErrGreetingShort},
-		"too long":     {WAV(tone(MaxGreetingSeconds + 2)), ErrGreetingLong},
-		"just 30 s":    {WAV(tone(MaxGreetingSeconds)), nil},
-		"half-sample":  {append(WAV(tone(1)), 7), nil},
+		"too short":    {GreetingWAV(speech(0.3)), ErrGreetingShort},
+		"too long":     {GreetingWAV(speech(MaxGreetingSeconds + 2)), ErrGreetingLong},
+		"just 30 s":    {GreetingWAV(speech(MaxGreetingSeconds)), nil},
+		"half-sample":  {append(GreetingWAV(speech(1)), 7), nil},
 		"empty":        {nil, ErrGreetingFormat},
 		"cut in fmt":   {w[:20], ErrGreetingFormat},
 		"short header": {w[:11], ErrGreetingFormat},
@@ -82,8 +77,11 @@ func TestGreetingFromWAV(t *testing.T) {
 			t.Errorf("%s: %v, want %v", name, err, c.want)
 		}
 	}
-	if len(WAV(tone(MaxGreetingSeconds+1))) > MaxGreetingUpload {
+	if len(GreetingWAV(speech(MaxGreetingSeconds+1))) > MaxGreetingUpload {
 		t.Error("the upload limit is smaller than the longest greeting")
+	}
+	if d := GreetingDuration(speech(2)); d != 2*time.Second {
+		t.Errorf("a 2-second greeting lasts %v", d)
 	}
 }
 

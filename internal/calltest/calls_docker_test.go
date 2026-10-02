@@ -235,7 +235,7 @@ func TestCallsDocker(t *testing.T) {
 		// plane copies it into the folder Asterisk reads, and the next
 		// caller hears it instead of Linx's own.
 		_, err := e.pool.Exec(ctx, `INSERT INTO voicemail_greeting (box_id, kind, tenant_id, audio, recorded_at)
-			VALUES ($1, 'unavailable', $2, $3, now())`, carol.ext.ID, carol.ext.TenantID, make([]byte, 2*voicemail.SampleRate))
+			VALUES ($1, 'unavailable', $2, $3, now())`, carol.ext.ID, carol.ext.TenantID, make([]byte, 2*2*voicemail.GreetingRate))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -246,7 +246,7 @@ func TestCallsDocker(t *testing.T) {
 		own := voicemail.GreetingName(carol.ext.ID, voicemail.GreetingUnavailable)
 		os.Chmod(filepath.Join(e.dir, "greetings", own), 0o644) // Asterisk's uid isn't this test's
 		e.run("vm-own", "call.xml", alice, "-s", "103", "-d", "6000")
-		if !strings.Contains(e.asteriskLogs(), "Playing '"+asteriskconf.GreetingsDir+"/"+strings.TrimSuffix(own, ".ulaw")) {
+		if !strings.Contains(e.asteriskLogs(), "Playing '"+asteriskconf.GreetingsDir+"/"+strings.TrimSuffix(own, ".sln16")) {
 			t.Fatalf("Carol's own greeting wasn't played:\n%s", e.asteriskLogs())
 		}
 		if heard("vm-greeting") != greeting+1 {

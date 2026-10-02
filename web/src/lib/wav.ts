@@ -1,9 +1,10 @@
 // A recorded greeting as Linx takes it (docs/ui/SCREENS_PHASE1F.md §12.4):
-// 16-bit PCM WAV, one channel, 8000 samples a second. The browser does
-// the resampling (OfflineAudioContext), so the server never decodes a
-// compressed format, and the upload is small (16 KB a second).
+// 16-bit PCM WAV, one channel, 16000 samples a second (as clear as Linx's
+// own messages, owner 2026-10-02). The browser does the resampling
+// (OfflineAudioContext), so the server never decodes a compressed format;
+// the upload is 32 KB a second, at most about 1 MB.
 
-export const GREETING_RATE = 8000;
+export const GREETING_RATE = 16000;
 export const GREETING_MAX_SECONDS = 30;
 
 /** samples (−1…1) as a 16-bit mono WAV at rate. */

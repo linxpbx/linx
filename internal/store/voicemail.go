@@ -221,7 +221,7 @@ func (s *Store) VoicemailGreetings(ctx context.Context, box uuid.UUID) (map[stri
 		if err := rows.Scan(&kind, &g.InUse, &g.RecordedAt, &n); err != nil {
 			return nil, err
 		}
-		g.Duration = time.Duration(n) * time.Second / voicemail.SampleRate
+		g.Duration = time.Duration(n) * time.Second / (2 * voicemail.GreetingRate)
 		out[kind] = g
 	}
 	return out, rows.Err()
@@ -248,7 +248,7 @@ func (s *Store) UpdateVoicemailBox(ctx context.Context, tenant, id uuid.UUID, p 
 	})
 }
 
-// SetGreeting keeps box's new recording of kind, in use, audited.
+// SetGreeting keeps box's new recording of kind (slin16), in use, audited.
 func (s *Store) SetGreeting(ctx context.Context, tenant, box uuid.UUID, kind string, audio []byte, at time.Time, by uuid.UUID, audit auth.AuditEntry) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO voicemail_greeting (box_id, kind, tenant_id, in_use, audio, recorded_at, recorded_by)
@@ -272,7 +272,7 @@ func (s *Store) DeleteGreeting(ctx context.Context, tenant, box uuid.UUID, kind 
 	})
 }
 
-// GreetingAudio is box's recording of kind (mu-law).
+// GreetingAudio is box's recording of kind (slin16).
 func (s *Store) GreetingAudio(ctx context.Context, box uuid.UUID, kind string) ([]byte, error) {
 	var audio []byte
 	err := s.pool.QueryRow(ctx, `SELECT audio FROM voicemail_greeting WHERE box_id = $1 AND kind = $2`, box, kind).Scan(&audio)
