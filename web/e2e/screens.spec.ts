@@ -733,6 +733,11 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("option", { name: /^6001 Support/ })).toBeDisabled();
       await expect(page.getByText("Support already sends its unanswered calls here")).toBeVisible();
       await page.keyboard.press("Escape");
+      // Saving it unchanged sends back what the server sent, without the
+      // read-only label (found in Demo B).
+      const saved = page.waitForResponse((r) => r.url().includes("/api/v1/ring-groups/") && r.request().method() === "PATCH");
+      await page.getByRole("button", { name: "Save" }).click();
+      expect((await saved).status()).toBe(200);
     });
 
     test("incoming, outgoing, simulator, connections", async ({ page }) => {
@@ -745,6 +750,10 @@ for (const scheme of ["light", "dark"] as const) {
       // "When someone calls": the wizard, its sentence rebuilt as you pick.
       await page.getByRole("button", { name: "Change where +97142000101 goes" }).click();
       await expect(page.getByRole("heading", { name: "When someone calls +97142000101" })).toBeVisible();
+      // Its first sentence is asked of the server with what it sent, minus
+      // the read-only labels (found in Demo B).
+      await expect(page.getByRole("dialog").getByText("Calls to +97142000101 ring Reception (1110)", { exact: false })).toBeVisible();
+      await expect(page.getByText(/readOnly/)).toHaveCount(0);
       await page.getByText("Follow office hours").click();
       await expect(page.getByRole("dialog").getByText("Calls to +97142000101 ring Reception (1110) Mon–Fri 08:00–17:00.", { exact: false })).toBeVisible();
       await shot(page, `${scheme}-incoming-wizard-hours`);

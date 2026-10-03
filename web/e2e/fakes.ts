@@ -5,6 +5,16 @@
 import type { Page, WebSocketRoute } from "@playwright/test";
 import doorSetupFixture from "./door-setup.json" with { type: "json" };
 
+
+/** Whether a request body holds a destination (kind) with a label. */
+function hasDestinationLabel(v: unknown): boolean {
+  if (Array.isArray(v)) return v.some(hasDestinationLabel);
+  if (v === null || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  if ("kind" in o && "label" in o) return true;
+  return Object.values(o).some(hasDestinationLabel);
+}
+
 export const DOMAIN = "sip.linx.test";
 export const ME = { name: "Mohammed Al Mansoori", email: "mohammed@example.com", extension: "1001", username: "d_Web00001" };
 
@@ -576,6 +586,12 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     if (method === "PATCH" && !p.startsWith("/api/v1/me/passkeys/") && !contentType.startsWith("application/merge-patch+json")) {
       return route.fulfill(json({ type: "about:blank", title: "Bad Request", status: 400, code: "request_invalid",
         detail: `request body has an error: header Content-Type has unexpected value "${contentType}"` }, 400));
+    }
+    // Like the real server's validator: a destination's label is
+    // read-only, so sending one back is refused.
+    if (["PUT", "PATCH", "POST"].includes(method) && hasDestinationLabel((() => { try { return route.request().postDataJSON() as unknown; } catch { return null; } })())) {
+      return route.fulfill(json({ type: "about:blank", title: "Bad Request", status: 400, code: "request_invalid",
+        detail: 'request body has an error: readOnly property "label" in request' }, 400));
     }
     if (p === "/api/v1/users" && method === "GET") return route.fulfill(json({ items: people.users }));
     if (p === "/api/v1/users" && method === "POST") {

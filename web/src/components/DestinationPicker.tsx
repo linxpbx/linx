@@ -20,6 +20,13 @@ export const CLOSED: Destination = { kind: "message", message: "closed" };
 /** A new ring group's own voicemail box (the server fills in its id). */
 export const OWN_VOICEMAIL: Destination = { kind: "voicemail" };
 
+/** A destination as the API takes it back: without the read-only label
+ * the API adds when it sends one. */
+export function sendable(d: Destination): Destination {
+  const { label: _label, ...rest } = d;
+  return rest;
+}
+
 /** The voicemail box of whoever `rings` (a person or a ring group), if anyone. */
 export function voicemailOf(rings: Destination | undefined): Destination | undefined {
   if (rings?.kind === "extension" && rings.extension_id) return { kind: "voicemail", extension_id: rings.extension_id };

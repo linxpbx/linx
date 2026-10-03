@@ -7,7 +7,7 @@ import { FlaskConical, TriangleAlert } from "lucide-react";
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
 import {
-  CLOSED, DestinationPicker, NOT_AVAILABLE, voicemailOf, type Destination, type ExtensionChoice, type RingGroup,
+  CLOSED, DestinationPicker, NOT_AVAILABLE, sendable, voicemailOf, type Destination, type ExtensionChoice, type RingGroup,
 } from "@/components/DestinationPicker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -80,13 +80,13 @@ function draftOf(i: Incoming, schedules: Schedule[], home: boolean): Draft {
 }
 
 function bodyOf(d: Draft): IncomingSet {
-  const body: IncomingSet = { if_no_answer_seconds: d.seconds, if_no_answer: d.noAnswer };
-  if (d.rings) body.rings = d.rings;
+  const body: IncomingSet = { if_no_answer_seconds: d.seconds, if_no_answer: sendable(d.noAnswer) };
+  if (d.rings) body.rings = sendable(d.rings);
   if (d.schedule) {
     body.schedule_id = d.schedule;
-    body.after_hours = d.closedKind === "voicemail" ? (d.closedBox ?? voicemailOf(d.rings) ?? CLOSED)
-      : d.closedKind === "other" && d.closed ? d.closed : CLOSED;
-    if (d.holidaysDiffer && d.holidays) body.holidays = d.holidays;
+    body.after_hours = sendable(d.closedKind === "voicemail" ? (d.closedBox ?? voicemailOf(d.rings) ?? CLOSED)
+      : d.closedKind === "other" && d.closed ? d.closed : CLOSED);
+    if (d.holidaysDiffer && d.holidays) body.holidays = sendable(d.holidays);
   }
   return body;
 }

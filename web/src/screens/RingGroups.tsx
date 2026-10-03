@@ -8,7 +8,7 @@ import type { components } from "@/api/schema";
 import { AddChooserDialog, useAlwaysQuickAdd } from "@/components/AddChooser";
 import { DataTable } from "@/components/DataTable";
 import {
-  DestinationPicker, NOT_AVAILABLE, OWN_VOICEMAIL, destinationLabel, type Destination, type ExtensionChoice, type RingGroup,
+  DestinationPicker, NOT_AVAILABLE, OWN_VOICEMAIL, destinationLabel, sendable, type Destination, type ExtensionChoice, type RingGroup,
 } from "@/components/DestinationPicker";
 import { Dot } from "@/components/presence";
 import { VoicemailBoxPanel } from "@/components/VoicemailBox";
@@ -412,7 +412,7 @@ function RingGroupSheet({ me, group, extensions, groups, onClose, onChanged, onR
       const other = groups.find((g) => g.id === u.id);
       if (!other) continue;
       const { error: err } = await api.PATCH("/api/v1/ring-groups/{id}", {
-        params: { path: { id: other.id }, header: { "If-Match": other.etag } }, body: { if_no_answer: moveTo },
+        params: { path: { id: other.id }, header: { "If-Match": other.etag } }, body: { if_no_answer: sendable(moveTo) },
       });
       if (err) { setBusy(false); setError(problemMessage(err)); return; }
     }
@@ -491,7 +491,7 @@ function RingGroupSheet({ me, group, extensions, groups, onClose, onChanged, onR
             </p>,
             <IfNobodyAnswers strategy={group.strategy} ringSeconds={ringSeconds} onRingSeconds={setRingSeconds}
               value={noAnswer} onChange={setNoAnswer} extensions={extensions} groups={groups} self={group.id} name={group.name} />,
-            () => void save({ if_no_answer: noAnswer, ring_seconds: seconds(ringSeconds, 25) }))}
+            () => void save({ if_no_answer: sendable(noAnswer), ring_seconds: seconds(ringSeconds, 25) }))}
 
           {row("Number", "number", <p className="font-mono text-sm">{group.number ?? "None"}</p>,
             <div className="flex flex-col gap-1.5">
