@@ -58,8 +58,12 @@ const (
 type Builder struct {
 	Store   Store
 	Changed func(tenant uuid.UUID) // the Call history badge's counter
-	Now     func() time.Time
-	Log     *slog.Logger
+	// Missed, if set, is told about each person who missed a call once the
+	// call is in the history: the phone that was asleep hears about it
+	// then (the quiet notification, internal/push, docs/PHASE2.md §5).
+	Missed func(ctx context.Context, extension uuid.UUID, from string)
+	Now    func() time.Time
+	Log    *slog.Logger
 	// Settle overrides settle (tests).
 	Settle time.Duration
 
@@ -124,6 +128,25 @@ func (b *Builder) expire(ctx context.Context) {
 	}
 }
 
+// missed tells whoever is listening about every person a call went to and
+// nobody answered — one notice per person per call, and none at all for a
+// call that was answered somewhere.
+func (b *Builder) missed(ctx context.Context, calls []Call) {
+	if b.Missed == nil {
+		return
+	}
+	for _, c := range calls {
+		if c.AnsweredAt != nil {
+			continue
+		}
+		for _, party := range c.Parties {
+			if party.Missed {
+				b.Missed(ctx, party.ExtensionID, c.FromNumber)
+			}
+		}
+	}
+}
+
 func (b *Builder) changed(tenant uuid.UUID) {
 	if b.Changed != nil {
 		b.Changed(tenant)
@@ -158,5 +181,6 @@ func (b *Builder) Read(ctx context.Context) error {
 		for t := range tenants {
 			b.changed(t)
 		}
+		b.missed(ctx, calls)
 	}
 }

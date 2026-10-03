@@ -405,6 +405,9 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         : { last_sent_at: minsAgo(25), sent_last_hour: 12, waiting: 0, last_error: "" } }
       : { enabled: false, preset: "google", host: "", port: 465, security: "tls", username: "", from_address: "", from_name: "", password_set: false,
         hourly_limit: 60, etag: '"0"', status: { sent_last_hour: 0, waiting: 0, last_error: "" } }) as Json,
+    appPush: { enabled: true, team_id: "ABCDE12345", key_id: "KEY1234567", bundle_id: "com.linxpbx.app",
+      environment: "production", wait_ms: 6000, key_set: true, etag: '"1"',
+      status: { sent: 128, failed: 1, dead_tokens: 0, woken: 96, average_wake_seconds: 0.8, slowest_wake_seconds: 1.9 } } as Json,
     answers: { enabled: !!opts.answers, provider: "anthropic", base_url: "", model: "claude-haiku-4-5", api_key_set: !!opts.answers,
       person_daily_limit: 200, server_daily_limit: 1000, used_today: opts.answers ? 14 : 0, etag: '"1"' } as Json,
     providers: [
@@ -1344,6 +1347,15 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       const lines = [...HELP_ANSWER.map((text) => ({ text })),
         { done: true, guides: [{ name: "desk-phones-and-phone-apps", title: "Desk phones and phone apps" }], by: "Anthropic (Claude)" }];
       return route.fulfill({ status: 200, contentType: "application/x-ndjson", body: lines.map((l) => JSON.stringify(l)).join("\n") + "\n" });
+    }
+    if (p === "/api/v1/app-push" && method === "GET") return route.fulfill(json(system.appPush));
+    if (p === "/api/v1/app-push" && method === "PATCH") {
+      if (!system.confirmed) {
+        return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
+      }
+      const { key, ...rest } = route.request().postDataJSON() as Json;
+      Object.assign(system.appPush as object, rest, key !== undefined ? { key_set: true } : {}, { etag: '"2"' });
+      return route.fulfill(json(system.appPush));
     }
     if (p === "/api/v1/email" && method === "GET") return route.fulfill(json(system.email));
     if (p === "/api/v1/email" && method === "PATCH") {

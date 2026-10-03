@@ -2726,6 +2726,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/phone-push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Where Apple can reach this phone
+         * @description For the Linx app, with its device token (ADR-074, docs/PHASE2.md §5). The app sends the token Apple gave it for calls (PushKit) and, once the person allows notifications, the one for a missed call or a new voicemail. Sending an empty token forgets that one. Anything that isn't a set-up phone gets 400 `not_a_phone`.
+         */
+        post: operations["setMyPhonePush"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/turn-credentials": {
         parameters: {
             query?: never;
@@ -3269,6 +3289,30 @@ export interface paths {
          * @description JSON Merge Patch with If-Match. A system admin only, after a fresh "confirm it's you"; audited without the password. A new server or address needs the password typed again. A server on a private network is refused (host_blocked) unless it's on the outbound allowlist.
          */
         patch: operations["updateEmail"];
+        trace?: never;
+    };
+    "/api/v1/app-push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How Linx rings the app on a sleeping phone
+         * @description The Apple key this server pushes with (ADR-074, docs/PHASE2.md §5). The key itself is never shown, only whether one is set, and what the gateway has done since the server started.
+         */
+        get: operations["getAppPush"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change how Linx rings the app
+         * @description JSON Merge Patch with If-Match. A system admin only, because the key can send a push to every phone in the company; audited without the key. The key is Apple's .p8 file, pasted in; it is sealed and never read back out.
+         */
+        patch: operations["updateAppPush"];
         trace?: never;
     };
     "/api/v1/email/test": {
@@ -4970,6 +5014,46 @@ export interface components {
         HelpGuideRef: {
             name: string;
             title: string;
+        };
+        AppPush: {
+            enabled: boolean;
+            /** @description The ten characters of the Apple developer team. */
+            team_id: string;
+            /** @description The ten characters Apple shows beside the key. */
+            key_id: string;
+            /** @description The app this key may push to (com.linxpbx.app). */
+            bundle_id: string;
+            /**
+             * @description Which Apple to send to. A build signed for development is only on the sandbox.
+             * @enum {string}
+             */
+            environment: "production" | "sandbox";
+            /** @description How long a call waits for a woken phone before the phones already here ring. 0 turns the waiting off. */
+            wait_ms: number;
+            key_set: boolean;
+            etag: string;
+            /** @description What the gateway has done since this server started. */
+            status: {
+                sent: number;
+                failed: number;
+                dead_tokens: number;
+                /** @description Phones that arrived after being woken. */
+                woken: number;
+                /** @description How long they took, on average, from the push to being ringable. */
+                average_wake_seconds?: number;
+                slowest_wake_seconds: number;
+            };
+        };
+        AppPushPatch: {
+            enabled?: boolean;
+            team_id?: string;
+            key_id?: string;
+            bundle_id?: string;
+            /** @enum {string} */
+            environment?: "production" | "sandbox";
+            wait_ms?: number;
+            /** @description The .p8 file Apple gave you, pasted in. Sealed on arrival and never read back out. Leave it out to keep the one already there. */
+            key?: string;
         };
         Email: {
             enabled: boolean;
@@ -10383,6 +10467,39 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    setMyPhonePush: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The PushKit token, lower-case hex. Empty forgets it. */
+                    voip_token?: string;
+                    /** @description The notification token, lower-case hex. Empty forgets it. */
+                    alert_token?: string;
+                    /**
+                     * @description Which Apple this build's tokens belong to.
+                     * @enum {string}
+                     */
+                    environment: "production" | "sandbox";
+                };
+            };
+        };
+        responses: {
+            /** @description Saved. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     getMyTurnCredentials: {
         parameters: {
             query?: never;
@@ -11225,6 +11342,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Email"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getAppPush: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The setting. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppPush"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateAppPush: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The resource's `etag`; the change is refused with 412 if it no longer matches. */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/merge-patch+json": components["schemas"]["AppPushPatch"];
+            };
+        };
+        responses: {
+            /** @description The setting as it now is. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppPush"];
                 };
             };
             default: components["responses"]["Problem"];

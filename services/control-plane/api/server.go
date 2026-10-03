@@ -26,6 +26,7 @@ import (
 	"linxpbx.com/linx/internal/moved"
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/push"
 	"linxpbx.com/linx/internal/reach"
 	"linxpbx.com/linx/internal/routing"
 	"linxpbx.com/linx/internal/settings"
@@ -76,6 +77,8 @@ type Server struct {
 	// Setting up an iPhone or iPad (SetEnroll, docs/PHASE2.md §4).
 	enroll  *enroll.Service
 	history *callhistory.Service
+	// Ringing the app on a sleeping phone (SetPush, docs/PHASE2.md §5).
+	push *push.Gateway
 	// Email sending (SetEmail), and Linx's own address for its links.
 	email      *email.Service
 	webAddress string

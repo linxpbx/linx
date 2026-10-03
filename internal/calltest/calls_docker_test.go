@@ -53,7 +53,7 @@ func TestCallsDocker(t *testing.T) {
 		tracker.Log = slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 		// As the control plane: the dialplan's event takes the message in.
 		voicemails = &voicemail.Importer{Dir: filepath.Join(e.dir, "voicemail"), Store: e.store, Now: time.Now, Log: tracker.Log}
-		tracker.UserEvent = func(name string) {
+		tracker.UserEvent = func(name string, _ map[string]any) {
 			if name == voicemail.EventName {
 				voicemails.Kick()
 			}

@@ -298,7 +298,7 @@ func TestRenderARI(t *testing.T) {
 			t.Errorf("ari.conf missing %q:\n%s", want, got)
 		}
 	}
-	for _, want := range []string{"exten => *43,1,Answer()", "exten => _X.,1,Dial(${ARG1},${ARG2})",
+	for _, want := range []string{"exten => *43,1,Answer()", "exten => _X.,1,Gosub(linx-wake,s,1(${ARG1}))",
 		// Calls are routed one step at a time, at most 10 places (ADR-068).
 		"Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(${DEST},${CALLER})})", "GotoIf($[${STEPS} <= 10]?again)",
 		"Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(n:${EXTEN},${CALLERID(num)})})", "Playback(linx/not-in-use)", "Playback(linx/not-available)",
@@ -307,13 +307,23 @@ func TestRenderARI(t *testing.T) {
 		"exten => _[0-9*#+].,1,Goto(linx-outbound,${EXTEN},1)", "Set(GROUP(linx-out)=${CALLERID(num)})",
 		"[linx-from-trunk]", "Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DID})})",
 		// The dialled number for call events.
-		"same => n,Goto(linx-trunk-did,${DID},1)", "exten => _[0-9+].,1,Goto(linx-route,s,1)"} {
+		"same => n,Goto(linx-trunk-did,${DID},1)", "exten => _[0-9+].,1,Goto(linx-route,s,1)",
+		// Waking a sleeping app phone before a step rings (ADR-074): the
+		// database says who can be woken, the dialplan leaves out the ones
+		// already here, and the call waits for the rest.
+		"[linx-wake]", "Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})",
+		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN})",
+		"Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})",
+		`GotoIf($["${WAKESTATE}" = "UNAVAILABLE" | "${WAKESTATE}" = "INVALID" | "${WAKESTATE}" = "UNKNOWN"]?notyet)`} {
 		if got := read(t, c, "extensions.conf"); !strings.Contains(got, want) {
 			t.Errorf("extensions.conf missing %q", want)
 		}
 	}
 	if got := read(t, c, "func_odbc.conf"); !strings.Contains(got, "FROM linx_route('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}')") {
 		t.Errorf("func_odbc.conf must escape the number:\n%s", got)
+	}
+	if got := read(t, c, "func_odbc.conf"); !strings.Contains(got, "FROM linx_wake('${SQL_ESC(${ARG1})}')") {
+		t.Errorf("func_odbc.conf must escape the wake lookup's targets:\n%s", got)
 	}
 }
 

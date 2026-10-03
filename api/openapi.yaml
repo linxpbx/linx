@@ -4269,6 +4269,44 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/me/phone-push:
+    post:
+      operationId: setMyPhonePush
+      summary: Where Apple can reach this phone
+      description: >-
+        For the Linx app, with its device token (ADR-074, docs/PHASE2.md §5).
+        The app sends the token Apple gave it for calls (PushKit) and, once
+        the person allows notifications, the one for a missed call or a new
+        voicemail. Sending an empty token forgets that one. Anything that
+        isn't a set-up phone gets 400 `not_a_phone`.
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [environment]
+              properties:
+                voip_token:
+                  type: string
+                  maxLength: 200
+                  description: The PushKit token, lower-case hex. Empty forgets it.
+                alert_token:
+                  type: string
+                  maxLength: 200
+                  description: The notification token, lower-case hex. Empty forgets it.
+                environment:
+                  type: string
+                  enum: [production, sandbox]
+                  description: Which Apple this build's tokens belong to.
+      responses:
+        "204":
+          description: Saved.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/me/turn-credentials:
     get:
       operationId: getMyTurnCredentials
@@ -5134,6 +5172,61 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Email"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/app-push:
+    get:
+      operationId: getAppPush
+      summary: How Linx rings the app on a sleeping phone
+      description: >-
+        The Apple key this server pushes with (ADR-074, docs/PHASE2.md §5).
+        The key itself is never shown, only whether one is set, and what the
+        gateway has done since the server started.
+      tags: [settings]
+      security:
+        - bearer: [settings:read]
+      responses:
+        "200":
+          description: The setting.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppPush"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: updateAppPush
+      summary: Change how Linx rings the app
+      description: >-
+        JSON Merge Patch with If-Match. A system admin only, because the key
+        can send a push to every phone in the company; audited without the
+        key. The key is Apple's .p8 file, pasted in; it is sealed and never
+        read back out.
+      tags: [settings]
+      security:
+        - bearer: [settings:write]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/AppPushPatch"
+      responses:
+        "200":
+          description: The setting as it now is.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppPush"
         default:
           $ref: "#/components/responses/Problem"
 
@@ -8179,6 +8272,81 @@ components:
           type: string
         title:
           type: string
+
+    AppPush:
+      type: object
+      required: [enabled, team_id, key_id, bundle_id, environment, wait_ms, key_set, etag, status]
+      properties:
+        enabled:
+          type: boolean
+        team_id:
+          type: string
+          description: The ten characters of the Apple developer team.
+        key_id:
+          type: string
+          description: The ten characters Apple shows beside the key.
+        bundle_id:
+          type: string
+          description: The app this key may push to (com.linxpbx.app).
+        environment:
+          type: string
+          enum: [production, sandbox]
+          description: Which Apple to send to. A build signed for development is only on the sandbox.
+        wait_ms:
+          type: integer
+          description: How long a call waits for a woken phone before the phones already here ring. 0 turns the waiting off.
+        key_set:
+          type: boolean
+        etag:
+          type: string
+        status:
+          type: object
+          description: What the gateway has done since this server started.
+          required: [sent, failed, dead_tokens, woken, slowest_wake_seconds]
+          properties:
+            sent:
+              type: integer
+            failed:
+              type: integer
+            dead_tokens:
+              type: integer
+            woken:
+              type: integer
+              description: Phones that arrived after being woken.
+            average_wake_seconds:
+              type: number
+              description: How long they took, on average, from the push to being ringable.
+            slowest_wake_seconds:
+              type: number
+
+    AppPushPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        team_id:
+          type: string
+          maxLength: 10
+        key_id:
+          type: string
+          maxLength: 10
+        bundle_id:
+          type: string
+          maxLength: 155
+        environment:
+          type: string
+          enum: [production, sandbox]
+        wait_ms:
+          type: integer
+          minimum: 0
+          maximum: 15000
+        key:
+          type: string
+          maxLength: 8000
+          description: >-
+            The .p8 file Apple gave you, pasted in. Sealed on arrival and
+            never read back out. Leave it out to keep the one already there.
 
     Email:
       type: object

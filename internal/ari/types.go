@@ -19,6 +19,23 @@ type Event struct {
 	Endpoint    *Endpoint    `json:"endpoint,omitempty"`
 	ContactInfo *ContactInfo `json:"contact_info,omitempty"`
 	EventName   string       `json:"eventname,omitempty"` // ChannelUserevent
+	// Userevent carries what the dialplan's UserEvent() put in it (the
+	// wake request, docs/PBX.md §4). Asterisk sends the channel's own
+	// details in the same object; only the keys Linx put there are read.
+	Userevent map[string]any `json:"userevent,omitempty"`
+}
+
+// Header returns one of a ChannelUserevent's own fields, or "".
+func (e Event) Header(name string) string {
+	v, ok := e.Userevent[name]
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return s
 }
 
 // Channel is one call leg.

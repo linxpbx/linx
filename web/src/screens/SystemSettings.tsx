@@ -18,6 +18,7 @@ import { navigate } from "@/hooks/useRoute";
 import { goToCompany } from "@/lib/company";
 import { hasScope } from "@/lib/roles";
 import { space } from "@/lib/voicemail";
+import { AppPushCard } from "@/screens/SystemAppPush";
 import { EmailCard } from "@/screens/SystemEmail";
 import { HelpAnswersCard } from "@/screens/SystemHelpAnswers";
 
@@ -403,6 +404,8 @@ export function SystemSettingsScreen({ me, onSimpleModeChange }: { me: Me; onSim
         </SystemCard>
 
         <EmailCard me={me} />
+
+        <AppPushCard me={me} />
 
         {canSeeSso && (
           <SystemCard title="Company sign-in" action={

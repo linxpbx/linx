@@ -55,6 +55,16 @@ A call that comes in while the app is open rings on the phone and shows **Answer
 
 Every call is encrypted both ways, and the app has no password of any kind on it — it asks Linx for a one-time phone line each time it starts.
 
+## Calls when the app isn't open (admins)
+
+For a call to ring an iPhone or iPad whose app is closed or asleep, Linx has to ask Apple to wake it. That needs a key from an Apple developer account, which the person who publishes the app holds — on a self-hosted Linx, that's whoever set this server up.
+
+System → **Settings** → **Calls to the app** → **Set it up**: the team id, the key id, and the `.p8` file Apple lets you download once, pasted in. The key is sealed on this server and never shown again, and only a system admin can change it.
+
+Once it's on, a call for someone whose app is asleep waits a few seconds — the caller hears ringing — while the phone wakes up and joins; then every phone of theirs rings together, as always. The card shows how many phones have been woken and how long they took. Apple is told the call's number and nothing else: no names, and nothing about what is said.
+
+Leave it off and nothing is sent to Apple at all; the app then rings only while it is open.
+
 ## "Set it up again"
 
 A phone stays set up as long as it's in touch with Linx — it checks in by itself while you use it. Nothing else interrupts it. It asks to be set up again only when:

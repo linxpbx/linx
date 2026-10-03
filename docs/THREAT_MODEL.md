@@ -351,3 +351,19 @@ Listening for an analog line's busy tone (ADR-072, `docs/PBX.md` §4).
 **Still open (accepted):**
 - A long call on a gateway's line with stray pure tones from the far end (hold music, a whistle) could, rarely, add up to 4 bursts and end early: the detector counts over the whole call. Nothing private is exposed; the call simply ends.
 
+## Push review (2026-10-04)
+Ringing a sleeping iPhone or iPad (ADR-074, `docs/PHASE2.md` §5, Phase 2 step 5).
+
+**Checked and sound:**
+- *What Apple is told.* A wake push carries the call's id, the caller's number and the time, and nothing else — no name, no extension, no token, no SIP password (a unit test fails if a fourth field is ever added). A quiet notification carries the same bare facts in the words shown on the screen. Apple can see these, which is why they are this thin; everything else about the call stays between the phone and this server.
+- *The Apple key.* The `.p8` is sealed with ADR-030's key (row id `push_settings:<tenant>`), never returned by the API, never written to a log, and never leaves the server. Saving it is a system admin's, after a fresh "confirm it's you", and the audit entry records everything but the key. What an attacker with the key could do is spam pushes to this company's phones — ring them, or show a notice — not place or hear a call: the call itself still needs a SIP line, and the phone still proves who it is with its Secure Enclave key.
+- *Push tokens.* A token identifies one app on one phone to Apple. It can't be used by anyone without the key, so it is kept in plain columns like a webhook URL; a phone may only ever set its own (`POST /me/phone-push` takes a device token and uses that phone's id, never one from the body). A token Apple calls dead (410 `Unregistered`, `BadDeviceToken`) is forgotten at once, so nothing keeps being sent to a phone that has gone.
+- *Outbound connection.* Apple is reached through the same guarded client as webhooks: https only, no proxy, no redirects, every resolved address checked against the private-address rules. A DNS answer pointing `api.push.apple.com` at this server's own network is refused.
+- *A caller can't make Linx push.* The wake request comes from the dialplan over the ARI websocket Asterisk already authenticates on, and names AORs; the control plane looks each one up and sends only to app phones that are still set up and have a token. Rate limits are per phone (10 wake pushes a minute, 60 quiet notifications an hour), so redialling or a routing loop can't turn into a stream of pushes to someone's phone — and can't get the app cut off by Apple for taking VoIP pushes it can't ring.
+- *Holding the call.* The wait is in the dialplan, bounded (15 s at most, 6 s by default) and only for phones that can be woken, so an unreachable control plane or Apple costs the caller a few seconds of ringing, not a lost call: the phones that are already there still ring afterwards.
+- *A VoIP push is only ever a ringing call.* A missed call and a new voicemail go as ordinary notifications on the app's own topic, never as VoIP pushes — Apple kills an app that takes a VoIP push without reporting a call, and stops delivering to it after a few (`docs/PHASE2.md` §14 item 1).
+
+**Still open (accepted):**
+- Apple learns that *someone* called *this phone* at a given moment, and the caller's number, for every call that reaches a sleeping phone. That is unavoidable with Apple's push service and is the single third party in a Linx call; the alternative (no push) means the app only rings while it is open. A self-hoster who would rather not can leave the key out, and nothing is sent at all.
+- The quiet notifications need the person to allow notifications on the phone, which the app asks for in build step 6. Until then only the VoIP path is used.
+

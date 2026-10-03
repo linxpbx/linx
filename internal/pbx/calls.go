@@ -141,8 +141,11 @@ type CallTracker struct {
 	// Watch, if set, hears about outgoing calls.
 	Watch CallWatcher
 	// UserEvent, if set, hears the dialplan's UserEvent()s by name (a
-	// voicemail left: internal/voicemail).
-	UserEvent func(name string)
+	// voicemail left: internal/voicemail) with what it carried.
+	UserEvent func(name string, fields map[string]any)
+	// Woke, if set, hears a device signing in, so a phone that was woken
+	// by a push can be timed (internal/push).
+	Woke func(sipUsername string)
 	// Ended, if set, is called after each call ends (call history reads
 	// Asterisk's call records then, internal/callhistory). It must not
 	// block.
@@ -270,7 +273,7 @@ func (t *CallTracker) handle(ctx context.Context, ev ari.Event) {
 		t.destroyed(ctx, ev, at)
 	case "ChannelUserevent":
 		if t.UserEvent != nil {
-			t.UserEvent(ev.EventName)
+			t.UserEvent(ev.EventName, ev.Userevent)
 		}
 		return
 	default:
@@ -305,6 +308,9 @@ func (t *CallTracker) contact(ctx context.Context, ev ari.Event, at time.Time) {
 	}
 	if _, err := t.Store.SetDeviceOnline(ctx, ev.Endpoint.Resource, online, from, at); err != nil && !errors.Is(err, ErrNotFound) {
 		t.Log.Error("recording device sign-in", "device", ev.Endpoint.Resource, "err", err)
+	}
+	if online && t.Woke != nil {
+		t.Woke(ev.Endpoint.Resource)
 	}
 }
 

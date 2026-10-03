@@ -960,6 +960,11 @@ verify_server_hostname = yes
 //
 // LINX_BUSY_TONE(endpoint): the country whose busy tone to listen for on
 // that line (migration 0040), no row if the line isn't a gateway's.
+//
+// LINX_WAKE(targets): of the devices this step is about to ring, which are
+// app phones that can be woken by a push, and how long to wait for them
+// (migration 0042, ADR-074). The answer is empty unless the Apple key is
+// in place, so a server without push never waits.
 const funcOdbcConf = `; Rendered by linx-asterisk-entrypoint.
 [ROUTE]
 prefix = LINX
@@ -985,6 +990,11 @@ readsql = SELECT * FROM linx_line_rings('${SQL_ESC(${ARG1})}')
 prefix = LINX
 dsn = asterisk
 readsql = SELECT * FROM linx_busy_tone('${SQL_ESC(${ARG1})}')
+
+[WAKE]
+prefix = LINX
+dsn = asterisk
+readsql = SELECT * FROM linx_wake('${SQL_ESC(${ARG1})}')
 `
 
 // extensionsConf is the whole dialplan (docs/PBX.md §4, docs/TRUNKS.md
@@ -1019,6 +1029,11 @@ readsql = SELECT * FROM linx_busy_tone('${SQL_ESC(${ARG1})}')
 // numbers goes where the line's own "calls on this line ring…" sends it
 // (l:<id>, docs/SIMPLER.md §1.2: an analog landline often sends no
 // number), else hears "not in use".
+// WakeEvent is the UserEvent the dialplan sends when a step is about to
+// ring an app phone that isn't connected (ADR-074): the control plane asks
+// Apple to wake it while the call waits.
+const WakeEvent = "LinxWake"
+
 const extensionsConf = `; Rendered by linx-asterisk-entrypoint.
 [general]
 static = yes
@@ -1091,10 +1106,52 @@ exten => s,1,Set(STEPS=1)
 ; or s when it has none). Only the context and number are for the control
 ; plane's call events, which tell from them what is ringing.
 [linx-ring]
-exten => _X.,1,Dial(${ARG1},${ARG2})
+exten => _X.,1,Gosub(linx-wake,s,1(${ARG1}))
+ same => n,Dial(${ARG1},${ARG2})
  same => n,Return()
-exten => s,1,Dial(${ARG1},${ARG2})
+exten => s,1,Gosub(linx-wake,s,1(${ARG1}))
+ same => n,Dial(${ARG1},${ARG2})
  same => n,Return()
+
+; Waking a sleeping iPhone or iPad (ADR-074, docs/PHASE2.md §5). An app
+; that isn't connected can't be rung by SIP, so before this step's phones
+; are dialled: ask the database which of them are app phones that can be
+; woken (LINX_WAKE answers nothing at all unless the Apple key is in
+; place), leave out any that are already here, tell the control plane to
+; push to the rest, and hold the call ringing until they arrive or the
+; wait runs out. The caller hears ringing throughout. Everything else about
+; the step is unchanged: all the phones are dialled together afterwards,
+; and the first to answer takes the call.
+[linx-wake]
+exten => s,1,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
+ same => n,GotoIf($[${ODBCROWS} < 1]?done)
+ same => n,GotoIf($["${WAKEAORS}" = ""]?done)
+ same => n,GotoIf($[${WAKEMS} < 1]?done)
+ same => n,Set(WAKEN=${FIELDQTY(WAKEAORS,&)})
+ same => n,Set(WAKEI=1)
+ same => n,Set(WAKELIST=)
+ same => n(scan),Set(WAKEONE=${CUT(WAKEAORS,&,${WAKEI})})
+ same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
+ same => n,GotoIf($["${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?next)
+ same => n,Set(WAKELIST=${IF($["${WAKELIST}" = ""]?${WAKEONE}:${WAKELIST}&${WAKEONE})})
+ same => n(next),Set(WAKEI=$[${WAKEI} + 1])
+ same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?scan)
+ same => n,GotoIf($["${WAKELIST}" = ""]?done)
+ same => n,UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN})
+ same => n,GotoIf($["${CHANNEL(state)}" = "Up"]?wait)
+ same => n,Ringing()
+ same => n(wait),Set(WAKEUNTIL=$[${EPOCH} + (${WAKEMS} + 999) / 1000])
+ same => n(again),Wait(0.25)
+ same => n,Set(WAKEN=${FIELDQTY(WAKELIST,&)})
+ same => n,Set(WAKEI=1)
+ same => n(check),Set(WAKEONE=${CUT(WAKELIST,&,${WAKEI})})
+ same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
+ same => n,GotoIf($["${WAKESTATE}" = "UNAVAILABLE" | "${WAKESTATE}" = "INVALID" | "${WAKESTATE}" = "UNKNOWN"]?notyet)
+ same => n,Set(WAKEI=$[${WAKEI} + 1])
+ same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?check)
+ same => n,Goto(done)
+ same => n(notyet),GotoIf($[${EPOCH} < ${WAKEUNTIL}]?again)
+ same => n(done),Return()
 
 ; Leaving a voicemail (ADR-069) in the box linx_route named (a uuid it
 ; checked): the greeting (LABEL "closed": the we're-closed one; the box's

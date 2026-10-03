@@ -35,6 +35,11 @@ type Options struct {
 	// take longer than Timeout to load before it answers at all.
 	// Connecting still gets Timeout.
 	Timeout time.Duration
+	// IdleTimeout keeps an unused connection open longer than the default
+	// 30 seconds, for a destination that asks senders to keep one (Apple's
+	// push service, internal/push). An allowlist removal then applies that
+	// much later to connections already open.
+	IdleTimeout time.Duration
 }
 
 // URLError is a URL that can never be used, whatever it resolves to.
@@ -84,8 +89,12 @@ func NewClient(policy Policy, opts Options) *http.Client {
 		MaxIdleConnsPerHost:   2,
 		// Idle connections were checked when opened; keep them briefly so an
 		// allowlist removal applies soon.
-		IdleConnTimeout:        30 * time.Second,
+		IdleConnTimeout: 30 * time.Second,
+		// (IdleConnTimeout is raised below when a caller asks for it.)
 		MaxResponseHeaderBytes: 64 << 10,
+	}
+	if opts.IdleTimeout > 0 {
+		transport.IdleConnTimeout = opts.IdleTimeout
 	}
 	timeout := opts.Timeout
 	if timeout == 0 {

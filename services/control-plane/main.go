@@ -22,6 +22,7 @@ import (
 	"net/netip"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,6 +46,7 @@ import (
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/ops"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/push"
 	"linxpbx.com/linx/internal/routing"
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
@@ -395,6 +397,12 @@ func main() {
 			}
 		},
 	}
+	// Ringing the app on a sleeping phone (ADR-074, docs/PHASE2.md §5):
+	// the owner's own Apple key, on the owner's own server, over the same
+	// private-address guard as webhooks. Nothing happens here at all until
+	// a key is saved and a phone has sent its token.
+	pushGW := &push.Gateway{Store: st, Sealer: sealer, Policy: policy, Now: time.Now, Log: log}
+
 	alertSender.Email, alertSender.WebAddress = emailSvc, weburl.FromEnv(os.Getenv)
 	accounts.Mailer = accountMail{email: emailSvc, web: weburl.FromEnv(os.Getenv)}
 	// Voicemail (ADR-069): Asterisk records into a folder only it and this
@@ -420,13 +428,24 @@ func main() {
 	// database itself; this reads them into one line per call as each
 	// call ends, and moves the Call history badge's counter.
 	historyBuilder := &callhistory.Builder{Store: store.CallHistory{Store: st}, Changed: hub.CallsChanged, Now: time.Now, Log: log}
+	historyBuilder.Missed = pushGW.Missed
+	voicemails.Arrived = pushGW.NewVoicemail
 	historySvc := &callhistory.Service{Store: store.CallHistory{Store: st}, Builder: historyBuilder, Now: time.Now}
 	tracker.Ended = historyBuilder.Kick
-	tracker.UserEvent = func(name string) {
-		if name == voicemail.EventName {
+	tracker.UserEvent = func(name string, fields map[string]any) {
+		switch name {
+		case voicemail.EventName:
 			voicemails.Kick()
+		case asteriskconf.WakeEvent:
+			// A call is ringing for a phone whose app isn't connected: the
+			// dialplan holds it for a moment while Apple wakes the app.
+			go pushGW.Wake(context.Background(), wakeAORs(fields["Aors"]), push.Call{
+				ID: asString(fields["Call"]), From: asString(fields["From"]), At: time.Now(),
+			})
 		}
 	}
+	// A phone arriving after a push: that is what "push → ringing" times.
+	tracker.Woke = pushGW.Registered
 	if _, err := os.Stat(voicemails.Dir); err != nil {
 		log.Warn("no voicemail folder; messages callers leave can't be kept", "err", err)
 	} else {
@@ -522,6 +541,7 @@ func main() {
 			s.SetMoved(movedSvc)
 			s.SetHelpAnswers(helpAnswers)
 			s.SetEmail(emailSvc, weburl.FromEnv(os.Getenv))
+			s.SetPush(pushGW)
 			routingSvc := &routing.Service{Store: st, Rules: st, Changes: st, Now: time.Now}
 			st.SetRoutingWords(routingSvc.Words)
 			s.SetRouting(routingSvc)
@@ -578,6 +598,10 @@ func main() {
 	// health check (healthcheck.go): nothing else can reach it.
 	healthMux := http.NewServeMux()
 	healthMux.Handle("/healthz", health.Handler(service))
+	// What the push gateway has done, in Prometheus text form. Like every
+	// other metrics endpoint it is never public: this listener is the
+	// container's own loopback.
+	healthMux.Handle("/metrics", pushGW.MetricsHandler())
 	plain := server.New(envOr(os.Getenv, "LINX_HEALTH_ADDR", defaultHealthAddr), healthMux)
 
 	// Trusted front doors given by name (LINX_TRUSTED_PROXIES) are looked
@@ -623,4 +647,23 @@ func envOr(getenv func(string) string, key, def string) string {
 		return v
 	}
 	return def
+}
+
+// wakeAORs reads the dialplan's "Aors" field: the SIP usernames of the app
+// phones to wake, joined with & as Dial() joins them.
+func wakeAORs(v any) []string {
+	s, _ := v.(string)
+	out := []string{}
+	for _, name := range strings.Split(s, "&") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func asString(v any) string {
+	s, _ := v.(string)
+	return strings.TrimSpace(s)
 }

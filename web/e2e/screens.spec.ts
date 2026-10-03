@@ -983,6 +983,27 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-system-settings-email`);
     });
 
+    test("system settings: Calls to the app", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, systemAdmin: true, setupCompleted: true });
+      await page.goto("/admin/system/settings");
+      const card = page.getByRole("heading", { name: "Calls to the app" });
+      await card.scrollIntoViewIfNeeded();
+      // What the gateway has done is in plain words, not a graph.
+      await expect(page.getByText("96 phones, 0.8s on average to ring (slowest 1.9s)")).toBeVisible();
+      await shot(page, `${scheme}-system-settings-app-push`);
+      await page.getByRole("button", { name: "Change" }).last().click();
+      await expect(page.getByText("so a sleeping phone rings")).toBeVisible();
+      await page.getByLabel("Team id").fill("ABCDE12345");
+      await page.getByLabel("Key id").fill("KEY1234567");
+      await shot(page, `${scheme}-system-settings-app-push-key`);
+      await page.getByRole("button", { name: "Save" }).click();
+      // The Apple key is a system admin's, after "confirm it's you".
+      await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+      await page.getByLabel("Password", { exact: true }).fill("correct horse battery");
+      await page.getByLabel("Code from your authenticator app").pressSequentially("123456");
+      await expect(page.getByText("KEY1234567 · team ABCDE12345")).toBeVisible();
+    });
+
     test("system alerts: an email channel", async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
       await page.goto("/admin/system/alerts");

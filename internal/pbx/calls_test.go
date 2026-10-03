@@ -447,9 +447,20 @@ func TestInboundCall(t *testing.T) {
 func TestUserEvent(t *testing.T) {
 	tr, _ := newTracker()
 	var got []string
-	tr.UserEvent = func(name string) { got = append(got, name) }
+	var fields map[string]any
+	tr.UserEvent = func(name string, f map[string]any) {
+		got = append(got, name)
+		fields = f
+	}
 	tr.handle(context.Background(), ari.Event{Type: "ChannelUserevent", EventName: "LinxVoicemail"})
 	if len(got) != 1 || got[0] != "LinxVoicemail" {
 		t.Errorf("user events = %v", got)
+	}
+	// What the dialplan put in the event reaches the app that wants it
+	// (the wake request, docs/PHASE2.md §5).
+	tr.handle(context.Background(), ari.Event{Type: "ChannelUserevent", EventName: "LinxWake",
+		Userevent: map[string]any{"Aors": "d_ab12cd34&d_ef56gh78", "Call": "1759500000.1"}})
+	if len(got) != 2 || fields["Aors"] != "d_ab12cd34&d_ef56gh78" {
+		t.Errorf("wake event = %v, %v", got, fields)
 	}
 }
