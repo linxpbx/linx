@@ -238,4 +238,11 @@ Part A steps 8–10 on the VPS, looking especially at the three things fixed the
 - [ ] Home: Incoming as you want it (the landline ringing you, or back to Sales); delete the test messages; keep Sara or remove her (People → Sara → Remove). The Email alert channel can stay.
 
 ### Results
-Not run yet.
+Run 2026-10-03 with the owner, at `424cc46`.
+- Steps 1–3 ✓: CI green; both servers updated to `424cc46` (schema 38), doctor nothing failing (home: the CA backup and API key warnings; VPS: those plus no alert channel, public address, no phone lines).
+- Step 4 ✓: the home front-door card at `.212`, Pangolin first; Cancel changed nothing.
+- Step 5: **Found:** on a server where email was never set up, **Save and send a test** stayed grey with Gmail: Gmail was already chosen, so its (hidden) server was never filled in (fixed, `2d7842c`; screens test). With the workaround (another provider, then Gmail) the test email arrived.
+- Step 5: **Found:** adding an **Email** alert channel said "Something went wrong": the database still allowed only the first six kinds (fixed, migration 0039; a real-Postgres test saves every kind). Invite by email arrived; Activity doesn't show the app password.
+- Step 6: boxes 1–4 ✓ (same answer for an unknown email, reset with the second step, used link refused). Ask my admin: after the update.
+- Step 7 ✓ (Sales all at once, Saved. Undo shown, the simulator's steps one after another).
+- Update to `e7bec3e` for the two fixes: **Found:** `sudo ./linx setup` didn't update, because the Server settings page opened in step 4 was still open (four hours), so setup went straight to it ("Nothing was reopened"). Updated with `sudo ./linx setup --config /etc/linx/setup.yaml`. **Owner decision 2026-10-03 (as recommended):** when the `linx` program is newer than what's running, setup says so and gives the update command, even while the page is open; build after the demo. Email alert channel then added, its test arrived.
