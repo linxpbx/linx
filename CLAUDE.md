@@ -147,4 +147,5 @@ Linx must run well on the smallest servers (1 core, 1–2 GB, a few GB of disk).
 - After building or changing any screen, use Playwright (web) or XcodeBuild simulator screenshots (iOS) to capture it, compare with docs/ui, and fix differences before reporting done.
 - Use the frontend-design skill for all UI work.
 - If the web UI uses shadcn/ui, set up the shadcn MCP server before building components.
+- iOS work: Xcode's own MCP server is in `.mcp.json` as `xcode` (`xcrun mcpbridge`; needs Xcode **open**, prefers Xcode 27.1 beta when it's running). Use it for Apple templates, previews, build issues and simulator interaction; XcodeBuildMCP for headless builds and screenshots. Details in `ios/README.md`.
 - No page ever scrolls sideways, at any width, admin or not (owner, 2026-09-27): long text wraps in its column (the shared table cell wraps), and lists drop secondary columns on phones (`DataTable` column `meta: { wide: true }`). `make screens` fails any screenshot whose page or any part of it scrolls sideways, and sweeps every signed-in page at phone width.

@@ -4,6 +4,13 @@
       "command": "npx",
       "args": ["--yes", "shadcn@4.21.0", "mcp"],
       "cwd": "web"
+    },
+    "xcode": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "B=/Applications/Xcode-27.1-beta.app; p=$(pgrep -f \"$B/Contents/MacOS/Xcode\" | head -1); if [ -n \"$p\" ]; then export MCP_XCODE_PID=$p DEVELOPER_DIR=\"$B/Contents/Developer\"; fi; exec xcrun mcpbridge"
+      ]
     }
   }
 }

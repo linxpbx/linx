@@ -33,3 +33,6 @@ setup.yaml
 xcuserdata/
 DerivedData/
 *.xcuserstate
+
+# Playwright MCP scratch output (console logs, page snapshots)
+.playwright-mcp/
