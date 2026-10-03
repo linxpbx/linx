@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,37 @@ func TestGetOpenapiSpec(t *testing.T) {
 	}
 	if doc["openapi"] != "3.1.0" {
 		t.Fatalf("openapi field = %v, want 3.1.0", doc["openapi"])
+	}
+}
+
+// TestEveryPatchIsMergePatch: the web client sends every PATCH as
+// application/merge-patch+json but a passkey's rename (web/src/api
+// client.ts), so the spec must say the same, or the validator refuses the
+// request (found in Demo B: marking voicemail heard).
+func TestEveryPatchIsMergePatch(t *testing.T) {
+	spec, err := GetSwagger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Paths.Len() == 0 {
+		t.Fatal("no paths in the spec")
+	}
+	for path, item := range spec.Paths.Map() {
+		if item.Patch == nil || item.Patch.RequestBody == nil || item.Patch.RequestBody.Value == nil {
+			continue
+		}
+		content := item.Patch.RequestBody.Value.Content
+		want := "application/merge-patch+json"
+		if strings.HasPrefix(path, "/api/v1/me/passkeys/") {
+			want = "application/json"
+		}
+		if _, ok := content[want]; !ok || len(content) != 1 {
+			names := make([]string, 0, len(content))
+			for k := range content {
+				names = append(names, k)
+			}
+			t.Errorf("PATCH %s takes %v, want only %s", path, names, want)
+		}
 	}
 }
 

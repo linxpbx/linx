@@ -6351,7 +6351,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MovedChecklistChange"];
+                "application/merge-patch+json": components["schemas"]["MovedChecklistChange"];
             };
         };
         responses: {
@@ -10196,7 +10196,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
+                "application/merge-patch+json": {
                     heard: boolean;
                 };
             };
