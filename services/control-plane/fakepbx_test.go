@@ -26,12 +26,16 @@ type fakePbxStore struct {
 	// sessions' web devices are still live (nil: all).
 	sessionLive    func(session uuid.UUID) bool
 	defaultLevelID *uuid.UUID
+	// phones is which devices are set-up iPhones or iPads, and whose
+	// (docs/PHASE2.md §4): what device_identity holds in the real store.
+	phones map[uuid.UUID]uuid.UUID
 }
 
 var _ pbx.Store = (*fakePbxStore)(nil)
 
 func newFakePbxStore() *fakePbxStore {
-	return &fakePbxStore{extensions: map[uuid.UUID]pbx.Extension{}, devices: map[uuid.UUID]pbx.Device{}}
+	return &fakePbxStore{extensions: map[uuid.UUID]pbx.Extension{}, devices: map[uuid.UUID]pbx.Device{},
+		phones: map[uuid.UUID]uuid.UUID{}}
 }
 
 // DefaultCallPermissionLevelID stands in for pbx_setting.default_call_permission_level_id;
@@ -275,4 +279,18 @@ func (f *fakePbxStore) auditActions() []string {
 		out = append(out, a.Action)
 	}
 	return out
+}
+
+// DevicePrincipalFor stands in for migration 0041's rule for a phone (the
+// real one is one SQL statement in internal/store): the phone is on, not
+// revoked, and the test says whose it is. `phones` is device → person.
+func (f *fakePbxStore) DevicePrincipalFor(_ context.Context, device uuid.UUID, _ time.Time) (uuid.UUID, uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.devices[device]
+	user, mine := f.phones[device]
+	if !ok || !mine || !d.Enabled || d.RevokedAt != nil {
+		return uuid.Nil, uuid.Nil, pbx.ErrNotFound
+	}
+	return d.TenantID, user, nil
 }

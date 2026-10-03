@@ -451,3 +451,79 @@ func pemDecode(b []byte) ([]byte, []byte) {
 	}
 	return block.Bytes, rest
 }
+
+func TestPhoneLine(t *testing.T) {
+	f := newFixture(t)
+	_, out := f.setUp(t, f.sara)
+	app := f.person(f.sara)
+	app.DeviceID = &out.DeviceID
+
+	line, err := f.svc.IssuePhoneLine(f.ctx(app))
+	if err != nil {
+		t.Fatalf("the app asking for its phone line: %v", err)
+	}
+	if line.Device.ID != out.DeviceID || line.Extension.Number != "101" || line.UserID != f.sara {
+		t.Fatalf("the line: %+v", line)
+	}
+	if len(line.Password) < 20 {
+		t.Fatalf("the line's password is %d characters", len(line.Password))
+	}
+	if line.Device.DigestHash != pbx.DigestHash(line.Device.SIPUsername, line.Password) {
+		t.Error("the device's digest doesn't match the password the app was given")
+	}
+
+	// Asking again keeps the username and gives a new password: the app
+	// keeps it in memory only, so a restarted app has lost the old one.
+	again, err := f.svc.IssuePhoneLine(f.ctx(app))
+	if err != nil {
+		t.Fatalf("asking again: %v", err)
+	}
+	if again.Device.SIPUsername != line.Device.SIPUsername {
+		t.Error("the SIP username changed")
+	}
+	if again.Password == line.Password {
+		t.Error("the same password twice")
+	}
+
+	// A browser, an API key or anything else that isn't a phone is refused:
+	// browsers have /me/web-phone.
+	if _, err := f.svc.IssuePhoneLine(f.ctx(f.person(f.sara))); status(err) != http.StatusBadRequest {
+		t.Errorf("a browser asking for a phone's line: %v", err)
+	}
+	if _, err := f.svc.IssuePhoneLine(context.Background()); status(err) != http.StatusUnauthorized {
+		t.Errorf("nobody asking: %v", err)
+	}
+
+	// A phone that has been stopped gets nothing, even inside the 15
+	// minutes its token lasts.
+	f.store.devices[out.DeviceID].Enabled = false
+	if _, err := f.svc.IssuePhoneLine(f.ctx(app)); status(err) != http.StatusUnauthorized {
+		t.Errorf("a stopped phone asking for a line: %v", err)
+	}
+}
+
+func TestStoppedPhoneLosesItsLine(t *testing.T) {
+	f := newFixture(t)
+	_, out := f.setUp(t, f.sara)
+	var stopped []string
+	f.svc.OnPhoneStopped = func(d pbx.Device) { stopped = append(stopped, d.SIPUsername) }
+
+	// Six months of silence: the phone's open line is dropped too.
+	f.now = f.now.Add(InactivityWindow + time.Hour)
+	if n, err := f.svc.ExpireOverdue(context.Background()); err != nil || n != 1 {
+		t.Fatalf("expiring: %d, %v", n, err)
+	}
+	if len(stopped) != 1 || stopped[0] != f.store.devices[out.DeviceID].SIPUsername {
+		t.Errorf("the expired phone's line wasn't dropped: %v", stopped)
+	}
+
+	// "I've lost it" does the same at once.
+	_, out2 := f.setUp(t, f.sara)
+	stopped = nil
+	if err := f.svc.RevokeMyPhone(f.ctx(f.person(f.sara)), out2.DeviceID); err != nil {
+		t.Fatalf("stopping my own phone: %v", err)
+	}
+	if len(stopped) != 1 {
+		t.Errorf("the revoked phone's line wasn't dropped: %v", stopped)
+	}
+}

@@ -155,6 +155,25 @@ func TestEnrollDocker(t *testing.T) {
 		t.Error("Asterisk can't see a phone that was just set up")
 	}
 
+	// The app asks for its phone line: the SIP username stays, the password
+	// is new, and Asterisk has the new digest the moment it's issued.
+	line, lineExt, err := s.IssuePhoneLine(ctx, tenant, device.ID,
+		func(u string) string { return pbx.DigestHash(u, "line-password-1") }, now, audit("device.phone_line"))
+	if err != nil || line.SIPUsername != username || line.Version != 2 || lineExt.Number != "101" {
+		t.Fatalf("phone line: %+v, %+v, %v", line, lineExt, err)
+	}
+	var digest string
+	if err := pool.QueryRow(ctx, `SELECT digest_hash FROM device_live WHERE id = $1`, device.ID).Scan(&digest); err != nil {
+		t.Fatal(err)
+	}
+	if digest != pbx.DigestHash(username, "line-password-1") {
+		t.Error("Asterisk hasn't got the password the app was just given")
+	}
+	if _, _, err := s.IssuePhoneLine(ctx, tenant, uuid.New(),
+		func(string) string { return "x" }, now, audit("device.phone_line")); !errors.Is(err, pbx.ErrNotFound) {
+		t.Errorf("a phone line for a phone that isn't there: %v", err)
+	}
+
 	// A proof can be used once.
 	jti := uuid.Must(uuid.NewV7())
 	if err := s.UseProof(ctx, jti, device.ID, now); err != nil {
@@ -260,5 +279,15 @@ func TestEnrollDocker(t *testing.T) {
 	}
 	if _, _, err := s.DevicePrincipalFor(ctx, device.ID, again); !errors.Is(err, pbx.ErrNotFound) {
 		t.Errorf("a disabled person's phone still has a token: %v", err)
+	}
+
+	// Revoked for good: no phone line either, however valid the token in
+	// the app's memory still is.
+	if _, err := s.RevokeDevice(ctx, tenant, device.ID, again, audit("device.revoke")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.IssuePhoneLine(ctx, tenant, device.ID,
+		func(string) string { return "x" }, again, audit("device.phone_line")); !errors.Is(err, pbx.ErrNotFound) {
+		t.Errorf("a revoked phone got a phone line: %v", err)
 	}
 }

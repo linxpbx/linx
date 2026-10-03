@@ -343,3 +343,34 @@ func (s *Store) DeleteUsedProofs(ctx context.Context, before time.Time) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM device_proof WHERE used_at < $1`, before)
 	return err
 }
+
+// IssuePhoneLine gives a set-up phone a fresh SIP password for the device it
+// already has (docs/PHASE2.md §4): the app asks every time it starts,
+// because it keeps the password in memory only. The row is locked while it
+// happens, so a revoke landing at the same moment wins.
+func (s *Store) IssuePhoneLine(ctx context.Context, tenant, device uuid.UUID, digest func(username string) string,
+	at time.Time, audit auth.AuditEntry,
+) (pbx.Device, pbx.Extension, error) {
+	var d pbx.Device
+	var ext pbx.Extension
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		cur, err := scanDevice(tx.QueryRow(ctx, `SELECT `+deviceColumns+` FROM device
+			WHERE id = $1 AND tenant_id = $2 AND kind = $3 AND enabled AND revoked_at IS NULL
+			FOR UPDATE`, device, tenant, pbx.KindIOS))
+		if err != nil {
+			return err
+		}
+		ext, err = scanExtension(tx.QueryRow(ctx, `SELECT `+extensionColumns+` FROM extension
+			WHERE id = $1 AND tenant_id = $2 AND enabled AND deleted_at IS NULL`, cur.ExtensionID, tenant))
+		if err != nil {
+			return err
+		}
+		d, err = scanDevice(tx.QueryRow(ctx, `UPDATE device SET digest_hash = $2, version = version + 1, updated_at = $3
+			WHERE id = $1 RETURNING `+deviceColumns, cur.ID, digest(cur.SIPUsername), at))
+		if err != nil {
+			return err
+		}
+		return insertAudit(ctx, tx, audit)
+	})
+	return d, ext, err
+}

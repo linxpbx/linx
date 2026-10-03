@@ -24,7 +24,9 @@ import (
 )
 
 // The /sip relay (ADR-038, docs/WEB.md §5): a signed-in browser's phone
-// line, relayed to Asterisk's secure websocket on linx-sipws.
+// line, relayed to Asterisk's secure websocket on linx-sipws. The app on an
+// iPhone or iPad comes in the same way with its device token instead of a
+// cookie (docs/PHASE2.md §4), and everything after that is the same.
 
 // sipwsURLFromEnv is Asterisk's browser websocket, checked against the
 // internal CA's root (the control plane issues its certificate, sipws.go).
@@ -40,6 +42,11 @@ type sipStore interface {
 	auth.SessionStore
 	WebDeviceForSession(ctx context.Context, session uuid.UUID) (pbx.Device, error)
 	RevokeDeadWebDevices(ctx context.Context, at time.Time) ([]pbx.Device, error)
+	// Device and DevicePrincipalFor are the phone's side: the device row,
+	// and the same rule Asterisk's view uses (the phone is on, not revoked,
+	// not expired, and its person is still there with that extension).
+	Device(ctx context.Context, tenant, id uuid.UUID) (pbx.Device, error)
+	DevicePrincipalFor(ctx context.Context, device uuid.UUID, now time.Time) (tenant, user uuid.UUID, err error)
 	Audit(ctx context.Context, e auth.AuditEntry) error
 }
 
@@ -64,8 +71,12 @@ func newSIPRelay(rawURL, caRootFile string, st sipStore, log *slog.Logger) (*sip
 		},
 		Check: func(ctx context.Context, line siprelay.Line) error { return checkLine(ctx, st, line, time.Now()) },
 		Audit: func(ctx context.Context, line siprelay.Line, reason string) {
+			target := "session:" + line.SessionID.String()
+			if line.Phone() {
+				target = "device:" + line.DeviceID.String()
+			}
 			e := auth.AuditEntry{TenantID: &line.TenantID, Actor: auth.TypeUser + ":" + line.UserID.String(), IP: line.IP,
-				Action: "sip.relay_closed", Target: "session:" + line.SessionID.String(), Result: auth.ResultDenied,
+				Action: "sip.relay_closed", Target: target, Result: auth.ResultDenied,
 				Detail: map[string]any{"reason": reason, "sip_username": line.Username}}
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
@@ -81,6 +92,9 @@ func newSIPRelay(rawURL, caRootFile string, st sipStore, log *slog.Logger) (*sip
 // still has this web device. It also counts the open connection as use of
 // the session, like any request, so a page left open doesn't go idle.
 func checkLine(ctx context.Context, st sipStore, line siprelay.Line, now time.Time) error {
+	if line.Phone() {
+		return checkPhoneLine(ctx, st, line, now)
+	}
 	sess, err := st.SessionByTokenHash(ctx, line.SessionTokenHash)
 	if err != nil {
 		return err
@@ -102,6 +116,28 @@ func checkLine(ctx context.Context, st sipStore, line siprelay.Line, now time.Ti
 	return st.TouchSession(ctx, sess.ID, now, idle, line.IP)
 }
 
+// checkPhoneLine is the same check for a phone (docs/PHASE2.md §4): it is
+// still set up, still on, still its person's, and still on the SIP username
+// this connection has been using. Nothing is touched: the app is in touch
+// every 15 minutes for its device token, which is what keeps it alive.
+func checkPhoneLine(ctx context.Context, st sipStore, line siprelay.Line, now time.Time) error {
+	tenant, _, err := st.DevicePrincipalFor(ctx, line.DeviceID, now)
+	if errors.Is(err, pbx.ErrNotFound) {
+		return errors.New("this phone is no longer set up")
+	}
+	if err != nil {
+		return err
+	}
+	d, err := st.Device(ctx, tenant, line.DeviceID)
+	if err != nil {
+		return err
+	}
+	if d.SIPUsername != line.Username || !d.Enabled || d.RevokedAt != nil {
+		return errors.New("the phone has a different phone line now")
+	}
+	return nil
+}
+
 func liveSession(s auth.UserSession, now time.Time) error {
 	switch {
 	case s.RevokedAt != nil:
@@ -114,11 +150,22 @@ func liveSession(s auth.UserSession, now time.Time) error {
 	return nil
 }
 
-// sipHandler is GET /sip: it takes only a signed-in session's cookie, from
-// a page on this server's own address, whose session has a phone line
-// (POST /api/v1/me/web-phone), then hands the websocket to the relay.
+// sipHandler is GET /sip. It takes either
+//
+//   - a signed-in session's cookie, from a page on this server's own address,
+//     whose session has a phone line (POST /api/v1/me/web-phone); or
+//   - a set-up phone's device token in the Authorization header
+//     (docs/PHASE2.md §4). There is no Origin check for a phone: the app is
+//     not a web page and sends none, and no web page can send an
+//     Authorization header on a websocket.
+//
+// then hands the websocket to the relay.
 func sipHandler(authn *auth.Authenticator, st sipStore, relay *siprelay.Relay) http.Handler {
 	return authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p, ok := auth.PrincipalFromContext(r.Context()); ok && p.DeviceID != nil {
+			servePhoneLine(w, r, st, relay, p)
+			return
+		}
 		if !sameOrigin(r) {
 			apihttp.WriteProblem(w, http.StatusForbidden, "origin_invalid", "Open the phone line from this server's own web page.")
 			return
@@ -147,6 +194,30 @@ func sipHandler(authn *auth.Authenticator, st sipStore, relay *siprelay.Relay) h
 			Username: d.SIPUsername, IP: auth.ClientIPFromContext(r.Context()),
 		})
 	}))
+}
+
+// servePhoneLine relays a set-up phone's websocket. The authenticator has
+// already refused a revoked or expired phone; the device is read again here
+// for the SIP username this connection is then held to.
+func servePhoneLine(w http.ResponseWriter, r *http.Request, st sipStore, relay *siprelay.Relay, p auth.Principal) {
+	user, err := uuid.Parse(p.ID)
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusUnauthorized, "device_inactive", "This phone is no longer set up. Set it up again.")
+		return
+	}
+	d, err := st.Device(r.Context(), p.TenantID, *p.DeviceID)
+	if errors.Is(err, pbx.ErrNotFound) || err == nil && (d.Kind != pbx.KindIOS || !d.Enabled || d.RevokedAt != nil) {
+		apihttp.WriteProblem(w, http.StatusUnauthorized, "device_inactive", "This phone is no longer set up. Set it up again.")
+		return
+	}
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusServiceUnavailable, "unavailable", "Linx can't check that right now. Try again shortly.")
+		return
+	}
+	relay.Serve(w, r, siprelay.Line{
+		TenantID: p.TenantID, UserID: user, DeviceID: *p.DeviceID,
+		Username: d.SIPUsername, IP: auth.ClientIPFromContext(r.Context()),
+	})
 }
 
 // sameOrigin reports whether the websocket was opened by a page on this

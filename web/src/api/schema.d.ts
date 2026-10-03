@@ -2706,6 +2706,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/phone-line": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get this phone's phone line
+         * @description For the Linx app on an iPhone or iPad, with the device token it got by proving who it is (docs/PHASE2.md §4). A browser uses POST /me/web-phone instead; anything else gets 400 `not_a_phone`. The phone's device already exists — it was created when the phone was set up — so this gives it a new password, which the app keeps in memory only and asks for again every time it starts. The line works only through this server's `/sip` relay, and only while the phone is still set up: revoking it, disabling the person, taking their extension away, a change of their password or six months of silence all end it at once (401 `device_inactive`). Also returns relay (TURN) credentials, as GET /me/turn-credentials does.
+         */
+        post: operations["issueMyPhoneLine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/turn-credentials": {
         parameters: {
             query?: never;
@@ -5789,6 +5809,28 @@ export interface components {
             sip_uri: string;
             /**
              * @description Open wss://<this page's own host>/sip with subprotocol "sip".
+             * @constant
+             */
+            websocket_path: "/sip";
+            display_name: string;
+            /** @description The extension number this line answers for, e.g. "101". */
+            extension: string;
+            turn: components["schemas"]["TurnCredentials"];
+        };
+        /** @description A set-up iPhone's or iPad's phone line (docs/PHASE2.md §4). */
+        PhoneLine: {
+            /** Format: uuid */
+            device_id: string;
+            /** @description What the phone was called when it was set up, e.g. "Mohammed's iPhone". */
+            device_name: string;
+            /** @description The line's SIP username (also its digest authentication username). It never changes. */
+            sip_username: string;
+            /** @description Shown once. Keep it in memory only, never in the Keychain or a file. */
+            password: string;
+            /** @description e.g. "sip:d_Ab12Cd34@sip.example.com". */
+            sip_uri: string;
+            /**
+             * @description Open wss://<this server's host>/sip with subprotocol "sip" and the device token in the Authorization header.
              * @constant
              */
             websocket_path: "/sip";
@@ -10315,6 +10357,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebPhone"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    issueMyPhoneLine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The phone line, with its password shown once. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhoneLine"];
                 };
             };
             default: components["responses"]["Problem"];

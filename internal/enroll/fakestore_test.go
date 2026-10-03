@@ -245,3 +245,17 @@ func (f *fakeStore) RevokeDevice(_ context.Context, _, id uuid.UUID, at time.Tim
 	f.audits = append(f.audits, a)
 	return *d, nil
 }
+
+func (f *fakeStore) IssuePhoneLine(_ context.Context, tenant, device uuid.UUID, digest func(string) string,
+	at time.Time, a auth.AuditEntry,
+) (pbx.Device, pbx.Extension, error) {
+	d, i := f.devices[device], f.identities[device]
+	if d == nil || i == nil || d.TenantID != tenant || d.Kind != pbx.KindIOS || !d.Enabled || d.RevokedAt != nil {
+		return pbx.Device{}, pbx.Extension{}, pbx.ErrNotFound
+	}
+	d.DigestHash, d.Version, d.UpdatedAt = digest(d.SIPUsername), d.Version+1, at
+	f.audits = append(f.audits, a)
+	t := f.targets[i.UserID]
+	return *d, pbx.Extension{ID: d.ExtensionID, TenantID: tenant, Number: t.Number,
+		DisplayName: t.PersonName, Enabled: true}, nil
+}

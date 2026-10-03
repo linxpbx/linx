@@ -185,6 +185,11 @@ type Store interface {
 	PhonesForUser(ctx context.Context, tenant, user uuid.UUID) ([]pbx.Device, error)
 	// RevokeDevice logs a phone out at once and for good.
 	RevokeDevice(ctx context.Context, tenant, id uuid.UUID, at time.Time, audit auth.AuditEntry) (pbx.Device, error)
+	// IssuePhoneLine gives a set-up phone's device a fresh SIP password
+	// (digest of whatever username it already has) and returns it with the
+	// extension it answers for. ErrNotFound if the phone is no longer one.
+	IssuePhoneLine(ctx context.Context, tenant, device uuid.UUID, digest func(username string) string,
+		at time.Time, audit auth.AuditEntry) (pbx.Device, pbx.Extension, error)
 }
 
 // CertIssuer signs a phone's certificate request (internal/stepca's client
@@ -203,8 +208,12 @@ type Service struct {
 	// CARoot is the internal CA's root certificate, PEM, which the app pins
 	// so it can tell this Linx from any other.
 	CARoot []byte
-	Now    func() time.Time
-	Log    *slog.Logger
+	// OnPhoneStopped, when set, is told about a phone that has just stopped
+	// being one (revoked, or expired after six months of silence), so its
+	// open phone line can be dropped there and then. Nil in tests.
+	OnPhoneStopped func(d pbx.Device)
+	Now            func() time.Time
+	Log            *slog.Logger
 }
 
 func (s *Service) now() time.Time {
@@ -434,7 +443,10 @@ func (s *Service) RevokeMyPhone(ctx context.Context, id uuid.UUID) error {
 	a := auth.AuditEntry{TenantID: &p.TenantID, Actor: p.Actor(), IP: auth.ClientIPFromContext(ctx),
 		Action: "device.revoke", Target: "device:" + id.String(), Result: auth.ResultOK,
 		Detail: map[string]any{"by": "owner"}}
-	_, err = s.Store.RevokeDevice(ctx, p.TenantID, id, s.now(), a)
+	d, err := s.Store.RevokeDevice(ctx, p.TenantID, id, s.now(), a)
+	if err == nil && s.OnPhoneStopped != nil {
+		s.OnPhoneStopped(d)
+	}
 	return err
 }
 

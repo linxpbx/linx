@@ -1,18 +1,19 @@
 // Package siprelay is the control plane's /sip relay (ADR-038, docs/WEB.md
 // §5): the only way SIP reaches Linx from the internet. A signed-in
-// browser's websocket is relayed, message by message and unchanged, to
-// Asterisk's internal secure websocket, after checks that keep everything
+// browser's websocket — or a set-up iPhone's or iPad's, with its device
+// token (docs/PHASE2.md §4) — is relayed, message by message and unchanged,
+// to Asterisk's internal secure websocket, after checks that keep everything
 // else out:
 //
-//   - every request must come from the session's own web device (From, and
+//   - every request must come from the line's own device (From, and
 //     To for REGISTER, and any Authorization username); anything else closes
 //     the connection and is audited;
 //   - 3 failed authentications in a row close it;
 //   - at most Rate messages a second (Burst at once), each at most
 //     MaxMessage bytes;
-//   - the session is checked again every CheckInterval, and CloseSession /
-//     CloseUser drop it at once when it ends (signing out, the person
-//     disabled, ...).
+//   - the session (or the phone) is checked again every CheckInterval, and
+//     CloseSession / CloseDevice / CloseUser drop it at once when it ends
+//     (signing out, the person disabled, the phone revoked, ...).
 package siprelay
 
 import (
@@ -29,16 +30,33 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Line is who one relayed connection belongs to.
+// Line is who one relayed connection belongs to: a browser's session, or
+// an iPhone or iPad using its device token (docs/PHASE2.md §4).
 type Line struct {
 	TenantID, UserID, SessionID uuid.UUID
 	// SessionTokenHash is how the session is looked up again (Check).
+	// Empty for a phone, which has no session.
 	SessionTokenHash []byte
-	// Username is the session's web device's SIP username: the only one
-	// this connection may use.
+	// DeviceID is set, and SessionID is not, when the line belongs to a set
+	// up phone instead of a browser session.
+	DeviceID uuid.UUID
+	// Username is the line's device's SIP username: the only one this
+	// connection may use.
 	Username string
 	IP       netip.Addr
 }
+
+// key is what one line is tracked by, so that a phone and a browser line
+// can never collide: the phone, or the browser's session.
+func (l Line) key() uuid.UUID {
+	if l.DeviceID != uuid.Nil {
+		return l.DeviceID
+	}
+	return l.SessionID
+}
+
+// Phone reports whether this line is a phone's (an iPhone or iPad).
+func (l Line) Phone() bool { return l.DeviceID != uuid.Nil }
 
 // Defaults (docs/WEB.md §5).
 const (
@@ -56,7 +74,7 @@ const Subprotocol = "sip"
 const (
 	ReasonSignedOut    = "signed out"
 	ReasonReplaced     = "opened again elsewhere"
-	ReasonNotYourLine  = "not this browser's phone line"
+	ReasonNotYourLine  = "not your own phone line"
 	ReasonAuthFailures = "too many failed sign-ins"
 	ReasonTooMany      = "too many messages"
 	ReasonMalformed    = "not a SIP message"
@@ -121,9 +139,9 @@ func (r *Relay) defaults() {
 	}
 }
 
-// Serve relays one browser websocket for line, whose session and web device
-// the caller has already checked (and Origin: see the control plane's
-// /sip handler). It returns when the connection ends.
+// Serve relays one websocket for line, whose session or phone and whose
+// device the caller has already checked (and, for a browser, Origin: see the
+// control plane's /sip handler). It returns when the connection ends.
 func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, line Line) {
 	r.mu.Lock()
 	r.defaults()
@@ -138,8 +156,9 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, line Line) {
 		return
 	}
 	defer up.CloseNow()
-	// Origin is checked by the caller against this server's own address;
-	// coder/websocket's own check (Origin host = Host) agrees with it.
+	// A browser's Origin is checked by the caller against this server's own
+	// address; coder/websocket's own check (Origin host = Host) agrees with
+	// it. The app sends no Origin, and can't be made to by a web page.
 	// Registered before the browser's connection is accepted, so a sign-out
 	// or a disabled person from that moment on drops it at once (a sign-out
 	// landing between the two used to wait for the next recheck).
@@ -194,32 +213,38 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, line Line) {
 
 var errAsteriskClosed = errors.New("asterisk closed the connection")
 
-// add registers c, closing any other connection of the same session: a
-// session has one phone line, so one connection.
+// add registers c, closing any other connection of the same session or
+// phone: each has one phone line, so one connection.
 func (r *Relay) add(c *relayConn) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.conns == nil {
 		r.conns = map[uuid.UUID]*relayConn{}
 	}
-	if old := r.conns[c.line.SessionID]; old != nil {
+	if old := r.conns[c.line.key()]; old != nil {
 		old.cancel(&closeCause{reason: ReasonReplaced})
 	}
-	r.conns[c.line.SessionID] = c
+	r.conns[c.line.key()] = c
 }
 
 func (r *Relay) remove(c *relayConn) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// Only if it's still this connection (a newer one may have replaced it).
-	if r.conns[c.line.SessionID] == c {
-		delete(r.conns, c.line.SessionID)
+	if r.conns[c.line.key()] == c {
+		delete(r.conns, c.line.key())
 	}
 }
 
 // CloseSession drops the session's connection at once, if it has one.
 func (r *Relay) CloseSession(session uuid.UUID) {
-	r.closeWhere(func(l Line) bool { return l.SessionID == session })
+	r.closeWhere(func(l Line) bool { return l.SessionID == session && !l.Phone() })
+}
+
+// CloseDevice drops a phone's connection at once (it was revoked, or it has
+// expired): any call on it goes with it.
+func (r *Relay) CloseDevice(device uuid.UUID) {
+	r.closeWhere(func(l Line) bool { return l.DeviceID == device })
 }
 
 // CloseUser drops every connection of the person's.
@@ -227,7 +252,7 @@ func (r *Relay) CloseUser(user uuid.UUID) {
 	r.closeWhere(func(l Line) bool { return l.UserID == user })
 }
 
-// CloseUsername drops the connection using this web device.
+// CloseUsername drops the connection using this device.
 func (r *Relay) CloseUsername(username string) {
 	r.closeWhere(func(l Line) bool { return l.Username == username })
 }
@@ -242,7 +267,7 @@ func (r *Relay) closeWhere(match func(Line) bool) {
 	}
 }
 
-// Connections is how many browsers are connected right now.
+// Connections is how many browsers and phones are connected right now.
 func (r *Relay) Connections() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

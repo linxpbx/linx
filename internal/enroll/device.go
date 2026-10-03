@@ -320,7 +320,10 @@ func (s *Service) ExpireOverdue(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	for _, d := range expired {
-		s.log().Info("phone expired after 7 days with no contact", "device", d.ID, "name", d.Name)
+		s.log().Info("phone expired after six months with no contact", "device", d.ID, "name", d.Name)
+		if s.OnPhoneStopped != nil {
+			s.OnPhoneStopped(d)
+		}
 	}
 	if err := s.Store.DeleteUsedProofs(ctx, now.Add(-2*ProofTTL)); err != nil {
 		return len(expired), err

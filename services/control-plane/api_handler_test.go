@@ -175,6 +175,8 @@ func newTestEnv(t *testing.T) *testEnv {
 		Check: func(ctx context.Context, line siprelay.Line) error { return checkLine(ctx, sst, line, time.Now()) },
 		Log:   log,
 	}
+	// As main.go does: a revoked device loses its phone line there and then.
+	pbxSvc.OnDeviceRevoked = func(d pbx.Device) { env.relay.CloseUsername(d.SIPUsername) }
 	accounts.SessionsEnded = func(ctx context.Context, user uuid.UUID, session *uuid.UUID) {
 		if session != nil {
 			env.relay.CloseSession(*session)
@@ -738,9 +740,11 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	// 14), refused to anything but a session, and so is their own call
 	// history (step 15). Setting up a phone is the same: anyone may set up
 	// their own (docs/PHASE2.md §4), and internal/enroll asks for
-	// devices:write before making one for someone else.
+	// devices:write before making one for someone else. /me/phone-line is
+	// the app's own phone line, refused to anything but a phone's device
+	// token (docs/PHASE2.md §4).
 	anyCredential := []string{"ChangeMyEmail", "CheckMyPassword", "ListMySessions", "SignOutMySession", "SignOutMyOtherSessions", "GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
-		"IssueMyWebPhone", "GetMyTurnCredentials", "SetMyPresence",
+		"IssueMyWebPhone", "IssueMyPhoneLine", "GetMyTurnCredentials", "SetMyPresence",
 		"ListMyPasskeys", "RenameMyPasskey", "RemoveMyPasskey", "AcceptPasswordOnly",
 		"ListMyCompanyLinks", "UnlinkMyCompanyAccount",
 		"ListVoicemail", "UpdateVoicemail", "DeleteVoicemail", "GetMyVoicemailCount", "GetVoicemailBox", "UpdateVoicemailBox",

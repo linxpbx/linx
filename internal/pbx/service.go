@@ -25,6 +25,10 @@ type Service struct {
 	// Domain is this server's own domain (docs/PBX.md §5): device
 	// credentials are shown with server "sip.<domain>".
 	Domain string
+	// OnDeviceRevoked, when set, is told which device has just been
+	// revoked, so its open phone line can be dropped there and then (the
+	// control plane closes its /sip connection). Nil in tests.
+	OnDeviceRevoked func(d Device)
 }
 
 var errNoPrincipal = errors.New("no principal on the request: authentication middleware is missing")
@@ -481,9 +485,12 @@ func (s *Service) RevokeDevice(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.Store.RevokeDevice(ctx, p.TenantID, id, s.Now().UTC(), a)
+	d, err := s.Store.RevokeDevice(ctx, p.TenantID, id, s.Now().UTC(), a)
 	if errors.Is(err, ErrNotFound) {
 		return notFound("device")
+	}
+	if err == nil && s.OnDeviceRevoked != nil {
+		s.OnDeviceRevoked(d)
 	}
 	return err
 }

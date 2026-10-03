@@ -103,3 +103,38 @@ func (s *Server) GetMyTurnCredentials(ctx context.Context, _ GetMyTurnCredential
 	}
 	return GetMyTurnCredentials200JSONResponse(turnCredentials(s.turn.Issue(uid))), nil
 }
+
+// IssueMyPhoneLine is the app's side of the same thing (docs/PHASE2.md §4):
+// a set-up iPhone or iPad, with its device token, gets the SIP login for the
+// device it was given when it was set up. Relay credentials are issued for
+// its person, exactly as a browser's are.
+func (s *Server) IssueMyPhoneLine(ctx context.Context, _ IssueMyPhoneLineRequestObject) (IssueMyPhoneLineResponseObject, error) {
+	fail := func(e *apihttp.Error) (IssueMyPhoneLineResponseObject, error) {
+		return IssueMyPhoneLinedefaultApplicationProblemPlusJSONResponse{StatusCode: e.Status, Body: problem(e)}, nil
+	}
+	if s.enroll == nil {
+		return nil, errNoEnroll
+	}
+	if s.turn == nil {
+		return fail(errNoRelay)
+	}
+	line, err := s.enroll.IssuePhoneLine(ctx)
+	if err != nil {
+		if e, err := apiError(err); e != nil {
+			return fail(e)
+		} else {
+			return nil, err
+		}
+	}
+	return IssueMyPhoneLine200JSONResponse{
+		DeviceId:      line.Device.ID,
+		DeviceName:    line.Device.Name,
+		SipUsername:   line.Device.SIPUsername,
+		Password:      line.Password,
+		SipUri:        "sip:" + line.Device.SIPUsername + "@" + s.pbx.SIPServer(),
+		WebsocketPath: SIPPath,
+		DisplayName:   line.Extension.DisplayName,
+		Extension:     line.Extension.Number,
+		Turn:          turnCredentials(s.turn.Issue(line.UserID)),
+	}, nil
+}

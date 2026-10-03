@@ -297,6 +297,10 @@ func main() {
 		log.Error("phone line relay", "err", err)
 		os.Exit(1)
 	}
+	// A device that stops being usable loses its phone line there and then,
+	// so a call on a lost phone drops with it (docs/PHASE2.md §9).
+	stopPhoneLine := func(d pbx.Device) { relay.CloseUsername(d.SIPUsername) }
+	pbxSvc.OnDeviceRevoked = stopPhoneLine
 	accounts.SessionsEnded = func(ctx context.Context, user uuid.UUID, session *uuid.UUID) {
 		if session != nil {
 			relay.CloseSession(*session)
@@ -502,6 +506,9 @@ func main() {
 		log.Warn("phones can't be set up on this server", "err", err)
 	} else {
 		authn.Devices = enrollSvc
+		// A phone that stops being one loses its phone line there and then,
+		// so a call on a lost phone drops with it (docs/PHASE2.md §9).
+		enrollSvc.OnPhoneStopped = stopPhoneLine
 		runBackground(enrollSvc.RunExpiry)
 	}
 
