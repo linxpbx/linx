@@ -130,6 +130,8 @@ The push gateway is built so the destination is one setting: Apple directly now,
 - **What it costs.** The app for a real iPhone is **13 MB**: 12 MB of it is WebRTC, 1.8 MB is Linx (`docs/RESOURCES.md`). Data per minute of a call is measured on real devices at the demo.
 - **Tests** (`ios/LinxTests`, 47 in all): the SIP text in both directions, the digest against RFC 2617's example, the Opus settings, and the whole call flow against a stand-in Asterisk inside the test process — signing in, a call out answered and hung up, a challenged call, a busy number, cancelling before they answer (and acknowledging the 487 that follows), a call in answered and ended, a caller who gives up leaving a *missed* call, a second caller told the phone is busy, mute/speaker/tones, and the connection dropping mid-call. One test walks everything the app ever sends and fails if it is a request the relay doesn't allow or if its `From` isn't this line's own username. CI now also builds the app in **Release for a real iPhone**, unsigned, which is the only build that compiles the release-only paths.
 
+**Screens approved by the owner 2026-10-04** (keypad, in a call, a call coming in, light and dark, on an iPhone 17), with the missing tab bar and the missing call buttons understood as later steps.
+
 **Still to come, in order:** push and CallKit (steps 5 and 6) are what make a sleeping phone ring; until then the app has to be open. Video, the Calls/Team/More screens, call history and voicemail are step 7.
 
 ### Step 4a, as built (2026-10-03)
