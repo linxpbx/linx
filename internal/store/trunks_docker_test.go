@@ -596,6 +596,48 @@ func TestTrunksDocker(t *testing.T) {
 			t.Errorf("linx_asterisk can't call linx_line_rings: %s %v", role, err)
 		}
 
+		// Busy tone (migration 0040): a gateway's line is listened to, in
+		// the country Linx is set up in; a provider's isn't, nor a line
+		// that's off.
+		busyTone := func(endpoint string) string {
+			var c []string
+			rows, err := pool.Query(ctx, `SELECT * FROM asterisk.linx_busy_tone($1)`, endpoint)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var v string
+				rows.Scan(&v)
+				c = append(c, v)
+			}
+			return strings.Join(c, ",")
+		}
+		if got := busyTone(gw.Endpoint()); got != "AE" {
+			t.Errorf("linx_busy_tone(gateway) = %q, want AE", got)
+		}
+		if got := busyTone(newTrunk("Busy tone provider").Endpoint()); got != "" {
+			t.Errorf("linx_busy_tone(provider) = %q, want no row", got)
+		}
+		if got := busyTone("trunk-" + uuid.NewString()); got != "" {
+			t.Errorf("linx_busy_tone(no line) = %q", got)
+		}
+		if err := pool.QueryRow(ctx, `SELECT has_function_privilege('linx_asterisk', 'asterisk.linx_busy_tone(text)', 'EXECUTE')::text`).Scan(&role); err != nil || role != "true" {
+			t.Errorf("linx_asterisk can't call linx_busy_tone: %s %v", role, err)
+		}
+		off, _ := s.Trunk(ctx, tenant, gw.ID)
+		off.Enabled = false
+		if _, err := s.UpdateTrunk(ctx, off, audit("trunk.update")); err != nil {
+			t.Fatal(err)
+		}
+		if got := busyTone(gw.Endpoint()); got != "" {
+			t.Errorf("linx_busy_tone(a line that's off) = %q", got)
+		}
+		off, _ = s.Trunk(ctx, tenant, gw.ID)
+		off.Enabled = true
+		if _, err := s.UpdateTrunk(ctx, off, audit("trunk.update")); err != nil {
+			t.Fatal(err)
+		}
+
 		// Deleting the extension: the line and its numbers ring nobody.
 		d := trunk.DID{ID: uuid.Must(uuid.NewV7()), TenantID: tenant, TrunkID: gw.ID, Number: "+97142000405",
 			ExtensionID: &ext.ID, Version: 1, CreatedAt: now, UpdatedAt: now}

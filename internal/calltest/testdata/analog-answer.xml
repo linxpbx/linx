@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!-- A phone system on the LAN sending Linx's outgoing call out on an analog landline (docs/PBX.md §4, the busy tone), run as a SIPp server (-t t1, no -m): answers at once (analog lines can't tell when the far end answers), plays /audio/play.alaw, the far end's sound, and waits for Linx to hang up ("linx hung up"). OPTIONS: Asterisk's keep-alive checks. Needs -trace_logs. -->
+<scenario name="analog line answers">
+  <recv request="OPTIONS" optional="true" next="options"/>
+  <recv request="INVITE"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag01[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:analog@[local_ip]:[local_port];transport=[transport]>
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=- 2 2 IN IP[local_ip_type] [local_ip]
+      s=-
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [rtpstream_audio_port] RTP/AVP 8
+      a=rtpmap:8 PCMA/8000
+      a=sendrecv
+    ]]>
+  </send>
+  <recv request="ACK"/>
+  <nop>
+    <action>
+      <exec rtp_stream="/audio/play.alaw,1,8"/>
+    </action>
+  </nop>
+  <recv request="BYE"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+    ]]>
+  </send>
+  <nop next="end">
+    <action>
+      <log message="linx hung up"/>
+    </action>
+  </nop>
+
+  <label id="options"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpTag02[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+    ]]>
+  </send>
+  <label id="end"/>
+</scenario>

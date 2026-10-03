@@ -1,6 +1,7 @@
 package voicemail
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"io"
@@ -185,6 +186,47 @@ func TestImportFromAPhone(t *testing.T) {
 	}
 }
 
+// An analog line's busy tone (docs/PBX.md §4): the note says how much of
+// the end is tone, and that's cut off; all tone leaves nothing.
+func TestImportCutsTheBusyTone(t *testing.T) {
+	im, st, _, box := setup(t)
+	audio := make([]byte, 5*SampleRate+2550*SampleRate/1000)
+	for i := range audio {
+		audio[i] = byte(i)
+	}
+	write(t, im.Dir, "3.1.ulaw", audio, 0)
+	write(t, im.Dir, "3.1.txt", []byte("v1|"+box.String()+"||0501234567|x|1727850000|2550\n"), 0)
+	// The caller hung up before saying anything.
+	write(t, im.Dir, "3.2.ulaw", make([]byte, 3*SampleRate), 0)
+	write(t, im.Dir, "3.2.txt", []byte("v1|"+box.String()+"||0501234567|x|1727850000|2550\n"), 0)
+	// The last field empty: the caller hung up on a line that signals it.
+	write(t, im.Dir, "3.3.ulaw", make([]byte, 3*SampleRate), 0)
+	write(t, im.Dir, "3.3.txt", []byte("v1|"+box.String()+"||0501234567|x|1727850000|\n"), 0)
+	if err := im.ImportAll(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.added) != 2 {
+		t.Fatalf("added %d messages, want 2", len(st.added))
+	}
+	for _, m := range st.added {
+		switch m.Source {
+		case "3.1":
+			if m.Duration != 5*time.Second || !bytes.Equal(m.Audio, audio[:5*SampleRate]) {
+				t.Errorf("3.1 kept %v, want the first 5 s", m.Duration)
+			}
+		case "3.3":
+			if m.Duration != 3*time.Second {
+				t.Errorf("3.3 kept %v, want all 3 s", m.Duration)
+			}
+		default:
+			t.Errorf("kept %s", m.Source)
+		}
+	}
+	if got := files(t, im.Dir); len(got) != 0 {
+		t.Errorf("files left: %v", got)
+	}
+}
+
 func TestImportRefuses(t *testing.T) {
 	im, st, mail, box := setup(t)
 	note := func(rest string) []byte { return []byte("v1|" + box.String() + "|" + rest) }
@@ -199,6 +241,11 @@ func TestImportRefuses(t *testing.T) {
 	write(t, im.Dir, "1.3.txt", note("||0501|x<script>|1727850000"), 0)
 	write(t, im.Dir, "1.4.ulaw", make([]byte, 2*SampleRate), 0)
 	write(t, im.Dir, "1.4.txt", []byte("v2|whatever"), 0)
+	// More busy tone to cut than the dialplan ever hears, or not a number.
+	write(t, im.Dir, "1.8.ulaw", make([]byte, 20*SampleRate), 0)
+	write(t, im.Dir, "1.8.txt", note("||0501|x|1727850000|10001"), 0)
+	write(t, im.Dir, "1.9.ulaw", make([]byte, 20*SampleRate), 0)
+	write(t, im.Dir, "1.9.txt", note("||0501|x|1727850000|-5"), 0)
 	// A box that doesn't exist.
 	write(t, im.Dir, "1.5.ulaw", make([]byte, 2*SampleRate), 0)
 	write(t, im.Dir, "1.5.txt", []byte("v1|"+uuid.NewString()+"||0501|x|1727850000"), 0)

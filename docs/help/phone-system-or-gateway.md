@@ -30,3 +30,8 @@ Linx's page turns from **Waiting for it to sign in…** to **Signed in** within 
 - on the phone system, send the trunk's calls to the landlines, and the landlines' calls to the trunk;
 - call the landline from your mobile: your browser rings;
 - call your mobile from the browser.
+
+## When a caller hangs up on a landline
+
+A landline never tells the gateway that the other person hung up: their exchange plays a busy tone instead. Linx listens for that tone on a phone system's or gateway's line and hangs up within a few seconds, so the landline is free again, and a voicemail ends there without the tone. This needs the line's audio to be G.711 (PCMA or PCMU, what landlines use).
+

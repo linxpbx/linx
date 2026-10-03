@@ -93,7 +93,8 @@ RUN make menuselect.makeopts || make menuselect.makeopts
 # add-ons, no unit tests, no queues/conferencing/fax/presence yet, and no
 # app_voicemail ever (ADR-069: Record, UserEvent and FILE() for the note
 # instead), and of the call-record modules only the one that adds rows to
-# Linx's database (ADR-070) — trimmed at the category level, not by
+# Linx's database (ADR-070); res_tonedetect for TONE_DETECT, listening for
+# an analog line's busy tone (docs/PBX.md §4) — trimmed at the category level, not by
 # hand-picking every res_pjsip_* submodule menuselect enables together.
 # BUILD_NATIVE off: it compiles with -march=native, for the CPU that built
 # the image, and the image must run on any amd64/arm64 server (Asterisk
@@ -130,6 +131,7 @@ RUN menuselect/menuselect \
       --enable res_stasis --enable res_stasis_answer --enable res_stasis_device_state \
       --enable res_stasis_playback --enable res_stasis_recording --enable res_stasis_snoop \
       --enable res_timing_timerfd --enable res_websocket_client \
+      --enable res_tonedetect \
       --enable res_http_websocket --enable res_pjsip_transport_websocket \
       --enable ENABLE_SRTP_AES_192 --enable ENABLE_SRTP_AES_256 --enable ENABLE_SRTP_AES_GCM \
       --enable chan_pjsip \

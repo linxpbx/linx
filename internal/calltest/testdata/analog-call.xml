@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!-- An analog landline calling in through a phone system on the LAN (docs/PBX.md §4, the busy tone): no login, unencrypted (ADR-023), calls -s (a DID), and once answered plays /audio/play.alaw, the far end's sound. A landline never signals hanging up: it waits up to 25 s for Linx to hang up ("linx hung up"), else hangs up itself ("we hung up"). Needs -trace_logs. -->
+<scenario name="analog line calls in">
+  <send>
+    <![CDATA[
+      INVITE sip:[service]@asterisk SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Landline" <sip:0501113333@analog.linx.test>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@asterisk>
+      Call-ID: [call_id]
+      CSeq: 1 INVITE
+      Contact: <sip:analog@[local_ip]:[local_port];transport=[transport]>
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=- 1 1 IN IP[local_ip_type] [local_ip]
+      s=-
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [rtpstream_audio_port] RTP/AVP 8
+      a=rtpmap:8 PCMA/8000
+      a=sendrecv
+    ]]>
+  </send>
+  <recv response="100" optional="true"/>
+  <recv response="180" optional="true"/>
+  <recv response="183" optional="true"/>
+  <recv response="200" rrs="true"/>
+  <send>
+    <![CDATA[
+      ACK [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Landline" <sip:0501113333@analog.linx.test>;tag=[pid]SIPpTag00[call_number]
+      [last_To:]
+      Call-ID: [call_id]
+      [routes]
+      CSeq: 1 ACK
+      Max-Forwards: 70
+      Content-Length: 0
+    ]]>
+  </send>
+  <nop>
+    <action>
+      <exec rtp_stream="/audio/play.alaw,1,8"/>
+    </action>
+  </nop>
+  <recv request="BYE" timeout="25000" ontimeout="ours"/>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+    ]]>
+  </send>
+  <nop next="end">
+    <action>
+      <log message="linx hung up"/>
+    </action>
+  </nop>
+  <label id="ours"/>
+  <send>
+    <![CDATA[
+      BYE [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Landline" <sip:0501113333@analog.linx.test>;tag=[pid]SIPpTag00[call_number]
+      [last_To:]
+      Call-ID: [call_id]
+      [routes]
+      CSeq: 2 BYE
+      Max-Forwards: 70
+      Content-Length: 0
+    ]]>
+  </send>
+  <recv response="200"/>
+  <nop>
+    <action>
+      <log message="we hung up"/>
+    </action>
+  </nop>
+  <label id="end"/>
+</scenario>

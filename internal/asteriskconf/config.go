@@ -326,7 +326,7 @@ func (c Config) Render() error {
 		"http.conf":              c.httpConf(ws),
 		"ari.conf":               ariConf(rand.Text()),
 		"websocket_client.conf":  c.websocketClientConf(ariPassword),
-		"extensions.conf":        extensionsConf,
+		"extensions.conf":        extensionsFile(),
 		"func_odbc.conf":         funcOdbcConf,
 		"pjsip.conf":             c.pjsipConf(nets, nat, ws),
 		"rtp.conf":               rtpConf(ice),
@@ -957,6 +957,9 @@ verify_server_hostname = yes
 // linx_route, ADR-068): action, targets (a Dial() string ringing every
 // enabled device of the extension or group, from the linx_ring_targets
 // view), seconds, next, counts, label. No row means no such place.
+//
+// LINX_BUSY_TONE(endpoint): the country whose busy tone to listen for on
+// that line (migration 0040), no row if the line isn't a gateway's.
 const funcOdbcConf = `; Rendered by linx-asterisk-entrypoint.
 [ROUTE]
 prefix = LINX
@@ -977,6 +980,11 @@ readsql = SELECT * FROM linx_inbound('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}
 prefix = LINX
 dsn = asterisk
 readsql = SELECT * FROM linx_line_rings('${SQL_ESC(${ARG1})}')
+
+[BUSY_TONE]
+prefix = LINX
+dsn = asterisk
+readsql = SELECT * FROM linx_busy_tone('${SQL_ESC(${ARG1})}')
 `
 
 // extensionsConf is the whole dialplan (docs/PBX.md §4, docs/TRUNKS.md
@@ -1097,6 +1105,10 @@ exten => s,1,Dial(${ARG1},${ARG2})
 ; note internal/voicemail reads next to the recording, then tells the
 ; control plane over ARI. Only digits, +, plain letters, spaces and dots
 ; reach the note. A caller who hangs up before the tone leaves nothing.
+; On a gateway's line (BUSYTONE set by linx-busy-tone) the detector is
+; made afresh (x, so bursts heard before the tone don't count) to end the
+; recording at line-busy instead, and the note's last field says how many
+; milliseconds at its end are busy tone, for the importer to cut off.
 [linx-voicemail]
 exten => _[0-9a-f].,1,Answer()
  same => n,Set(VMBOX=${FILTER(0-9a-f-,${EXTEN})})
@@ -1112,15 +1124,44 @@ exten => _[0-9a-f].,1,Answer()
  same => n,Goto(tone)
  same => n(closed),Playback(linx/vm-closed)
  same => n(tone),Playback(linx/beep)
- same => n,Set(VMSTART=${EPOCH})
+ same => n,GotoIf($["${BUSYTONE}" = ""]?record)
+ same => n,Set(TONE_DETECT(0,,x)=)
+ same => n,Set(TONE_DETECT(${CUT(BUSYTONE,/,1)},${CUT(BUSYTONE,/,2)},rn(4)eg(linx-voicemail,line-busy,1))=)
+ same => n(record),Set(VMSTART=${EPOCH})
  same => n,Set(VMFILE=/var/spool/linx-voicemail/${UNIQUEID})
  same => n,Record(${VMFILE}.ulaw,10,180,kq)
  same => n,Hangup()
 
+; The caller hung up on an analog line: the busy tone ended the recording.
+exten => line-busy,1,Set(VMTRIM=${CUT(BUSYTONE,/,3)})
+ same => n,Hangup()
+
 exten => h,1,GotoIf($["${VMFILE}" = ""]?done)
- same => n,Set(FILE(${VMFILE}.txt)=v1|${VMBOX}|${FILTER(0-9,${CALLER})}|${FILTER(0-9+,${CALLERID(num)}):0:20}|${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40}|${VMSTART})
+ same => n,Set(FILE(${VMFILE}.txt)=v1|${VMBOX}|${FILTER(0-9,${CALLER})}|${FILTER(0-9+,${CALLERID(num)}):0:20}|${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40}|${VMSTART}|${FILTER(0-9,${VMTRIM})})
  same => n,UserEvent(LinxVoicemail)
  same => n(done),Hangup()
+
+; Listening for the busy tone (docs/PBX.md §4) on a call's line when
+; it's a gateway's (LINX_BUSY_TONE): an analog landline never signals the
+; far end hanging up, the exchange plays its busy tone instead.
+; BusyToneBursts (4) bursts of the country's tone (BUSYTONE_<country>:
+; Hz/ms a burst lasts/ms to trim), heard from the line only (r), end the
+; call (linx-far-end-gone), once (e). Gosub'd as an incoming call starts,
+; and on an outgoing line once it answers (Dial's U()), so a busy number
+; still sounds busy to the caller. linx-voicemail listens again with its
+; own ending. The detector works on 8 kHz sound: G.711, what analog lines
+; use; on a wideband line it never matches.
+[linx-busy-tone]
+exten => s,1,Set(COUNTRY=${FILTER(A-Z,${LINX_BUSY_TONE(${CHANNEL(endpoint)})})})
+ same => n,GotoIf($["${COUNTRY}" = ""]?done)
+ same => n,Set(BUSYTONE=${BUSYTONE_${COUNTRY}})
+ same => n,GotoIf($["${BUSYTONE}" = ""]?done)
+ same => n,Set(TONE_DETECT(${CUT(BUSYTONE,/,1)},${CUT(BUSYTONE,/,2)},rn(4)eg(linx-far-end-gone,s,1))=)
+ same => n(done),Return()
+
+; The far end of an analog line hung up (linx-busy-tone heard its tone).
+[linx-far-end-gone]
+exten => s,1,Hangup()
 
 [linx-outbound]
 exten => _[0-9*#+].,1,Set(CDR(linx_dialled)=${EXTEN})
@@ -1140,7 +1181,7 @@ exten => _[0-9*#+].,1,Set(CDR(linx_dialled)=${EXTEN})
  same => n,GotoIf($["${CATEGORY}" = "emergency"]?dial)
  same => n,GotoIf($[${GROUP_COUNT(${TRUNK}@linx-trunk)} >= ${CUT(LINE,/,4)}]?next)
  same => n(dial),Set(GROUP(linx-trunk)=${TRUNK})
- same => n,Dial(PJSIP/${CUT(LINE,/,2)}@${TRUNK},120,b(linx-trunk-out^s^1(${CUT(LINE,/,3)},${WITHHOLD})))
+ same => n,Dial(PJSIP/${CUT(LINE,/,2)}@${TRUNK},120,b(linx-trunk-out^s^1(${CUT(LINE,/,3)},${WITHHOLD}))U(linx-busy-tone^s^1))
  same => n,GotoIf($["${DIALSTATUS}" = "CHANUNAVAIL" | "${DIALSTATUS}" = "CONGESTION"]?next)
  same => n,Hangup()
 
@@ -1169,6 +1210,7 @@ exten => _[a-zA-Z0-9+*#],1,Set(DIALLED=${EXTEN})
 exten => s,1,Set(CALLERID(name)=${FILTER(A-Za-z0-9 .,${CALLERID(name)}):0:40})
  same => n,Set(CALLERID(num)=${FILTER(0-9+,${CALLERID(num)}):0:20})
  same => n,Set(GROUP(linx-trunk)=${CHANNEL(endpoint)})
+ same => n,Gosub(linx-busy-tone,s,1)
  same => n,Set(DID=${DIALLED})
  same => n,Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DID})})
  same => n,GotoIf($[${ODBCROWS} > 0]?found)

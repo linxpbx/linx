@@ -335,3 +335,15 @@ Security review of Part B of Phase 1F (`docs/PHASE1F.md` §11 steps 9–16): ema
 - A schedule's, group's or holiday's name may hold any characters (shown as text everywhere, quoted in the download).
 - If Asterisk itself were taken over, it could add made-up rows to call history (it can't read or change any). The rows are kept 365 days (changeable), like real ones.
 - Reporters (`calls:read`) see every call's numbers and names and whether a voicemail was left; they can't hear it (voicemail access is per box, step 14).
+
+## Busy tone review (2026-10-03)
+Listening for an analog line's busy tone (ADR-072, `docs/PBX.md` §4).
+
+**Checked and sound:**
+- *Asterisk still reads no table.* `asterisk.linx_busy_tone(endpoint)` (migration 0040) is `SECURITY DEFINER` with a fixed `search_path`, `REVOKE ALL … FROM PUBLIC` and `EXECUTE` for `linx_asterisk` only; it returns a country code, which the dialplan filters to capital letters before using it in a variable's name.
+- *Who can end a call.* Only the sound coming from the line is listened to (`r`), and only on gateways' lines: a phone or browser on Linx's side can't make Linx hang up a call by playing a tone, and a provider's line isn't listened to at all. The far end could end the call with the right tone, but it can hang up anyway.
+- *The voicemail note's new field.* The importer takes only digits and at most 10 s; anything else drops the files as before. It only ever cuts a message shorter, never reads past its end.
+
+**Still open (accepted):**
+- A long call on a gateway's line with stray pure tones from the far end (hold music, a whistle) could, rarely, add up to 4 bursts and end early: the detector counts over the whole call. Nothing private is exposed; the call simply ends.
+

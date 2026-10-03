@@ -205,13 +205,21 @@ func (im *Importer) remove(names ...string) {
 }
 
 // note is the dialplan's line next to a recording:
-// v1|<box>|<calling extension, or "" from a line>|<number>|<name>|<start, Unix seconds>
+// v1|<box>|<calling extension, or "" from a line>|<number>|<name>|<start, Unix seconds>[|<busy tone ms>]
+// The last field (since the busy tone, docs/PBX.md §4; a note without it
+// is from before) is how much of the recording's end is an analog line's
+// busy tone, empty when the caller simply hung up.
 type note struct {
 	box             uuid.UUID
 	callerExtension string
 	number, name    string
 	start           time.Time
+	busyTone        time.Duration
 }
+
+// maxBusyTone is the most busy tone a note can ask to cut: more than the
+// dialplan ever hears before it stops (asteriskconf.BusyTone.TrimMs).
+const maxBusyTone = 10 * time.Second
 
 var (
 	numberPattern = regexp.MustCompile(`^\+?[0-9]{0,20}$`)
@@ -221,7 +229,7 @@ var (
 
 func parseNote(b []byte) (note, error) {
 	f := strings.Split(strings.TrimRight(string(b), "\r\n"), "|")
-	if len(f) != 6 || f[0] != "v1" {
+	if len(f) != 6 && len(f) != 7 || f[0] != "v1" {
 		return note{}, errors.New("the note isn't Linx's")
 	}
 	var n note
@@ -238,6 +246,13 @@ func parseNote(b []byte) (note, error) {
 		return note{}, errors.New("the note's time isn't a time")
 	}
 	n.start = time.Unix(sec, 0).UTC()
+	if len(f) == 7 && f[6] != "" {
+		ms, err := strconv.Atoi(f[6])
+		if err != nil || ms < 0 || time.Duration(ms)*time.Millisecond > maxBusyTone {
+			return note{}, errors.New("the note's busy tone isn't a length")
+		}
+		n.busyTone = time.Duration(ms) * time.Millisecond
+	}
 	return n, nil
 }
 
@@ -282,7 +297,10 @@ func (im *Importer) importOne(ctx context.Context, src string) error {
 		return nil
 	case err != nil:
 		return drop("the recording can't be read: " + err.Error())
-	case len(audio) < minBytes:
+	}
+	// The line's busy tone after the caller hung up isn't the message.
+	audio = audio[:max(0, len(audio)-int(n.busyTone*SampleRate/time.Second))]
+	if len(audio) < minBytes {
 		im.Log.Info("voicemail shorter than a second, not kept", "message", src)
 		im.remove(src+".ulaw", src+".txt")
 		return nil

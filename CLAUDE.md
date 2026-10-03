@@ -38,10 +38,10 @@ Finished (each demo passed and approved by the owner):
 
 Now (2026-10-03):
 - **Phase 1F and Phase 1 done** (Demo B approved 2026-10-03). Its step-by-step history is in `docs/HISTORY.md` "Phase 1F and the end of Phase 1".
-- **Next, in this order (owner decisions 2026-10-03, one per session):**
-  1. **Busy tone:** Linx listens for the busy tone on analog lines and hangs up (Asterisk's tone detection, the country's busy tone; trim it off voicemail; also ends ordinary calls whose far end hung up; call-suite test; measure the Asterisk image). Why: the UCM's analog landline never signals a hang-up, so voicemail kept ~100 s of tone (400 Hz 375/375 ms for ~40 s, then 950 Hz steady for ~60 s) and the landline stayed busy (`docs/DEMO_PHASE1F.md` Part B step 9).
-  2. **Updating:** `sudo linx setup` says when the `linx` program is newer than what's running and prints `sudo linx setup --config /etc/linx/setup.yaml`, even while the Server settings page is open (it silently did nothing in Demo B); plus an "Updating Linx" note in `docs/ops/`. A help guide only once releases for users exist.
-- Phase 2 (iOS) after those: check `docs/ROADMAP.md` and the foldable-iPhone memory first.
+- **Busy tone done 2026-10-03** (ADR-072, `docs/PBX.md` §4, `docs/HISTORY.md` "After Phase 1"): gateways' lines listen for 4 bursts of the country's busy tone and hang up; voicemail trims it. Check on the owner's UCM landline at the next demo (needs the new Asterisk image there).
+- **Next (owner decision 2026-10-03, one per session):**
+  1. **Updating:** `sudo linx setup` says when the `linx` program is newer than what's running and prints `sudo linx setup --config /etc/linx/setup.yaml`, even while the Server settings page is open (it silently did nothing in Demo B); plus an "Updating Linx" note in `docs/ops/`. A help guide only once releases for users exist.
+- Phase 2 (iOS) after that: check `docs/ROADMAP.md` and the foldable-iPhone memory first.
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
 1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Steps 1 (guides + checks), 2 (Help screen, search, **?** button, public sign-in help) and 3 (written answers: Anthropic/OpenAI-compatible/Ollama, sealed key, limits, System → Settings card) done 2026-09-30; step 4 review done 2026-09-30; **demo passed and approved 2026-09-30**. Done.

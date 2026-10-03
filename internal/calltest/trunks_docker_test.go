@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"math/big"
 	"net/netip"
 	"os"
@@ -596,6 +597,198 @@ func TestTrunksDocker(t *testing.T) {
 		fresh := phone{dev: login.dev, password: reset.NewPassword}
 		e.wait(e.sipp("gw-new", "gateway-call.xml", fresh, "-s", "+97142000105", "-set", "caller", "0501112277", "-d", "1000"))
 	})
+
+	t.Run("an analog line's busy tone ends the call", func(t *testing.T) {
+		// docs/PBX.md §4: a phone system on the LAN passing on an analog
+		// landline, which never signals hanging up; its exchange plays the
+		// busy tone instead (here the UAE's, Linx's country). SIPp plays
+		// /audio/play.alaw, the landline's side, written before each call.
+		audio := filepath.Join(e.dir, "analog-audio")
+		if err := os.MkdirAll(audio, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		play := func(parts ...[]byte) {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(audio, "play.alaw"), slices.Concat(parts...), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		testdata, err := filepath.Abs("testdata")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cname := prefix + "-analog"
+		exec.Command("docker", "rm", "--force", cname).Run()
+		docker(t, e.ctx, "run", "--detach", "--name", cname, "--network", netName, "--network-alias", "analog.linx.test",
+			"--volume", testdata+":/scenarios:ro", "--volume", audio+":/audio:ro", "--entrypoint", "sleep", sippImage, "infinity")
+		t.Cleanup(func() { exec.Command("docker", "rm", "--force", cname).Run() })
+		hosts["analog.linx.test"] = []netip.Addr{e.ipOn(cname, netName)}
+		// The phone system answers Linx's calls (and its line checks) from
+		// the start: a line found unreachable isn't dialled until checked
+		// again.
+		docker(t, e.ctx, "exec", "--detach", cname, "sipp", "-t", "t1", "-p", "5060", "-min_rtp_port", "6000", "-max_rtp_port", "6099",
+			"-sf", "/scenarios/analog-answer.xml", "-nostdin", "-trace_logs", "-log_file", "/tmp/answer.log")
+		eventually(t, "the landline's phone system listening", 15*time.Second, func() bool {
+			out, _ := exec.Command("docker", "exec", cname, "cat", "/proc/net/tcp").CombinedOutput()
+			return slices.ContainsFunc(doctor.ListeningTCP(string(out)), func(a netip.AddrPort) bool { return a.Port() == 5060 })
+		})
+		an := newTrunk(trunk.TrunkInput{Name: "Analog", Kind: trunk.KindLANPeer, Host: "analog.linx.test", Port: ptr(5060),
+			Transport: trunk.TransportTCP, MediaEncryption: trunk.MediaNone, DialFormat: trunk.DialLocal, ConfirmUnencrypted: true})
+		// Someone to answer: Bob's phone signed in too long ago (its
+		// sign-in lasts 5 minutes).
+		erin := e.newPhone("106", "Erin")
+		erinPhone := e.sipp("erin", "register.xml", erin, "-oocsf", "/scenarios/answer.xml", "-d", "300000")
+		t.Cleanup(func() { exec.Command("docker", "rm", "--force", erinPhone).Run() })
+		eventually(t, "Erin online", 15*time.Second, func() bool {
+			d, _, _ := e.store.DeviceBySIPUsername(ctx, erin.dev.SIPUsername)
+			return d.Online
+		})
+		did(an, "+97142000108", erin.ext)
+		did(an, "+97142000109", dave.ext)
+		route(an)
+		render()
+		callIn := func(number string) string {
+			t.Helper()
+			out, err := exec.CommandContext(e.ctx, "docker", "exec", cname, "sipp", "asterisk:"+strconv.Itoa(asteriskconf.PlainTrunkPort),
+				"-t", "t1", "-p", "5070", "-min_rtp_port", "7000", "-max_rtp_port", "7099", "-sf", "/scenarios/analog-call.xml",
+				"-s", number, "-m", "1", "-nostdin", "-timeout", "60s", "-timeout_error", "-trace_logs", "-log_file", "/dev/stdout",
+				"-trace_err", "-error_file", "/dev/stderr").CombinedOutput()
+			if err != nil {
+				t.Fatalf("the landline's call to %s: %v\n%s\n%s", number, err, out, e.callLogs(number))
+			}
+			return string(out)
+		}
+		gone := func() int { return strings.Count(e.asteriskLogs(), "linx-far-end-gone") }
+
+		// A conversation, then the far end hangs up: Linx hangs up on
+		// both sides within the 4 bursts (about 2.5 s), not the 25 s the
+		// landline waits.
+		before := gone()
+		play(analogTalk(2*time.Second), analogSilence(300*time.Millisecond), analogBusy(20*time.Second))
+		if out := callIn("+97142000108"); !strings.Contains(out, "linx hung up") {
+			t.Errorf("Linx didn't hang up on the busy tone:\n%s\n%s", out, e.callLogs("+97142000108"))
+		}
+		if gone() == before {
+			t.Errorf("the call didn't end at linx-far-end-gone:\n%s", e.callLogs("+97142000108"))
+		}
+
+		// Talking alone never ends a call.
+		play(analogTalk(8 * time.Second))
+		if out := callIn("+97142000108"); !strings.Contains(out, "we hung up") {
+			t.Errorf("Linx hung up on a conversation:\n%s\n%s", out, e.callLogs("+97142000108"))
+		}
+
+		// Voicemail: after the greeting and the tone (about 7.7 s), a 4 s
+		// message, then the busy tone. The recording ends on it, and the
+		// note says how much of its end is tone (2550 ms for the UAE's).
+		e.voicemailOn(dave.ext.ID, true)
+		defer e.voicemailOn(dave.ext.ID, false)
+		play(analogSilence(9*time.Second), analogTalk(4*time.Second), analogSilence(500*time.Millisecond), analogBusy(20*time.Second))
+		if out := callIn("+97142000109"); !strings.Contains(out, "linx hung up") {
+			t.Errorf("Linx didn't end the voicemail on the busy tone:\n%s\n%s", out, e.callLogs("+97142000109"))
+		}
+		var note, rec string
+		e.eventuallyOr(t, "the voicemail's note", 10*time.Second, func() bool {
+			entries, _ := os.ReadDir(filepath.Join(e.dir, "voicemail"))
+			for _, en := range entries {
+				if strings.HasSuffix(en.Name(), ".txt") {
+					b, _ := os.ReadFile(filepath.Join(e.dir, "voicemail", en.Name()))
+					note, rec = string(b), strings.TrimSuffix(en.Name(), ".txt")+".ulaw"
+				}
+			}
+			return note != ""
+		})
+		if !strings.HasSuffix(strings.TrimSpace(note), "|2550") {
+			t.Errorf("the note doesn't say how much busy tone to cut: %q", note)
+		}
+		info, err := os.Stat(filepath.Join(e.dir, "voicemail", rec))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// What's left once the importer cuts the tone: the 1.3 s before
+		// the message, the message and the half second after it.
+		if left := time.Duration(info.Size())*time.Second/8000 - 2550*time.Millisecond; left < 5*time.Second || left > 7*time.Second {
+			t.Errorf("recorded %v, %v once the tone is cut, want about 5.8 s", time.Duration(info.Size())*time.Second/8000, left)
+		}
+		os.Remove(filepath.Join(e.dir, "voicemail", rec))
+		os.Remove(filepath.Join(e.dir, "voicemail", strings.TrimSuffix(rec, ".ulaw")+".txt"))
+
+		// Out: the landline answers at once (it can't tell when the far
+		// end does), they talk, the far end hangs up: Linx hangs up on
+		// Alice too. Before it answers nothing listens, so a busy number
+		// still sounds busy.
+		play(analogTalk(2*time.Second), analogSilence(300*time.Millisecond), analogBusy(20*time.Second))
+		before = gone()
+		e.run("analog-out", "call-message.xml", alice, "-s", "0501234570", "-timeout", "20s")
+		if gone() == before {
+			t.Errorf("the outgoing call didn't end at linx-far-end-gone:\n%s", e.callLogs("0501234570"))
+		}
+		if ended := e.callEnded("0501234570"); ended["outcome"] != pbx.OutcomeAnswered || ended["trunk_id"] != an.ID.String() {
+			t.Errorf("outgoing call.ended = %v", ended)
+		}
+		eventually(t, "the landline told of Linx hanging up", 10*time.Second, func() bool {
+			out, _ := exec.Command("docker", "exec", cname, "cat", "/tmp/answer.log").CombinedOutput()
+			return strings.Contains(string(out), "linx hung up")
+		})
+	})
+}
+
+// The landline's side of the busy tone test, as 8 kHz G.711 A-law.
+func analogSilence(d time.Duration) []byte {
+	return analogSound(d, func(float64) float64 { return 0 })
+}
+
+// analogTalk stands in for a voice: three tones (none near a busy tone's
+// 400 Hz), loudness rising and falling three times a second.
+func analogTalk(d time.Duration) []byte {
+	return analogSound(d, func(t float64) float64 {
+		loud := 0.5 + 0.5*math.Sin(2*math.Pi*3*t)
+		return 0.35 * loud * (math.Sin(2*math.Pi*300*t) + 0.7*math.Sin(2*math.Pi*730*t) + 0.5*math.Sin(2*math.Pi*1270*t)) / 2.2
+	})
+}
+
+// analogBusy is the UAE's busy tone (asteriskconf.BusyTones): 400 Hz,
+// 0.375 s on and off.
+func analogBusy(d time.Duration) []byte {
+	return analogSound(d, func(t float64) float64 {
+		if math.Mod(t, 0.75) >= 0.375 {
+			return 0
+		}
+		return 0.3 * math.Sin(2*math.Pi*400*t)
+	})
+}
+
+func analogSound(d time.Duration, f func(t float64) float64) []byte {
+	out := make([]byte, int(d.Seconds()*8000))
+	for i := range out {
+		out[i] = alaw(int16(f(float64(i)/8000) * 32767))
+	}
+	return out
+}
+
+// alaw encodes a sample as G.711 A-law (ITU-T G.711; the reference
+// encoder, as in Sun's g711.c).
+func alaw(sample int16) byte {
+	v := int(sample) >> 3
+	mask := byte(0xD5)
+	if v < 0 {
+		mask = 0x55
+		v = -v - 1
+	}
+	seg := 0
+	for end := 0x1F; seg < 8 && v > end; end = end<<1 | 1 {
+		seg++
+	}
+	if seg >= 8 {
+		return 0x7F ^ mask
+	}
+	a := byte(seg << 4)
+	if seg < 2 {
+		a |= byte(v>>1) & 0x0F
+	} else {
+		a |= byte(v>>seg) & 0x0F
+	}
+	return a ^ mask
 }
 
 func ptr[T any](v T) *T { return &v }
