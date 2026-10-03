@@ -210,8 +210,9 @@ Laptop as you (200), the second browser as Sara (201), both on the **Dialer** an
 - [ ] System → **Activity**: `routing.undo` and `routing.put_back` entries.
 
 ### 12. A restart doesn't stop calls
-- [ ] System → **Status** → the control plane → **Restart**. While it's restarting (about 10 seconds), call the landline from the iPhone: it still rings you. Don't answer: leave "test three".
-- [ ] Once the page is back: "test three" is in your Voicemail (the control plane picks it up when it starts) and in Call history.
+The phone system (Asterisk) takes calls by itself; the web and API service (the control plane) isn't needed for them. Browsers' phone lines run through the web and API service, so they can't ring while it restarts; desk phones can.
+- [ ] System → **Status** → **Restart** on the **web and API service** (not the phone system: while that restarts, no call can come in). While it restarts (about 10 seconds), call the landline from the iPhone: Linx still answers it as Incoming says (outside office hours: "We're closed", then the tone). Leave "test four".
+- [ ] Once the page is back (and the line's tone has passed): "test four" is in your Voicemail (the web and API service picks it up when it starts) and in Call history.
 
 ### 13. Phase 1 exit: UDP blocked
 The iPad on the iPhone's hotspot, signed in as Sara at `https://home.mym.ae`. Find the hotspot's public address: on the iPad, open `https://1.1.1.1/cdn-cgi/trace` and read `ip=`. On the home server:
@@ -254,3 +255,5 @@ Run 2026-10-03 with the owner, at `424cc46`.
 - Step 9 ✓ after updating to `525d29f`: greeting, the message from the landline (saved about 2 min after hanging up: the tone tail), its email with the WAV (to the account's own address), Mark as heard, leaving and playing Sara's message (in Activity), deleting the Sales message from both browsers. The CI run for `525d29f` failed once on a call-suite timing check (31 s measured for a 30 s ring); re-run green, check loosened (`06a82be`).
 - Step 10 ✓ (history in words, Listen, filters, Recent, Sara sees only hers, admin Calls and Anyone, the CSV in a spreadsheet). The checklist said "365 days" where the screen says **1 year** (the same setting, as a choice); checklist corrected.
 - Step 11 ✓ (Routing changes, See the change, Put this back and its Undo, abroad: Undo without a question, Redo asks to confirm it's you, Activity), except: **Found:** after saving in Sales's panel, **Saved. Undo** didn't appear: it was drawn behind the panel's backdrop (the change itself was kept). Now drawn over everything (screens test presses Undo there).
+- Step 12, first try: the **phone system** was restarted (the checklist said "the control plane", which isn't what Status calls it): the iPhone kept ringing until it was back, as expected; the call then went to "We're closed" and voicemail without ringing (Saturday, office hours Mon–Fri). The checklist also wrongly expected the browser to ring during the restart (its line runs through the web and API service). Checklist rewritten.
+- Step 12 ✓ (web and API service restarted: the landline call still answered, "We're closed" and voicemail, the message there once it was back). The first try's call reached Linx with no caller number (the UCM held it while the phone system restarted), so it showed as withheld; every other call had the number.
