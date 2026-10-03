@@ -113,7 +113,9 @@ function SetupEmail({ me, open, onOpenChange, saved, onSaved }: {
   }
   function start() {
     setStep(saved.host ? 2 : 1);
-    setPreset(saved.preset); setHost(saved.host); setPort(String(saved.port)); setSecurity(saved.security);
+    // Never set up: the preset is already chosen (Gmail), so choose()
+    // won't run for it; take its server here.
+    setPreset(saved.preset); setHost(saved.host || presetOf(saved.preset).host || ""); setPort(String(saved.port)); setSecurity(saved.security);
     setUsername(saved.username); setFrom(saved.from_address || me.email || ""); setFromName(saved.from_name || "Linx");
     setPassword(""); setLimit(String(saved.hourly_limit)); setMore(false); setError(""); setBlocked(""); setTest(null); setNotArrived(false);
   }

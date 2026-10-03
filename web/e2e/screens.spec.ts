@@ -880,6 +880,14 @@ for (const scheme of ["light", "dark"] as const) {
       await card.scrollIntoViewIfNeeded();
       await expect(page.getByText("Not set up.")).toBeVisible();
       await page.getByRole("button", { name: "Set up email" }).click();
+      // Gmail, already chosen when email was never set up, fills in its
+      // server too: Save is ready once the address and password are in.
+      await page.getByRole("radio", { name: /Gmail or Google Workspace/ }).click();
+      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByLabel("Send from this address").fill("pbx@example.com");
+      await page.getByLabel("App password").fill("abcd efgh ijkl mnop");
+      await expect(page.getByRole("button", { name: "Save and send a test" })).toBeEnabled();
+      await page.getByRole("button", { name: "Back" }).click();
       // Microsoft 365's warning comes with the choice.
       await page.getByRole("radio", { name: /Microsoft 365/ }).click();
       await expect(page.getByText("Microsoft is turning off password sign-in for sending mail.")).toBeVisible();
