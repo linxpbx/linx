@@ -39,9 +39,8 @@ Finished (each demo passed and approved by the owner):
 Now (2026-10-03):
 - **Phase 1F and Phase 1 done** (Demo B approved 2026-10-03). Its step-by-step history is in `docs/HISTORY.md` "Phase 1F and the end of Phase 1".
 - **Busy tone done 2026-10-03** (ADR-072, `docs/PBX.md` §4, `docs/HISTORY.md` "After Phase 1"): gateways' lines listen for 4 bursts of the country's busy tone and hang up; voicemail trims it. Check on the owner's UCM landline at the next demo (needs the new Asterisk image there).
-- **Next (owner decision 2026-10-03, one per session):**
-  1. **Updating:** `sudo linx setup` says when the `linx` program is newer than what's running and prints `sudo linx setup --config /etc/linx/setup.yaml`, even while the Server settings page is open (it silently did nothing in Demo B); plus an "Updating Linx" note in `docs/ops/`. A help guide only once releases for users exist.
-- Then, before going live (owner decision 2026-10-03, `docs/ROADMAP.md` "Releases and updating from the web"): releases (versions, change list, signed files), then **Update** from the web through the host helper with backup and automatic rollback; design session first.
+- **Update notice in setup done 2026-10-03** (`docs/ops/UPDATING.md`, `docs/HISTORY.md` "After Phase 1"): `sudo linx setup` on an installed server prints the update command when the program isn't the version running, even while the Server settings page is open. Check at the next demo. A help guide only once releases for users exist.
+- **Next**, before going live (owner decision 2026-10-03, `docs/ROADMAP.md` "Releases and updating from the web"): releases (versions, change list, signed files), then **Update** from the web through the host helper with backup and automatic rollback; design session first.
 - Phase 2 (iOS) after that: check `docs/ROADMAP.md` and the foldable-iPhone memory first.
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):

@@ -74,6 +74,22 @@ func ImageTag(commit string) (string, error) {
 
 var commitRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
+// RunningImageTag returns the image tag the installed stack was last set up
+// with (LINX_VERSION in its .env), or "" if there's none to read. read is
+// os.ReadFile.
+func RunningImageTag(read func(string) ([]byte, error)) string {
+	b, err := read(stackEnv)
+	if err != nil {
+		return ""
+	}
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "LINX_VERSION="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
 // StackPlan saves the DNS token, installs compose.yaml and its .env, gets the
 // first public certificate and starts the stack. It must run after PKIPlan,
 // because step-ca's volume and password must exist before "up", and after

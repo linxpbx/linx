@@ -85,6 +85,7 @@ For the first two, the HTTP page asks for the DNS token instead and issues the w
 ## 7. Running setup again
 
 - **Setup already finished and the secure address works:** nothing reopens. The link printed is `https://<domain>/install/…`. It needs a sign-in as a **system admin** and shows the host settings (front door, domain, extras). **No new first admin is created, ever.** Someone who has lost every system admin uses `sudo linx user create --role system_admin` or `sudo linx user reset-2fa`, as today.
+- **A newer `linx` program than the one running** (built 2026-10-03, after Demo B): before anything else setup says so and prints `sudo <this program> setup --config /etc/linx/setup.yaml`, which updates; the Server settings page doesn't (`docs/ops/UPDATING.md`).
 - **The secure address is broken** (domain lost, certificate gone): the HTTP page on 6464 opens again for one hour, again with a new link. Once a system admin exists, it also needs that admin's sign-in, so a stolen link alone can't take over an installed server. Passkeys can't work on 6464, so a passkey-only system admin uses `sudo linx setup --new-link --no-sign-in` (root only) for a link that skips the sign-in.
 
 ## 8. After a restore: "Moved to a new place?"

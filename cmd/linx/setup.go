@@ -128,6 +128,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 			fmt.Fprintln(stderr, "linx setup changes system settings and must run as root. Try: sudo linx setup")
 			return 1
 		}
+		printUpdateWaiting(stdout, env)
 		web, err := chooseSetupMode(ctx, p, env, *newLink || *replaceDocker || *noSignIn)
 		if err != nil {
 			return inputError(stderr, err)
@@ -812,6 +813,51 @@ func chooseSetupMode(ctx context.Context, p *prompter, env setupEnv, webFlags bo
 	mode, err := p.choose("How do you want to finish setting up Linx?", []string{setupInBrowser, setupInTerminal}, labels, setupInBrowser)
 	fmt.Fprintln(p.out)
 	return mode == setupInBrowser, err
+}
+
+// printUpdateWaiting says, on an installed server, when this linx program
+// isn't the version running, and prints the command that installs it
+// (docs/ops/UPDATING.md). Browser setup on an installed server only opens
+// the Server settings page (or finds it open already), which doesn't
+// update anything. Builds without a known commit say nothing.
+func printUpdateWaiting(w io.Writer, env setupEnv) {
+	cfg, err := loadSetupConfig("", env)
+	if err != nil || !cfg.Installed() {
+		return
+	}
+	want, err := installer.ImageTag(env.commit)
+	running := installer.RunningImageTag(env.readFile)
+	if err != nil || running == "" || running == want {
+		return
+	}
+	fmt.Fprintf(w, "This linx program (%s) isn't the version of Linx running here (%s).\n"+
+		"To update Linx to it, keeping every setting, run:\n\n  sudo %s setup --config %s\n\n",
+		shortVersion(want), shortVersion(running), setupCommand(env), installer.ConfigPath)
+}
+
+// shortVersion turns an image tag ("sha-<full commit>") into the short
+// commit people see on GitHub.
+func shortVersion(tag string) string {
+	c := strings.TrimPrefix(tag, "sha-")
+	if len(c) > 7 {
+		c = c[:7]
+	}
+	return c
+}
+
+// setupCommand is how to run this linx program again: "linx" when it's the
+// installed command, otherwise its full path (`sudo linx` would run the
+// installed, older one).
+func setupCommand(env setupEnv) string {
+	if env.executable == "" {
+		return "linx"
+	}
+	a, errA := env.resolve(env.executable)
+	b, errB := env.resolve(installer.CLIPath)
+	if errA == nil && errB == nil && filepath.Clean(a) == filepath.Clean(b) {
+		return "linx"
+	}
+	return env.executable
 }
 
 const (
