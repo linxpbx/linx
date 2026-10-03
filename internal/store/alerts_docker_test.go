@@ -61,6 +61,21 @@ func TestAlertsDocker(t *testing.T) {
 		return c
 	}
 
+	t.Run("every kind Linx offers can be saved", func(t *testing.T) {
+		for _, kind := range alert.Kinds() {
+			id := uuid.Must(uuid.NewV7())
+			now := time.Now()
+			c := alert.Channel{ID: id, TenantID: tenant, Kind: kind, Name: kind, ConfigEnc: []byte("x"),
+				MinSeverity: alert.SeverityInfo, Version: 1, CreatedBy: "system", CreatedAt: now, UpdatedAt: now}
+			if err := s.CreateChannel(ctx, c, audit); err != nil {
+				t.Errorf("a %s channel: %v", kind, err)
+			}
+			if err := s.DeleteChannel(ctx, tenant, id, audit); err != nil {
+				t.Errorf("removing the %s channel: %v", kind, err)
+			}
+		}
+	})
+
 	t.Run("Fire upserts, justOpened only on a fresh open", func(t *testing.T) {
 		key := "test.fire:" + uuid.Must(uuid.NewV7()).String()
 		// Postgres keeps microseconds; Linux clocks give nanoseconds (macOS

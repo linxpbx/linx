@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -68,6 +69,9 @@ var errChanged = &apihttp.Error{Status: http.StatusPreconditionFailed, Code: "et
 	Detail: "This alert channel was changed since you read it. Fetch it again and retry."}
 
 var validKinds = []string{KindNtfy, KindGotify, KindSlack, KindTeams, KindTelegram, KindWebhook, KindEmail}
+
+// Kinds lists every kind of channel Linx offers.
+func Kinds() []string { return slices.Clone(validKinds) }
 
 func validKind(k string) bool {
 	for _, v := range validKinds {
