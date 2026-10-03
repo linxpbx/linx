@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -1390,5 +1392,87 @@ func TestChangeEmail(t *testing.T) {
 	pending.MFAVerified = false
 	if _, err := a.ChangeMyEmail(ctx(pending), "x@example.com"); err == nil {
 		t.Error("a half-finished sign-in changed the email")
+	}
+}
+
+// fakeDevices stands in for internal/enroll: it says who a phone's token
+// speaks for, or refuses it.
+type fakeDevices struct {
+	device   uuid.UUID
+	user     uuid.UUID
+	tenant   uuid.UUID
+	inactive bool
+}
+
+func (f fakeDevices) DevicePrincipal(_ context.Context, device uuid.UUID, _ time.Time) (Principal, error) {
+	if f.inactive || device != f.device {
+		return Principal{}, ErrNotFound
+	}
+	id := device
+	return Principal{Type: TypeUser, ID: f.user.String(), TenantID: f.tenant, Role: RoleUser,
+		Scopes: DeviceScopes(), DeviceID: &id}, nil
+}
+
+// A phone's device token speaks for its person with an ordinary person's
+// scopes, and stops working the moment the phone does (docs/PHASE2.md §4).
+func TestDeviceTokenAuthentication(t *testing.T) {
+	seed := make([]byte, ed25519.SeedSize)
+	if _, err := rand.Read(seed); err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := NewTokens(ed25519.NewKeyFromSeed(seed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	st := newFakeAccountStore()
+	devices := fakeDevices{device: uuid.Must(uuid.NewV7()), user: uuid.Must(uuid.NewV7()), tenant: uuid.Must(uuid.NewV7())}
+	authn := NewAuthenticator(st, tokens, mustResolver(t), slog.New(slog.DiscardHandler))
+	authn.Now = func() time.Time { return now }
+
+	token, _, err := tokens.IssueDevice(devices.device, devices.tenant, DeviceScopes(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ask := func() (Principal, int) {
+		t.Helper()
+		var got Principal
+		status := http.StatusOK
+		h := authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got, _ = PrincipalFromContext(r.Context())
+		}))
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			status = w.Code
+		}
+		return got, status
+	}
+
+	// Without a phone lookup at all, a device token is just invalid.
+	if _, status := ask(); status != http.StatusUnauthorized {
+		t.Errorf("a device token with no phones configured: %d", status)
+	}
+
+	authn.Devices = devices
+	p, status := ask()
+	if status != http.StatusOK {
+		t.Fatalf("a phone's token: %d", status)
+	}
+	if p.ID != devices.user.String() || p.Role != RoleUser || p.DeviceID == nil || *p.DeviceID != devices.device {
+		t.Fatalf("who the token speaks for: %+v", p)
+	}
+	for _, scope := range []string{"devices:write", "users:write", "settings:read"} {
+		if p.Has(scope) {
+			t.Errorf("a phone's token holds %s", scope)
+		}
+	}
+
+	// Revoked, expired, or its person gone: refused at once.
+	authn.Devices = fakeDevices{device: devices.device, inactive: true}
+	if _, status := ask(); status != http.StatusUnauthorized {
+		t.Errorf("a phone that is no longer set up: %d", status)
 	}
 }

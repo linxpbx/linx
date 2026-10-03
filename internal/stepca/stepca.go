@@ -42,6 +42,11 @@ import (
 // (24 h certificates; internal/installer/ca-init.sh).
 const ServicesProvisioner = "linx-services"
 
+// DevicesProvisioner is the step-ca provisioner for phones' certificates
+// (7 days, the inactivity window of ADR-077; internal/installer/ca-init.sh).
+// Only the control plane has its password.
+const DevicesProvisioner = "linx-devices"
+
 // tokenLifetime is how long a one-time token is valid: just long enough for
 // the sign request it's made for.
 const tokenLifetime = 5 * time.Minute
@@ -98,11 +103,6 @@ func (c *Client) Issue(ctx context.Context, commonName string, dnsNames []string
 	if len(sans) == 0 {
 		sans = []string{commonName}
 	}
-	ott, err := c.token(ctx, commonName, sans)
-	if err != nil {
-		return nil, err
-	}
-
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
@@ -114,7 +114,31 @@ func (c *Client) Issue(ctx context.Context, commonName string, dnsNames []string
 	if err != nil {
 		return nil, fmt.Errorf("certificate request: %w", err)
 	}
+	chain, err := c.SignCSR(ctx, csrDER, commonName, sans)
+	if err != nil {
+		return nil, err
+	}
+	cert := &tls.Certificate{PrivateKey: key, Certificate: chain}
+	leaf, err := x509.ParseCertificate(chain[0])
+	if err != nil {
+		return nil, fmt.Errorf("sign: %w", err)
+	}
+	if !leaf.PublicKey.(*ecdsa.PublicKey).Equal(&key.PublicKey) {
+		return nil, errors.New("sign: the CA returned a certificate for a different key")
+	}
+	cert.Leaf = leaf
+	return cert, nil
+}
 
+// SignCSR has the CA sign a certificate request someone else made — a
+// phone's, whose key is in its Secure Enclave and can never leave it
+// (docs/PHASE2.md §4). It returns the certificate and its intermediate, as
+// DER, leaf first.
+func (c *Client) SignCSR(ctx context.Context, csrDER []byte, commonName string, sans []string) ([][]byte, error) {
+	ott, err := c.token(ctx, commonName, sans)
+	if err != nil {
+		return nil, err
+	}
 	body, err := json.Marshal(map[string]string{
 		"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})),
 		"ott": ott,
@@ -130,13 +154,12 @@ func (c *Client) Issue(ctx context.Context, commonName string, dnsNames []string
 	if err := c.do(ctx, http.MethodPost, "/1.0/sign", body, &resp); err != nil {
 		return nil, fmt.Errorf("sign: %w", err)
 	}
-	chain := resp.CertChain
-	if len(chain) == 0 {
-		chain = []string{resp.Crt, resp.CA}
+	pems := resp.CertChain
+	if len(pems) == 0 {
+		pems = []string{resp.Crt, resp.CA}
 	}
-
-	cert := &tls.Certificate{PrivateKey: key}
-	for _, p := range chain {
+	var chain [][]byte
+	for _, p := range pems {
 		rest := []byte(p)
 		for {
 			var block *pem.Block
@@ -145,22 +168,14 @@ func (c *Client) Issue(ctx context.Context, commonName string, dnsNames []string
 				break
 			}
 			if block.Type == "CERTIFICATE" {
-				cert.Certificate = append(cert.Certificate, block.Bytes)
+				chain = append(chain, block.Bytes)
 			}
 		}
 	}
-	if len(cert.Certificate) == 0 {
+	if len(chain) == 0 {
 		return nil, errors.New("sign: the CA returned no certificate")
 	}
-	leaf, err := x509.ParseCertificate(cert.Certificate[0])
-	if err != nil {
-		return nil, fmt.Errorf("sign: %w", err)
-	}
-	if !leaf.PublicKey.(*ecdsa.PublicKey).Equal(&key.PublicKey) {
-		return nil, errors.New("sign: the CA returned a certificate for a different key")
-	}
-	cert.Leaf = leaf
-	return cert, nil
+	return chain, nil
 }
 
 // token signs a one-time token (step-ca's "ott") with the provisioner's key.

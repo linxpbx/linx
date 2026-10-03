@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"linxpbx.com/linx/internal/apihttp"
 )
 
@@ -35,6 +37,17 @@ type Authenticator struct {
 	// Networks is "where admins may sign in from" (docs/ADMIN.md §3). Nil
 	// (the default in tests) never restricts.
 	Networks AdminNetworkChecker
+	// Devices turns a phone's device token into a Principal
+	// (docs/PHASE2.md §4, internal/enroll). Nil refuses every device token.
+	Devices DeviceAuthenticator
+}
+
+// DeviceAuthenticator answers who a phone's device token belongs to, and
+// refuses the token if the phone has been revoked or has expired. It is
+// asked on every call, so revoking a phone stops it at once rather than
+// after up to 15 minutes.
+type DeviceAuthenticator interface {
+	DevicePrincipal(ctx context.Context, device uuid.UUID, now time.Time) (Principal, error)
 }
 
 // AdminNetworkChecker is the setting "where admins may sign in from"
@@ -356,6 +369,9 @@ func (a *Authenticator) authenticateAccessToken(ctx context.Context, raw string,
 	if err != nil {
 		return Principal{}, &failure{err: errInvalid, reason: "bad_token"}
 	}
+	if claims.Kind == KindDevice {
+		return a.authenticateDeviceToken(ctx, claims, now)
+	}
 	revoked, err := a.Store.TokenRevoked(ctx, claims.JTI)
 	if err != nil {
 		a.Log.Error("token revocation lookup failed", "err", err)
@@ -386,6 +402,42 @@ func (a *Authenticator) authenticateAccessToken(ctx context.Context, raw string,
 	}
 	p := cred.Principal()
 	// The token can only narrow what the client currently holds.
+	var scopes []string
+	for _, s := range claims.Scopes {
+		if p.Has(s) {
+			scopes = append(scopes, s)
+		}
+	}
+	p.Scopes = Effective(scopes, p.Role)
+	return p, nil
+}
+
+// authenticateDeviceToken checks a phone's token: the phone is looked up on
+// every call, so a revoked or expired one stops at once.
+func (a *Authenticator) authenticateDeviceToken(ctx context.Context, claims AccessClaims, now time.Time) (Principal, *failure) {
+	if a.Devices == nil {
+		return Principal{}, &failure{err: errInvalid, reason: "device_tokens_off"}
+	}
+	revoked, err := a.Store.TokenRevoked(ctx, claims.JTI)
+	if err != nil {
+		a.Log.Error("token revocation lookup failed", "err", err)
+		return Principal{}, &failure{err: unavailable(), reason: "lookup_error"}
+	}
+	if revoked {
+		return Principal{}, &failure{err: errInvalid, reason: "token_revoked"}
+	}
+	p, err := a.Devices.DevicePrincipal(ctx, claims.ClientID, now)
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			a.Log.Error("device lookup failed", "err", err)
+			return Principal{}, &failure{err: unavailable(), reason: "lookup_error"}
+		}
+		return Principal{}, &failure{err: errInvalid, reason: "device_inactive"}
+	}
+	if p.TenantID != claims.TenantID {
+		return Principal{}, &failure{err: errInvalid, reason: "tenant_mismatch"}
+	}
+	// The token can only narrow what the phone currently holds.
 	var scopes []string
 	for _, s := range claims.Scopes {
 		if p.Has(s) {

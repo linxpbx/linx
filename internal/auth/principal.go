@@ -31,6 +31,12 @@ type Principal struct {
 	// A pending principal holds no scopes, so it can only reach operations
 	// that need no scope; those handlers decide what it may actually do.
 	Pending bool
+	// DeviceID is set when the caller is a phone using its device token
+	// (docs/PHASE2.md §4): the principal is still the person whose phone it
+	// is, with the ordinary person's role and scopes whatever their own
+	// role is, so an app can never reach the admin area. Audit entries name
+	// the device.
+	DeviceID *uuid.UUID
 	// AdminNetworkRestricted is true when this session's role was limited to
 	// RoleUser's scopes because "only from my home/office network" is on and
 	// the request didn't come from one of the allowed networks

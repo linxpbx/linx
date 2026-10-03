@@ -83,6 +83,11 @@ var grantableRoles = map[string][]string{
 	RoleUser:        {RoleUser},
 }
 
+// DeviceScopes are what a phone's device token holds (docs/PHASE2.md §4):
+// an ordinary person's scopes, whatever their own role is, so an app can
+// never reach the admin area even on an admin's phone.
+func DeviceScopes() []string { return slices.Clone(roleCeilings[RoleUser]) }
+
 // ValidRole reports whether role is a known role.
 func ValidRole(role string) bool { return slices.Contains(Roles, role) }
 

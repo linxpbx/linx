@@ -78,6 +78,10 @@ func notFound(what string) *apihttp.Error {
 	return &apihttp.Error{Status: http.StatusNotFound, Code: "not_found", Detail: "There is no " + what + " with that id."}
 }
 
+// notASession refuses anything that isn't a signed-in browser session: an
+// API key, an OAuth client, or a phone's device token. A phone must never be
+// able to change the account it signs in as — its own password, email,
+// authenticator or passkeys (docs/PHASE2.md §4).
 func notASession() *apihttp.Error {
 	return &apihttp.Error{Status: http.StatusBadRequest, Code: "not_a_session",
 		Detail: "This only works for a signed-in browser session."}
@@ -966,7 +970,7 @@ func (a *Accounts) BeginMFAEnrollment(ctx context.Context) (secret, otpauthURL s
 	if !ok {
 		return "", "", errNoPrincipalAuth
 	}
-	if caller.Type != TypeUser {
+	if caller.Type != TypeUser || caller.DeviceID != nil {
 		return "", "", notASession()
 	}
 	uid, err := uuid.Parse(caller.ID)
@@ -1009,7 +1013,7 @@ func (a *Accounts) ConfirmMFAEnrollment(ctx context.Context, code string) ([]str
 	if !ok {
 		return nil, errNoPrincipalAuth
 	}
-	if caller.Type != TypeUser {
+	if caller.Type != TypeUser || caller.DeviceID != nil {
 		return nil, notASession()
 	}
 	uid, err := uuid.Parse(caller.ID)
@@ -1116,7 +1120,7 @@ func (a *Accounts) Confirm(ctx context.Context, password, code string) error {
 	if !ok {
 		return errNoPrincipalAuth
 	}
-	if caller.Type != TypeUser {
+	if caller.Type != TypeUser || caller.DeviceID != nil {
 		return notASession()
 	}
 	if caller.Pending {
@@ -1232,7 +1236,7 @@ func (a *Accounts) ChangePassword(ctx context.Context, currentPassword, newPassw
 	if !ok {
 		return errNoPrincipalAuth
 	}
-	if caller.Type != TypeUser {
+	if caller.Type != TypeUser || caller.DeviceID != nil {
 		return notASession()
 	}
 	if caller.Pending {
@@ -1297,7 +1301,7 @@ func (a *Accounts) CheckCurrentPassword(ctx context.Context, password string) er
 	if !ok {
 		return errNoPrincipalAuth
 	}
-	if caller.Type != TypeUser {
+	if caller.Type != TypeUser || caller.DeviceID != nil {
 		return notASession()
 	}
 	if caller.Pending {
