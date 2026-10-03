@@ -193,7 +193,7 @@ type TokenResult struct {
 	Certificate  string // PEM, only when renewed
 	CertNotAfter time.Time
 	// SetUpAgain is the moment the phone has to be set up again if it stops
-	// coming back (7 days from now).
+	// coming back (six months from now).
 	SetUpAgain time.Time
 }
 
@@ -309,7 +309,7 @@ func (s *Service) DevicePrincipal(ctx context.Context, device uuid.UUID, now tim
 	}, nil
 }
 
-// ExpireOverdue marks every phone that has not been in touch for 7 days
+// ExpireOverdue marks every phone that has not been in touch for six months
 // (ADR-077) and clears away proofs that could no longer be replayed. It is
 // run once an hour; nothing else waits on it, because Asterisk's own view
 // stops an expired phone at the same moment.

@@ -35,9 +35,9 @@ They need an extension first, or their phone would have nothing to answer for.
 
 ## "Set it up again"
 
-A phone stays set up as long as it's in touch with Linx — it checks in by itself while you use it. It asks to be set up again when:
+A phone stays set up as long as it's in touch with Linx — it checks in by itself while you use it. Nothing else interrupts it. It asks to be set up again only when:
 
-- it hasn't been in touch for **7 days** (a phone left in a drawer, or lost and switched off);
+- it hasn't been in touch for **6 months** (a phone left in a drawer, or lost and switched off);
 - the person's **password changed**;
 - an admin stopped it.
 
@@ -47,7 +47,7 @@ Then the list says **Set it up again**: make a new code and set it up as above. 
 
 My account → **My phones** → **I've lost it**. It stops at once and for good, and any call on it drops. An admin can do the same from People → the person → **Stop it**.
 
-Even if someone has the phone, they can't use it to be you: the key is inside the phone and can't be copied, and the phone stops anyway after 7 days with no contact.
+Even if someone has the phone, they can't use it to be you: the key is inside the phone and can't be copied, and the phone stops by itself after 6 months with no contact.
 
 ## The app can't run Linx
 

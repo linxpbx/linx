@@ -202,7 +202,8 @@ func newTestCA(now func() time.Time) *testCA {
 	if err != nil {
 		panic(err)
 	}
-	return &testCA{key: key, cert: cert, lifetime: 7 * 24 * time.Hour, now: now}
+	// As long as the idle window, like the real linx-devices provisioner.
+	return &testCA{key: key, cert: cert, lifetime: InactivityWindow, now: now}
 }
 
 func (c *testCA) SignCSR(_ context.Context, csrDER []byte, commonName string, sans []string) ([][]byte, error) {

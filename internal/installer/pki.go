@@ -76,7 +76,7 @@ func PKIPlan(exists bool) PKISetup {
 		s.Plan = append(s.Plan, st)
 	}
 	if exists {
-		s.Plan = append(s.Plan, caCertsReadableStep())
+		s.Plan = append(s.Plan, caCertsReadableStep(), devicesProvisionerStep())
 		return s
 	}
 
@@ -113,6 +113,24 @@ func caCertsReadableStep() Step {
 		"--volume", StepCAVolume+":/home/step", "--entrypoint", "sh", StepCAImage,
 		"-c", "chmod 0755 /home/step/certs && chmod 0644 /home/step/certs/*.crt")
 }
+
+// devicesProvisionerStep keeps the linx-devices provisioner's certificate
+// lifetime at the inactivity window. CAs made before 2026-10-03 signed
+// phones' certificates for 7 days; the window is now six months (owner),
+// so setup brings an existing CA up to date. Safe to run every time: it
+// sets the same numbers ca-init.sh does for a new CA, and no phone exists
+// on a CA that old anyway.
+func devicesProvisionerStep() Step {
+	return cmdStep("Let a phone's certificate last as long as it may stay idle (six months)",
+		"docker", "run", "--rm", "--network", "none", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--volume", StepCAVolume+":/home/step", "--entrypoint", "step", StepCAImage,
+		"ca", "provisioner", "update", "linx-devices", "--ca-config", "/home/step/config/ca.json",
+		"--x509-min-dur", "5m", "--x509-max-dur", devicesCertDuration, "--x509-default-dur", devicesCertDuration, "--ssh=false")
+}
+
+// devicesCertDuration is the inactivity window of ADR-077 in step-ca's
+// units: six months, the same number ca-init.sh gives a new CA.
+const devicesCertDuration = "4392h"
 
 var secretTitle = map[string]string{
 	secretStepCAPassword:   "internal certificate authority password",

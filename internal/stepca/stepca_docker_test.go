@@ -2,7 +2,11 @@ package stepca
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +18,9 @@ import (
 )
 
 // startTestCA runs a throwaway step-ca (the image compose.yaml uses) with a
-// linx-services JWK provisioner, published on a random localhost port. It
+// linx-services and linx-devices JWK provisioners (the durations
+// internal/installer/ca-init.sh gives them), published on a random
+// localhost port. It
 // returns the CA URL, the root certificate's path and the provisioner
 // password. Callers skip unless LINX_DOCKER_TESTS=1.
 func startTestCA(t *testing.T, name string) (caURL, rootPath string, password []byte) {
@@ -43,6 +49,8 @@ func startTestCA(t *testing.T, name string) (caURL, rootPath string, password []
 step ca init --deployment-type standalone --name "Linx Test CA" --dns localhost --dns step-ca --address :9000 \
   --provisioner linx-services --password-file /tmp/pw --provisioner-password-file /tmp/pw >/dev/null
 step ca provisioner update linx-services --x509-max-dur 24h --x509-default-dur 24h >/dev/null
+step ca provisioner add linx-devices --type JWK --create --password-file /tmp/pw \
+  --x509-min-dur 5m --x509-max-dur 4392h --x509-default-dur 4392h --ssh=false >/dev/null
 printf %s '`+pw+`' > /home/step/secrets/password`)
 	docker("run", "--detach", "--name", name, "--volume", volume+":/home/step", "--publish", "127.0.0.1::9000",
 		"--entrypoint", "step-ca", installer.StepCAImage, "--password-file", "/home/step/secrets/password", "/home/step/config/ca.json")
@@ -118,5 +126,63 @@ func TestIssueDocker(t *testing.T) {
 	missing := NewClient(caURL, "nope", pw, roots)
 	if _, err := missing.Issue(ctx, "x", nil); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("unknown provisioner: err = %v", err)
+	}
+}
+
+// A phone's certificate request is signed as it is, for the one name Linx
+// allows, and lasts as long as a phone may stay idle (ADR-077, six months).
+func TestSignCSRDocker(t *testing.T) {
+	if os.Getenv("LINX_DOCKER_TESTS") != "1" {
+		t.Skip("set LINX_DOCKER_TESTS=1 (make test-docker)")
+	}
+	caURL, rootPath, pw := startTestCA(t, "linx-stepca-devices-test")
+	roots, err := LoadRoots(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	// The key never leaves the "phone": only its certificate request goes out.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: "linx-phone"}, DNSNames: []string{"linx-phone"},
+	}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewClient(caURL, DevicesProvisioner, pw, roots)
+	chain, err := c.SignCSR(ctx, csr, "linx-phone", []string{"linx-phone"})
+	if err != nil {
+		t.Fatalf("SignCSR: %v", err)
+	}
+	if len(chain) < 2 {
+		t.Fatalf("want leaf + intermediate, got %d certificates", len(chain))
+	}
+	leaf, err := x509.ParseCertificate(chain[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !leaf.PublicKey.(*ecdsa.PublicKey).Equal(&key.PublicKey) {
+		t.Error("the CA signed a different key than the phone's")
+	}
+	inter := x509.NewCertPool()
+	for _, der := range chain[1:] {
+		ic, err := x509.ParseCertificate(der)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inter.AddCert(ic)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{DNSName: "linx-phone", Roots: roots, Intermediates: inter,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}); err != nil {
+		t.Errorf("a phone's certificate doesn't verify against the root: %v", err)
+	}
+	// Six months, as long as a phone may stay idle: the two run out together.
+	if life := leaf.NotAfter.Sub(leaf.NotBefore); life < 182*24*time.Hour || life > 184*24*time.Hour {
+		t.Errorf("lifetime %v, want about six months", life)
 	}
 }

@@ -93,8 +93,8 @@ func TestEnrollDocker(t *testing.T) {
 		Version: 1, CreatedAt: now, UpdatedAt: now}
 	identity := enroll.Identity{DeviceID: device.ID, TenantID: tenant, UserID: sara.ID,
 		PublicKey: []byte("spki"), CertSerial: "1", CertFingerprint: []byte("fingerprint-1"),
-		CertNotAfter: now.Add(7 * 24 * time.Hour), EnrolledAt: now, LastSeenAt: now,
-		ExpiresAt: now.Add(7 * 24 * time.Hour), AppVersion: "0.1.0", OSVersion: "26.0"}
+		CertNotAfter: now.Add(183 * 24 * time.Hour), EnrolledAt: now, LastSeenAt: now,
+		ExpiresAt: now.Add(183 * 24 * time.Hour), AppVersion: "0.1.0", OSVersion: "26.0"}
 	if err := s.RedeemEnrollment(ctx, ticket.ID, device, identity, audit("device.enrolled")); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestEnrollDocker(t *testing.T) {
 	// Renewing keeps the same phone with a new certificate.
 	later := now.Add(2 * time.Hour)
 	if err := s.TouchIdentity(ctx, device.ID, &enroll.CertUpdate{Serial: "2", Fingerprint: []byte("fingerprint-3"),
-		NotAfter: later.Add(7 * 24 * time.Hour)}, "0.2.0", "26.1", later, later.Add(7*24*time.Hour)); err != nil {
+		NotAfter: later.Add(183 * 24 * time.Hour)}, "0.2.0", "26.1", later, later.Add(183*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.IdentityByFingerprint(ctx, []byte("fingerprint-1")); !errors.Is(err, pbx.ErrNotFound) {
@@ -184,9 +184,9 @@ func TestEnrollDocker(t *testing.T) {
 		t.Fatalf("after renewal: %+v, %v", renewed, err)
 	}
 
-	// Seven days with no contact: expired, with its event, and gone from
+	// Six months with no contact: expired, with its event, and gone from
 	// Asterisk's view.
-	expired, err := s.ExpireIdentities(ctx, later.Add(8*24*time.Hour))
+	expired, err := s.ExpireIdentities(ctx, later.Add(184*24*time.Hour))
 	if err != nil || len(expired) != 1 || expired[0].ID != device.ID {
 		t.Fatalf("expiring: %+v, %v", expired, err)
 	}
@@ -204,14 +204,14 @@ func TestEnrollDocker(t *testing.T) {
 	if _, _, err := s.DevicePrincipalFor(ctx, device.ID, later); !errors.Is(err, pbx.ErrNotFound) {
 		t.Errorf("an expired phone still has a token: %v", err)
 	}
-	if again, err := s.ExpireIdentities(ctx, later.Add(9*24*time.Hour)); err != nil || len(again) != 0 {
+	if again, err := s.ExpireIdentities(ctx, later.Add(185*24*time.Hour)); err != nil || len(again) != 0 {
 		t.Errorf("expiring twice: %+v, %v", again, err)
 	}
 
 	// Being in touch again brings it back.
-	back := later.Add(9 * 24 * time.Hour)
+	back := later.Add(185 * 24 * time.Hour)
 	if err := s.TouchIdentity(ctx, device.ID, &enroll.CertUpdate{Serial: "3", Fingerprint: []byte("fingerprint-4"),
-		NotAfter: back.Add(7 * 24 * time.Hour)}, "0.2.0", "26.1", back, back.Add(7*24*time.Hour)); err != nil {
+		NotAfter: back.Add(183 * 24 * time.Hour)}, "0.2.0", "26.1", back, back.Add(183*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if !live() {
@@ -246,7 +246,7 @@ func TestEnrollDocker(t *testing.T) {
 	// too, as it already does to their browser line.
 	again := changed.Add(2 * time.Minute)
 	if err := s.TouchIdentity(ctx, device.ID, &enroll.CertUpdate{Serial: "4", Fingerprint: []byte("fingerprint-5"),
-		NotAfter: again.Add(7 * 24 * time.Hour)}, "0.2.0", "26.1", again, again.Add(7*24*time.Hour)); err != nil {
+		NotAfter: again.Add(183 * 24 * time.Hour)}, "0.2.0", "26.1", again, again.Add(183*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if !live() {

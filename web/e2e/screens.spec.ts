@@ -3,7 +3,7 @@
 // CLAUDE.md). `npm run screens` writes them to e2e/screenshots/.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { doorSetup, fakeCert, fakeInstall, fakeSecureInstall, fakeServer } from "./fakes";
+import { doorSetup, fakeCert, fakeInstall, fakeSecureInstall, fakeServer, fakeToken } from "./fakes";
 
 // The account row says "Available" once the phone line has signed in.
 const lineReady = (page: Page) => expect(page.getByTestId("account-menu")).toContainText("Available");
@@ -387,7 +387,7 @@ for (const scheme of ["light", "dark"] as const) {
     test("the setup page an emailed link opens", async ({ page }) => {
       await fakeServer(page);
       const soon = Math.floor((Date.now() + 9 * 60_000) / 1000);
-      const token = `eyJhbGciOiJFZERTQSJ9.${btoa(JSON.stringify({ exp: soon })).replace(/=+$/, "")}.fake`;
+      const token = fakeToken(soon);
       await page.goto(`/set-up-phone#${token}`);
       await expect(page.getByRole("heading", { name: "Set up this phone" })).toBeVisible();
       await expect(page.getByAltText("The setup code as a picture to scan")).toBeVisible();
@@ -1314,7 +1314,7 @@ test.describe("phone width", () => {
   test("the emailed phone setup page", async ({ page }) => {
     await fakeServer(page);
     const soon = Math.floor((Date.now() + 9 * 60_000) / 1000);
-    await page.goto(`/set-up-phone#eyJhbGciOiJFZERTQSJ9.${btoa(JSON.stringify({ exp: soon })).replace(/=+$/, "")}.fake`);
+    await page.goto(`/set-up-phone#${fakeToken(soon)}`);
     await expect(page.getByRole("heading", { name: "Set up this phone" })).toBeVisible();
     await shot(page, "phone-set-up-phone");
   });

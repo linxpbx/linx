@@ -501,7 +501,7 @@ secrets:
   linx_ca_services_password:
     file: ./secrets/linx_ca_services_password
   # The internal CA's linx-devices provisioner password: the control plane
-  # signs each phone's 7-day certificate with it (ADR-073). Root-owned,
+  # signs each phone's six-month certificate with it (ADR-073). Root-owned,
   # group 1000, mode 0440 (created with the CA by linx setup).
   linx_ca_devices_password:
     file: ./secrets/linx_ca_devices_password

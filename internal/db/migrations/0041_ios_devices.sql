@@ -43,8 +43,9 @@ CREATE UNIQUE INDEX device_enrollment_code_idx ON device_enrollment (code_hash)
 
 -- What a set-up phone is. One row per ios device, made when the ticket is
 -- redeemed and kept fresh every time the phone is in touch. The certificate
--- lasts 7 days and is renewed while the phone keeps coming back; 7 days with
--- no contact at all and the phone must be set up again (ADR-077).
+-- lasts six months and is renewed while the phone keeps coming back; six
+-- months with no contact at all, or a change of its person's password, and
+-- the phone must be set up again (ADR-077, owner 2026-10-03).
 CREATE TABLE device_identity (
     device_id        uuid PRIMARY KEY REFERENCES device (id) ON DELETE CASCADE,
     tenant_id        uuid NOT NULL REFERENCES tenant (id),

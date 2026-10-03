@@ -6404,10 +6404,10 @@ components:
         set_up_again_at:
           type: string
           format: date-time
-          description: 7 days after it was last in touch.
+          description: Six months after it was last in touch.
         expired:
           type: boolean
-          description: It went quiet for 7 days (or its person's password changed) and needs a new setup code.
+          description: It went quiet for six months (or its person's password changed) and needs a new setup code.
 
     DeviceCreate:
       type: object

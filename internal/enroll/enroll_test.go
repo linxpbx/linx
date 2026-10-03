@@ -250,7 +250,7 @@ func TestSetUpAPhone(t *testing.T) {
 		t.Errorf("what the phone was told: %+v", out)
 	}
 	if !out.ExpiresAt.Equal(f.now.Add(InactivityWindow)) {
-		t.Errorf("set up again by %v, want 7 days", out.ExpiresAt)
+		t.Errorf("set up again by %v, want six months", out.ExpiresAt)
 	}
 	device := f.store.devices[out.DeviceID]
 	if device.Kind != pbx.KindIOS || !device.Enabled || device.SIPUsername == "" {
@@ -327,8 +327,8 @@ func TestRenewAndExpire(t *testing.T) {
 	f := newFixture(t)
 	p, out := f.setUp(t, f.sara)
 
-	// Six days later the phone renews its certificate for the same key.
-	f.now = f.now.Add(6 * 24 * time.Hour)
+	// Five months later the phone renews its certificate for the same key.
+	f.now = f.now.Add(150 * 24 * time.Hour)
 	res, err := f.svc.DeviceToken(context.Background(), TokenRequest{
 		Certificate: p.cert.Raw, Proof: p.proof(t, out.DeviceID, f.now), CSR: p.csr(t, CertName)})
 	if err != nil || res.Certificate == "" {
@@ -359,7 +359,7 @@ func TestRenewAndExpire(t *testing.T) {
 		t.Errorf("renewing with another key: %v", err)
 	}
 
-	// Seven days with no contact at all: the phone has to be set up again.
+	// Six months with no contact at all: the phone has to be set up again.
 	f.now = f.now.Add(InactivityWindow + time.Hour)
 	n, err := f.svc.ExpireOverdue(context.Background())
 	if err != nil || n != 1 {

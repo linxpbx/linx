@@ -126,7 +126,9 @@ chmod 0644 /out/*.crt # the test runs as a different user from the container
 			t.Errorf("missing %q in:\n%s", want, res)
 		}
 	}
-	for name, want := range map[string]time.Duration{"svc": 24 * time.Hour, "dev": 7 * 24 * time.Hour} {
+	// A phone's certificate lasts as long as it may stay idle (ADR-077,
+	// owner 2026-10-03: six months); a service's is a day.
+	for name, want := range map[string]time.Duration{"svc": 24 * time.Hour, "dev": 183 * 24 * time.Hour} {
 		pemBytes, err := os.ReadFile(filepath.Join(out, name+".crt"))
 		if err != nil {
 			t.Fatal(err)

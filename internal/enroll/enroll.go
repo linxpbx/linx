@@ -9,16 +9,17 @@
 //  2. The phone makes a key pair inside its Secure Enclave — the private half
 //     can never be read, copied or backed up, not even by the app — and sends
 //     the ticket with a certificate request. Linx creates the device and has
-//     the internal CA sign a 7-day certificate for that key.
+//     the internal CA sign a six-month certificate for that key.
 //  3. From then on the phone proves who it is by signing a short, single-use
 //     statement with that key, and gets a 15-minute device token back. That
 //     works through every front door, including ones that decrypt and
 //     re-encrypt, and inside China, because nothing depends on the phone's
 //     TLS client certificate reaching Linx.
 //
-// A certificate lasts 7 days and is renewed whenever the phone is in touch.
-// Seven days with no contact at all and the phone must be set up again, so a
-// stolen phone kept offline becomes useless by itself.
+// A certificate lasts six months and is renewed whenever the phone is in
+// touch, so a phone in use never notices. Six months with no contact at all
+// and the phone must be set up again; so does a change of its person's
+// password, and nothing else (owner, 2026-10-03).
 package enroll
 
 import (
@@ -52,8 +53,10 @@ const (
 	// TicketTTL is how long a QR code, link or typed code is good for.
 	TicketTTL = auth.EnrollTokenTTL
 	// InactivityWindow is how long a phone may go without being in touch
-	// before it has to be set up again (ADR-077).
-	InactivityWindow = 7 * 24 * time.Hour
+	// before it has to be set up again: six months (owner, 2026-10-03,
+	// ADR-077). The certificate lasts exactly as long, and is renewed every
+	// time the phone is in touch, so the two always run out together.
+	InactivityWindow = 183 * 24 * time.Hour
 	// ProofTTL is how old a phone's signed proof may be. It is also
 	// single-use, so a copied one is refused even inside the minute.
 	ProofTTL = time.Minute
@@ -173,7 +176,7 @@ type Store interface {
 	// when the phone is revoked, turned off, expired, or its person is gone.
 	DevicePrincipalFor(ctx context.Context, device uuid.UUID, now time.Time) (tenant, user uuid.UUID, err error)
 	// ExpireIdentities marks every phone that has not been in touch for
-	// InactivityWindow, with a device.expired event each.
+	// InactivityWindow (six months), with a device.expired event each.
 	ExpireIdentities(ctx context.Context, now time.Time) ([]pbx.Device, error)
 	// DeleteUsedProofs removes proof ids that could no longer be replayed.
 	DeleteUsedProofs(ctx context.Context, before time.Time) error

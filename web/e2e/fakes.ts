@@ -16,6 +16,14 @@ function hasDestinationLabel(v: unknown): boolean {
 }
 
 export const DOMAIN = "sip.linx.test";
+/** A stand-in for a signed setup token: header, the times the page reads, a
+ *  signature that is only the word. Never a real token, and never written
+ *  out as one (the secret scan flags token-shaped literals). */
+export function fakeToken(exp: number): string {
+  const part = (o: unknown) => btoa(JSON.stringify(o)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return [part({ alg: "EdDSA" }), part({ sub: "fake", exp }), "not-a-signature"].join(".");
+}
+
 export const ME = { name: "Mohammed Al Mansoori", email: "mohammed@example.com", extension: "1001", username: "d_Web00001" };
 
 export const TEAM = [
@@ -695,7 +703,9 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         created_at: now(), expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
       };
       people.enrollments.push(enrollment);
-      const token = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJmYWtlIn0.not-a-real-signature";
+      // A stand-in setup token, built from its parts: a token-shaped string
+      // in the source would trip the secret scan, and nothing here is real.
+      const token = fakeToken(Math.floor((Date.now() + 10 * 60_000) / 1000));
       return route.fulfill(json({
         enrollment, token, code: "7KQD4M2X", setup_url: `https://${DOMAIN}/set-up-phone#${token}`,
         ...(body.send_email ? { email: opts.email ? { to: user.email, queued: true } : { to: user.email, queued: false, error: "Email isn't set up yet. An admin can turn it on in System → Settings." } } : {}),

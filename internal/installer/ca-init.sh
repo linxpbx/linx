@@ -33,11 +33,13 @@ step ca init --deployment-type standalone --name "Linx Internal CA" \
 step ca provisioner update linx-services --ca-config "$ca_config" \
   --x509-min-dur 5m --x509-max-dur 24h --x509-default-dur 24h --ssh=false
 
-# Device certificates: lifetime equals the inactivity window (7 days). Only
-# the control plane gets this provisioner's password.
+# Device certificates: lifetime equals the inactivity window (six months,
+# 4392h; owner 2026-10-03). A phone renews every time it is in touch, so the
+# certificate and the window always run out together. Only the control plane
+# gets this provisioner's password.
 step ca provisioner add linx-devices --ca-config "$ca_config" --type JWK --create \
   --password-file /run/secrets/linx_ca_devices_password \
-  --x509-min-dur 5m --x509-max-dur 168h --x509-default-dur 168h --ssh=false
+  --x509-min-dur 5m --x509-max-dur 4392h --x509-default-dur 4392h --ssh=false
 
 test ! -e secrets/root_ca_key
 # The public certificates are for every Linx service to read (compose.yaml

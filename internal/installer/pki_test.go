@@ -47,17 +47,27 @@ func TestPKIPlanBootstrap(t *testing.T) {
 
 func TestPKIPlanExistingCA(t *testing.T) {
 	s := PKIPlan(true)
-	if s.Passphrase != "" || len(s.Plan) != 4 {
-		t.Errorf("existing CA: passphrase %q, %d steps; want the 3 secrets and the certificate permissions", s.Passphrase, len(s.Plan))
+	if s.Passphrase != "" || len(s.Plan) != 5 {
+		t.Errorf("existing CA: passphrase %q, %d steps; want the 3 secrets, the certificate permissions and the devices provisioner",
+			s.Passphrase, len(s.Plan))
 	}
 	for _, st := range s.Plan[:3] {
 		if st.File == nil {
 			t.Errorf("unexpected step %q", st.Title)
 		}
 	}
-	if last := s.Plan[len(s.Plan)-1]; last.Cmd == nil || !strings.Contains(last.Cmd.String(), "chmod 0644 /home/step/certs/*.crt") ||
-		!strings.Contains(last.Cmd.String(), StepCAVolume+":/home/step") {
-		t.Errorf("last step should make the CA's certificates readable: %+v", last)
+	certs := s.Plan[3]
+	if certs.Cmd == nil || !strings.Contains(certs.Cmd.String(), "chmod 0644 /home/step/certs/*.crt") ||
+		!strings.Contains(certs.Cmd.String(), StepCAVolume+":/home/step") {
+		t.Errorf("step 4 should make the CA's certificates readable: %+v", certs)
+	}
+	// A CA made before 2026-10-03 signed phones' certificates for 7 days;
+	// the idle window is now six months, so setup brings it up to date
+	// (ADR-077).
+	last := s.Plan[len(s.Plan)-1]
+	if last.Cmd == nil || !strings.Contains(last.Cmd.String(), "ca provisioner update linx-devices") ||
+		!strings.Contains(last.Cmd.String(), "--x509-max-dur "+devicesCertDuration) {
+		t.Errorf("last step should keep a phone's certificate as long as the idle window: %+v", last)
 	}
 }
 

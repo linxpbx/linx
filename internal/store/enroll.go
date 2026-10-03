@@ -247,8 +247,8 @@ func (s *Store) DevicePrincipalFor(ctx context.Context, device uuid.UUID, now ti
 	return tenant, user, err
 }
 
-// ExpireIdentities marks the phones that have gone 7 days without being in
-// touch, each with a device.expired event.
+// ExpireIdentities marks the phones that have gone six months without being
+// in touch, each with a device.expired event.
 func (s *Store) ExpireIdentities(ctx context.Context, now time.Time) ([]pbx.Device, error) {
 	var expired []pbx.Device
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {

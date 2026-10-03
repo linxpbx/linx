@@ -4029,10 +4029,10 @@ export interface components {
             last_seen_at: string;
             /**
              * Format: date-time
-             * @description 7 days after it was last in touch.
+             * @description Six months after it was last in touch.
              */
             set_up_again_at: string;
-            /** @description It went quiet for 7 days (or its person's password changed) and needs a new setup code. */
+            /** @description It went quiet for six months (or its person's password changed) and needs a new setup code. */
             expired: boolean;
         };
         DeviceCreate: {
