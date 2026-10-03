@@ -1,6 +1,6 @@
 # Updating Linx
 
-Until releases exist (`docs/ROADMAP.md` "Before going live"), a server is updated by copying a newer `linx` program to it and running setup with the saved answers. This stays the way to update when the web page is broken or GitHub can't be reached.
+Until releases exist (Phase 5, `docs/ROADMAP.md` "Releases and updating from the web"), a server is updated by copying a newer `linx` program to it and running setup with the saved answers. This stays the way to update when the web page is broken or GitHub can't be reached.
 
 ## Steps
 1. On your computer, from an up-to-date, clean checkout of master, once CI is green for that commit (its service images must be on ghcr.io):

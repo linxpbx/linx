@@ -40,8 +40,7 @@ Now (2026-10-03):
 - **Phase 1F and Phase 1 done** (Demo B approved 2026-10-03). Its step-by-step history is in `docs/HISTORY.md` "Phase 1F and the end of Phase 1".
 - **Busy tone done 2026-10-03** (ADR-072, `docs/PBX.md` §4, `docs/HISTORY.md` "After Phase 1"): gateways' lines listen for 4 bursts of the country's busy tone and hang up; voicemail trims it. Check on the owner's UCM landline at the next demo (needs the new Asterisk image there).
 - **Update notice in setup done 2026-10-03** (`docs/ops/UPDATING.md`, `docs/HISTORY.md` "After Phase 1"): `sudo linx setup` on an installed server prints the update command when the program isn't the version running, even while the Server settings page is open. Check at the next demo. A help guide only once releases for users exist.
-- **Next**, before going live (owner decision 2026-10-03, `docs/ROADMAP.md` "Releases and updating from the web"): releases (versions, change list, signed files), then **Update** from the web through the host helper with backup and automatic rollback; design session first.
-- Phase 2 (iOS) after that: check `docs/ROADMAP.md` and the foldable-iPhone memory first.
+- **Next: Phase 2 (iOS)** (owner decision 2026-10-03): check `docs/ROADMAP.md` Phase 2 and the foldable-iPhone memory first. Releases and **Update** from the web moved to Phase 5, close to production (`docs/ROADMAP.md` "Releases and updating from the web").
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
 1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Steps 1 (guides + checks), 2 (Help screen, search, **?** button, public sign-in help) and 3 (written answers: Anthropic/OpenAI-compatible/Ollama, sealed key, limits, System → Settings card) done 2026-09-30; step 4 review done 2026-09-30; **demo passed and approved 2026-09-30**. Done.
