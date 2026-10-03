@@ -492,6 +492,19 @@ func main() {
 	helpAnswers := &helpanswers.Service{Store: st, Sealer: sealer, Policy: policy, Help: helpLib, Now: time.Now,
 		Client: safehttp.NewClient(policy, safehttp.Options{Timeout: helpanswers.AnswerTimeout + 5*time.Second})}
 	// linx-certd's certificate, for the HTTPS port below and Check it.
+	// Setting up iPhones and iPads (ADR-073, docs/PHASE2.md §4): the
+	// internal CA's linx-devices provisioner signs a phone's Secure Enclave
+	// key, and the phone's token speaks for its person afterwards. Without
+	// that provisioner's password (a dev run outside the container) phones
+	// simply can't be set up; everything else runs as before.
+	enrollSvc, err := newEnroll(ariCfg, st, tokens, log)
+	if err != nil {
+		log.Warn("phones can't be set up on this server", "err", err)
+	} else {
+		authn.Devices = enrollSvc
+		runBackground(enrollSvc.RunExpiry)
+	}
+
 	cert := &certs.ServingCert{Dir: envOr(os.Getenv, "LINX_CERTS_DIR", defaultCertsDir)}
 	reachChecker, reachLinks := newReach(os.Getenv, cert, turnIssuer, ips)
 	var apiServer *controlplaneapi.Server
@@ -506,6 +519,9 @@ func main() {
 			st.SetRoutingWords(routingSvc.Words)
 			s.SetRouting(routingSvc)
 			s.SetVoicemail(voicemailSvc)
+			if enrollSvc != nil {
+				s.SetEnroll(enrollSvc)
+			}
 			s.SetCallHistory(historySvc)
 			s.SetReach(reachChecker.Run, reachLinks)
 			s.SetDNSRecords(reachChecker.Records)
@@ -530,6 +546,9 @@ func main() {
 	registerBackupFileHandlers(mux, authn, backups)
 	registerHelpHandlers(mux, authn, helpLib, helpAnswers, tenant, log)
 	registerVoicemailHandlers(mux, authn, voicemailSvc)
+	if enrollSvc != nil {
+		registerEnrollHandlers(mux, ips, enrollSvc, log)
+	}
 	registerCallHandlers(mux, authn, historySvc, st.TimeZone, log)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))

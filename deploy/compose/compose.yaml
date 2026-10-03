@@ -146,11 +146,14 @@ services:
       - linx_asterisk_db_password
       - linx_ari_password
       - linx_ca_services_password
+      # Signs phones' certificates (ADR-073, the linx-devices provisioner).
+      - linx_ca_devices_password
       # Signs browsers' relay credentials (docs/WEB.md §5).
       - linx_turn_secret
     # Group 1000 (step-ca's): reads linx_ca_services_password, to get its
-    # own ARI certificate from the internal CA (ADR-034). Only that one CA
-    # secret is mounted here. Group 101 (Asterisk's): reads the voicemail
+    # own ARI certificate from the internal CA (ADR-034), and
+    # linx_ca_devices_password, to sign phones' certificates (ADR-073).
+    # The CA's own keys are never here. Group 101 (Asterisk's): reads the voicemail
     # Asterisk records (below).
     group_add: ["1000", "101"]
     volumes:
@@ -497,6 +500,11 @@ secrets:
   # mode 0440 (created with the CA by linx setup).
   linx_ca_services_password:
     file: ./secrets/linx_ca_services_password
+  # The internal CA's linx-devices provisioner password: the control plane
+  # signs each phone's 7-day certificate with it (ADR-073). Root-owned,
+  # group 1000, mode 0440 (created with the CA by linx setup).
+  linx_ca_devices_password:
+    file: ./secrets/linx_ca_devices_password
   # The control plane signs browsers' relay credentials with it; coturn
   # checks them with it (ADR-039). Root-owned, group 65532, mode 0440.
   linx_turn_secret:

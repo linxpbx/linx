@@ -24,6 +24,8 @@ var EventTypes = []EventType{
 	{"device.created", "A phone or app was added."},
 	{"device.updated", "A phone or app was changed."},
 	{"device.revoked", "A phone or app's login was revoked."},
+	{"device.enrolled", "An iPhone or iPad finished being set up."},
+	{"device.expired", "A phone went 7 days without being in touch and must be set up again."},
 	{"device.registered", "A device came online."},
 	{"device.unregistered", "A device went offline."},
 	{"trunk.created", "A trunk was added."},

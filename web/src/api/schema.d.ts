@@ -1116,6 +1116,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Phones waiting to be set up
+         * @description The setup codes that are still good, newest first (docs/PHASE2.md §4). Anyone sees their own; `devices:read` sees everyone's. The secrets are not here: a code is shown once, when it is made.
+         */
+        get: operations["listEnrollments"];
+        put?: never;
+        /**
+         * Set up an iPhone or iPad
+         * @description Makes a one-time setup code for one phone (ADR-073): a token for the QR code or the emailed link, and 8 characters to type instead. Both are shown once, here, and both stop working after 10 minutes, after one phone has used them, or after 5 wrong tries. **No SIP password is ever in them**: the phone makes its own key in its Secure Enclave and asks for its phone line afterwards. Anyone may set up their own phone; one for someone else needs `devices:write`. The person must have an extension (409 `no_extension`).
+         */
+        post: operations["createEnrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/enrollments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel a setup code
+         * @description The code stops working at once. Cancelling one that was already used, cancelled or expired succeeds and changes nothing. Your own, or anyone's with `devices:write`.
+         */
+        delete: operations["cancelEnrollment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trunks": {
         parameters: {
             query?: never;
@@ -3854,7 +3900,7 @@ export interface components {
             next_cursor?: string;
         };
         /**
-         * @description Only `softphone` works in this slice (ADR-035); the others arrive with the web client and the iOS app.
+         * @description `softphone` is added by hand (ADR-035), `web` is a signed-in browser's line, `ios` is an iPhone or iPad set up from a setup code (`/api/v1/enrollments`). `desk` arrives with desk phones.
          * @enum {string}
          */
         DeviceKind: "softphone" | "web" | "ios" | "desk";
@@ -3950,6 +3996,58 @@ export interface components {
         DeviceList: {
             items: components["schemas"]["Device"][];
             next_cursor?: string;
+        };
+        /** @description One phone waiting to be set up (docs/PHASE2.md §4). */
+        Enrollment: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description Whose phone it is.
+             */
+            user_id: string;
+            person_name: string;
+            /** @description The extension the phone will answer for. */
+            extension: string;
+            /** @description e.g. "Mohammed's iPhone". */
+            name: string;
+            kind: components["schemas"]["DeviceKind"];
+            /** @enum {string} */
+            delivery: "qr" | "email" | "by_hand";
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description 10 minutes after it was made.
+             */
+            expires_at: string;
+        };
+        /** @description A setup code with its two secrets, shown this once. */
+        NewEnrollment: {
+            enrollment: components["schemas"]["Enrollment"];
+            /** @description What the QR code and the emailed link carry. Usable once. */
+            token: string;
+            /** @description The 8 characters someone may type instead (no look-alike letters). */
+            code: string;
+        };
+        EnrollmentCreate: {
+            /**
+             * Format: uuid
+             * @description Whose phone it is; yours if left out. Someone else's needs `devices:write`.
+             */
+            user_id?: string;
+            /** @description e.g. "Mohammed's iPhone". */
+            name: string;
+            /** @description `ios` (the default) is the only one set up this way. */
+            kind?: components["schemas"]["DeviceKind"];
+            /**
+             * @description How the code is being given out; for the list and the audit log. Defaults to `qr`.
+             * @enum {string}
+             */
+            delivery?: "qr" | "email" | "by_hand";
+        };
+        EnrollmentList: {
+            items: components["schemas"]["Enrollment"][];
         };
         /** @description A device with its SIP login, shown once (ADR-033). */
         DeviceCredentials: {
@@ -7625,6 +7723,73 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeviceCredentials"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listEnrollments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Phones waiting to be set up. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrollmentList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createEnrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollmentCreate"];
+            };
+        };
+        responses: {
+            /** @description The setup code, shown once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewEnrollment"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    cancelEnrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

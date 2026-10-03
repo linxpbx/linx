@@ -33,6 +33,7 @@ Three kinds of caller, all ending in the same **principal** (tenant, role ceilin
    - Scopes can never exceed the creating user's role. Optional IP allowlist per key.
 2. **OAuth 2.0 client credentials** — `POST /oauth/token` (form-encoded) with `client_id` (12 chars) + `client_secret` (`linxcs_<secret>`, stored like an API key), sent by HTTP Basic or in the form, not both. Returns a JWT access token: EdDSA only (alg pinned), 15 min, `iss=linx`, `aud=linx-api`, `jti` checked against the revocation list (ADR-012). The client is looked up on every call, so revoking it stops its tokens at once. Optional `scope` narrows the token. No refresh tokens. Errors use the OAuth format (RFC 6749 §5.2), not problem+json. Signed with `linx_jwt_signing_key`, a Docker secret the installer generates.
 3. **Signed-in people** (admin portal, web client) — session cookie from OIDC/local login + MFA (built later in Phase 1): `HttpOnly`, `Secure`, `SameSite=Strict`, plus a CSRF header on writes. Specified now so the API doesn't change later.
+4. **A set-up iPhone or iPad** (Phase 2, ADR-073) — the app signs a one-minute, single-use statement with the key in its Secure Enclave and sends it with the certificate Linx gave it (`POST /v1/device-token`); it gets back an ordinary 15-minute access token marked as a device's. The phone is looked up on every call, so revoking it, disabling its person, taking away their extension or 7 days of silence stops it at once. **A device token always holds an ordinary person's scopes, whatever their own role is**, so an app can never reach the admin area, and it can never set up another phone. Setting the phone up in the first place is `POST /v1/enroll`, with the one-time ticket an admin (or the person) made at `POST /api/v1/enrollments`; neither carries a SIP password. Both phone endpoints are rate-limited per address and answer every failure the same way.
 
 **Scopes** are `resource:read` / `resource:write` (e.g. `extensions:write`, `webhooks:write`, `alerts:write`, `audit:read`); the full list is `auth.Scopes` in `internal/auth/scopes.go`. Sensitive scopes are never included in "all": `recordings:read`, `transcripts:read`, `calls:control`, `api_keys:write`, `oauth_clients:write` (making credentials is as strong as holding every scope), `outbound_allowlist:write` (opens the server's LAN to outbound requests; added in step 4).
 
@@ -65,7 +66,7 @@ Creating keys and clients over the API is not idempotent (`Idempotency-Key` isn'
 - **Secret rotation**: a new secret is issued; the old one keeps signing alongside it for 24 h (both signatures in the header).
 
 **Events** (brief list; each ships with the feature that produces it):
-`call.started`, `call.answered`, `call.ended`, `call.missed`, `voicemail.created`, `recording.ready`, `presence.changed`, `meeting.started`, `meeting.ended`, `extension.created`/`updated`/`deleted`, `device.created`/`updated`/`revoked`/`registered`/`unregistered`, `trunk.down`, `trunk.up`, plus `webhook.test` and `alert.fired`/`alert.resolved`.
+`call.started`, `call.answered`, `call.ended`, `call.missed`, `voicemail.created`, `recording.ready`, `presence.changed`, `meeting.started`, `meeting.ended`, `extension.created`/`updated`/`deleted`, `device.created`/`updated`/`revoked`/`enrolled`/`expired`/`registered`/`unregistered`, `trunk.down`, `trunk.up`, plus `webhook.test` and `alert.fired`/`alert.resolved`.
 Endpoints subscribe to a list of event types (or all). Recording and transcript contents are never in payloads, only IDs and links needing a scoped key.
 
 **Delivery**
@@ -133,6 +134,10 @@ POST   /api/v1/alert-channels/{id}/test
 GET    /api/v1/alerts?status=                open and recent alerts
 GET/POST          /api/v1/outbound-allowlist  DELETE /api/v1/outbound-allowlist/{id}
 GET    /api/v1/audit-log
+
+GET/POST          /api/v1/enrollments       DELETE /api/v1/enrollments/{id}   (set up an iPhone/iPad)
+POST   /v1/enroll                           the phone itself: a ticket + a certificate request
+POST   /v1/device-token                     the phone itself: a certificate + a signed proof
 ```
 
 ## 8. Build order (one session each)

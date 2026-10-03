@@ -736,13 +736,16 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	// /me/sessions* their own signed-in browsers (step 8). Voicemail is a
 	// signed-in person's own boxes and their ring groups' (Phase 1F step
 	// 14), refused to anything but a session, and so is their own call
-	// history (step 15).
+	// history (step 15). Setting up a phone is the same: anyone may set up
+	// their own (docs/PHASE2.md §4), and internal/enroll asks for
+	// devices:write before making one for someone else.
 	anyCredential := []string{"ChangeMyEmail", "CheckMyPassword", "ListMySessions", "SignOutMySession", "SignOutMyOtherSessions", "GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
 		"IssueMyWebPhone", "GetMyTurnCredentials", "SetMyPresence",
 		"ListMyPasskeys", "RenameMyPasskey", "RemoveMyPasskey", "AcceptPasswordOnly",
 		"ListMyCompanyLinks", "UnlinkMyCompanyAccount",
 		"ListVoicemail", "UpdateVoicemail", "DeleteVoicemail", "GetMyVoicemailCount", "GetVoicemailBox", "UpdateVoicemailBox",
-		"DeleteVoicemailGreeting", "ListMyCalls", "GetMyMissedCalls", "ClearMyMissedCalls"}
+		"DeleteVoicemailGreeting", "ListMyCalls", "GetMyMissedCalls", "ClearMyMissedCalls",
+		"ListEnrollments", "CreateEnrollment", "CancelEnrollment"}
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
 			sec := spec.Security

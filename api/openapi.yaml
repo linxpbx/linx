@@ -1799,6 +1799,70 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/enrollments:
+    get:
+      operationId: listEnrollments
+      summary: Phones waiting to be set up
+      description: >-
+        The setup codes that are still good, newest first (docs/PHASE2.md
+        §4). Anyone sees their own; `devices:read` sees everyone's. The
+        secrets are not here: a code is shown once, when it is made.
+      tags: [devices]
+      responses:
+        "200":
+          description: Phones waiting to be set up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollmentList"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createEnrollment
+      summary: Set up an iPhone or iPad
+      description: >-
+        Makes a one-time setup code for one phone (ADR-073): a token for the
+        QR code or the emailed link, and 8 characters to type instead. Both
+        are shown once, here, and both stop working after 10 minutes, after
+        one phone has used them, or after 5 wrong tries. **No SIP password
+        is ever in them**: the phone makes its own key in its Secure Enclave
+        and asks for its phone line afterwards. Anyone may set up their own
+        phone; one for someone else needs `devices:write`. The person must
+        have an extension (409 `no_extension`).
+      tags: [devices]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollmentCreate"
+      responses:
+        "201":
+          description: The setup code, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewEnrollment"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/enrollments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    delete:
+      operationId: cancelEnrollment
+      summary: Cancel a setup code
+      description: >-
+        The code stops working at once. Cancelling one that was already
+        used, cancelled or expired succeeds and changes nothing. Your own,
+        or anyone's with `devices:write`.
+      tags: [devices]
+      responses:
+        "204":
+          description: Cancelled.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/trunks:
     get:
       operationId: listTrunks
@@ -6164,7 +6228,10 @@ components:
     DeviceKind:
       type: string
       enum: [softphone, web, ios, desk]
-      description: Only `softphone` works in this slice (ADR-035); the others arrive with the web client and the iOS app.
+      description: >-
+        `softphone` is added by hand (ADR-035), `web` is a signed-in
+        browser's line, `ios` is an iPhone or iPad set up from a setup code
+        (`/api/v1/enrollments`). `desk` arrives with desk phones.
 
     CallParty:
       description: >-
@@ -6321,6 +6388,83 @@ components:
             $ref: "#/components/schemas/Device"
         next_cursor:
           type: string
+
+    Enrollment:
+      description: One phone waiting to be set up (docs/PHASE2.md §4).
+      type: object
+      required: [id, user_id, person_name, extension, name, kind, delivery, created_at, expires_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+          description: Whose phone it is.
+        person_name:
+          type: string
+        extension:
+          type: string
+          description: The extension the phone will answer for.
+        name:
+          type: string
+          description: e.g. "Mohammed's iPhone".
+        kind:
+          $ref: "#/components/schemas/DeviceKind"
+        delivery:
+          type: string
+          enum: [qr, email, by_hand]
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: 10 minutes after it was made.
+
+    NewEnrollment:
+      description: A setup code with its two secrets, shown this once.
+      type: object
+      required: [enrollment, token, code]
+      properties:
+        enrollment:
+          $ref: "#/components/schemas/Enrollment"
+        token:
+          type: string
+          description: What the QR code and the emailed link carry. Usable once.
+        code:
+          type: string
+          description: The 8 characters someone may type instead (no look-alike letters).
+
+    EnrollmentCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: Whose phone it is; yours if left out. Someone else's needs `devices:write`.
+        name:
+          type: string
+          maxLength: 100
+          description: e.g. "Mohammed's iPhone".
+        kind:
+          $ref: "#/components/schemas/DeviceKind"
+          description: "`ios` (the default) is the only one set up this way."
+        delivery:
+          type: string
+          enum: [qr, email, by_hand]
+          description: How the code is being given out; for the list and the audit log. Defaults to `qr`.
+
+    EnrollmentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Enrollment"
 
     DeviceCredentials:
       description: A device with its SIP login, shown once (ADR-033).
