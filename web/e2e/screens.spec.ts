@@ -744,6 +744,10 @@ for (const scheme of ["light", "dark"] as const) {
       const saved = page.waitForResponse((r) => r.url().includes("/api/v1/ring-groups/") && r.request().method() === "PATCH");
       await page.getByRole("button", { name: "Save" }).click();
       expect((await saved).status()).toBe(200);
+      // "Saved. Undo" shows over the open group, and Undo can be pressed
+      // there (found in Demo B: it was hidden behind the panel).
+      await page.getByRole("status").getByRole("button", { name: "Undo" }).click({ timeout: 5_000 });
+      await expect(page.getByRole("status").getByText("Put back.")).toBeVisible();
     });
 
     test("incoming, outgoing, simulator, connections", async ({ page }) => {

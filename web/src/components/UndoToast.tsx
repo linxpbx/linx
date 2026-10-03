@@ -5,6 +5,7 @@
 // changes can put any version back). Turning calls abroad or premium
 // numbers back on asks to confirm it's you, as when changed directly.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, problemCode, problemMessage, type Me } from "@/api/client";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { Button } from "@/components/ui/button";
@@ -48,8 +49,10 @@ export function UndoToast({ me }: { me: Me }) {
 
   return (
     <>
-      {toast && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+      {/* Over everything, an open panel and its backdrop included: a
+          change saved from a ring group's panel offers Undo there too. */}
+      {toast && createPortal(
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex justify-center px-4">
           <div role="status" aria-live="polite"
             className="pointer-events-auto flex max-w-md flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-card px-4 py-2.5 text-sm text-card-foreground shadow-lg">
             {toast.kind === "saved" && (
@@ -76,7 +79,8 @@ export function UndoToast({ me }: { me: Me }) {
               </>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
       {confirm.dialog}
     </>
