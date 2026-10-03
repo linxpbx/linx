@@ -43,7 +43,7 @@ func TestMovedChecklistEndpoints(t *testing.T) {
 		return resp.StatusCode, body
 	}
 	patch := func(body string) *http.Response {
-		return e.do("PATCH", "/api/v1/moved-checklist", "application/json", strings.NewReader(body), true)
+		return e.do("PATCH", "/api/v1/moved-checklist", "application/merge-patch+json", strings.NewReader(body), true)
 	}
 
 	e.become(auth.RoleAdmin, 0)
