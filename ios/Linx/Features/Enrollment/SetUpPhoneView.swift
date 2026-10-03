@@ -1,10 +1,20 @@
 import SwiftUI
 
-/// Step 1 of setting up a phone, to the mockup `docs/ui/iOS · QR setup@1x.png`.
+/// Setting this phone up, to the mockup `docs/ui/iOS · QR setup@1x.png`.
 ///
-/// The skeleton draws the screen; build-order step 4 (`docs/PHASE2.md` §12) wires
-/// up the camera, the Secure Enclave key and the two other ways in.
+/// Three ways in, all carrying the same one-time code (docs/PHASE2.md §4):
+/// scan the QR code, paste the link from the email, or type the server's
+/// address and the 8 characters. The phone makes its own key as it finishes,
+/// and nobody's password is in any of it.
 struct SetUpPhoneView: View {
+    @Environment(AppModel.self) private var model
+
+    @State private var camera = CameraAccess.none
+    @State private var byHand = false
+    @State private var pasteLink = false
+    /// Stops a second scan while the first one is being set up.
+    @State private var scanned = false
+
     var body: some View {
         // Everything fits on the screen at normal text sizes; at the largest
         // accessibility sizes the same layout scrolls instead.
@@ -17,9 +27,9 @@ struct SetUpPhoneView: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: LinxSpace.s3) {
-                Button("Open setup link from email") {}
+                Button("Paste setup link") { pasteLink = true }
                     .buttonStyle(.linxPrimary)
-                Button("Set it up by hand") {}
+                Button("Set it up by hand") { byHand = true }
                     .buttonStyle(.linxSecondary)
             }
             .padding(.horizontal, LinxSpace.s6)
@@ -30,6 +40,31 @@ struct SetUpPhoneView: View {
             .background(LinxColor.bg)
         }
         .linxBackground()
+        .task {
+            camera = await CameraAccess.ask()
+        }
+        .sheet(isPresented: $byHand) {
+            ByHandView { code in use(code) }
+        }
+        .sheet(isPresented: $pasteLink) {
+            PasteLinkView { code in use(code) }
+        }
+    }
+
+    private func use(_ code: SetupCode) {
+        Task { await model.setUp(with: code) }
+    }
+
+    /// A scanned code is a setup link. Anything else is somebody else's QR
+    /// code, and the screen says so rather than sending it to Linx.
+    private func scan(_ text: String) {
+        guard !scanned else { return }
+        guard let code = SetupCode.link(text) else {
+            model.problem = "That isn't a Linx setup code. Scan the code on the Linx page that made it."
+            return
+        }
+        scanned = true
+        use(code)
     }
 
     private func content(viewfinderHeight: CGFloat?) -> some View {
@@ -47,7 +82,7 @@ struct SetUpPhoneView: View {
                 .font(.body)
                 .foregroundStyle(LinxColor.textMuted)
 
-            ScanFrame()
+            ScanFrame(camera: camera, onCode: scan)
                 .frame(height: viewfinderHeight)
                 .frame(maxHeight: viewfinderHeight == nil ? .infinity : nil)
                 .padding(.top, LinxSpace.s2)
@@ -65,6 +100,13 @@ struct SetUpPhoneView: View {
                 }
             }
 
+            if let problem = model.problem {
+                Text(problem)
+                    .font(.subheadline)
+                    .foregroundStyle(LinxColor.end)
+                    .accessibilityAddTraits(.isHeader)
+            }
+
             Spacer(minLength: 0)
         }
         .padding(.horizontal, LinxSpace.s6)
@@ -74,9 +116,13 @@ struct SetUpPhoneView: View {
     }
 }
 
-/// The viewfinder: four corner brackets and a scan line on the dark surface.
-/// Step 4 puts the live camera behind it.
+/// The viewfinder: the camera when there is one, behind four corner brackets
+/// and a scan line. Without a camera (the simulator, or the person said no)
+/// the same frame says what to do instead.
 private struct ScanFrame: View {
+    let camera: CameraAccess
+    let onCode: @MainActor @Sendable (String) -> Void
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: LinxRadius.lg)
@@ -86,13 +132,29 @@ private struct ScanFrame: View {
                 .overlay {
                     RoundedRectangle(cornerRadius: LinxRadius.lg).strokeBorder(LinxColor.border)
                 }
+            if camera == .available {
+                CodeScanner(onCode: onCode)
+                    .clipShape(.rect(cornerRadius: LinxRadius.lg))
+            } else {
+                Text(
+                    camera == .denied
+                        ? "Linx can't use the camera. Turn it on in Settings, or use one of the two ways below."
+                        : "No camera on this device. Use one of the two ways below."
+                )
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(LinxColor.onSurfaceDark)
+                .padding(LinxSpace.s6)
+            }
             Brackets()
                 .stroke(LinxColor.onSurfaceDark, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .padding(LinxSpace.s8)
-            Rectangle()
-                .fill(LinxColor.accentOnDark)
-                .frame(height: 2)
-                .padding(.horizontal, LinxSpace.s8)
+            if camera == .available {
+                Rectangle()
+                    .fill(LinxColor.accentOnDark)
+                    .frame(height: 2)
+                    .padding(.horizontal, LinxSpace.s8)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 220)
         .accessibilityElement()
@@ -120,5 +182,5 @@ private struct Brackets: Shape {
 }
 
 #Preview {
-    SetUpPhoneView()
+    SetUpPhoneView().environment(AppModel())
 }

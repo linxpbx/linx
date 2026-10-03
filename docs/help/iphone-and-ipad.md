@@ -33,6 +33,18 @@ Admins: People → open the person → **Phones** → **+ Add phone**. The same 
 
 They need an extension first, or their phone would have nothing to answer for.
 
+## On the phone itself
+
+Open Linx on the iPhone or iPad. It shows **Set up your extension**, and there are three ways in:
+
+- Point the camera at the QR code on the computer's screen — that's it.
+- **Paste setup link** — if the code came by email, open the email on this phone, hold the link until Copy appears, then tap this and paste.
+- **Set it up by hand** — type the Linx address (like pbx.your-company.com) and the 8 characters.
+
+The phone then makes its own security key, gets its own certificate from Linx, and signs itself in. There is nothing to remember and no password to type on the phone, now or later: it keeps itself signed in on its own.
+
+To take Linx off a phone you still have: **Sign out of this phone** in the app. For a phone you've lost, stop it in Linx instead (below) — that works even if the phone is switched off.
+
 ## "Set it up again"
 
 A phone stays set up as long as it's in touch with Linx — it checks in by itself while you use it. Nothing else interrupts it. It asks to be set up again only when:

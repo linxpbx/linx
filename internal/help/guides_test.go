@@ -51,6 +51,26 @@ func webSource(t *testing.T) map[string]string {
 	return out
 }
 
+// appSource is the iPhone and iPad app's Swift, so a guide may quote the
+// app's own buttons as well as the web app's (docs/PHASE2.md §12 step 4).
+func appSource(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	root := filepath.Join(repo, "ios/Linx")
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".swift") {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		out[p] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 var routePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`path === "(/[^"]*)"`),
 	regexp.MustCompile(`path: "(/[^"]*)"`),
@@ -186,11 +206,15 @@ func TestGuideLinksAndPictures(t *testing.T) {
 	}
 }
 
-// A button or heading quoted in **bold** must still be in the web app, so
-// renaming one on a screen fails here until its guide follows.
+// A button or heading quoted in **bold** must still be on a screen — the web
+// app's or the phone app's — so renaming one fails here until its guide
+// follows.
 func TestGuideBoldTextIsOnAScreen(t *testing.T) {
 	var all strings.Builder
 	for _, src := range webSource(t) {
+		all.WriteString(spaceRE.ReplaceAllString(src, " "))
+	}
+	for _, src := range appSource(t) {
 		all.WriteString(spaceRE.ReplaceAllString(src, " "))
 	}
 	corpus := strings.ReplaceAll(all.String(), "&apos;", "'")
