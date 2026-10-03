@@ -358,7 +358,9 @@ func TestCallsDocker(t *testing.T) {
 			t.Errorf("Alice to Bob: %+v", answered)
 		}
 		missed := find("102", callhistory.ResultMissed)
-		if w := strings.Join(missed.Words(), " | "); !strings.HasPrefix(w, "Rang Bob (102) · nobody answered in 30 s") || !missed.RangUnanswered {
+		// 30 s of ringing, measured from the call records: a busy runner
+		// can make it 31.
+		if w := strings.Join(missed.Words(), " | "); !rangThirty.MatchString(w) || !missed.RangUnanswered {
 			t.Errorf("nobody answered: %s", w)
 		}
 		vm := find("103", callhistory.ResultVoicemail)
@@ -685,3 +687,5 @@ func eventData(t *testing.T, body []byte) map[string]any {
 	}
 	return ev.Data
 }
+
+var rangThirty = regexp.MustCompile(`^Rang Bob \(102\) · nobody answered in 3[01] s`)
