@@ -152,6 +152,9 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 	}
 
 	e := &env{t: t, ctx: ctx, pool: pool, store: store.New(pool), dir: t.TempDir()}
+	// Cleanups run last first: the containers go before the folder they
+	// write into (Asterisk's line status), or removing it can race them.
+	t.Cleanup(cleanup)
 	tenant, err := e.store.DefaultTenant(ctx)
 	if err != nil {
 		t.Fatal(err)
