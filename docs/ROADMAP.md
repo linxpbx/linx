@@ -40,10 +40,11 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - **Exit:** a web-to-web and web-to-trunk call on profile A with UDP blocked, and the SIPp suite green.
 
 ## Phase 2 — Provisioning + first native client
+*Design drafted 2026-10-03 in `docs/PHASE2.md` (ADR-073 to 078 proposed, decisions awaiting the owner).*
 - QR, email-link and manual enrollment with device certificates (Secure Enclave).
 - Push gateway (APNs), with the "hold INVITE until register" logic in the ARI app.
 - iOS/iPadOS app: CallKit/PushKit, audio + 1:1 video, the 5 tabs, iPad split view (English only, ADR-021).
-- Foldable iPhone ("iPhone Duo", owner request 2026-09-25): folded and unfolded layouts designed and screenshotted, using the latest Xcode/iOS SDK's device, simulator and design guidance (checked at design time).
+- Foldable iPhone ("iPhone Duo", owner request 2026-09-25): checked at design time 2026-10-03 — the device, simulator and fold APIs ship in the **Xcode 27.1 beta** (27A9269, iOS 27.1 SDK; *not* in the installed 27.0 release, and *not* in the newer 27.2 beta). APIs verified in Apple's documentation: SwiftUI `ArrangementView` (`arrangementViewStyle`), `UIArrangementViewController`, `UIView.ReservedRegion` (fold division, camera occlusion), all iOS 27.1. iPhone Duo ships 23 October 2026 on iOS 27.1. Plan in `docs/PHASE2.md` §8: 27.1 beta beside 27.0 (which keeps building releases and CI), adaptive layouts first, fold layout behind an iOS 27.1 check, and screenshots of every screen folded and unfolded in the Duo simulator.
 - 7-day inactivity expiry.
 - `APPLE_SIGNING.md`, `STORE_SUBMISSION.md`, `TEST_MATRIX.md`.
 - *Custom tunnel is not built (ADR-007).* The "tunnel-only network" test cases run against WSS + TURN/TLS 443 and may trigger ADR-008.

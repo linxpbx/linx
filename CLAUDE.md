@@ -15,6 +15,7 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/ADMIN.md` admin portal, web setup wizard, numbering plan, passkeys, company sign-in (Phase 1E)
 - `docs/RESOURCES.md` what Linx needs to run (measured), minimum hardware, what's been made smaller
 - `docs/PHASE1F.md` Phase 1F: email, password reset, ring groups, office hours, voicemail, call history, undo; one build order with SIMPLER (ADR-066 to 071, approved 2026-09-30)
+- `docs/PHASE2.md` Phase 2 design (iPhone/iPad app, enrollment, push) — drafted 2026-10-03, decisions awaiting the owner
 - `docs/SIMPLER.md` simpler phone lines (gateways sign in to Linx), one front-door method, any DNS company (ADR-061 to 063, approved 2026-09-29)
 - `docs/HELP.md` help pages and search (guides in `docs/help/`)
 - `docs/INSTALL.md` web-first install: one link from the terminal, HTTP 6464 → TLS-ALPN-01 → HTTPS, moved-server checklist
@@ -40,12 +41,14 @@ Now (2026-10-03):
 - **Phase 1F and Phase 1 done** (Demo B approved 2026-10-03). Its step-by-step history is in `docs/HISTORY.md` "Phase 1F and the end of Phase 1".
 - **Busy tone done 2026-10-03** (ADR-072, `docs/PBX.md` §4, `docs/HISTORY.md` "After Phase 1"): gateways' lines listen for 4 bursts of the country's busy tone and hang up; voicemail trims it. Check on the owner's UCM landline at the next demo (needs the new Asterisk image there).
 - **Update notice in setup done 2026-10-03** (`docs/ops/UPDATING.md`, `docs/HISTORY.md` "After Phase 1"): `sudo linx setup` on an installed server prints the update command when the program isn't the version running, even while the Server settings page is open. Check at the next demo. A help guide only once releases for users exist.
-- **Next: Phase 2 (iOS)** (owner decision 2026-10-03): check `docs/ROADMAP.md` Phase 2 and the foldable-iPhone memory first. Releases and **Update** from the web moved to Phase 5, close to production (`docs/ROADMAP.md` "Releases and updating from the web").
+- **Phase 2 (iOS) design drafted 2026-10-03** (`docs/PHASE2.md`, not committed yet, nothing built): enrollment with Secure Enclave device certificates, the push gateway, the app, iPad and adaptive layouts, 7-day expiry, a 10-step build order. **Apple Developer membership confirmed (owner, 2026-10-03)**, so nothing is blocked. Still waiting on the owner's other §11 answers: test devices, push for other self-hosters (§6), TestFlight vs App Store, `*97`, the Chat tab. **Foldable (checked 2026-10-03):** the iPhone Duo simulator and the fold APIs (`ArrangementView`, `UIArrangementViewController`, `UIView.ReservedRegion`, all iOS 27.1) are in the **Xcode 27.1 beta** only — not in the installed 27.0 release, not in the newer 27.2 beta; the owner downloads 27.1 beta (needs their account) and it sits beside 27.0, which keeps building releases and CI (`docs/PHASE2.md` §8).
+- Releases and **Update** from the web moved to Phase 5, close to production (`docs/ROADMAP.md` "Releases and updating from the web").
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
 1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Steps 1 (guides + checks), 2 (Help screen, search, **?** button, public sign-in help) and 3 (written answers: Anthropic/OpenAI-compatible/Ollama, sealed key, limits, System → Settings card) done 2026-09-30; step 4 review done 2026-09-30; **demo passed and approved 2026-09-30**. Done.
 2. Phase 1F. **Done 2026-10-03** (Demo B approved).
 3. Portainer note on the rented extras page. **Done 2026-09-30** (`8453509`): install extras and Server settings say why it isn't offered and point at System → Status.
+5. Phase 2 (iOS). Design drafted 2026-10-03 (`docs/PHASE2.md`): **waiting on the owner's §11 answers** before any building; steps 1–4 of its build order can start without an Apple account.
 4. Light/dark toggle on every page (owner, 2026-09-30, during the Help demo). **Done 2026-09-30**: **Appearance** button (Light / Dark / Match this device) in every page's header or top-right corner, kept per browser (`web/src/lib/theme.ts`, `components/ThemeMenu.tsx`; own small menu, +1.4 KB on sign-in instead of +24 KB, `docs/RESOURCES.md`); `make screens` fails a screen without it. Needs the owner's look.
 
 Open notes:

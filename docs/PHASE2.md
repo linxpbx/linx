@@ -1,0 +1,140 @@
+# Linx — Phase 2: the iPhone and iPad app (design for approval)
+
+*Drafted 2026-10-03; §8 and §11 updated the same day after checking Apple's releases (the Apple Developer membership is confirmed; the iPhone Duo simulator and fold APIs exist in the Xcode 27.1 beta). **Nothing here is built yet.** ADR-073 to ADR-078 are proposals; they go into `docs/DECISIONS.md` once you approve them (§11). Phase 2's goal in `docs/ROADMAP.md` is unchanged: enrollment with device certificates, a push gateway, and a native iOS/iPadOS app that rings reliably.*
+
+## 1. In plain words
+When Phase 2 is done:
+- **Setting up a phone takes one scan.** In the admin portal (or your own Settings page) you press **Add phone**, and Linx shows a QR code. You scan it with the Linx app on the iPhone and the phone is set up: no server address to type, no password, nothing to copy. An emailed link does the same when the phone isn't in the room, and there's still a by-hand option.
+- **No password lives on the phone.** The app makes its own key inside the iPhone's security chip (the Secure Enclave), which can never leave the phone, and Linx gives that key a certificate. The QR code carries no phone password — it's a one-time ticket that works for 10 minutes.
+- **The phone rings when it's locked, asleep or the app has been closed.** That's what a native app is for: Apple wakes the app with a special "a call is coming" push, and the call appears on the lock screen like a normal phone call (same look, answer from CarPlay, in your call history).
+- **Calls and 1:1 video work**, on Wi-Fi and mobile data, over TLS on 443 only, so they work on hotel Wi-Fi and in China (`ADR-042`).
+- **Four tabs:** Calls, Team, Keypad, More (Voicemail, Settings; Meetings and Chat join them in Phase 3 and 4 — no "coming soon" placeholders, see §14). **On iPad**, a sidebar with the list and the call side by side.
+- **A lost phone is one click to revoke**, and a phone that hasn't been in touch for 7 days has to be set up again.
+
+## 2. What's in this slice, and what waits
+**In:** enrollment (QR, emailed link, by hand) with device certificates; the `ios` device kind; the push gateway (Apple) and "hold the call until the phone is back"; the app itself (sign-in, calls in and out, 1:1 video, voicemail, call history, team list and presence, settings); CallKit and lock-screen ringing, with Apple's rules for China; iPad layout; the 7-day expiry and revoking; `TEST_MATRIX.md`, `APPLE_SIGNING.md`, `STORE_SUBMISSION.md`; help guides for the new screens.
+
+**Waits:**
+- **Chat** (Phase 4), **meetings and guests** (Phase 3): their tabs arrive with the features, not before (§14).
+- **Desk-phone provisioning** (Phase 4) — this slice's enrollment is for the app only.
+- **Android, Mac and Windows apps** (Phase 7, your go-ahead only).
+- **Keeping a call alive when you walk out of the office** — that's the Site Connector, after going live.
+- **Voicemail from a desk phone (`*97`) and the message light**: Phase 1F parked these until Linx controls calls through ARI. Phase 2 adds exactly that for push, so they become a small follow-on — but they're not in Phase 2's exit test. *(Decision §11 item 6.)*
+
+## 3. Before any of it: what only you can do (§11 items 1–3)
+1. ~~**An Apple Developer Program membership**~~ — **you have it (confirmed 2026-10-03)**, so the ringing work (PushKit, CallKit, real-device push, TestFlight) is unblocked, and so is downloading the Xcode 27.1 beta in §8.
+2. **Two test devices on iOS 27**: an iPhone (for ringing, push, CarPlay, mobile data) and an iPad (for the sidebar layout). The simulator covers layout and screenshots, never ringing. An **iPhone Duo** (from 23 October) is optional: the simulator does the layouts.
+3. **Xcode 27.1 beta** installed beside Xcode 27.0 (§8) — a download from your developer account.
+4. **Who publishes the app** — your own Apple account, under the bundle ID `com.linxpbx.app` that's already decided. This has a consequence for other people who self-host Linx, in §6.
+
+## 4. Setting up a phone: enrollment and what identifies a device (ADR-073)
+- **What you see.** **People → a person → Add phone** (and the same on your own Settings page): pick **iPhone / iPad**, name it ("Mohammed's iPhone"), and choose **Show a QR code**, **Email a link** or **Set it up by hand**. The screen shows the code and a countdown. When the phone finishes, the row turns into a normal device: online, last seen, **Revoke**.
+- **What the QR code is.** A one-time ticket: the server's address, a signed token (10 minutes, usable once, tied to that one person and device name, `ADR-012`) and a fingerprint of Linx's own certificate authority. **No SIP password, ever** (security rules). Photographed and used by someone else, it would enrol *their* phone as that device — so it's short-lived, single-use, and shows in the audit log; the admin sees the new phone appear and can revoke it. An emailed link is the same token in a link, and by hand means typing the token's 8 characters.
+- **What the phone does.** It makes a key pair inside the Secure Enclave (the private half can never be read, copied or backed up, not even by the app), asks Linx for a certificate for it, and keeps the certificate in the Keychain. That certificate *is* the phone's identity from then on.
+- **How the phone proves who it is afterwards.** Not with TLS client certificates: through an HTTP-only front door (Caddy, Nginx Proxy Manager) the proxy decrypts and re-encrypts, so a client certificate never reaches Linx, and Linx must work behind every front door. Instead the app signs a short statement with the Secure Enclave key (a signed, one-minute, single-use proof, sent with the certificate) and gets a short-lived token back. **This works through every front door and inside China.** The Secure Enclave is still what the security rests on: the proof cannot be made anywhere but on that phone.
+- **The phone line itself.** With that token the app asks for its SIP login (`POST /me/phone-line`, the same idea as the web client's), keeps it in memory, and talks to Asterisk through the existing `/sip` relay on 443 — the relay Phase 1C already built and hardened, with its method allowlist and strict `From` checks (`docs/WEB.md` §4). The relay learns one new way in: a device token instead of a browser cookie, with the same rules after that. **No new public surface.**
+- **Server side:** device kind `ios` (the column exists), a step-ca provisioner the control plane alone can use, `POST /api/v1/enrollments` / `POST /v1/enroll`, device tokens, and webhook events `device.enrolled` / `device.expired`.
+
+## 5. Ringing a sleeping iPhone (ADR-074)
+- **The chain:** someone dials the extension → Asterisk asks Linx where to ring (it already does, `ADR-068`) → Linx sees an `ios` device that isn't connected right now → Linx sends Apple a **VoIP push** → Apple wakes the app → the app *immediately* tells CallKit "a call is coming" (Apple requires this, or it stops delivering pushes) → the app connects and registers → Asterisk delivers the call. Meanwhile **Asterisk holds the call ringing** for up to 10 seconds through the ARI app the control plane already runs, so the call is still there when the phone arrives.
+- **What the push contains:** a call id and the caller's number, nothing else. No name lookup, no tokens, no SIP credentials. The lock screen shows the number at once and the name a moment later, from the call itself. Apple sees only what's in the push, and the push is the only part of a Linx call that touches a third party.
+- **Reliability is the exit test**, not a nice-to-have: locked phone, app closed by the user, phone in Low Power Mode, overnight, bad network, two calls at once, a call that the caller gives up on (the ringing must stop). These are rows in `TEST_MATRIX.md` and are tested on real devices.
+- **China (`ADR-042`):** Apple's push works in China; CallKit is not allowed there. When the phone's region is China the app rings with its own full-screen screen inside the app instead, and says so once in Settings. Everything stays on TLS 443.
+- **Cost (low-resource rule):** one long-lived outgoing HTTP/2 connection to Apple, opened only when the first `ios` device exists, and no new container. Measured and recorded in `docs/RESOURCES.md`.
+
+## 6. The part that affects other self-hosters (decision §11 item 3)
+Apple ties the "wake up and ring" push to the app's identity, with a key that belongs to whoever publishes the app. So pushes for `com.linxpbx.app` can only be sent with *your* Apple key — and that key is a secret that can't be shipped to other people's servers.
+
+Three ways out, and this phase only needs the first:
+- **(a) Your own server, your own key** *(recommended now)*: the key is a Docker secret on your server, like the mail password. Nothing goes through anyone else. Works in China. This is what Phase 2 builds.
+- **(b) A Linx push relay later**: your server asks a small Linx-run service to send the push, which fans out to Apple. That's how open-source chat apps (Nextcloud, Matrix, Mattermost) solve it for self-hosters. It means call metadata passes through a Linx service, so it needs its own design, privacy note and a way to turn it off. Phase 5 or later, when the app goes to the App Store for other people.
+- **(c) Each self-hoster publishes their own build** with their own Apple account — possible, documented in `APPLE_SIGNING.md`, but not something most people will do.
+
+The push gateway is built so the destination is one setting: Apple directly now, a relay later, with no change to the app.
+
+## 7. The app (ADR-075)
+- **Swift 6 / SwiftUI**, one app for iPhone and iPad (`ADR-011`), English only (`ADR-021`), Apple's own controls, SF Symbols, Dynamic Type, light and dark from `design/tokens.json` (the colour set is already generated by `make tokens`).
+- **Audio and video:** Google's WebRTC (BSD), the same engine the browser uses, pinned by version and checksum. Opus with in-band FEC and DTX, exactly the settings the web client already sends (`web/src/phone/sdp.ts`), so a bad network degrades the same way. Video is 1:1 only in this phase, capped, and drops to audio before audio suffers.
+- **SIP:** a small SIP-over-websocket client written in Swift — REGISTER, INVITE, ACK, BYE, CANCEL, OPTIONS, INFO, UPDATE, PRACK, MESSAGE, NOTIFY, SUBSCRIBE, REFER, and nothing else, because that's what the relay allows. Written rather than borrowed: every mature SIP library (linphone, PJSIP, Sofia) is GPL, AGPL or LGPL, and client bundles take permissive licences only.
+- **Screens:** **Calls** (history, missed first, tap to call back), **Team** (the directory with presence, live over the websocket Phase 1C built), **Keypad**, **More** → Voicemail (listen, delete), Settings (ringtone, microphone, "use mobile data", sign out of this phone, Help), and Meetings later. Everything reuses the API the web client already uses — no new endpoints except enrollment, the device token and the phone line.
+- **Battery:** no polling. One websocket while the app is in front; nothing at all in the background — that's what push is for.
+
+## 8. iPad, and the foldable iPhone "iPhone Duo" (ADR-076)
+**Where the tools are (checked 2026-10-03).** The installed Xcode is **27.0 (27A266a)**, the current release, and it has nothing foldable: no device in the simulator, and no fold, hinge or posture API in its iOS 27.0 SDK. The foldable support ships **only in Xcode 27.1 beta (27A9269, 18 September 2026)**, which carries the **iOS 27.1 SDK and the iPhone Duo simulator** with the phone's poses (open, folded, part-folded, rotated). **Xcode 27.2 beta 2 is newer but does not have it** — its own notes point back at the 27.1 beta — so "newest Xcode" is the wrong one here. iPhone Duo itself ships **23 October 2026 running iOS 27.1**.
+
+**Installed and verified 2026-10-03.** Xcode 27.1 beta (27A9269) is in `/Applications/Xcode-27.1-beta.app` — Apple-signed (chain to Apple Root CA, Gatekeeper "Apple System"), **beside** Xcode 27.0, which is still the active toolchain (`xcode-select -p`) and still builds releases and CI. It carries the **iOS 27.1 SDK** (device and simulator) and the **iPhone Duo** simulator device (`com.apple.CoreSimulator.SimDeviceType.iPhone-Duo`). The iOS 27.1 **simulator runtime** was a separate 7.85 GB download (`xcodebuild -downloadPlatform iOS`, no admin password needed) and is installed — a Duo on the iOS 27.0 runtime is refused outright ("Incompatible device"). A **Linx iPhone Duo** simulator is created and boots.
+
+**The APIs, read out of the installed SDK itself** (not the documentation site, not the press):
+- **SwiftUI `ArrangementView`** with the **`ArrangementViewStyle`** protocol and two styles — **`.split`** (`SplitArrangementViewStyle`) and **`.overlay`** (`OverlayArrangementViewStyle`), each with `.axes(_:)`. They live in the **`SwiftUICore`** module that SwiftUI re-exports, not in `SwiftUI`'s own interface, which is worth knowing when a symbol looks missing.
+- **SwiftUI `ReservedRegion`**: `kind` (**`.division`** for the fold, **`.occlusion`** for things like the camera), `QueryOptions` (`.includeInactive`), and the query `reservedRegions(kind:options:layoutDirectionBehavior:)`.
+- **UIKit**: `UIArrangementViewController`, `UISplitArrangement`, `UIOverlayArrangement`, `UIArrangementViewState`, `UISplitArrangementDimension(Range)`, and `UIView.ReservedRegion` (`frame`, `kind`, `margins`, `isActive`, `Kind`, `QueryOptions`).
+- Together these are what keep a call's buttons, the caller's name and the video tile off the fold and out from under the camera.
+
+**What this means for Phase 2:**
+- **Done 2026-10-03:** the beta is installed as above. 27.0 stays the one that builds releases and CI until 27.1 is final, around the phone's launch. The app project will pin which Xcode it needs per build setting, and `make ios-screens` names the beta explicitly (`DEVELOPER_DIR`), so neither Xcode can be picked up by accident.
+- Screens are built adaptive by size first (`NavigationSplitView`, size classes, no hard-coded widths), so they are right on every iPhone and iPad and when a window changes size *while* open.
+- The fold-specific layout uses `ArrangementView` and `ReservedRegion` behind an availability check (`iOS 27.1+`), with the adaptive layout as the fallback below it. So that the project still builds on Xcode 27.0 in CI, the fold file is compiled only when the SDK supports it (a build setting keyed to the SDK version) until CI moves to 27.1.
+- **Screenshots of every screen in the iPhone Duo simulator**, folded and unfolded, next to the iPhone and iPad shots, compared against `docs/ui/` — which is what your 2026-09-25 request asked for and is now possible.
+- Known limits of the beta simulator: the first launch takes several minutes, app extensions mostly can't be run or debugged, StandBy is missing. None of those are in Phase 2's path.
+- A **real iPhone Duo** is only needed for the ringing and camera rows of `TEST_MATRIX.md`; the simulator covers all the layout work. *(Decision §11 item 4.)*
+
+## 9. Lifetime, losing a phone, and 7 days (ADR-077)
+- The device certificate lasts **7 days** and renews itself every time the app runs *or* wakes for a push — so a phone in daily use never notices, and a phone that rings once a week stays set up.
+- **7 days with no contact at all** and the device expires: it has to be set up again with a new QR code. The person sees "Set this phone up again" in the app; the admin sees **Expired** in the list. This is the inactivity rule from the roadmap, and it means a stolen phone that is kept offline becomes useless by itself.
+- **Revoke** (which already exists) kills it at once and for good: the token stops, the certificate is refused, the SIP login dies, the call drops. Changing or disabling the person, or changing their password, does the same to their phones — as it already does to their browser lines.
+- Each phone is its own device: revoking one leaves the others alone.
+
+## 10. Security in this slice (added to `docs/THREAT_MODEL.md` at the review step)
+- **Enrollment QR** has a row already; it gains the signed proof, the single-use `jti`, the audit entries and the "admin sees a new phone appear" check.
+- **New rows:** the device token (proof-of-possession, one minute, single-use, replay refused, bound to one certificate); the Apple push key (a Docker secret, never in git, and what an attacker could do with it — spam pushes, not calls); the VoIP push payload (what Apple can see); the `/sip` relay's new way in (a device token instead of a cookie, same checks after that, same lockout and rate limits); a phone whose Keychain is extracted (the Secure Enclave key can't be, so a copied Keychain gives nothing usable).
+- **Unchanged rules:** no public UDP/TCP 5060; TLS and encrypted audio always, no fallback; the QR carries no SIP password; Linx's outbound connection to Apple goes through the same private-address guard as webhooks.
+
+## 11. Decisions I need from you
+| # | Question | My recommendation |
+|---|---|---|
+| 1 | ~~Apple Developer Program~~ | **Answered 2026-10-03: you have the subscription.** Nothing blocked. |
+| 2 | **Test devices**: which iPhone and iPad, both on iOS 27? | Your own iPhone plus one iPad. Push and CallKit can't be tested any other way. |
+| 3 | **Push for other self-hosters** (§6) | **(a) now**: your server, your Apple key, nothing third-party, works in China. Decide on a Linx push relay (b) when the app goes to the App Store for other people (Phase 5+). |
+| 4 | **Foldable iPhone** (§8): the simulator and APIs exist, but only in the **Xcode 27.1 beta**. Develop the app on a beta Xcode, or stay on 27.0 and add the fold layout when 27.1 is final (about 23 October)? | **Install the 27.1 beta and use it for the app**, keeping 27.0 for release builds and CI. Nothing else about Phase 2 depends on the beta, the fold layout gets designed from the start rather than retrofitted, and the only cost is one extra Xcode on disk (~10 GB). |
+| 4b | **Minimum iOS version** for the app | **iOS 26.0.** One version back covers every phone people actually carry, keeps SwiftUI simple, and the fold APIs sit behind an `iOS 27.1` check anyway. |
+| 5 | **Where the app goes first**: TestFlight only, or App Store submission inside Phase 2? | **TestFlight first.** The trademark check (`ADR-015`) and `STORE_SUBMISSION.md` get written in Phase 2; submitting can wait until Phase 3's meetings are in, so reviewers see the finished app. |
+| 6 | **`*97` and the message-waiting light** (parked in Phase 1F because they need ARI, which step 5 below adds): fold them into Phase 2 or keep them separate? | **Keep them separate**, right after Phase 2: they're small then, and they'd stretch an already long phase. |
+| 7 | **Chat tab**: show it with a "coming later" card, or leave it out until Phase 4? | **Leave it out** — this reverses what I recommended earlier today. App Review's "app completeness" rule (2.1) rejects visible placeholder or "coming soon" content, and you asked for no rejections. Four tabs in Phase 2, Chat added in Phase 4. §14 has the rest. |
+
+## 12. Build order (one session each, in this order)
+1. **The Xcode project skeleton**: Swift 6, SwiftUI, tokens and colours wired in, the simulator screenshot harness (`make ios-screens`), and a CI job that builds the app on every push (build only, no Apple secrets). *(Sonnet)*
+2. **Server: enrollment**: `ios` device kind, the step-ca device provisioner, enrollment tokens, `/v1/enroll`, device tokens, revoking and expiry, audit and webhooks, tests on real Postgres. *(Opus: it's the new trust boundary)*
+3. **Admin and Settings screens**: Add phone → QR / email / by hand, the countdown, the device list with online, last seen, Expired, Revoke; help guides and screenshots.
+4. **The app signs in and calls**: scan, Secure Enclave key, certificate, Keychain, phone line, the Swift SIP client over `/sip`, WebRTC audio, `*43`, calls in and out while the app is open.
+5. **Server: push gateway + hold the call**: Apple HTTP/2 client, the push key as a secret, per-device rate limits, the ARI "hold until it registers" logic, metrics (push → ring latency). *(Opus: hardest integration)*
+6. **The app rings**: PushKit, CallKit, lock screen, killed app, CarPlay, two calls, caller gives up; China's in-app ringing. *(Opus)*
+7. **The rest of the app**: 1:1 video, Calls, Team with presence, Keypad, Voicemail, Settings.
+8. **iPad, adaptive and fold layouts**: `ArrangementView` / `ReservedRegion` behind an iOS 27.1 check, screenshots of every screen on iPhone, iPad and the **iPhone Duo simulator folded and unfolded**, compared with `docs/ui/`.
+9. **Lifetime and loss**: renewal, 7-day expiry, revoke-everywhere, "set this phone up again", plus the security review and `THREAT_MODEL.md` rows.
+10. **Finish**: `TEST_MATRIX.md` (with the China rows), `APPLE_SIGNING.md`, `STORE_SUBMISSION.md`, resource and data-per-minute measurements in `docs/RESOURCES.md`, `docs/DEMO_PHASE2.md`, and the demo on the test VPS.
+
+## 13. Demo exit (Phase 2)
+Every lock-screen and killed-app ringing case in `TEST_MATRIX.md` passes **on real devices**: a QR scan sets up an iPhone with nothing typed; the locked phone rings and answers from the lock screen; the app force-quit still rings; a call works on mobile data and on a network that blocks UDP (TLS 443 only); 1:1 video works and falls back to audio on a throttled link; voicemail and call history match the web app; revoking the phone drops its call at once; and after 7 days offline it asks to be set up again. Data used per minute of a call and the app's download size are recorded in `docs/RESOURCES.md`.
+
+## 14. Not getting rejected, and being fast (owner, 2026-10-03: "best performing, 100% compliant, no rejection")
+These are the rules that actually sink apps of this kind. Each becomes a line in `STORE_SUBMISSION.md` and a row in `TEST_MATRIX.md`, and the review step (build order 9) checks every one before anything is submitted.
+
+**The ones that get VoIP apps rejected or cut off**
+1. **Every VoIP push must report a call to CallKit, immediately, every time.** Apple enforces this in the system, not just in review: an app that takes a VoIP push without reporting a call is killed, and repeat offenders stop receiving pushes. So Linx never uses a VoIP push for anything but a real, ringing call — no "sync now", no message badges. The China path (no CallKit) uses an ordinary push plus the in-app ringer, never a VoIP push.
+2. **No placeholders.** Guideline 2.1 rejects "coming soon" screens and empty features — which is why the Chat tab waits for Phase 4 (§11 item 7).
+3. **Reviewers must be able to use the app.** A self-hosted client with no server is the single most common rejection for apps like this. Submission needs a **reachable demo Linx server with a working extension, a second extension to call, and voicemail already in the box**, with the credentials in the review notes, kept alive through review. That demo server is a Phase 2 deliverable, not an afterthought.
+4. **IPv6-only networks.** Apple tests on a NAT64/IPv6-only network. Sign-in, the websocket, SIP, TURN and the media path all have to work with no IPv4 anywhere — worth testing early, because it can reach down into how addresses are configured on the server.
+5. **Privacy manifest and labels.** `PrivacyInfo.xcprivacy` with the required-reason APIs declared, matching App Store privacy labels, and the same for any third-party binary we ship (the WebRTC framework). A missing or mismatched manifest is an automatic rejection at upload.
+6. **Purpose strings that say why**: microphone, camera, and — easy to miss — **local network**, because WebRTC's mDNS ICE candidates trigger that prompt on iOS. Each string says what Linx does with it, in plain words.
+7. **Background modes**: `voip` and `audio` only, both justified by the app's actual behaviour. Nothing else requested.
+8. **Account rules**: accounts are created by the company's admin, not in the app, so the in-app account-deletion rule doesn't apply the way it does to consumer sign-ups — but the review notes must say so plainly, and Settings still has "sign out of this phone" and a path to ask the admin to remove the account.
+9. **Export compliance**: declare encryption in `Info.plist` (`ITSAppUsesNonExemptEncryption`). Linx uses standard TLS/SRTP, which is normally exempt, but the declaration is still required and France asks for its own.
+10. **The basics that hold up a release**: privacy policy and support URLs, age rating, screenshots for every required size (now including iPhone Duo), and `APPLE_SIGNING.md` covering the bundle ID `com.linxpbx.app`, capabilities and provisioning.
+
+**Performance, measured not claimed** (these go into `docs/RESOURCES.md` beside the server's numbers)
+- **Push → ringing under 2 seconds** on mobile data, measured end to end; the server metric already planned (push sent → CallKit reported → registered → ringing) is what proves it.
+- **Cold launch under 1 second** to a usable screen; no network call blocks the first paint.
+- **Audio path**: WebRTC in manual-audio mode, the session activated only in CallKit's `provider(_:didActivate:)` — this is also what prevents the audio-dropout bugs reviewers notice.
+- **Energy**: nothing runs in the background; the websocket lives only while the app is in front. A call's battery draw and data per minute are measured on a real device.
+- **Size**: the download stays small (a phone app, not a framework dump); the WebRTC binary is the only large dependency and is stripped of simulator slices in the shipped build.
+- **Instruments pass** (Time Profiler, Allocations, Energy) before the demo, with anything above budget fixed or written down.
