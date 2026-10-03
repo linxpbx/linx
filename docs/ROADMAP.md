@@ -18,7 +18,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
   - `linx doctor` certificate checks
 - **Exit:** on a fresh VM, `linx setup` → staging certificate for a linxpbx.com test subdomain → step-ca healthy → `linx doctor` all green.
 
-## Phase 1 — Core PBX + web
+## Phase 1 — Core PBX + web ✅ approved 2026-10-03 (Demo B, `docs/DEMO_PHASE1F.md`)
 - Public REST API (OpenAPI), signed webhooks and admin alerts come first.
 - Asterisk 22 + Postgres realtime; control plane with RBAC, OIDC and MFA.
 - Admin portal:
