@@ -6,8 +6,13 @@
      the SVG itself is never shipped inside the app. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <rect width="1024" height="1024" fill="#1F5FD6"/>
+  <!-- The mark's own ink box is x 19.5..80.5 (61 wide) and y 5.5..94.5 (89
+       tall), so at scale s it is centred by translating
+       (1024 - 61s)/2 - 19.5s across and (1024 - 89s)/2 - 5.5s down. At
+       s = 5.6 both come to 232. internal/tokens' TestAppIcon measures the
+       rendered PNG and fails if the mark is off centre. -->
   <g fill="none" stroke="#FFFFFF" stroke-width="17" stroke-linecap="round"
-     transform="translate(341.6 256.8) scale(5.6)">
+     transform="translate(232 232) scale(5.6)">
     <path d="M28 14 Q72 50 28 86"/>
     <path d="M72 14 Q28 50 72 86"/>
   </g>
