@@ -5,6 +5,7 @@ import { KeyRound, Search } from "lucide-react";
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
 import { AddChooserDialog, useAlwaysQuickAdd } from "@/components/AddChooser";
+import { lastSeenWords } from "@/components/AddPhone";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { DataTable } from "@/components/DataTable";
 import { Dot } from "@/components/presence";
@@ -24,7 +25,7 @@ type User = components["schemas"]["User"];
 type Device = components["schemas"]["Device"];
 type DeviceCredentials = components["schemas"]["DeviceCredentials"];
 
-const kindLabel: Record<string, string> = { web: "Browser", ios: "iPhone", softphone: "Desk phone", desk: "Desk phone" };
+const kindLabel: Record<string, string> = { web: "Browser", ios: "iPhone or iPad", softphone: "Desk phone", desk: "Desk phone" };
 
 function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
   return (
@@ -416,15 +417,27 @@ function ExtensionSheet({ me, ext, person, onClose, onChanged, onRemoved }: {
               {devices === null && <p className="text-sm text-muted-foreground">Loading…</p>}
               {devices?.length === 0 && <p className="text-sm text-muted-foreground">No phones yet.</p>}
               {devices?.map((d) => (
-                <div key={d.id} className="flex items-center gap-2.5 rounded-md border p-2.5 text-sm">
-                  <Dot tone={d.online ? "good" : "neutral"} />
-                  <span className="flex-1">{d.name} <span className="text-muted-foreground">· {kindLabel[d.kind] ?? d.kind}{d.revoked_at ? " · Revoked" : ""}</span></span>
+                <div key={d.id} className="flex flex-wrap items-center gap-2.5 rounded-md border p-2.5 text-sm">
+                  <Dot tone={d.online && !d.phone?.expired ? "good" : "neutral"} />
+                  <span className="min-w-40 flex-1">
+                    {d.name}{" "}
+                    <span className="text-muted-foreground">
+                      · {kindLabel[d.kind] ?? d.kind}
+                      {d.revoked_at ? " · Revoked" : d.phone?.expired ? " · Expired" : d.phone ? ` · Last used ${lastSeenWords(d.phone.last_seen_at, Date.now())}` : ""}
+                    </span>
+                  </span>
+                  {d.phone?.expired && !d.revoked_at && (
+                    <span className="rounded-sm bg-status-away/15 px-1.5 py-0.5 text-xs text-status-away">Set it up again</span>
+                  )}
                   {!d.revoked_at && (
                     <>
-                      <Button size="sm" variant="outline" onClick={() => setResettingDevice(d)}>
-                        <KeyRound aria-hidden="true" className="size-3.5" />
-                        New password
-                      </Button>
+                      {/* A phone has no password to reset: its key is in the phone (ADR-073). */}
+                      {d.kind !== "ios" && (
+                        <Button size="sm" variant="outline" onClick={() => setResettingDevice(d)}>
+                          <KeyRound aria-hidden="true" className="size-3.5" />
+                          New password
+                        </Button>
+                      )}
                       <Button size="sm" variant="outline" onClick={() => setRemovingDevice(d)}>Remove</Button>
                     </>
                   )}

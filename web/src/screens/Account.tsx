@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Building2, Check, KeyRound, Smartphone, TriangleAlert } from "lucide-react";
 import { api, problemCode, problemMessage, type Me } from "@/api/client";
+import { AddPhoneDialog, PhoneRow } from "@/components/AddPhone";
 import { needsConfirm, useConfirmIdentity, type Outcome } from "@/components/ConfirmIdentity";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,6 +24,7 @@ import type { components } from "@/api/schema";
 type Passkey = components["schemas"]["Passkey"];
 type CompanyAccounts = components["schemas"]["MyCompanyAccounts"];
 type MySession = components["schemas"]["MySession"];
+type Device = components["schemas"]["Device"];
 
 const MAX_PASSKEYS = 10;
 
@@ -136,6 +138,8 @@ export function AccountScreen() {
           </Button>
         </section>
       )}
+
+      {me && <MyPhonesSection me={me} />}
 
       {me && <EmailSection me={me} run={confirm.run} onChanged={() => void load()} />}
 
@@ -521,6 +525,75 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** Signed-in browsers (ADMIN_SCREENS_PHASE1E.md §11): each of mine, sign one out or all the others. */
+// --- My iPhones and iPads (docs/PHASE2.md §4) ---
+
+function MyPhonesSection({ me }: { me: Me }) {
+  const [phones, setPhones] = useState<Device[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [stopping, setStopping] = useState<Device | null>(null);
+  const [error, setError] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+
+  const load = useCallback(async () => {
+    const { data, error: err } = await api.GET("/api/v1/me/phones");
+    if (data) setPhones(data.items);
+    else setError(problemMessage(err));
+    setNow(Date.now());
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const stop = async () => {
+    if (!stopping) return;
+    const { response, error: err } = await api.DELETE("/api/v1/me/phones/{id}", { params: { path: { id: stopping.id } } });
+    setStopping(null);
+    if (!response.ok) { setError(problemMessage(err)); return; }
+    void load();
+  };
+
+  return (
+    <section aria-labelledby="phones-title" className="mt-6 rounded-lg border bg-card p-5 md:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 id="phones-title" className="font-display text-lg font-semibold">My phones</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Take calls on your own iPhone or iPad. Setting one up takes a code that works once.
+          </p>
+        </div>
+        {me.extension_id && <Button size="sm" variant="outline" onClick={() => setAdding(true)}>Add phone</Button>}
+      </div>
+      {!me.extension_id && (
+        <p className="mt-3 text-sm text-muted-foreground">You don't have an extension yet, so a phone has nothing to answer for.</p>
+      )}
+      <div className="mt-3 flex flex-col gap-2">
+        {phones?.length === 0 && me.extension_id && <p className="text-sm text-muted-foreground">No phone set up yet.</p>}
+        {phones?.map((d) => (
+          <PhoneRow key={d.id} device={d} now={now}
+            actions={<Button size="sm" variant="outline" onClick={() => setStopping(d)}>I've lost it</Button>} />
+        ))}
+      </div>
+      {error && <p role="alert" className="mt-3 text-sm font-medium text-destructive">{error}</p>}
+      {/* Whether email is set up is an admin's setting to read; if it isn't,
+          the answer says so and the code on screen still works. */}
+      <AddPhoneDialog open={adding} onOpenChange={setAdding} personName={me.name ?? "me"} emailOn={null} isMe
+        onSetUp={() => void load()} />
+      <Dialog open={!!stopping} onOpenChange={(o) => { if (!o) setStopping(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Stop "{stopping?.name}"?</DialogTitle>
+            <DialogDescription>
+              It stops at once and for good, and any call on it drops. If you find it again, set it up with a new code.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStopping(null)}>Keep it</Button>
+            <Button variant="destructive" onClick={() => void stop()}>Stop it</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}
+
 function BrowsersSection() {
   const [list, setList] = useState<MySession[] | null>(null);
   const [error, setError] = useState("");

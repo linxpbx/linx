@@ -318,6 +318,27 @@ func expirePhonesTx(ctx context.Context, tx pgx.Tx, user uuid.UUID, at time.Time
 	return nil
 }
 
+// PhonesForUser is this person's own set-up phones, newest first.
+func (s *Store) PhonesForUser(ctx context.Context, tenant, user uuid.UUID) ([]pbx.Device, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+deviceColumnsQualified+`, `+phoneColumns+`
+		FROM device d JOIN device_identity i ON i.device_id = d.id
+		WHERE d.tenant_id = $1 AND i.user_id = $2 AND d.revoked_at IS NULL
+		ORDER BY d.id DESC LIMIT 50`, tenant, user)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []pbx.Device{}
+	for rows.Next() {
+		d, err := scanDeviceWithPhone(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) DeleteUsedProofs(ctx context.Context, before time.Time) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM device_proof WHERE used_at < $1`, before)
 	return err

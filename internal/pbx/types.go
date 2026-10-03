@@ -86,6 +86,18 @@ type Device struct {
 	LastRegisteredFrom   *netip.Addr
 	Version              int
 	CreatedAt, UpdatedAt time.Time
+	// Phone is the extra state an iPhone or iPad has (docs/PHASE2.md §9);
+	// nil for every other kind, and on the paths that don't look it up.
+	Phone *Phone
+}
+
+// Phone is what a set-up iPhone or iPad adds to a device: when it was last
+// in touch with Linx, when it has to be set up again if it goes quiet, and
+// whether that has already happened.
+type Phone struct {
+	LastSeenAt   time.Time
+	SetUpAgainAt time.Time
+	Expired      bool
 }
 
 // Store is the database access extensions and devices need

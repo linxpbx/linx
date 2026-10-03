@@ -55,6 +55,9 @@ const (
 	KindPasswordChanged = "password_changed"
 	// KindVoicemail is a new voicemail, to its box's owner (ADR-069).
 	KindVoicemail = "voicemail"
+	// KindPhoneSetup is the link and code that set up an iPhone or iPad
+	// (ADR-073).
+	KindPhoneSetup = "phone_setup"
 )
 
 // Queue statuses.

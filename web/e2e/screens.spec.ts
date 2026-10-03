@@ -349,6 +349,51 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-setup-mfa`);
     });
 
+    // Setting up an iPhone or iPad (docs/PHASE2.md §4): my own, and an
+    // admin setting one up for someone else.
+    test("my phones, and setting one up", async ({ page }) => {
+      await fakeServer(page, { signedIn: true });
+      await page.goto("/account");
+      const phones = page.getByRole("region", { name: "My phones" });
+      await expect(phones).toContainText("My iPhone");
+      await shot(page, `${scheme}-account-my-phones`);
+      await phones.getByRole("button", { name: "Add phone" }).click();
+      await expect(page.getByRole("dialog")).toContainText("Add a phone");
+      await shot(page, `${scheme}-add-phone`);
+      await page.getByRole("button", { name: "Show a QR code" }).click();
+      await expect(page.getByAltText("The setup code as a picture to scan")).toBeVisible();
+      await expect(page.getByText("Waiting for the phone…")).toBeVisible();
+      await shot(page, `${scheme}-add-phone-code`);
+      await page.getByRole("button", { name: "Cancel" }).click();
+    });
+
+    test("an admin sets up someone's phone, and emails the link", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, email: "on" });
+      await page.goto("/admin/people");
+      await page.getByRole("row", { name: /Sara Haddad/ }).click();
+      await expect(page.getByRole("heading", { name: "Sara Haddad" })).toBeVisible();
+      await expect(page.getByText("Sara's iPad")).toBeVisible();
+      await expect(page.getByText("Set it up again")).toBeVisible();
+      await shot(page, `${scheme}-person-phones`);
+      await page.getByRole("button", { name: "+ Add phone" }).click();
+      await page.getByRole("radio", { name: "iPad" }).click();
+      await page.getByRole("button", { name: "Email a link to Sara" }).click();
+      await expect(page.getByText("Emailed to sara@example.com.")).toBeVisible();
+      await shot(page, `${scheme}-add-phone-emailed`);
+      await page.getByRole("button", { name: "Cancel" }).click();
+    });
+
+    // The page an emailed link opens on the phone itself.
+    test("the setup page an emailed link opens", async ({ page }) => {
+      await fakeServer(page);
+      const soon = Math.floor((Date.now() + 9 * 60_000) / 1000);
+      const token = `eyJhbGciOiJFZERTQSJ9.${btoa(JSON.stringify({ exp: soon })).replace(/=+$/, "")}.fake`;
+      await page.goto(`/set-up-phone#${token}`);
+      await expect(page.getByRole("heading", { name: "Set up this phone" })).toBeVisible();
+      await expect(page.getByAltText("The setup code as a picture to scan")).toBeVisible();
+      await shot(page, `${scheme}-set-up-phone`);
+    });
+
     test("my account", async ({ page }) => {
       await fakeServer(page, { signedIn: true, company: true });
       await page.goto("/account?company=linked");
@@ -1265,6 +1310,14 @@ test.describe("phone width", () => {
       await shot(page, `phone-${name}`);
     });
   }
+
+  test("the emailed phone setup page", async ({ page }) => {
+    await fakeServer(page);
+    const soon = Math.floor((Date.now() + 9 * 60_000) / 1000);
+    await page.goto(`/set-up-phone#eyJhbGciOiJFZERTQSJ9.${btoa(JSON.stringify({ exp: soon })).replace(/=+$/, "")}.fake`);
+    await expect(page.getByRole("heading", { name: "Set up this phone" })).toBeVisible();
+    await shot(page, "phone-set-up-phone");
+  });
 
   test("sign-in and my account", async ({ page }) => {
     await fakeServer(page);

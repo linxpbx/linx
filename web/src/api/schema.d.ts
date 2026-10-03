@@ -1116,6 +1116,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/phones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My iPhones and iPads
+         * @description The phones I've set up (docs/PHASE2.md §4), newest first, with when each was last in touch and when it has to be set up again. Only for a signed-in person; revoked ones aren't listed.
+         */
+        get: operations["listMyPhones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/phones/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop one of my phones
+         * @description For a phone I've lost: it stops at once and for good, and any call on it drops. Setting that phone up again means a new setup code. Only my own (404 otherwise).
+         */
+        delete: operations["revokeMyPhone"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/enrollments": {
         parameters: {
             query?: never;
@@ -3973,12 +4015,25 @@ export interface components {
             last_registered_at?: string;
             /** @description The address it last registered from. */
             last_registered_from?: string;
+            phone?: components["schemas"]["PhoneState"];
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
             /** @description Send as If-Match when changing it. */
             etag: string;
+        };
+        /** @description What an iPhone or iPad adds to a device (ADR-077): when it was last in touch (it checks in every 15 minutes while it's in use, even between calls) and when it must be set up again if it goes quiet. Absent for every other kind. */
+        PhoneState: {
+            /** Format: date-time */
+            last_seen_at: string;
+            /**
+             * Format: date-time
+             * @description 7 days after it was last in touch.
+             */
+            set_up_again_at: string;
+            /** @description It went quiet for 7 days (or its person's password changed) and needs a new setup code. */
+            expired: boolean;
         };
         DeviceCreate: {
             /** @description e.g. "Mohammed's iPhone". */
@@ -4029,6 +4084,9 @@ export interface components {
             token: string;
             /** @description The 8 characters someone may type instead (no look-alike letters). */
             code: string;
+            /** @description The page that shows this code, for the QR picture and the emailed link. */
+            setup_url?: string;
+            email?: components["schemas"]["InviteEmail"];
         };
         EnrollmentCreate: {
             /**
@@ -4045,6 +4103,8 @@ export interface components {
              * @enum {string}
              */
             delivery?: "qr" | "email" | "by_hand";
+            /** @description Email the person the link and the code as well (needs email to be set up). The answer says whether it was queued; the code is still shown here either way. */
+            send_email?: boolean;
         };
         EnrollmentList: {
             items: components["schemas"]["Enrollment"][];
@@ -7723,6 +7783,48 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeviceCredentials"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listMyPhones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description My phones. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    revokeMyPhone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

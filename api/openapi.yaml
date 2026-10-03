@@ -1799,6 +1799,42 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/me/phones:
+    get:
+      operationId: listMyPhones
+      summary: My iPhones and iPads
+      description: >-
+        The phones I've set up (docs/PHASE2.md §4), newest first, with when
+        each was last in touch and when it has to be set up again. Only for
+        a signed-in person; revoked ones aren't listed.
+      tags: [devices]
+      responses:
+        "200":
+          description: My phones.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceList"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/phones/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    delete:
+      operationId: revokeMyPhone
+      summary: Stop one of my phones
+      description: >-
+        For a phone I've lost: it stops at once and for good, and any call
+        on it drops. Setting that phone up again means a new setup code.
+        Only my own (404 otherwise).
+      tags: [devices]
+      responses:
+        "204":
+          description: Stopped.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/enrollments:
     get:
       operationId: listEnrollments
@@ -6341,6 +6377,8 @@ components:
         last_registered_from:
           type: string
           description: The address it last registered from.
+        phone:
+          $ref: "#/components/schemas/PhoneState"
         created_at:
           type: string
           format: date-time
@@ -6350,6 +6388,26 @@ components:
         etag:
           type: string
           description: Send as If-Match when changing it.
+
+    PhoneState:
+      description: >-
+        What an iPhone or iPad adds to a device (ADR-077): when it was last
+        in touch (it checks in every 15 minutes while it's in use, even
+        between calls) and when it must be set up again if it goes quiet.
+        Absent for every other kind.
+      type: object
+      required: [last_seen_at, set_up_again_at, expired]
+      properties:
+        last_seen_at:
+          type: string
+          format: date-time
+        set_up_again_at:
+          type: string
+          format: date-time
+          description: 7 days after it was last in touch.
+        expired:
+          type: boolean
+          description: It went quiet for 7 days (or its person's password changed) and needs a new setup code.
 
     DeviceCreate:
       type: object
@@ -6435,6 +6493,11 @@ components:
         code:
           type: string
           description: The 8 characters someone may type instead (no look-alike letters).
+        setup_url:
+          type: string
+          description: The page that shows this code, for the QR picture and the emailed link.
+        email:
+          $ref: "#/components/schemas/InviteEmail"
 
     EnrollmentCreate:
       type: object
@@ -6456,6 +6519,12 @@ components:
           type: string
           enum: [qr, email, by_hand]
           description: How the code is being given out; for the list and the audit log. Defaults to `qr`.
+        send_email:
+          type: boolean
+          description: >-
+            Email the person the link and the code as well (needs email to
+            be set up). The answer says whether it was queued; the code is
+            still shown here either way.
 
     EnrollmentList:
       type: object

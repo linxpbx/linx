@@ -745,7 +745,7 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 		"ListMyCompanyLinks", "UnlinkMyCompanyAccount",
 		"ListVoicemail", "UpdateVoicemail", "DeleteVoicemail", "GetMyVoicemailCount", "GetVoicemailBox", "UpdateVoicemailBox",
 		"DeleteVoicemailGreeting", "ListMyCalls", "GetMyMissedCalls", "ClearMyMissedCalls",
-		"ListEnrollments", "CreateEnrollment", "CancelEnrollment"}
+		"ListEnrollments", "CreateEnrollment", "CancelEnrollment", "ListMyPhones", "RevokeMyPhone"}
 	for path, item := range spec.Paths.Map() {
 		for method, op := range item.Operations() {
 			sec := spec.Security

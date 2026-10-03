@@ -23,6 +23,9 @@ func toDevice(d pbx.Device) Device {
 		s := d.LastRegisteredFrom.String()
 		out.LastRegisteredFrom = &s
 	}
+	if p := d.Phone; p != nil {
+		out.Phone = &PhoneState{LastSeenAt: p.LastSeenAt, SetUpAgainAt: p.SetUpAgainAt, Expired: p.Expired}
+	}
 	return out
 }
 

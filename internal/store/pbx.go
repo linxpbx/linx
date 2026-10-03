@@ -250,6 +250,26 @@ func scanDevice(row pgx.Row) (pbx.Device, error) {
 	return d, err
 }
 
+// phoneColumns is what a set-up iPhone or iPad adds, from device_identity
+// (migration 0041); all NULL for every other kind.
+const phoneColumns = `i.last_seen_at, i.expires_at, i.expired_at`
+
+// scanDeviceWithPhone scans deviceColumnsQualified followed by phoneColumns.
+func scanDeviceWithPhone(row pgx.Row) (pbx.Device, error) {
+	var d pbx.Device
+	var lastSeen, setUpAgain, expired *time.Time
+	err := row.Scan(&d.ID, &d.TenantID, &d.ExtensionID, &d.Name, &d.Kind, &d.SIPUsername, &d.DigestHash, &d.Enabled, &d.RevokedAt,
+		&d.UserSessionID, &d.Online, &d.LastRegisteredAt, &d.LastRegisteredFrom, &d.Version, &d.CreatedAt, &d.UpdatedAt,
+		&lastSeen, &setUpAgain, &expired)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return d, pbx.ErrNotFound
+	}
+	if err == nil && lastSeen != nil && setUpAgain != nil {
+		d.Phone = &pbx.Phone{LastSeenAt: *lastSeen, SetUpAgainAt: *setUpAgain, Expired: expired != nil}
+	}
+	return d, err
+}
+
 func deviceEvent(d pbx.Device, eventType string, at time.Time) (webhook.Event, error) {
 	return webhook.NewEvent(d.TenantID, eventType, map[string]any{
 		"id": d.ID, "extension_id": d.ExtensionID, "name": d.Name, "kind": d.Kind,
@@ -280,12 +300,15 @@ func (s *Store) CreateDevice(ctx context.Context, d pbx.Device, audit auth.Audit
 }
 
 func (s *Store) Device(ctx context.Context, tenant, id uuid.UUID) (pbx.Device, error) {
-	return scanDevice(s.pool.QueryRow(ctx, `SELECT `+deviceColumns+` FROM device WHERE id = $1 AND tenant_id = $2`, id, tenant))
+	return scanDeviceWithPhone(s.pool.QueryRow(ctx, `SELECT `+deviceColumnsQualified+`, `+phoneColumns+`
+		FROM device d LEFT JOIN device_identity i ON i.device_id = d.id
+		WHERE d.id = $1 AND d.tenant_id = $2`, id, tenant))
 }
 
 func (s *Store) ListDevicesByExtension(ctx context.Context, tenant, extension uuid.UUID, before *uuid.UUID, limit int) ([]pbx.Device, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+deviceColumns+` FROM device
-		WHERE tenant_id = $1 AND extension_id = $2 AND ($3::uuid IS NULL OR id < $3) ORDER BY id DESC LIMIT $4`,
+	rows, err := s.pool.Query(ctx, `SELECT `+deviceColumnsQualified+`, `+phoneColumns+`
+		FROM device d LEFT JOIN device_identity i ON i.device_id = d.id
+		WHERE d.tenant_id = $1 AND d.extension_id = $2 AND ($3::uuid IS NULL OR d.id < $3) ORDER BY d.id DESC LIMIT $4`,
 		tenant, extension, before, limit)
 	if err != nil {
 		return nil, err
@@ -293,7 +316,7 @@ func (s *Store) ListDevicesByExtension(ctx context.Context, tenant, extension uu
 	defer rows.Close()
 	out := []pbx.Device{}
 	for rows.Next() {
-		d, err := scanDevice(rows)
+		d, err := scanDeviceWithPhone(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -303,8 +326,9 @@ func (s *Store) ListDevicesByExtension(ctx context.Context, tenant, extension uu
 }
 
 func (s *Store) ListDevices(ctx context.Context, tenant uuid.UUID, before *uuid.UUID, limit int) ([]pbx.Device, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+deviceColumns+` FROM device
-		WHERE tenant_id = $1 AND ($2::uuid IS NULL OR id < $2) ORDER BY id DESC LIMIT $3`,
+	rows, err := s.pool.Query(ctx, `SELECT `+deviceColumnsQualified+`, `+phoneColumns+`
+		FROM device d LEFT JOIN device_identity i ON i.device_id = d.id
+		WHERE d.tenant_id = $1 AND ($2::uuid IS NULL OR d.id < $2) ORDER BY d.id DESC LIMIT $3`,
 		tenant, before, limit)
 	if err != nil {
 		return nil, err
@@ -312,7 +336,7 @@ func (s *Store) ListDevices(ctx context.Context, tenant uuid.UUID, before *uuid.
 	defer rows.Close()
 	out := []pbx.Device{}
 	for rows.Next() {
-		d, err := scanDevice(rows)
+		d, err := scanDeviceWithPhone(rows)
 		if err != nil {
 			return nil, err
 		}

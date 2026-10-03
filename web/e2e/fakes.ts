@@ -143,6 +143,12 @@ interface FakeRingGroup {
 interface FakeDevice {
   id: string; extension_id: string; name: string; kind: string; sip_username: string; enabled: boolean; online: boolean;
   revoked_at?: string; created_at: string; updated_at: string; etag: string;
+  // An iPhone or iPad adds when it was last in touch (docs/PHASE2.md §4).
+  phone?: { last_seen_at: string; set_up_again_at: string; expired: boolean };
+}
+interface FakeEnrollment {
+  id: string; user_id: string; person_name: string; extension: string; name: string; kind: string;
+  delivery: string; created_at: string; expires_at: string;
 }
 
 function seedPeople(): { extensions: FakeExtension[]; users: FakeUser[]; devices: FakeDevice[] } {
@@ -164,8 +170,14 @@ function seedPeople(): { extensions: FakeExtension[]; users: FakeUser[]; devices
     { id: "u1047", email: "chen@example.com", name: "Chen Wei", role: "reporter", mfa_enabled: false, passkeys: 0,
       has_password: true, password_only: false, company_sign_in: [], disabled: true, locked: false, created_at: now, updated_at: now, etag: '"1"' },
   ];
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+  const inDays = (d: number) => new Date(Date.now() + d * 86400_000).toISOString();
   const devices: FakeDevice[] = [
     { id: "d1", extension_id: "e1024", name: "Sara's desk", kind: "softphone", sip_username: "d_x7k2m9", enabled: true, online: true, created_at: now, updated_at: now, etag: '"1"' },
+    { id: "d2", extension_id: "e1001", name: "My iPhone", kind: "ios", sip_username: "d_p4n8z1", enabled: true, online: true, created_at: now, updated_at: now, etag: '"1"',
+      phone: { last_seen_at: hoursAgo(2), set_up_again_at: inDays(7), expired: false } },
+    { id: "d3", extension_id: "e1024", name: "Sara's iPad", kind: "ios", sip_username: "d_q2w3e4", enabled: true, online: false, created_at: now, updated_at: now, etag: '"1"',
+      phone: { last_seen_at: hoursAgo(24 * 9), set_up_again_at: hoursAgo(24 * 2), expired: true } },
   ];
   return { extensions, users, devices };
 }
@@ -394,7 +406,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
     ] as Json[],
   };
   const notFound = () => json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "No." }, 404);
-  const people = { extensions: seed.extensions, users: seed.users, devices: seed.devices, nextId: 2000 };
+  const people = { extensions: seed.extensions, users: seed.users, devices: seed.devices, enrollments: [] as FakeEnrollment[], nextId: 2000 };
   // Ring groups (docs/ui/SCREENS_PHASE1F.md §8): three, one sending its
   // unanswered calls to another.
   let groups: FakeRingGroup[] = [
@@ -658,6 +670,42 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       }, 201));
     }
     if (p === "/api/v1/devices" && method === "GET") return route.fulfill(json({ items: people.devices }));
+
+    // Setting up an iPhone or iPad (docs/PHASE2.md §4): the code is made,
+    // waits, and the phone "finishes" when the test asks it to.
+    if (p === "/api/v1/me/phones" && method === "GET") {
+      return route.fulfill(json({ items: people.devices.filter((d) => d.extension_id === "e1001" && d.kind === "ios" && !d.revoked_at) }));
+    }
+    const myPhoneId = idAfter(p, "/api/v1/me/phones/");
+    if (myPhoneId && method === "DELETE") {
+      const d = people.devices.find((x) => x.id === myPhoneId);
+      if (d) d.revoked_at = now();
+      return route.fulfill({ status: 204 });
+    }
+    if (p === "/api/v1/enrollments" && method === "GET") {
+      return route.fulfill(json({ items: people.enrollments }));
+    }
+    if (p === "/api/v1/enrollments" && method === "POST") {
+      const body = route.request().postDataJSON() as { name: string; user_id?: string; delivery?: string; send_email?: boolean };
+      const user = people.users.find((u) => u.id === (body.user_id ?? "u1001"))!;
+      const ext = people.extensions.find((e) => e.id === user.extension_id);
+      const enrollment: FakeEnrollment = {
+        id: `en${people.nextId++}`, user_id: user.id, person_name: user.name, extension: ext?.number ?? "",
+        name: body.name, kind: "ios", delivery: body.delivery ?? "qr",
+        created_at: now(), expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+      };
+      people.enrollments.push(enrollment);
+      const token = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJmYWtlIn0.not-a-real-signature";
+      return route.fulfill(json({
+        enrollment, token, code: "7KQD4M2X", setup_url: `https://${DOMAIN}/set-up-phone#${token}`,
+        ...(body.send_email ? { email: opts.email ? { to: user.email, queued: true } : { to: user.email, queued: false, error: "Email isn't set up yet. An admin can turn it on in System → Settings." } } : {}),
+      }, 201));
+    }
+    const enrollId = idAfter(p, "/api/v1/enrollments/");
+    if (enrollId && method === "DELETE") {
+      people.enrollments = people.enrollments.filter((e) => e.id !== enrollId);
+      return route.fulfill({ status: 204 });
+    }
     const devId = idAfter(p, "/api/v1/devices/");
     if (devId && p === `/api/v1/devices/${devId}` && method === "DELETE") {
       const d = people.devices.find((x) => x.id === devId);
@@ -682,7 +730,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         "outbound_allowlist:write", "webhooks:read", "webhooks:write", "api_keys:read", "api_keys:write", "oauth_clients:read", "oauth_clients:write"];
       return route.fulfill(json({
         id: "0199", type: "user", role: opts.systemAdmin ? "system_admin" : "admin", scopes: opts.pending ? [] : ["team:read", ...(opts.admin ? adminScopes : [])], pending: !!opts.pending,
-        email: ME.email, name: ME.name, extension: ME.extension, presence: "available",
+        email: ME.email, name: ME.name, extension: ME.extension, extension_id: "e1001", presence: "available",
         mfa_enabled: opts.pending === "code" || !opts.pending, passkeys: opts.pending === "enroll" ? 0 : opts.pending === "code" ? 1 : PASSKEYS.length,
         has_password: true, password_only: opts.pending === "enroll", recovery_codes_left: opts.pending === "enroll" ? 0 : 8,
         company_sign_in: opts.company ? ["Google"] : [],

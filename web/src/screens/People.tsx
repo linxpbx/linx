@@ -5,6 +5,7 @@ import { Check, ChevronDown, Search, TriangleAlert } from "lucide-react";
 import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
 import { AddChooserDialog, useAlwaysQuickAdd } from "@/components/AddChooser";
+import { AddPhoneDialog, PhoneRow } from "@/components/AddPhone";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { DataTable } from "@/components/DataTable";
 import { Dot } from "@/components/presence";
@@ -85,6 +86,7 @@ function FormError({ message }: { message: string }) {
 
 type NewPerson = { name: string; email: string; role: "user" | "reporter" | "admin"; number: string; giveExtension: boolean; sendEmail: boolean };
 type InviteEmail = components["schemas"]["InviteEmail"];
+type Device = components["schemas"]["Device"];
 
 // Email (ADR-066): "Send by email" is offered once email is on, greyed
 // with the reason until then (docs/ui/SCREENS_PHASE1F.md §0, §5.2).
@@ -374,6 +376,68 @@ function InviteResult({ name, link, email }: { name: string; link: string; email
 
 // --- Person detail sheet ---
 
+// --- Their iPhones and iPads (docs/PHASE2.md §4) ---
+
+function PhonesSection({ user, emailOn }: { user: User; emailOn: boolean | null }) {
+  const [phones, setPhones] = useState<Device[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<Device | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  const load = useCallback(async () => {
+    if (!user.extension_id) { setPhones([]); return; }
+    const { data } = await api.GET("/api/v1/extensions/{id}/devices", { params: { path: { id: user.extension_id } } });
+    if (data) setPhones(data.items.filter((d) => d.kind === "ios" && !d.revoked_at));
+    setNow(Date.now());
+  }, [user.extension_id]);
+  useEffect(() => { void load(); }, [load]);
+
+  const revoke = async () => {
+    if (!removing) return;
+    const { response } = await api.DELETE("/api/v1/devices/{id}", { params: { path: { id: removing.id } } });
+    setRemoving(null);
+    if (response.ok) void load();
+  };
+
+  return (
+    <section>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Phones</h3>
+        {user.extension_id && (
+          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>+ Add phone</Button>
+        )}
+      </div>
+      {!user.extension_id && (
+        <p className="mt-2 text-sm text-muted-foreground">They need an extension before a phone can answer for them.</p>
+      )}
+      <div className="mt-2 flex flex-col gap-2">
+        {phones === null && user.extension_id && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {phones?.length === 0 && user.extension_id && <p className="text-sm text-muted-foreground">No iPhone or iPad yet.</p>}
+        {phones?.map((d) => (
+          <PhoneRow key={d.id} device={d} now={now}
+            actions={<Button size="sm" variant="outline" onClick={() => setRemoving(d)}>Stop it</Button>} />
+        ))}
+      </div>
+      <AddPhoneDialog open={adding} onOpenChange={setAdding} personName={user.name} userId={user.id}
+        emailOn={emailOn} isMe={false} onSetUp={() => void load()} />
+      <Dialog open={!!removing} onOpenChange={(o) => { if (!o) setRemoving(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Stop "{removing?.name}"?</DialogTitle>
+            <DialogDescription>
+              It stops at once and for good, and any call on it drops. Setting it up again means a new code.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemoving(null)}>Keep it</Button>
+            <Button variant="destructive" onClick={() => void revoke()}>Stop it</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}
+
 function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
   me: Me; user: User; onClose: () => void; onChanged: (u: User) => void; onDisabled: (id: string) => void;
 }) {
@@ -534,6 +598,8 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
               </div>
             )}
           </section>
+
+          <PhonesSection user={user} emailOn={emailOn} />
 
           {user.extension_id && <VoicemailLine boxId={user.extension_id} />}
 

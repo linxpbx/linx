@@ -222,3 +222,25 @@ func (c *testCA) SignCSR(_ context.Context, csrDER []byte, commonName string, sa
 	}
 	return [][]byte{der, c.cert.Raw}, nil
 }
+
+func (f *fakeStore) PhonesForUser(_ context.Context, tenant, user uuid.UUID) ([]pbx.Device, error) {
+	out := []pbx.Device{}
+	for id, i := range f.identities {
+		d := f.devices[id]
+		if i.UserID == user && i.TenantID == tenant && d != nil && d.RevokedAt == nil {
+			out = append(out, *d)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) RevokeDevice(_ context.Context, _, id uuid.UUID, at time.Time, a auth.AuditEntry) (pbx.Device, error) {
+	d, ok := f.devices[id]
+	if !ok {
+		return pbx.Device{}, pbx.ErrNotFound
+	}
+	when := at
+	d.RevokedAt, d.Enabled = &when, false
+	f.audits = append(f.audits, a)
+	return *d, nil
+}

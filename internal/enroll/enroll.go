@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -176,6 +177,11 @@ type Store interface {
 	ExpireIdentities(ctx context.Context, now time.Time) ([]pbx.Device, error)
 	// DeleteUsedProofs removes proof ids that could no longer be replayed.
 	DeleteUsedProofs(ctx context.Context, before time.Time) error
+	// PhonesForUser is this person's own set-up phones, newest first,
+	// revoked ones left out.
+	PhonesForUser(ctx context.Context, tenant, user uuid.UUID) ([]pbx.Device, error)
+	// RevokeDevice logs a phone out at once and for good.
+	RevokeDevice(ctx context.Context, tenant, id uuid.UUID, at time.Time, audit auth.AuditEntry) (pbx.Device, error)
 }
 
 // CertIssuer signs a phone's certificate request (internal/stepca's client
@@ -396,6 +402,54 @@ func (s *Service) CancelTicket(ctx context.Context, id uuid.UUID) error {
 	a := auth.AuditEntry{TenantID: &p.TenantID, Actor: p.Actor(), IP: auth.ClientIPFromContext(ctx),
 		Action: "device.enroll_cancel", Target: "enrollment:" + id.String(), Result: auth.ResultOK}
 	return s.Store.CancelEnrollment(ctx, p.TenantID, id, s.now(), a)
+}
+
+// MyPhones is the signed-in person's own iPhones and iPads, for their
+// Settings page. It needs no scope: these are their own phones.
+func (s *Service) MyPhones(ctx context.Context) ([]pbx.Device, error) {
+	p, user, err := person(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.Store.PhonesForUser(ctx, p.TenantID, user)
+}
+
+// RevokeMyPhone stops one of the caller's own phones at once and for good
+// ("I've lost my phone"). Someone else's needs devices:write, as before.
+func (s *Service) RevokeMyPhone(ctx context.Context, id uuid.UUID) error {
+	p, user, err := person(ctx)
+	if err != nil {
+		return err
+	}
+	mine, err := s.Store.PhonesForUser(ctx, p.TenantID, user)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(mine, func(d pbx.Device) bool { return d.ID == id }) {
+		return &apihttp.Error{Status: http.StatusNotFound, Code: "not_found", Detail: "That isn't one of your phones."}
+	}
+	a := auth.AuditEntry{TenantID: &p.TenantID, Actor: p.Actor(), IP: auth.ClientIPFromContext(ctx),
+		Action: "device.revoke", Target: "device:" + id.String(), Result: auth.ResultOK,
+		Detail: map[string]any{"by": "owner"}}
+	_, err = s.Store.RevokeDevice(ctx, p.TenantID, id, s.now(), a)
+	return err
+}
+
+// person is the signed-in caller, refusing a half-finished sign-in and
+// anything that isn't a person.
+func person(ctx context.Context) (auth.Principal, uuid.UUID, error) {
+	p, ok := auth.PrincipalFromContext(ctx)
+	if !ok {
+		return p, uuid.Nil, errNoPrincipal
+	}
+	if p.Pending {
+		return p, uuid.Nil, errPending
+	}
+	id, err := uuid.Parse(p.ID)
+	if p.Type != auth.TypeUser || err != nil {
+		return p, uuid.Nil, errNotAllowed
+	}
+	return p, id, nil
 }
 
 // newCode is codeLen characters from codeAlphabet, each equally likely.
