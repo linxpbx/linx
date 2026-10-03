@@ -142,3 +142,14 @@ func sortedKeys[V any](m map[string]V) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// sortedNumericKeys sorts keys that are numbers ("1", "2", "10") by value.
+func sortedNumericKeys[V any](m map[string]V) []string {
+	keys := sortedKeys(m)
+	sort.SliceStable(keys, func(i, j int) bool {
+		a, _ := strconv.Atoi(keys[i])
+		b, _ := strconv.Atoi(keys[j])
+		return a < b
+	})
+	return keys
+}

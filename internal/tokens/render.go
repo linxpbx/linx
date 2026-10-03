@@ -118,3 +118,58 @@ func mustJSON(v any) []byte {
 	}
 	return append(b, '\n')
 }
+
+// SwiftTokens renders the iOS side of the tokens: the colour-set names from the
+// asset catalog, the spacing scale and the radii. Fonts are deliberately absent —
+// iOS uses the system font (docs/ui/DESIGN_TOKENS.md).
+func (t *Tokens) SwiftTokens() []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "// %s\n\nimport SwiftUI\n\n", header)
+
+	b.WriteString("/// Colours from the Colors asset catalog, which `make tokens` generates from the same file.\n")
+	b.WriteString("public enum LinxColor {\n")
+	for _, k := range sortedKeys(t.Color) {
+		fmt.Fprintf(&b, "    /// %s\n", t.Color[k].Use)
+		fmt.Fprintf(&b, "    public static let %s = Color(\"%s\", bundle: .main)\n", camel(k), pascal(k))
+	}
+	b.WriteString("\n    /// Presence colours. Never shown without a text label.\n")
+	b.WriteString("    public enum Status {\n")
+	for _, k := range sortedKeys(t.Status) {
+		fmt.Fprintf(&b, "        public static let %s = Color(\"Status%s\", bundle: .main)\n", camel(k), pascal(k))
+	}
+	b.WriteString("    }\n}\n\n")
+
+	b.WriteString("/// The spacing scale, in points.\npublic enum LinxSpace {\n")
+	for _, k := range sortedNumericKeys(t.Space) {
+		fmt.Fprintf(&b, "    public static let s%s: CGFloat = %d\n", k, t.Space[k])
+	}
+	b.WriteString("}\n\n/// Corner radii, in points.\npublic enum LinxRadius {\n")
+	for _, k := range sortedKeys(t.Radius) {
+		fmt.Fprintf(&b, "    public static let %s: CGFloat = %d\n", camel(k), t.Radius[k])
+	}
+	b.WriteString("}\n\n")
+
+	// swift-format indents what is inside an #if, so the generated file does too.
+	var dbg strings.Builder
+	dbg.WriteString("/// The same colours as plain hex, so the tests can check the asset catalog against\n")
+	dbg.WriteString("/// design/tokens.json. Debug builds only, so the shipped app carries none of it.\n")
+	dbg.WriteString("public enum LinxTokenReference {\n    public static let colors: [String: (light: String, dark: String)] = [\n")
+	for _, g := range []struct {
+		prefix string
+		m      map[string]Color
+	}{{"", t.Color}, {"Status", t.Status}} {
+		for _, k := range sortedKeys(g.m) {
+			fmt.Fprintf(&dbg, "        %q: (%q, %q),\n", g.prefix+pascal(k), g.m[k].Light, g.m[k].Dark)
+		}
+	}
+	dbg.WriteString("    ]\n}\n")
+	b.WriteString("#if DEBUG\n")
+	b.WriteString(indent(dbg.String(), "    "))
+	b.WriteString("#endif\n")
+	return []byte(b.String())
+}
+
+func camel(s string) string {
+	p := pascal(s)
+	return strings.ToLower(p[:1]) + p[1:]
+}

@@ -56,3 +56,37 @@ func TestRenderers(t *testing.T) {
 		t.Error("BrandFill colour set has wrong red component")
 	}
 }
+
+func TestSwiftTokens(t *testing.T) {
+	tk, err := Load(tokensFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	swift := string(tk.SwiftTokens())
+	for _, want := range []string{
+		`public static let accent = Color("Accent", bundle: .main)`,
+		`public static let onSurfaceDark = Color("OnSurfaceDark", bundle: .main)`,
+		`public static let available = Color("StatusAvailable", bundle: .main)`,
+		"public static let s4: CGFloat = 16",
+		"public static let full: CGFloat = 9999",
+		`"BrandFill": ("#1F5FD6", "#1F5FD6"),`,
+	} {
+		if !strings.Contains(swift, want) {
+			t.Errorf("Swift tokens missing %q", want)
+		}
+	}
+	// Every colour set in the catalog must have a Swift name, and the other way round.
+	for path := range tk.AssetCatalog() {
+		name, ok := strings.CutSuffix(path, ".colorset/Contents.json")
+		if !ok {
+			continue
+		}
+		if !strings.Contains(swift, `Color("`+name+`", bundle: .main)`) {
+			t.Errorf("Swift tokens have no entry for colour set %q", name)
+		}
+	}
+	// The spacing scale is ordered by value, not alphabetically ("10" after "8").
+	if i, j := strings.Index(swift, "let s8:"), strings.Index(swift, "let s10:"); i > j {
+		t.Error("spacing scale is not in numeric order")
+	}
+}

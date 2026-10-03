@@ -1,4 +1,5 @@
-// Command tokengen renders design/tokens.json into web CSS and an iOS asset catalog.
+// Command tokengen renders design/tokens.json into web CSS, an iOS asset catalog
+// and the iOS Swift tokens.
 // With -check it fails if the generated files are missing or out of date.
 package main
 
@@ -17,6 +18,7 @@ func main() {
 		in    = flag.String("in", "design/tokens.json", "tokens source file")
 		css   = flag.String("css", "web/src/styles/tokens.css", "CSS output file")
 		xcas  = flag.String("xcassets", "ios/Linx/Resources/Colors.xcassets", "iOS asset catalog directory")
+		swift = flag.String("swift", "ios/Linx/Generated/DesignTokens.swift", "iOS Swift tokens file")
 		check = flag.Bool("check", false, "verify outputs are up to date instead of writing")
 	)
 	flag.Parse()
@@ -32,7 +34,7 @@ func main() {
 		fail(fmt.Errorf("%d contrast rule(s) fail WCAG 2.2 AA", len(fails)))
 	}
 
-	outputs := map[string][]byte{*css: tk.CSS()}
+	outputs := map[string][]byte{*css: tk.CSS(), *swift: tk.SwiftTokens()}
 	for rel, data := range tk.AssetCatalog() {
 		outputs[filepath.Join(*xcas, rel)] = data
 	}
