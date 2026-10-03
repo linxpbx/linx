@@ -65,7 +65,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - Capacity page and benchmark, Pi Lite validation.
 - ~~External storage and encrypted backups with restore tests.~~ Pulled forward ahead of going live (owner decision, 2026-09-27): see `docs/BACKUP.md`, ADR-055.
 - Load tests and `tc netem` impairment matrix, observability dashboards.
-- Upgrade and rollback, full security review, operator runbook.
+- ~~Upgrade and rollback~~ Pulled forward to before going live (owner decision, 2026-10-03): see "Before going live — Releases and updating from the web" below. Full security review, operator runbook.
 
 ## Phase 6 — Migration, channels and intelligence
 - 3CX v20 and UCM6304 import; minimum client version enforcement.
@@ -74,6 +74,12 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - Calendar and contacts sync, CRM lookup, n8n/Home Assistant/MQTT, MCP server.
 - Migration tools can be pulled forward if the 3CX cut-over is needed sooner.
 - **Owner decisions 2026-09-30 (kept in this phase):** migration assistant for **Grandstream UCM, 3CX, Yeastar and FreePBX** (FreePBX covers most Asterisk-based systems); **spreadsheet (CSV) exports first**, full backup files later per product (3CX first); a preview before anything is saved, re-runnable without duplicates, a "done by hand" report, invites sent in one go; switching over gradually with the old system signed in to Linx (`docs/SIMPLER.md` §1). Design for approval when this phase starts.
+
+## Before going live — Releases and updating from the web (owner decision, 2026-10-03)
+The owner asked why Linx can't check GitHub for an update and install it from the web interface. It can, in three steps, in this order:
+1. **Setup says when an update is waiting (now, the next item):** `sudo linx setup` says when the `linx` program is newer than what's running and prints the command that installs it (`sudo linx setup --config /etc/linx/setup.yaml`), even while the Server settings page is open (it silently did nothing in Demo B); plus an "Updating Linx" note in `docs/ops/`. This stays the way to update when the web page is broken or GitHub can't be reached (China).
+2. **Releases:** a version number, a short list of what changed, and signed files (images and the `linx` program, signed in CI as images are today) for each release, instead of whatever is newest on `master`. Nothing below works without these.
+3. **Update from the web:** once a day the server asks GitHub whether a newer release exists (one small request; can be turned off: it tells GitHub the server's address). System → Status shows "Linx 1.1 is available" with what changed, and **Update**. The update is done by the server's helper with a fixed list of jobs (as **Restart** is, ADR on System → Status): the page can only press "go", never choose what is installed, and the helper installs only releases signed with Linx's release key, so an admin account still never means root on the host. It checks free disk space first, takes a backup, checks the signatures, downloads, restarts and checks every service is healthy; if anything fails it goes back to the old version and the backup. The page shows progress, reconnects after the restart and says "Updated to 1.1". Old versions are removed afterwards. Designed in a session of its own first (releases, the helper's new job, rollback), then built in steps.
 
 ## Last task before production — `linx watch` (owner decision, 2026-09-25)
 A watcher on the server that spots problems and gets a fix proposed, which the owner approves. Built after everything else planned for the first production release.

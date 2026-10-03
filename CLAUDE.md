@@ -41,6 +41,7 @@ Now (2026-10-03):
 - **Busy tone done 2026-10-03** (ADR-072, `docs/PBX.md` §4, `docs/HISTORY.md` "After Phase 1"): gateways' lines listen for 4 bursts of the country's busy tone and hang up; voicemail trims it. Check on the owner's UCM landline at the next demo (needs the new Asterisk image there).
 - **Next (owner decision 2026-10-03, one per session):**
   1. **Updating:** `sudo linx setup` says when the `linx` program is newer than what's running and prints `sudo linx setup --config /etc/linx/setup.yaml`, even while the Server settings page is open (it silently did nothing in Demo B); plus an "Updating Linx" note in `docs/ops/`. A help guide only once releases for users exist.
+- Then, before going live (owner decision 2026-10-03, `docs/ROADMAP.md` "Releases and updating from the web"): releases (versions, change list, signed files), then **Update** from the web through the host helper with backup and automatic rollback; design session first.
 - Phase 2 (iOS) after that: check `docs/ROADMAP.md` and the foldable-iPhone memory first.
 
 Work queue (owner, 2026-09-29; keep it current so a fresh session can start from it):
