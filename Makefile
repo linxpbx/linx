@@ -98,6 +98,33 @@ screens: ## Screenshots of every web screen against a stand-in server, into web/
 test-web:
 	@cd web && npm run --silent test
 
+# The iPhone/iPad app (docs/PHASE2.md). These need Xcode; they are skipped on Linux.
+IOS_PROJECT := ios/Linx.xcodeproj
+IOS_DERIVED := ios/build/dd
+IOS_SIM_DEVICE ?= iPhone 17
+
+.PHONY: ios-lint
+ios-lint: ## Check the app's Swift formatting (swift-format, settings in ios/.swift-format)
+	@xcrun swift-format lint --recursive --strict ios/Linx ios/LinxTests && echo "ios lint: ok"
+
+.PHONY: ios-build
+ios-build: ## Build the iPhone/iPad app for the simulator (no signing, no Apple account)
+	@xcodebuild build -project $(IOS_PROJECT) -scheme Linx -configuration Debug \
+		-destination 'generic/platform=iOS Simulator' -derivedDataPath $(IOS_DERIVED) \
+		CODE_SIGNING_ALLOWED=NO >/dev/null && echo "ios build: ok"
+
+.PHONY: ios-test
+ios-test: ## Run the app's unit tests on a simulator
+	@udid=$$(ios/tools/sim.sh "$(IOS_SIM_DEVICE)") \
+		&& if out=$$(xcodebuild test -project $(IOS_PROJECT) -scheme Linx -configuration Debug \
+			-destination "id=$$udid" -derivedDataPath $(IOS_DERIVED) CODE_SIGNING_ALLOWED=NO 2>&1); then \
+			echo "ios tests: ok"; \
+		else echo "$$out" | grep -E "error:|failed|Failing tests" | tail -30; echo "ios tests: FAILED"; exit 1; fi
+
+.PHONY: ios-screens
+ios-screens: ## Screenshots of every app screen, light and dark, into ios/screenshots
+	@ios/tools/screens.sh
+
 GOVULNCHECK_VERSION := v1.8.0
 
 .PHONY: security

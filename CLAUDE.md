@@ -41,6 +41,7 @@ Now (2026-10-03):
 - **Phase 1F and Phase 1 done** (Demo B approved 2026-10-03). Its step-by-step history is in `docs/HISTORY.md` "Phase 1F and the end of Phase 1".
 - **Busy tone done 2026-10-03** (ADR-072, `docs/PBX.md` §4, `docs/HISTORY.md` "After Phase 1"): gateways' lines listen for 4 bursts of the country's busy tone and hang up; voicemail trims it. Check on the owner's UCM landline at the next demo (needs the new Asterisk image there).
 - **Update notice in setup done 2026-10-03** (`docs/ops/UPDATING.md`, `docs/HISTORY.md` "After Phase 1"): `sudo linx setup` on an installed server prints the update command when the program isn't the version running, even while the Server settings page is open. Check at the next demo. A help guide only once releases for users exist.
+- **Phase 2 step 1 done 2026-10-03** (`ios/README.md`, `docs/PHASE2.md` §12 step 1, `docs/HISTORY.md` "After Phase 1"): the app's skeleton — `ios/Linx.xcodeproj` (checked in, synchronised folders, no project generator), Swift 6 / SwiftUI, **minimum iOS 26.0**, iPhone + iPad; `make tokens` also writes `ios/Linx/Generated/DesignTokens.swift`; the enrollment screen from `docs/ui/iOS · QR setup@1x.png` in Cobalt; `make ios-lint|ios-build|ios-test|ios-screens`; an `ios` CI job on `macos-26` with no Apple account or secrets. **Needs the owner's look** at `ios/screenshots/iPhone-17/` (run `make ios-screens`). Next: step 2 (server enrollment, Opus).
 - **Phase 2 (iOS) design drafted 2026-10-03** (`docs/PHASE2.md`, not committed yet, nothing built): enrollment with Secure Enclave device certificates, the push gateway, the app, iPad and adaptive layouts, 7-day expiry, a 10-step build order. **Apple Developer membership confirmed (owner, 2026-10-03)**, so nothing is blocked. Still waiting on the owner's other §11 answers: test devices, push for other self-hosters (§6), TestFlight vs App Store, `*97`, the Chat tab. **Foldable (checked 2026-10-03):** the iPhone Duo simulator and the fold APIs (`ArrangementView`, `UIArrangementViewController`, `UIView.ReservedRegion`, all iOS 27.1) are in the **Xcode 27.1 beta** only — not in the installed 27.0 release, not in the newer 27.2 beta; the owner downloads 27.1 beta (needs their account) and it sits beside 27.0, which keeps building releases and CI (`docs/PHASE2.md` §8).
 - Releases and **Update** from the web moved to Phase 5, close to production (`docs/ROADMAP.md` "Releases and updating from the web").
 
@@ -48,7 +49,7 @@ Work queue (owner, 2026-09-29; keep it current so a fresh session can start from
 1. Help pages (`docs/HELP.md`, ADR-060, design approved 2026-09-28; build order §7). Steps 1 (guides + checks), 2 (Help screen, search, **?** button, public sign-in help) and 3 (written answers: Anthropic/OpenAI-compatible/Ollama, sealed key, limits, System → Settings card) done 2026-09-30; step 4 review done 2026-09-30; **demo passed and approved 2026-09-30**. Done.
 2. Phase 1F. **Done 2026-10-03** (Demo B approved).
 3. Portainer note on the rented extras page. **Done 2026-09-30** (`8453509`): install extras and Server settings say why it isn't offered and point at System → Status.
-5. Phase 2 (iOS). Design drafted 2026-10-03 (`docs/PHASE2.md`): **waiting on the owner's §11 answers** before any building; steps 1–4 of its build order can start without an Apple account.
+5. Phase 2 (iOS). Design drafted 2026-10-03 (`docs/PHASE2.md`). **Step 1 (the app's skeleton) done 2026-10-03.** Still **waiting on the owner's §11 answers** (test devices, push for other self-hosters, TestFlight vs App Store, `*97`, the Chat tab); steps 2–4 can go on without them.
 4. Light/dark toggle on every page (owner, 2026-09-30, during the Help demo). **Done 2026-09-30**: **Appearance** button (Light / Dark / Match this device) in every page's header or top-right corner, kept per browser (`web/src/lib/theme.ts`, `components/ThemeMenu.tsx`; own small menu, +1.4 KB on sign-in instead of +24 KB, `docs/RESOURCES.md`); `make screens` fails a screen without it. Needs the owner's look.
 
 Open notes:
@@ -94,6 +95,7 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - `make test-docker` (needs Docker: internal CA end to end, and real-Postgres tests for migrations, store, webhooks, alerts and doctor's query)
 - `make build` (bin/ + web/dist/). Go module path: `linxpbx.com/linx`
 - `make screens` also saves the pictures help guides use into `docs/help/pictures/` (WebP, committed; only when a screen really changed): commit them with the change.
+- `make ios-lint`, `make ios-build`, `make ios-test`, `make ios-screens` (the iPhone/iPad app; need Xcode. `ios/README.md`)
 - `make test-calls` (phone call suite; needs `make image SERVICE=asterisk` and `SERVICE=wireguard`), `make test-browser` (browser call suite: needs `make image SERVICE=` control-plane, asterisk, coturn), `make screens` (web screenshots into `web/e2e/screenshots/`)
 - `make security` (govulncheck, npm audit, licence allowlist), `make image SERVICE=control-plane`
 - CI: `.github/workflows/ci.yml` (amd64+arm64 tests, gitleaks, SBOM, Trivy, cosign-signed images to ghcr.io on master). Actions pinned by SHA; Dependabot updates them. First external Go dep must add a Go licence check.
@@ -131,6 +133,7 @@ CI still runs everything on every push, unchanged, and a step is done only when 
 - **Asterisk image, dialplan, `internal/asteriskconf`, trunks, WireGuard, call prompts:** `make image SERVICE=asterisk` (and `wireguard` if touched), then `make test-calls`.
 - **`/sip` relay, TURN/coturn, the web phone, front doors, sign-in flows the browser suite covers (passkeys, sign-out), System → Status helper:** `make image SERVICE=control-plane` (+ `asterisk`/`coturn` if touched), then `make test-browser` (`LINX_FRONT_DOORS=<door>` to rerun one door while fixing).
 - **Install page, `internal/install`, `internal/installer`'s web install, certd bootstrap:** `make image SERVICE=control-plane` and `SERVICE=certd`, then `make test-install`.
+- **The iPhone/iPad app (`ios/`), or `design/tokens.json`:** `make ios-lint` and `make ios-test`; `make ios-screens` for a changed screen (look at the shots, compare with `docs/ui/`).
 - **Dependencies:** `make security`.
 - Not sure which applies: run the wider set. Docs-only changes need none locally (CI still runs).
 

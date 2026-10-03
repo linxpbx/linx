@@ -323,10 +323,39 @@ jobs:
           LINX_CONTROL_PLANE_IMAGE: linx-control-plane:ci
         run: make test-install
 
+  # The iPhone/iPad app (docs/PHASE2.md): formatting, a simulator build and the
+  # unit tests. No Apple account, no signing and no secrets are involved, so this
+  # job runs on pull requests from anywhere.
+  #
+  # The hosted runner's newest Xcode is 26.x, which is the iOS 26 SDK — the app's
+  # minimum (§11 item 4b). The fold layouts of build-order step 8 need the iOS 27.1
+  # SDK, which is on the owner's Mac but not yet on a runner; when that step lands,
+  # either the runner has a newer Xcode or the fold code sits behind a compiler check.
+  ios:
+    name: iOS app
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Pick Xcode
+        run: |
+          for app in /Applications/Xcode_26.6.app /Applications/Xcode_26*.app /Applications/Xcode.app; do
+            if [ -d "$app" ]; then sudo xcode-select -s "$app"; break; fi
+          done
+          xcodebuild -version
+      - name: Formatting
+        run: make ios-lint
+      - name: Build (no signing)
+        run: make ios-build
+      - name: Unit tests
+        run: make ios-test
+
   # Publishing (master only) waits for everything above: tests, security,
   # every scan and every suite. Images come from the builds' caches.
   publish:
-    needs: [test, security, images, asterisk-build, calls, browser, install]
+    needs: [test, security, images, asterisk-build, calls, browser, install, ios]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -397,7 +426,7 @@ jobs:
   # cache; also waits for everything.
   asterisk-push:
     name: push (asterisk, ${{ matrix.arch }})
-    needs: [test, security, images, asterisk-build, calls, browser, install]
+    needs: [test, security, images, asterisk-build, calls, browser, install, ios]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45

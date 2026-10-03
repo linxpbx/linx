@@ -36,3 +36,7 @@ DerivedData/
 
 # Playwright MCP scratch output (console logs, page snapshots)
 .playwright-mcp/
+
+# iOS build output and screenshots
+ios/build/
+ios/screenshots/
