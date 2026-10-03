@@ -633,6 +633,12 @@ for (const scheme of ["light", "dark"] as const) {
       // Playing to the end marks it heard.
       await page.getByRole("button", { name: "Play the message from 0501234567" }).click();
       await expect(page.getByRole("region", { name: "HEARD" })).toContainText("0501234567");
+      // So does taking the slider to the end without playing the rest
+      // (found in Demo B).
+      const left = page.getByRole("region", { name: "NEW" });
+      await left.getByRole("slider", { name: "Position" }).first().focus();
+      await page.keyboard.press("End");
+      await expect(page.getByRole("region", { name: "NEW" })).toHaveCount(0);
 
       // Settings: my greeting, recorded; email on.
       await page.getByRole("main").getByRole("button", { name: "Settings" }).click();

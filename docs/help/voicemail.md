@@ -13,7 +13,7 @@ When nobody answers, callers can leave a message. **Voicemail** in the sidebar s
 
 ## Listening
 
-- **New** messages are at the top with a dot. Press ▶ to listen; a message you play to the end moves to **Heard**.
+- **New** messages are at the top with a dot. Press ▶ to listen; a message you play to the end, or skip to its end with the slider, moves to **Heard**.
 - **Call back** rings the caller from your browser.
 - **⋯** has **Mark as new** (or **Mark as heard**), **Download** (a WAV file every computer and phone plays) and **Delete**.
 - If you're in a [ring group](ring-groups), its messages show here too, marked "for Sales". When someone in the group has heard one, the others see "Heard by Sara". Deleting a group's message deletes it for everyone in the group.

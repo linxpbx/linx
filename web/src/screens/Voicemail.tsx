@@ -45,12 +45,19 @@ export function when(iso: string, now = new Date()): string {
   return `${d.toLocaleDateString(undefined, { day: "numeric", month: "short" })} ${time}`;
 }
 
-/** The player: ▶, a slider, the time; marks the message heard when it plays to the end. */
+/** The player: ▶, a slider, the time; marks the message heard when it
+ * plays to the end, or the slider is taken to its end. */
 function Player({ m, onEnded }: { m: Message; onEnded: () => void }) {
   const audio = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const total = m.duration_ms / 1000;
+  const reached = useRef(false);
+  const end = () => {
+    if (reached.current) return;
+    reached.current = true;
+    onEnded();
+  };
   useEffect(() => () => audio.current?.pause(), []);
   const toggle = () => {
     if (!audio.current) {
@@ -58,7 +65,7 @@ function Player({ m, onEnded }: { m: Message; onEnded: () => void }) {
       a.ontimeupdate = () => setAt(a.currentTime);
       a.onpause = () => setPlaying(false);
       a.onplay = () => setPlaying(true);
-      a.onended = () => { setPlaying(false); setAt(0); onEnded(); };
+      a.onended = () => { setPlaying(false); setAt(0); end(); };
       audio.current = a;
     }
     if (playing) audio.current.pause();
@@ -70,7 +77,13 @@ function Player({ m, onEnded }: { m: Message; onEnded: () => void }) {
         {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
       </Button>
       <Slider aria-label="Position" className="min-w-16 flex-1" min={0} max={Math.max(1, Math.round(total * 10))} step={1}
-        value={[Math.round(at * 10)]} onValueChange={([v]) => { const t = (v ?? 0) / 10; setAt(t); if (audio.current) audio.current.currentTime = t; }} />
+        value={[Math.round(at * 10)]} onValueChange={([v]) => {
+          const t = (v ?? 0) / 10;
+          setAt(t);
+          if (audio.current) audio.current.currentTime = t;
+          // Taken to the end (the rest skipped): heard, as when it plays out.
+          if (t >= total - 0.5) end();
+        }} />
       <span className="w-20 shrink-0 text-end font-mono text-xs tabular-nums text-muted-foreground">{clock(at)} / {clock(total)}</span>
     </div>
   );
