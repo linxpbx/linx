@@ -60,6 +60,16 @@ files are in them, so adding a Swift file never touches the project file.
 `ios/tools/sim.sh "iPhone 17"` prints a booted simulator's id, creating one if needed; on a
 machine with an older Xcode it falls back to the newest iPhone that Xcode has.
 
+## The app icon
+
+`design/app-icon.svg` is the source: the Linx mark in white on Cobalt (the owner chose it on
+2026-10-03), both colours from `design/tokens.json`. `ios/tools/icon.sh` renders it into
+`Linx/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png` **without an alpha
+channel**, which the App Store insists on; run it after changing the SVG and commit the PNG with
+it. The SVG lives beside the tokens rather than in `Resources/`, so it is never shipped inside
+the app. Dark and tinted variants (iOS 18's three-icon set) aren't there yet — one plain icon is
+valid, and they are worth a look together when the app goes to TestFlight.
+
 **Colours, spacing and radii come only from `design/tokens.json`.** `make tokens` writes
 `Linx/Resources/Colors.xcassets` and `Linx/Generated/DesignTokens.swift` (`LinxColor`,
 `LinxSpace`, `LinxRadius`); `make lint` fails if either is stale. A unit test checks every
