@@ -1,14 +1,16 @@
 import SwiftUI
 
-/// What the app shows once this phone is set up and signed in: who it is,
-/// which extension it answers for, and that its phone line is ready.
+/// This phone's own details, behind the person button on the home screen:
+/// who it is for, which extension it answers, how its line is doing, and
+/// "sign out of this phone".
 ///
-/// The Calls, Team, Keypad and More screens arrive in build-order step 7
-/// (`docs/PHASE2.md` §12); making and taking the calls is step 4b and the
-/// ringing is steps 5 and 6. This screen is what a person sees in between,
-/// and it is also where "sign out of this phone" lives.
+/// The Calls, Team and More screens arrive in build-order step 7
+/// (`docs/PHASE2.md` §12), and ringing a sleeping phone is steps 5 and 6.
 struct SignedInView: View {
     @Environment(AppModel.self) private var model
+    @Environment(PhoneModel.self) private var phone
+
+    private var ready: Bool { phone.status == .ready }
 
     var body: some View {
         ScrollView {
@@ -30,17 +32,17 @@ struct SignedInView: View {
 
                 LinxCard {
                     HStack(alignment: .top, spacing: LinxSpace.s3) {
-                        Image(systemName: model.line == nil ? "phone.badge.waveform" : "checkmark.circle")
-                            .foregroundStyle(model.line == nil ? LinxColor.textMuted : LinxColor.Status.available)
+                        Image(systemName: ready ? "checkmark.circle" : "phone.badge.waveform")
+                            .foregroundStyle(ready ? LinxColor.Status.available : LinxColor.textMuted)
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: LinxSpace.s1) {
-                            Text(model.line == nil ? "Getting your phone line…" : "Your phone line is ready")
+                            Text(ready ? "Your phone line is ready" : "Getting your phone line…")
                                 .font(.headline)
                                 .foregroundStyle(LinxColor.text)
                             Text(
-                                model.line == nil
-                                    ? "The app asks Linx for it every time it starts."
-                                    : "Calls arrive in the next part of the app."
+                                ready
+                                    ? "Calls come and go on this phone while the app is open. Ringing when it's asleep comes next."
+                                    : "The app asks Linx for it every time it starts, and never keeps a password."
                             )
                             .font(.subheadline)
                             .foregroundStyle(LinxColor.textMuted)
@@ -126,7 +128,7 @@ struct SetUpAgainView: View {
 }
 
 #Preview("Signed in") {
-    SignedInView().environment(AppModel())
+    SignedInView().environment(AppModel()).environment(PhoneModel(line: { nil }))
 }
 
 #Preview("Set up again") {

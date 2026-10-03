@@ -40,3 +40,5 @@ DerivedData/
 # iOS build output and screenshots
 ios/build/
 ios/screenshots/
+# Google's WebRTC, fetched and checksum-checked by `make ios-deps` (ADR-006).
+ios/Vendor/

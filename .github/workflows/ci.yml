@@ -347,10 +347,23 @@ jobs:
           xcodebuild -version
       - name: Formatting
         run: make ios-lint
+      # Google's WebRTC (ADR-006), pinned by version and SHA-256 in
+      # ios/tools/webrtc.sh; only a new version downloads it again.
+      - name: WebRTC cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ios/build/webrtc
+          key: webrtc-${{ hashFiles('ios/tools/webrtc.sh') }}
+      - name: Fetch WebRTC
+        run: make ios-deps
       - name: Build (no signing)
         run: make ios-build
       - name: Unit tests
         run: make ios-test
+      # The same build the App Store would get, minus the signing: it is the
+      # only one that compiles the release-only paths (docs/PHASE2.md §14).
+      - name: Build for a real iPhone (no signing)
+        run: make ios-build-device
 
   # Publishing (master only) waits for everything above: tests, security,
   # every scan and every suite. Images come from the builds' caches.

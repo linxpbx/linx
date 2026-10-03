@@ -107,14 +107,24 @@ IOS_SIM_DEVICE ?= iPhone 17
 ios-lint: ## Check the app's Swift formatting (swift-format, settings in ios/.swift-format)
 	@xcrun swift-format lint --recursive --strict ios/Linx ios/LinxTests && echo "ios lint: ok"
 
+.PHONY: ios-deps
+ios-deps: ## Fetch Google's WebRTC for the app (pinned version, checked against its SHA-256)
+	@ios/tools/webrtc.sh
+
 .PHONY: ios-build
-ios-build: ## Build the iPhone/iPad app for the simulator (no signing, no Apple account)
+ios-build: ios-deps ## Build the iPhone/iPad app for the simulator (no signing, no Apple account)
 	@xcodebuild build -project $(IOS_PROJECT) -scheme Linx -configuration Debug \
 		-destination 'generic/platform=iOS Simulator' -derivedDataPath $(IOS_DERIVED) \
 		CODE_SIGNING_ALLOWED=NO >/dev/null && echo "ios build: ok"
 
+.PHONY: ios-build-device
+ios-build-device: ios-deps ## Build the app for a real iPhone, Release, no signing (what an archive compiles)
+	@xcodebuild build -project $(IOS_PROJECT) -scheme Linx -configuration Release \
+		-destination 'generic/platform=iOS' -derivedDataPath ios/build/rel \
+		CODE_SIGNING_ALLOWED=NO >/dev/null && echo "ios device build: ok"
+
 .PHONY: ios-test
-ios-test: ## Run the app's unit tests on a simulator
+ios-test: ios-deps ## Run the app's unit tests on a simulator
 	@udid=$$(ios/tools/sim.sh "$(IOS_SIM_DEVICE)") \
 		&& if out=$$(xcodebuild test -project $(IOS_PROJECT) -scheme Linx -configuration Debug \
 			-destination "id=$$udid" -derivedDataPath $(IOS_DERIVED) CODE_SIGNING_ALLOWED=NO 2>&1); then \
@@ -122,7 +132,7 @@ ios-test: ## Run the app's unit tests on a simulator
 		else echo "$$out" | grep -E "error:|failed|Failing tests" | tail -30; echo "ios tests: FAILED"; exit 1; fi
 
 .PHONY: ios-screens
-ios-screens: ## Screenshots of every app screen, light and dark, into ios/screenshots
+ios-screens: ios-deps ## Screenshots of every app screen, light and dark, into ios/screenshots
 	@ios/tools/screens.sh
 
 GOVULNCHECK_VERSION := v1.8.0

@@ -10,12 +10,15 @@ ios/
     App/                 LinxApp.swift (which screen is on) and AppModel (what the app is doing)
     Core/                being set up and signed in: the Secure Enclave key, the certificate
                          request (DER), the proof, the Keychain, and the three calls to Linx
+      SIP/               the app's own SIP: messages, digest, the websocket, the user agent
+      Media/             the sound: WebRTC, the Opus settings, the ring
     DesignSystem/        buttons, cards and the page background, all from the tokens
-    Features/            one folder per part of the app (Enrollment, Home)
+    Features/            one folder per part of the app (Enrollment, Home, Phone)
     Generated/           DesignTokens.swift — `make tokens`, never edited by hand
     Resources/           Colors.xcassets — `make tokens`, never edited by hand
   LinxTests/             unit tests (Swift Testing)
-  tools/                 the simulator helper and the screenshot harness
+  tools/                 the simulator helper, the screenshot harness, the WebRTC fetch
+  Vendor/                Google's WebRTC (not in git; `make ios-deps` puts it there)
   screenshots/           what `make ios-screens` writes (not committed)
 ```
 
@@ -48,14 +51,63 @@ and the tests give it one in memory; the real Keychain is checked on a phone.
 The two folders `Linx` and `LinxTests` are **synchronised folders**: Xcode builds whatever
 files are in them, so adding a Swift file never touches the project file.
 
+## How a call works (build step 4b)
+
+The app is a phone, not a web page in a wrapper: it speaks SIP to Linx's `/sip` relay and
+carries the sound over WebRTC, exactly as the browser does, so Asterisk sees the two the same
+way (`internal/db/migrations/0041_ios_devices.sql`).
+
+- **SIP, written here** (`Core/SIP`). Every maintained SIP library is GPL or LGPL, which a
+  client bundle may not carry (ADR-006), and the subset Linx's relay allows is small:
+  REGISTER, INVITE, ACK, BYE, CANCEL, and answers to what Asterisk sends. `SIPMessage` reads
+  and writes the text (bodies kept byte for byte, so an SDP's line endings survive),
+  `SIPDigest` answers Asterisk's challenge (MD5, the only scheme pjsip offers; checked against
+  RFC 2617's own worked example), `SIPTransport` is one websocket to `GET /sip` with the
+  device token in the `Authorization` header and the `sip` subprotocol the relay requires, and
+  `SIPUserAgent` is the call itself.
+- **The sound** (`Core/Media`). `WebRTCMedia` makes one peer connection per call: DTLS-SRTP,
+  rtcp-mux, ICE through Linx's own TURN server when there's no direct route, and **the
+  browser's Opus settings** (`SDPTweaks`, the port of `web/src/phone/sdp.ts`: in-band FEC, DTX,
+  mono, 24 kbps), so a poor network degrades the same way in both. Candidates are gathered
+  before the invitation goes out — Asterisk doesn't take them one at a time — with the same
+  "a relay candidate, or three seconds" rule the browser uses. Keypad tones go as RFC 4733 in
+  the media, not as SIP INFO. `Ringer` makes the ring in memory (no sound file to ship), the
+  same two tones every three seconds the web client plays.
+- **The screens** (`Features/Phone`). `PhoneModel` is what they watch: the line's state, the
+  one call, the last few calls. `KeypadView` is `docs/ui/iOS · Keypad@1x.png` in Cobalt, and
+  `CallView` is `docs/ui/iOS · Active call@1x.png` with the buttons that work today (mute,
+  keypad, speaker, hang up); hold, transfer, park, record and video arrive with the steps that
+  build them, because App Review refuses placeholders.
+- **While the app is in front, and no longer.** The websocket opens when the app comes
+  forward and closes when it goes away; a call in progress keeps it. Ringing a sleeping phone
+  is push and CallKit (build steps 5 and 6).
+
+## Google's WebRTC
+
+`make ios-deps` fetches the prebuilt **WebRTC M154** XCFramework (BSD, ADR-006), checks it
+against the SHA-256 pinned in `tools/webrtc.sh`, and unpacks it into `ios/Vendor` — which is
+not in git, because it is about 100 MB unpacked. `make ios-build`, `ios-test` and `ios-screens`
+depend on it, so there is nothing extra to remember; CI caches the zip by version.
+
+It is fetched rather than managed by Swift Package Manager because SwiftPM's own binary-artifact
+download hangs on this Mac (Xcode and `swift package` both stall after checkout, while `curl`
+fetches the same URL in seconds — most likely a firewall that has to be allowed per program).
+A script we own also makes the pin plain to read and the download cacheable in CI. Moving back
+to a Swift package later is a small change: one `XCRemoteSwiftPackageReference` in the project
+and this script deleted.
+
+It costs **12 MB** of the app's 13 MB (`docs/RESOURCES.md`); the App Store ships only the one
+slice a phone needs.
+
 ## Day to day
 
 | | |
 |---|---|
 | `make ios-lint` | formatting (`swift-format`, settings in `ios/.swift-format`) |
 | `make ios-build` | builds for the simulator, no signing and no Apple account |
+| `make ios-deps` | fetches Google's WebRTC (pinned version, checked against its SHA-256) |
 | `make ios-test` | the unit tests on a simulator (`IOS_SIM_DEVICE="iPad Pro 11-inch (M5)"` to choose one) |
-| `make ios-screens` | every screen (setup, signed in, set up again), light and dark, into `ios/screenshots/` — compare them with the mockups in `docs/ui/` |
+| `make ios-screens` | every screen (setup, signed in, keypad, in a call, a call coming in, set up again), light and dark, into `ios/screenshots/` — compare them with the mockups in `docs/ui/` |
 
 `ios/tools/sim.sh "iPhone 17"` prints a booted simulator's id, creating one if needed; on a
 machine with an older Xcode it falls back to the newest iPhone that Xcode has.
@@ -78,10 +130,13 @@ Type — iOS uses no Linx font files (`docs/ui/DESIGN_TOKENS.md`).
 
 ## CI
 
-The `ios` job in `.github/workflows/ci.yml` runs the three commands above on a `macos-26`
-runner on every push and pull request. No Apple account, no signing, no secrets. The runner's
-newest Xcode is 26.x (the iOS 26 SDK, which is the app's minimum); the fold layouts of
-build-order step 8 need the iOS 27.1 SDK, which only this Mac has so far.
+The `ios` job in `.github/workflows/ci.yml` runs the commands above on a `macos-26` runner on
+every push and pull request: formatting, the simulator build, the unit tests, and a **Release
+build for a real iPhone** with no signing — that last one catches the mistakes that otherwise
+only appear when the app is archived for TestFlight. WebRTC's zip is cached by its pinned
+version, so only the first run of a version downloads it. No Apple account, no signing, no
+secrets. The runner's newest Xcode is 26.x (the iOS 26 SDK, which is the app's minimum); the
+fold layouts of build-order step 8 need the iOS 27.1 SDK, which only this Mac has so far.
 
 ## Tools on this Mac (set up 2026-10-03)
 

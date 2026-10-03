@@ -22,10 +22,15 @@ import SwiftUI
     var state: State = .setUp
     /// Who this phone is, once it has been set up.
     var identity: PhoneIdentity?
-    /// This phone's SIP login, in memory only (build step 4b makes the calls).
+    /// This phone's SIP login, in memory only and new every time.
     var line: PhoneLine?
     /// What to tell the person about the last thing that didn't work.
     var problem: String?
+
+    /// The phone line itself: signing in to Asterisk, and the calls
+    /// (`Features/Phone`). It asks this model for a line whenever it needs
+    /// one, which is also what notices a phone that has been stopped.
+    @ObservationIgnored lazy var phone: PhoneModel = PhoneModel(line: { [weak self] in await self?.lineForPhone() })
 
     private let session: PhoneSession
 
@@ -66,13 +71,15 @@ import SwiftUI
         }
     }
 
-    /// signIn gets a token and this phone's phone line. A phone that is no
-    /// longer set up is told so here, which is the only way it ever finds out.
+    /// signIn proves this phone is still itself, and then opens its phone
+    /// line. A phone that is no longer set up is told so here, which is the
+    /// only way it ever finds out.
     func signIn() async {
         do {
-            line = try await session.phoneLine()
+            _ = try await session.accessToken()
             problem = nil
             state = .signedIn
+            await phone.start()
         } catch let error as LinxError where error.setUpAgain {
             state = .setUpAgain(error.words)
         } catch let error as LinxError {
@@ -86,10 +93,35 @@ import SwiftUI
         }
     }
 
+    /// lineForPhone asks Linx for this phone's SIP login — a new password
+    /// every time, kept in memory only (docs/PHASE2.md §4). The phone asks
+    /// again whenever it has to open its line afresh, so a phone that has
+    /// been stopped finds out within seconds.
+    func lineForPhone() async -> PhoneModel.Line? {
+        guard let identity else { return nil }
+        do {
+            let line = try await session.phoneLine()
+            let token = try await session.accessToken()
+            self.line = line
+            problem = nil
+            return PhoneModel.Line(line: line, server: identity.server, token: token)
+        } catch let error as LinxError where error.setUpAgain {
+            state = .setUpAgain(error.words)
+            return nil
+        } catch let error as LinxError {
+            problem = error.words
+            return nil
+        } catch {
+            problem = "Linx couldn't be reached. Try again in a moment."
+            return nil
+        }
+    }
+
     /// signOut forgets this phone's key and certificate. Stopping the phone
     /// at Linx's end is My phones → "I've lost it" in the web app, which is
     /// what to use for a phone someone else has.
     func signOut() async {
+        phone.stop()
         await session.forget()
         identity = nil
         line = nil

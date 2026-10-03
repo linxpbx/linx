@@ -45,6 +45,16 @@ The phone then makes its own security key, gets its own certificate from Linx, a
 
 To take Linx off a phone you still have: **Sign out of this phone** in the app. For a phone you've lost, stop it in Linx instead (below) — that works even if the phone is switched off.
 
+## Making and taking calls
+
+The app opens on the keypad. Type a number or an extension and tap the green call button; **Test my sound** calls Linx's echo test, which plays your own voice back so you can hear whether the microphone and the speaker are working.
+
+While you're in a call: **Mute**, **Keypad** (for menus, extensions and PINs) and **Speaker**. **Hang up** ends it. The line at the top says **Encrypted**, and whether the sound is going straight to the other phone (**Direct**) or through your Linx server (**Relayed**) — relayed is normal on mobile data and on networks that block everything but web traffic.
+
+A call that comes in while the app is open rings on the phone and shows **Answer** and **Decline**. Ringing when the app is closed or the phone is asleep comes with the next part of the app; until then, keep Linx open on the phone to be reachable on it.
+
+Every call is encrypted both ways, and the app has no password of any kind on it — it asks Linx for a one-time phone line each time it starts.
+
 ## "Set it up again"
 
 A phone stays set up as long as it's in touch with Linx — it checks in by itself while you use it. Nothing else interrupts it. It asks to be set up again only when:

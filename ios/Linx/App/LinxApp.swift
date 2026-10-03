@@ -19,6 +19,8 @@ struct LinxApp: App {
 struct RootView: View {
     @Environment(AppModel.self) private var model
 
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some View {
         Group {
             switch model.state {
@@ -27,9 +29,30 @@ struct RootView: View {
             case .working(let what):
                 WorkingView(what: what)
             case .signedIn:
-                SignedInView()
+                HomeView()
             case .setUpAgain(let reason):
                 SetUpAgainView(reason: reason)
+            }
+        }
+        .environment(model.phone)
+        .fullScreenCover(isPresented: .constant(model.phone.call != nil)) {
+            if let call = model.phone.call {
+                CallView(call: call).environment(model.phone)
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Nothing runs in the background: the websocket lives only while
+            // the app is in front, and a push wakes it when a call comes
+            // (docs/PHASE2.md §7, build-order steps 5 and 6). A call in
+            // progress keeps its line until that step gives the app the
+            // background audio it needs.
+            // A screenshot run talks to nothing at all (`Screen`).
+            guard Screen.launched == nil, case .signedIn = model.state, model.phone.call == nil
+            else { return }
+            switch phase {
+            case .background: model.phone.stop()
+            case .active: Task { await model.phone.start() }
+            default: break
             }
         }
         .task {
@@ -67,6 +90,9 @@ enum Screen: String {
     case setUpPhone = "setup-phone"
     case signedIn = "signed-in"
     case setUpAgain = "set-up-again"
+    case keypad
+    case inCall = "in-call"
+    case incomingCall = "incoming-call"
 
     static var launched: Screen? {
         #if DEBUG
@@ -85,10 +111,32 @@ enum Screen: String {
         switch self {
         case .setUpPhone:
             break
-        case .signedIn:
+        case .signedIn, .keypad, .inCall, .incomingCall:
             model.identity = Screen.sampleIdentity
             model.line = nil
             model.state = .signedIn
+            #if DEBUG
+                model.phone.pretend(.ready)
+            #endif
+            if self == .keypad {
+                model.phone.typed = "+971 4 000 0123"
+            }
+            #if DEBUG
+                if self == .inCall {
+                    model.phone.pretend(
+                        PhoneModel.Call(
+                            peer: SIPPeer(name: "Sara Haddad", number: "1024"), incoming: false,
+                            phase: .active, answeredAt: Date(timeIntervalSinceNow: -252),
+                            connection: MediaConnection(
+                                route: .direct, roundTripMs: 38, relayProtocol: nil, audioBytesIn: 48_000)))
+                }
+                if self == .incomingCall {
+                    model.phone.pretend(
+                        PhoneModel.Call(
+                            peer: SIPPeer(name: "Omar Nasser", number: "1031"), incoming: true,
+                            phase: .ringing))
+                }
+            #endif
         case .setUpAgain:
             model.identity = Screen.sampleIdentity
             model.state = .setUpAgain("The password of this Linx account changed, so this phone was logged out.")
