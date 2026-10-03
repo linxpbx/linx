@@ -200,7 +200,7 @@ Laptop as you (200), the second browser as Sara (201), both on the **Dialer** an
 - [ ] **Missed only** and **Search number** (a few digits of your mobile) work. The Dialer's **Recent** shows the last 5.
 - [ ] Sara's history shows only her calls (none of yours alone).
 - [ ] Admin → **Calls**: everyone's calls; **Anyone** → Sara narrows it. **Download (CSV)** → open it in Numbers or Excel: one row per call, readable times, nothing runs, no warnings about formulas.
-- [ ] System → **Settings** → **Keep call history** shows 365 days; **Keep voicemail** 60 days.
+- [ ] System → **Settings** → **Keep call history** shows 1 year; **Keep voicemail** 60 days.
 
 ### 11. Undo and routing changes
 - [ ] Ring groups → Sales → change the ring time → **Save** → **Saved. Undo** → **Undo**: the old time is back.
@@ -252,3 +252,4 @@ Run 2026-10-03 with the owner, at `424cc46`.
 - Step 9: **Found:** dragging the slider to a message's end didn't mark it heard (only playing out did), and the slider's handle had no name for screen readers. Both fixed (screens test). The "label" error seen again on the way was the step 8 fix not yet on the server.
 - Step 9: **Found:** **Mark as heard** said "header Content-Type has unexpected value application/merge-patch+json": the API's description said plain JSON for marking voicemail (and for the moved-server checklist's ticks), the web app sends every change as merge-patch. Both corrected; a test holds every change endpoint to the web app's rule.
 - Step 9 ✓ after updating to `525d29f`: greeting, the message from the landline (saved about 2 min after hanging up: the tone tail), its email with the WAV (to the account's own address), Mark as heard, leaving and playing Sara's message (in Activity), deleting the Sales message from both browsers. The CI run for `525d29f` failed once on a call-suite timing check (31 s measured for a 30 s ring); re-run green, check loosened (`06a82be`).
+- Step 10 ✓ (history in words, Listen, filters, Recent, Sara sees only hers, admin Calls and Anyone, the CSV in a spreadsheet). The checklist said "365 days" where the screen says **1 year** (the same setting, as a choice); checklist corrected.
