@@ -284,6 +284,40 @@ func (s *Store) ExpireIdentities(ctx context.Context, now time.Time) ([]pbx.Devi
 	return expired, err
 }
 
+// expirePhonesTx makes every phone of this person need setting up again,
+// with a device.expired event each. A password change does this (owner,
+// 2026-10-03): the person asks for a new QR code or emailed link and sets
+// the phone up again, exactly as they sign in again in the browser.
+func expirePhonesTx(ctx context.Context, tx pgx.Tx, user uuid.UUID, at time.Time) error {
+	rows, err := tx.Query(ctx, `UPDATE device_identity SET expired_at = $2, expires_at = $2
+		WHERE user_id = $1 AND expired_at IS NULL RETURNING device_id`, user, at)
+	if err != nil {
+		return err
+	}
+	ids, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (uuid.UUID, error) {
+		var id uuid.UUID
+		err := r.Scan(&id)
+		return id, err
+	})
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		d, err := scanDevice(tx.QueryRow(ctx, `SELECT `+deviceColumns+` FROM device WHERE id = $1`, id))
+		if err != nil {
+			return err
+		}
+		ev, err := deviceEvent(d, "device.expired", at)
+		if err != nil {
+			return err
+		}
+		if err := insertEvent(ctx, tx, ev, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) DeleteUsedProofs(ctx context.Context, before time.Time) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM device_proof WHERE used_at < $1`, before)
 	return err

@@ -208,8 +208,7 @@ func TestEnrollDocker(t *testing.T) {
 		t.Errorf("expiring twice: %+v, %v", again, err)
 	}
 
-	// Being in touch again brings it back; disabling the person takes it
-	// away again, as it already does to their browser line.
+	// Being in touch again brings it back.
 	back := later.Add(9 * 24 * time.Hour)
 	if err := s.TouchIdentity(ctx, device.ID, &enroll.CertUpdate{Serial: "3", Fingerprint: []byte("fingerprint-4"),
 		NotAfter: back.Add(7 * 24 * time.Hour)}, "0.2.0", "26.1", back, back.Add(7*24*time.Hour)); err != nil {
@@ -218,13 +217,48 @@ func TestEnrollDocker(t *testing.T) {
 	if !live() {
 		t.Error("a phone that came back isn't live")
 	}
-	if _, err := s.DisableUser(ctx, tenant, sara.ID, back, audit("user.disable")); err != nil {
+	// Changing the password asks for the phone to be set up again (owner,
+	// 2026-10-03), with its own device.expired event.
+	changed := back.Add(time.Minute)
+	if err := s.SetPassword(ctx, tenant, sara.ID, "a-new-hash", changed, true, audit("user.password_change")); err != nil {
+		t.Fatal(err)
+	}
+	if live() {
+		t.Error("a phone still works after its person changed their password")
+	}
+	if _, _, err := s.DevicePrincipalFor(ctx, device.ID, changed); !errors.Is(err, pbx.ErrNotFound) {
+		t.Errorf("a phone still has a token after a password change: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM event_outbox WHERE type = 'device.expired'
+		AND encode(body, 'escape') LIKE '%' || $1 || '%'`, device.ID.String()).Scan(&expiredEvents); err != nil {
+		t.Fatal(err)
+	}
+	if expiredEvents != 2 {
+		t.Errorf("device.expired events after the password change: %d, want 2", expiredEvents)
+	}
+	// Adding a password to a passkey-only account doesn't end sessions, and
+	// doesn't touch the phones either.
+	if err := s.SetPassword(ctx, tenant, sara.ID, "another-hash", changed.Add(time.Minute), false, audit("user.password_added")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up again after that, and then disabling the person takes it away
+	// too, as it already does to their browser line.
+	again := changed.Add(2 * time.Minute)
+	if err := s.TouchIdentity(ctx, device.ID, &enroll.CertUpdate{Serial: "4", Fingerprint: []byte("fingerprint-5"),
+		NotAfter: again.Add(7 * 24 * time.Hour)}, "0.2.0", "26.1", again, again.Add(7*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if !live() {
+		t.Fatal("a phone set up again isn't live")
+	}
+	if _, err := s.DisableUser(ctx, tenant, sara.ID, again, audit("user.disable")); err != nil {
 		t.Fatal(err)
 	}
 	if live() {
 		t.Error("a disabled person's phone is still live")
 	}
-	if _, _, err := s.DevicePrincipalFor(ctx, device.ID, back); !errors.Is(err, pbx.ErrNotFound) {
+	if _, _, err := s.DevicePrincipalFor(ctx, device.ID, again); !errors.Is(err, pbx.ErrNotFound) {
 		t.Errorf("a disabled person's phone still has a token: %v", err)
 	}
 }

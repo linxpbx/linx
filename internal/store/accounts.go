@@ -203,6 +203,12 @@ func (s *Store) SetPassword(ctx context.Context, tenant, user uuid.UUID, passwor
 			if err := revokeUserSessionsTx(ctx, tx, user, at); err != nil {
 				return err
 			}
+			// Their phones go the same way (owner, 2026-10-03): the app
+			// says "set this phone up again", and they ask for a new QR
+			// code or emailed link (docs/PHASE2.md §9).
+			if err := expirePhonesTx(ctx, tx, user, at); err != nil {
+				return err
+			}
 		}
 		return insertAudit(ctx, tx, audit)
 	})

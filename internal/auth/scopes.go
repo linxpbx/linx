@@ -83,10 +83,16 @@ var grantableRoles = map[string][]string{
 	RoleUser:        {RoleUser},
 }
 
-// DeviceScopes are what a phone's device token holds (docs/PHASE2.md §4):
-// an ordinary person's scopes, whatever their own role is, so an app can
-// never reach the admin area even on an admin's phone.
-func DeviceScopes() []string { return slices.Clone(roleCeilings[RoleUser]) }
+// deviceScopes are the only scopes a phone's device token ever holds. The
+// app is a client and nothing else (owner, 2026-10-03): running Linx — people,
+// phone lines, routing, settings, backups — is the web app's and the command
+// line's, never the app's, even on an admin's phone. This list is written out
+// rather than taken from a role, so widening a role can never widen an app;
+// a test checks every entry is read-only and within RoleUser's ceiling.
+var deviceScopes = []string{"extensions:read", "team:read"}
+
+// DeviceScopes is what a phone's device token holds (docs/PHASE2.md §4).
+func DeviceScopes() []string { return slices.Clone(deviceScopes) }
 
 // ValidRole reports whether role is a known role.
 func ValidRole(role string) bool { return slices.Contains(Roles, role) }
