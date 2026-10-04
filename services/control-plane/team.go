@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -211,11 +212,30 @@ func (h *teamHub) unsubscribe(tenant uuid.UUID, s *teamSub) {
 	}
 }
 
-// teamLiveHandler is GET /api/v1/team/live: signed-in browser sessions
-// holding team:read, from this server's own page, like /sip. It ends when
-// the session does (checked every teamCheck).
-func teamLiveHandler(authn *auth.Authenticator, st auth.SessionStore, hub *teamHub) http.Handler {
+// teamStore is what an open Team list rechecks: the browser's session, or
+// the phone's device (docs/PHASE2.md §12, step 7).
+type teamStore interface {
+	auth.SessionStore
+	DevicePrincipalFor(ctx context.Context, device uuid.UUID, now time.Time) (tenant, user uuid.UUID, err error)
+}
+
+// teamLiveHandler is GET /api/v1/team/live. It takes either
+//
+//   - a signed-in browser session's cookie, from a page on this server's own
+//     address, holding team:read; or
+//   - a set-up phone's device token in the Authorization header, with no
+//     Origin check, exactly as GET /sip does (docs/PHASE2.md §4): the app is
+//     not a web page and sends none, and no web page can put an
+//     Authorization header on a websocket.
+//
+// Either way it ends when the credential does (checked every teamCheck).
+func teamLiveHandler(authn *auth.Authenticator, st teamStore, hub *teamHub) http.Handler {
 	return apihttp.NoStore(authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, hasPrincipal := auth.PrincipalFromContext(r.Context())
+		if hasPrincipal && p.DeviceID != nil {
+			servePhoneTeamLive(w, r, st, hub, p)
+			return
+		}
 		if !sameOrigin(r) {
 			apihttp.WriteProblem(w, http.StatusForbidden, "origin_invalid", "Open the Team list from this server's own web page.")
 			return
@@ -225,60 +245,96 @@ func teamLiveHandler(authn *auth.Authenticator, st auth.SessionStore, hub *teamH
 			apihttp.WriteProblem(w, http.StatusUnauthorized, "session_required", "Sign in first.")
 			return
 		}
-		p, _ := auth.PrincipalFromContext(r.Context())
 		if p.Pending || !slices.Contains(p.Scopes, "team:read") {
 			apihttp.WriteProblem(w, http.StatusForbidden, "insufficient_scope", "This needs the team:read scope.")
 			return
 		}
-		if !hub.acquire(sess.ID) {
-			apihttp.WriteProblem(w, http.StatusTooManyRequests, "too_many_open",
-				"The Team list is open in too many tabs. Close some and try again.")
-			return
+		serveTeamLive(w, r, hub, sess.TenantID, sess.ID, func(ctx context.Context) error {
+			cur, err := st.SessionByTokenHash(ctx, sess.TokenHash)
+			if err != nil {
+				return err
+			}
+			return liveSession(cur, time.Now())
+		})
+	})))
+}
+
+// servePhoneTeamLive is the Team list for a set-up phone. The authenticator
+// has already refused a revoked or expired one; the recheck below is what
+// closes a list left open on a phone that has since been stopped.
+func servePhoneTeamLive(w http.ResponseWriter, r *http.Request, st teamStore, hub *teamHub, p auth.Principal) {
+	if !slices.Contains(p.Scopes, "team:read") {
+		apihttp.WriteProblem(w, http.StatusForbidden, "insufficient_scope", "This needs the team:read scope.")
+		return
+	}
+	device := *p.DeviceID
+	serveTeamLive(w, r, hub, p.TenantID, device, func(ctx context.Context) error {
+		if _, _, err := st.DevicePrincipalFor(ctx, device, time.Now()); err != nil {
+			if errors.Is(err, pbx.ErrNotFound) {
+				return errors.New("this phone is no longer set up")
+			}
+			return err
 		}
-		defer hub.release(sess.ID)
-		sub, err := hub.subscribe(r.Context(), sess.TenantID)
-		if err != nil {
-			apihttp.WriteProblem(w, http.StatusServiceUnavailable, "unavailable", "Linx can't load the Team list right now. Try again shortly.")
+		return nil
+	})
+}
+
+// serveTeamLive holds the websocket open: the whole list at once and again
+// whenever it changes, and nothing is ever read from the other end. holder
+// is the session or the phone, for the "how many at once" count; stillThere
+// is what is rechecked every teamCheck.
+func serveTeamLive(
+	w http.ResponseWriter, r *http.Request, hub *teamHub, tenant, holder uuid.UUID,
+	stillThere func(context.Context) error,
+) {
+	if !hub.acquire(holder) {
+		apihttp.WriteProblem(w, http.StatusTooManyRequests, "too_many_open",
+			"The Team list is open in too many tabs. Close some and try again.")
+		return
+	}
+	defer hub.release(holder)
+	sub, err := hub.subscribe(r.Context(), tenant)
+	if err != nil {
+		apihttp.WriteProblem(w, http.StatusServiceUnavailable, "unavailable", "Linx can't load the Team list right now. Try again shortly.")
+		return
+	}
+	defer hub.unsubscribe(tenant, sub)
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{controlplaneapi.TeamSubprotocol}})
+	if err != nil {
+		return
+	}
+	defer c.CloseNow()
+	if c.Subprotocol() != controlplaneapi.TeamSubprotocol {
+		c.Close(websocket.StatusPolicyViolation, "use the "+controlplaneapi.TeamSubprotocol+" subprotocol")
+		return
+	}
+	// Nothing is read from the page or the phone; this only handles pings
+	// and close.
+	ctx := c.CloseRead(context.WithoutCancel(r.Context()))
+	check := time.NewTicker(teamCheck)
+	defer check.Stop()
+	for {
+		select {
+		case <-ctx.Done():
 			return
-		}
-		defer hub.unsubscribe(sess.TenantID, sub)
-		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{controlplaneapi.TeamSubprotocol}})
-		if err != nil {
-			return
-		}
-		defer c.CloseNow()
-		if c.Subprotocol() != controlplaneapi.TeamSubprotocol {
-			c.Close(websocket.StatusPolicyViolation, "use the "+controlplaneapi.TeamSubprotocol+" subprotocol")
-			return
-		}
-		// Nothing is read from the page; this only handles pings and close.
-		ctx := c.CloseRead(context.WithoutCancel(r.Context()))
-		check := time.NewTicker(teamCheck)
-		defer check.Stop()
-		for {
-			select {
-			case <-ctx.Done():
+		case b := <-sub.ch:
+			wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := c.Write(wctx, websocket.MessageText, b)
+			cancel()
+			if err != nil {
 				return
-			case b := <-sub.ch:
-				wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				err := c.Write(wctx, websocket.MessageText, b)
-				cancel()
-				if err != nil {
-					return
-				}
-			case <-check.C:
-				cur, err := st.SessionByTokenHash(ctx, sess.TokenHash)
-				if err != nil || liveSession(cur, time.Now()) != nil {
-					c.Close(websocket.StatusPolicyViolation, "signed out")
-					return
-				}
-				pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				err = c.Ping(pctx)
-				cancel()
-				if err != nil {
-					return
-				}
+			}
+		case <-check.C:
+			if err := stillThere(ctx); err != nil {
+				c.Close(websocket.StatusPolicyViolation, "signed out")
+				return
+			}
+			pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := c.Ping(pctx)
+			cancel()
+			if err != nil {
+				return
 			}
 		}
-	})))
+	}
 }

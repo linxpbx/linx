@@ -2815,7 +2815,7 @@ export interface paths {
         };
         /**
          * The Team list, live (websocket)
-         * @description A websocket (subprotocol `linx.team.v1`) that sends the whole Team list as a TeamList JSON message at once and again whenever it changes. It never reads anything the client sends. Signed-in browser sessions only, from this server's own page (Origin must match); it closes when the session ends. API clients use GET /team. Served by a hand-written handler (excluded from code generation).
+         * @description A websocket (subprotocol `linx.team.v1`) that sends the whole Team list as a TeamList JSON message at once and again whenever it changes. It never reads anything the client sends. Two kinds of caller: a signed-in browser session, from this server's own page (Origin must match), and a set-up phone with its device token in the Authorization header and no Origin, exactly as `GET /sip` takes one (docs/PHASE2.md §4). It closes when the session ends or the phone is stopped. API keys use GET /team. Served by a hand-written handler (excluded from code generation).
          */
         get: operations["watchTeam"];
         put?: never;

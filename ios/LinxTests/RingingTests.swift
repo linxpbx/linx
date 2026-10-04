@@ -24,6 +24,9 @@ import Testing
     private(set) var reported: [(id: UUID, peer: SIPPeer)] = []
     private(set) var renamed: [(id: UUID, peer: SIPPeer)] = []
     private(set) var ringingThere: [UUID] = []
+    /// Every time the system was told a picture went into a call, or came
+    /// out of it.
+    private(set) var video: [(id: UUID, on: Bool)] = []
     private(set) var answered: [UUID] = []
     private(set) var ended: [(id: UUID, ending: SystemCallEnding)] = []
     private(set) var asked: [SystemCallRequest] = []
@@ -42,6 +45,7 @@ import Testing
     }
 
     func rename(id: UUID, to peer: SIPPeer) { renamed.append((id, peer)) }
+    func reportVideo(id: UUID, on: Bool) { video.append((id, on)) }
     func reportRingingThere(id: UUID) { ringingThere.append(id) }
     func reportAnswered(id: UUID) { answered.append(id) }
     func reportEnded(id: UUID, _ ending: SystemCallEnding) { ended.append((id, ending)) }

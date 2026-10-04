@@ -51,6 +51,23 @@ enum SIPStatus: Equatable, Sendable {
     func setMuted(_ muted: Bool)
     /// The loudspeaker, or back to the earpiece.
     func setSpeaker(_ on: Bool)
+    /// Whose camera is on in this call, and the two pictures themselves
+    /// (docs/PHASE2.md §7). A call is sound until somebody asks for more.
+    var video: CallVideo { get }
+    var tracks: VideoTracks { get }
+    var onVideoChanged: ((CallVideo) -> Void)? { get set }
+    /// The link hasn't the room for a picture any more.
+    var onVideoTooExpensive: (() -> Void)? { get set }
+    /// Switches this phone's camera on or off and answers with the offer
+    /// that tells the other side.
+    func startVideo() async throws -> String
+    func stopVideo() async throws -> String
+    func switchCamera()
+    /// Nobody accepted the last offer: put the call back exactly as it was,
+    /// so the sound carries on untouched.
+    func rollbackOffer() async
+    /// Whether this phone's own picture is shown mirrored (a front camera).
+    var mirrorsMyVideo: Bool { get }
     /// The system has handed over the microphone and the speaker, or taken
     /// them back. With CallKit the app never starts a call's sound itself:
     /// it waits to be given them, which is also what stops the sound
@@ -81,6 +98,8 @@ enum SIPStatus: Equatable, Sendable {
     var onProgress: (() -> Void)?
     var onEstablished: (() -> Void)?
     var onEnded: ((SIPEnded) -> Void)?
+    /// A picture couldn't be added, and why in plain words.
+    var onVideoRefused: ((String) -> Void)?
 
     private let account: Account
     private let transport: any SIPTransport
@@ -294,6 +313,64 @@ enum SIPStatus: Equatable, Sendable {
         end(current, why: .hungUp)
     }
 
+    // MARK: - The picture (docs/PHASE2.md §7)
+
+    /// Turns this phone's camera on or off in a call that is already up, and
+    /// tells the other side with a re-INVITE. The call itself never stops:
+    /// video comes and goes inside it, which is why a bad network can drop
+    /// the picture and leave the conversation alone.
+    func setVideo(_ on: Bool) async {
+        guard let current = call, current.established, !current.changing else { return }
+        guard on != current.media.video.mine else { return }
+        call?.changing = true
+        defer { call?.changing = false }
+        do {
+            let offer = on ? try await current.media.startVideo() : try await current.media.stopVideo()
+            guard call?.id == current.id else { return }
+            sendReinvite(offer, of: current)
+        } catch let trouble as CameraTrouble {
+            onVideoRefused?(trouble.words)
+        } catch {
+            onVideoRefused?("This phone couldn't start its camera. Try again in a moment.")
+        }
+    }
+
+    /// Hands the camera over to the one on the other side of the phone.
+    func switchCamera() { call?.media.switchCamera() }
+
+    private func sendReinvite(_ offer: String, of current: Call) {
+        guard call?.id == current.id else { return }
+        var message = inDialog("INVITE", of: current)
+        message.add("Contact", contact)
+        if current.credentials != nil {
+            var credentials: Credentials? = current.credentials
+            message.add("Authorization", answer(&credentials, method: "INVITE", uri: current.remoteTarget))
+            call?.credentials = credentials
+        }
+        message.add("Content-Type", "application/sdp")
+        message.body = offer
+        call?.reinviting = true
+        call?.reinviteOffer = offer
+        call?.reinviteRequest = message
+        send(message)
+    }
+
+    /// The ACK for a re-INVITE that was refused or challenged. It belongs to
+    /// that request, not to the invitation the call began with, so it
+    /// carries that request's own branch and sequence number (RFC 3261
+    /// §17.1.1.3).
+    private func ackReinvite(_ response: SIPMessage, of current: Call) {
+        guard let request = current.reinviteRequest else { return }
+        var ack = SIPMessage.request("ACK", request.requestURI ?? current.remoteTarget)
+        ack.add("Via", request.first("Via") ?? via(branch: SIPRandom.branch()))
+        ack.add("Max-Forwards", "70")
+        ack.add("From", request.first("From") ?? "")
+        ack.add("To", response.first("To") ?? request.first("To") ?? "")
+        ack.add("Call-ID", current.id)
+        ack.add("CSeq", "\(request.cseq?.number ?? current.seq) ACK")
+        send(ack)
+    }
+
     func setMuted(_ muted: Bool) { call?.media.setMuted(muted) }
 
     func setSpeaker(_ on: Bool) { call?.media.setSpeaker(on) }
@@ -325,6 +402,10 @@ enum SIPStatus: Equatable, Sendable {
             return
         }
         guard var current = call, message.callID == current.id else { return }
+        if current.reinviting {
+            reinviteResponse(message, status: status, of: current)
+            return
+        }
         switch status {
         case 100: return
         case 180, 183:
@@ -424,6 +505,79 @@ enum SIPStatus: Equatable, Sendable {
         send(bye)
     }
 
+    /// What came back from this phone's own re-INVITE: the picture going
+    /// into a call that is up, or coming out of it. The conversation itself
+    /// is untouched whichever way it goes — that is the whole reason video
+    /// is added to a call rather than being a different kind of call.
+    private func reinviteResponse(_ message: SIPMessage, status: Int, of current: Call) {
+        switch status {
+        case 100..<200:
+            return
+        case 200..<300:
+            call?.reinviting = false
+            call?.reinviteOffer = nil
+            call?.reinviteRequest = nil
+            call?.reinviteAttempts = 0
+            var ack = SIPMessage.request("ACK", current.remoteTarget)
+            ack.add("Via", via(branch: SIPRandom.branch()))
+            ack.add("Max-Forwards", "70")
+            for route in current.routeSet { ack.add("Route", route) }
+            ack.add("From", message.first("From") ?? "\(selfAddress);tag=\(current.localTag)")
+            ack.add("To", message.first("To") ?? "<\(current.remoteURI)>")
+            ack.add("Call-ID", current.id)
+            ack.add("CSeq", "\(message.cseq?.number ?? current.seq) ACK")
+            send(ack)
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await current.media.accept(answer: message.body)
+                } catch {
+                    await current.media.rollbackOffer()
+                    self.onVideoRefused?("The call couldn't take a picture just now. The sound is unaffected.")
+                }
+            }
+        case 401, 407:
+            // Asterisk asks this phone to prove itself again, in the middle
+            // of a call. One go: the password hasn't changed since it signed
+            // in a moment ago.
+            ackReinvite(message, of: current)
+            guard let challenge = challenge(in: message), current.reinviteAttempts < 1,
+                let offer = current.reinviteOffer
+            else {
+                giveUpOnVideo(current, why: "This phone couldn't turn the video on. The sound is unaffected.")
+                return
+            }
+            call?.reinviteAttempts += 1
+            call?.credentials = Credentials(challenge: challenge)
+            call?.reinviting = false
+            guard let again = call else { return }
+            sendReinvite(offer, of: again)
+        default:
+            ackReinvite(message, of: current)
+            // 491 is both sides asking at once (RFC 3261 §14.1): rare with
+            // one switch in the middle, and the person simply presses the
+            // button again.
+            giveUpOnVideo(
+                current,
+                why: status == 491
+                    ? "Both phones changed the call at the same moment. Try the video button again."
+                    : "The other phone wouldn't take video. The sound is unaffected.")
+        }
+    }
+
+    /// Puts the call back exactly as it was before the offer nobody
+    /// accepted, and says so once.
+    private func giveUpOnVideo(_ current: Call, why: String) {
+        call?.reinviting = false
+        call?.reinviteOffer = nil
+        call?.reinviteRequest = nil
+        call?.reinviteAttempts = 0
+        Task { [weak self] in
+            await current.media.rollbackOffer()
+            self?.onVideoRefused?(why)
+        }
+    }
+
     private func registerResponse(_ message: SIPMessage, status: Int) {
         switch status {
         case 100..<200: return
@@ -451,6 +605,13 @@ enum SIPStatus: Equatable, Sendable {
         switch message.method {
         case "INVITE":
             if let current = call, current.id == message.callID, current.established {
+                guard !current.reinviting else {
+                    // This phone has a change of its own outstanding: both
+                    // sides asked at once, and the rule is that the caller
+                    // of the two tries again (RFC 3261 §14.2).
+                    send(.response(491, "Request Pending", to: message).withTag(current.localTag))
+                    return
+                }
                 reinvite(message, of: current)
             } else {
                 invited(message)
@@ -679,6 +840,14 @@ enum SIPStatus: Equatable, Sendable {
         var attempts = 0
         var established = false
         var earlyMedia = false
+        /// A re-INVITE of this phone's is out and hasn't been answered yet
+        /// (adding or taking away the picture).
+        var reinviting = false
+        var reinviteOffer: String?
+        var reinviteRequest: SIPMessage?
+        var reinviteAttempts = 0
+        /// Busy asking the camera for something: one at a time.
+        var changing = false
         var timeout: Task<Void, Never>?
     }
 }

@@ -45,6 +45,10 @@ import UIKit
         var speaker = false
         /// Their phone is ringing (Asterisk said so).
         var ringingThere = false
+        /// Whose camera is on. A call is sound until somebody presses the
+        /// video button; then it is still the same call, with a picture in
+        /// it (docs/PHASE2.md §7).
+        var video = CallVideo()
         var connection: MediaConnection?
     }
 
@@ -59,6 +63,11 @@ import UIKit
 
     private(set) var status: Status = .starting
     private(set) var call: Call?
+    /// The pictures of the call that is up, for the screen to draw. It is
+    /// the live media's own, so it is empty whenever there is no call.
+    private(set) var tracks = VideoTracks()
+    /// Whether this phone's own picture should be mirrored (a front camera).
+    private(set) var mirrorsMyVideo = true
     private(set) var recent: [Recent] = []
     /// The last thing that didn't work, for the screen to show once.
     private(set) var problem: String?
@@ -109,6 +118,9 @@ import UIKit
     /// Who an outgoing call is to, by the id the system was given: the
     /// system only keeps a number, and the app keeps the name as well.
     private var intended: [UUID: SIPPeer] = [:]
+    /// The video button started this call: the camera goes on as soon as
+    /// the other side picks up.
+    private var videoOnceAnswered = false
     /// The sound of the call that is up, for handing the microphone and the
     /// speaker over when the system says so.
     private weak var liveMedia: (any SIPCallMedia)?
@@ -157,6 +169,7 @@ import UIKit
         agent = nil
         if let call { calls.reportEnded(id: call.id, .failed) }
         call = nil
+        videoOnceAnswered = false
         forgetWhatWasWoken(.missed)
         status = .starting
     }
@@ -179,7 +192,10 @@ import UIKit
                 media.onConnection = { [weak self] connection in
                     self?.call?.connection = connection
                 }
+                media.onVideoChanged = { [weak self] video in self?.videoChanged(video) }
+                media.onVideoTooExpensive = { [weak self] in self?.videoCostTooMuch() }
                 self?.liveMedia = media
+                self?.tracks = media.tracks
                 return media
             })
         agent.onStatus = { [weak self] status in self?.lineChanged(status) }
@@ -187,6 +203,7 @@ import UIKit
         agent.onProgress = { [weak self] in self?.ringingThere() }
         agent.onEstablished = { [weak self] in self?.answered() }
         agent.onEnded = { [weak self] why in self?.ended(why) }
+        agent.onVideoRefused = { [weak self] why in self?.problem = why }
         self.agent = agent
         status = .starting
         agent.start()
@@ -289,11 +306,16 @@ import UIKit
         callNumber(number)
     }
 
-    func callNumber(_ number: String, name: String? = nil) {
+    /// `withVideo` is the video button in the Team list: the call still
+    /// rings as an ordinary call — that is what a lock screen and a car
+    /// understand — and this phone's camera goes on the moment it is
+    /// answered (docs/PHASE2.md §7).
+    func callNumber(_ number: String, name: String? = nil, withVideo: Bool = false) {
         guard case .ready = status, call == nil else { return }
         let target = number.trimmingCharacters(in: .whitespaces)
         guard !target.isEmpty else { return }
         problem = nil
+        videoOnceAnswered = withVideo
         let peer = SIPPeer(name: name ?? (target == Self.echoTest ? "Test sound" : target), number: target)
         let id = UUID()
         intended[id] = peer
@@ -324,6 +346,49 @@ import UIKit
     func sendTone(_ digit: Character) {
         guard let call, call.phase == .active else { return }
         calls.ask(.tone(call.id, digit))
+    }
+
+    // MARK: - The picture (docs/PHASE2.md §7)
+
+    /// Turns this phone's camera on or off in the call that is up. The call
+    /// itself carries straight on either way — that is why video is added to
+    /// a call here and never rung as a different kind of call.
+    func toggleVideo() {
+        guard let call, call.phase == .active else { return }
+        let on = !call.video.mine
+        problem = nil
+        // Everyone expects a video call to come out of the loudspeaker; a
+        // phone held to an ear with the camera on would show a ceiling.
+        if on, !call.speaker { toggleSpeaker() }
+        Task { [weak self] in await self?.agent?.setVideo(on) }
+    }
+
+    /// The camera facing the person, or the one facing what they can see.
+    func switchCamera() {
+        agent?.switchCamera()
+        mirrorsMyVideo = liveMedia?.mirrorsMyVideo ?? true
+    }
+
+    private func videoChanged(_ video: CallVideo) {
+        guard var current = call else { return }
+        let was = current.video
+        current.video = video
+        call = current
+        mirrorsMyVideo = liveMedia?.mirrorsMyVideo ?? true
+        // The system shows a call with a picture in it as a video call.
+        if was.on != video.on { calls.reportVideo(id: current.id, on: video.on) }
+        if was.theirs != video.theirs, video.theirs, !current.speaker {
+            // Their picture arrived while this phone was at an ear.
+            toggleSpeaker()
+        }
+    }
+
+    /// The link hasn't the room for a picture any more. The picture goes and
+    /// the conversation stays, which is the right way round.
+    private func videoCostTooMuch() {
+        guard let call, call.video.mine else { return }
+        problem = "The connection got too slow for video, so Linx turned your camera off. The call carries on."
+        Task { [weak self] in await self?.agent?.setVideo(false) }
     }
 
     /// The loudspeaker is the app's own: the system has no such action, and
@@ -465,6 +530,10 @@ import UIKit
         // (it asked the app to answer it); an outgoing one is connected the
         // moment the other side picks up.
         if !current.incoming { calls.reportAnswered(id: current.id) }
+        if videoOnceAnswered {
+            videoOnceAnswered = false
+            toggleVideo()
+        }
     }
 
     private func ended(_ why: SIPEnded) {

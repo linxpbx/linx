@@ -454,10 +454,15 @@ func TestCallsDocker(t *testing.T) {
 		erin := e.newWebPhone("105", "Erin")
 
 		// Browsers get WebRTC media (ICE, DTLS-SRTP, AVPF, rtcp-mux) over
-		// the websocket; phones keep SIP over TLS with SDES-SRTP.
+		// the websocket; phones keep SIP over TLS with SDES-SRTP. The app
+		// and the browser also get the video codecs and one video stream,
+		// for 1:1 video calls (migration 0044, docs/PHASE2.md §7); a desk
+		// phone is never offered video at all, which the phone endpoint
+		// below is what checks.
 		web := e.asteriskCLI("pjsip show endpoint " + dana.dev.SIPUsername)
 		for _, want := range []string{`transport\s*:\s*transport-wss`, `media_encryption\s*:\s*dtls`, `ice_support\s*:\s*true`,
-			`use_avpf\s*:\s*true`, `rtcp_mux\s*:\s*true`, `dtls_verify\s*:\s*Fingerprint`, `dtls_setup\s*:\s*actpass`, `allow\s*:\s*\(opus\|g722\|ulaw\)`} {
+			`use_avpf\s*:\s*true`, `rtcp_mux\s*:\s*true`, `dtls_verify\s*:\s*Fingerprint`, `dtls_setup\s*:\s*actpass`,
+			`allow\s*:\s*\(opus\|g722\|ulaw\|h264\|vp8\)`, `max_video_streams\s*:\s*1`} {
 			if !regexp.MustCompile(want).MatchString(web) {
 				t.Errorf("web endpoint doesn't match %s:\n%s", want, web)
 			}

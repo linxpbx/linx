@@ -28,12 +28,18 @@ final class FakeStore: PhoneStorage, @unchecked Sendable {
 final class FakeLinx: URLProtocol, @unchecked Sendable {
     /// What each path answers, by path. Set before a test runs.
     nonisolated(unsafe) static var answers: [String: (status: Int, body: String)] = [:]
-    /// What the app asked for, in order, as (path, body, bearer token).
-    nonisolated(unsafe) static var asked: [(path: String, body: [String: Any], bearer: String?)] = []
+    /// What the app asked for, in order: the path, what was in the query,
+    /// the method, the body and the token it sent.
+    nonisolated(unsafe) static var asked:
+        [(path: String, body: [String: Any], bearer: String?, method: String, query: String?, type: String?)] = []
+
+    /// What a path answers with, when it isn't JSON (a voicemail's audio).
+    nonisolated(unsafe) static var types: [String: String] = [:]
 
     static func reset() {
         answers = [:]
         asked = []
+        types = [:]
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -58,12 +64,16 @@ final class FakeLinx: URLProtocol, @unchecked Sendable {
         }
         let bearer = request.value(forHTTPHeaderField: "Authorization")?
             .replacingOccurrences(of: "Bearer ", with: "")
-        Self.asked.append((path, body, bearer))
+        Self.asked.append(
+            (
+                path, body, bearer, request.httpMethod ?? "GET", request.url?.query,
+                request.value(forHTTPHeaderField: "Content-Type")
+            ))
 
         let answer = Self.answers[path] ?? (404, #"{"code":"not_found","detail":"no such path"}"#)
         let response = HTTPURLResponse(
             url: request.url!, statusCode: answer.status, httpVersion: "HTTP/1.1",
-            headerFields: ["Content-Type": "application/json"])!
+            headerFields: ["Content-Type": Self.types[path] ?? "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(answer.body.utf8))
         client?.urlProtocolDidFinishLoading(self)

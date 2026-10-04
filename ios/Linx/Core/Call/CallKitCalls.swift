@@ -42,7 +42,11 @@ import UIKit
         // The name on the lock screen is the app's own (CFBundleDisplayName,
         // "Linx"): iOS takes it from the bundle and won't be told otherwise.
         let configuration = CXProviderConfiguration()
-        configuration.supportsVideo = false
+        // A Linx call can become a video call while it is up (the video
+        // button, docs/PHASE2.md §7), so the system is told this app does
+        // video. Every call still *rings* as a phone call: a picture is
+        // added to a call, never rung as one.
+        configuration.supportsVideo = true
         configuration.maximumCallGroups = 1
         configuration.maximumCallsPerCallGroup = 1
         // A number, and "generic" for an extension or a withheld number.
@@ -80,6 +84,15 @@ import UIKit
         let update = CXCallUpdate()
         update.remoteHandle = Self.handle(for: peer)
         update.localizedCallerName = peer.name.isEmpty ? nil : peer.name
+        provider.reportCall(with: id, updated: update)
+    }
+
+    /// A picture went into this call, or came out of it. The system shows
+    /// it as a video call from then on — in Recents, and on the lock screen
+    /// if it is locked while the call is up.
+    func reportVideo(id: UUID, on: Bool) {
+        let update = CXCallUpdate()
+        update.hasVideo = on
         provider.reportCall(with: id, updated: update)
     }
 

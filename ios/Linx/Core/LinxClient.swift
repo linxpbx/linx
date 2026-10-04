@@ -8,6 +8,20 @@ import Foundation
 //   POST /api/v1/me/phone-line   that token → this phone's SIP login
 //   POST /api/v1/me/phone-push   where Apple can reach this phone
 //
+// and, for the screens the rest of the app is made of (step 7):
+//
+//   GET  /api/v1/team                 the directory, with what everyone is doing
+//   PUT  /api/v1/me/presence          my own status
+//   GET  /api/v1/me/calls             my call history
+//   GET/DELETE /api/v1/me/missed-calls   the Calls badge
+//   GET  /api/v1/voicemail            my voicemail, without the audio
+//   GET  /api/v1/voicemail/{id}/audio one message, as a WAV
+//   PATCH/DELETE /api/v1/voicemail/{id}  heard, or gone
+//
+// Every one of them is an endpoint the web client already uses: the app
+// adds no new way into Linx, and a phone's token holds an ordinary person's
+// read-only scopes and nothing more (docs/PHASE2.md §12, step 2).
+//
 // Always HTTPS, always with the certificate checked (Linx never talks
 // plaintext, and the app never turns verification off). Everything is small,
 // and nothing is cached.
@@ -172,6 +186,33 @@ struct LinxClient: Sendable {
             ], bearer: token)
     }
 
+    // MARK: - What the screens ask for
+
+    /// A GET that answers JSON.
+    func get<T: Decodable>(_ path: String, query: [String: String] = [:], token: String) async throws -> T {
+        let data = try await send(path, method: "GET", query: query, bearer: token)
+        do {
+            return try JSONDecoder.linx.decode(T.self, from: data)
+        } catch {
+            throw LinxError.unexpected
+        }
+    }
+
+    /// A GET that answers something other than JSON: a voicemail's audio.
+    func fetch(_ path: String, accept: String, token: String) async throws -> Data {
+        try await send(path, method: "GET", accept: accept, bearer: token)
+    }
+
+    /// A change — PUT, PATCH or DELETE. Linx answers 204 to all of these, so
+    /// there is nothing to read back.
+    @discardableResult
+    func change(
+        _ path: String, method: String, body: [String: Any]?,
+        contentType: String = "application/json", token: String
+    ) async throws -> Data {
+        try await send(path, method: method, body: body, contentType: contentType, bearer: token)
+    }
+
     // MARK: - One request
 
     private func post<T: Decodable>(_ path: String, body: [String: String]?, bearer: String? = nil) async throws
@@ -186,12 +227,25 @@ struct LinxClient: Sendable {
     }
 
     private func send(_ path: String, body: [String: Any]?, bearer: String?) async throws -> Data {
-        var request = URLRequest(url: server.appending(path: path))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        try await send(path, method: "POST", body: body, bearer: bearer)
+    }
+
+    /// One request, whatever its method. Everything the app sends is small
+    /// and nothing is cached (`URLSession.linx`).
+    private func send(
+        _ path: String, method: String, query: [String: String] = [:], body: [String: Any]? = nil,
+        contentType: String = "application/json", accept: String = "application/json", bearer: String?
+    ) async throws -> Data {
+        var url = server.appending(path: path)
+        if !query.isEmpty {
+            url.append(queryItems: query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) })
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue(accept, forHTTPHeaderField: "Accept")
         if let bearer { request.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization") }
         if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
         let data: Data

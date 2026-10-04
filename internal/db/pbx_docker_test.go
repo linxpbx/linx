@@ -118,15 +118,15 @@ func TestAsteriskRealtimeDocker(t *testing.T) {
 		var row string
 		if err := astPool.QueryRow(ctx, `SELECT concat_ws(' ', transport, allow, media_encryption, ice_support, use_avpf, rtcp_mux,
 			coalesce(dtls_verify, '-'), coalesce(dtls_setup, '-'), coalesce(dtls_auto_generate_cert, '-'), media_use_received_transport,
-			coalesce(incoming_offer_codec_prefs, '-')) FROM asterisk.ps_endpoints WHERE id = $1`, id).Scan(&row); err != nil {
+			coalesce(incoming_offer_codec_prefs, '-'), coalesce(max_video_streams, '-')) FROM asterisk.ps_endpoints WHERE id = $1`, id).Scan(&row); err != nil {
 			t.Fatalf("reading endpoint %s: %v", id, err)
 		}
 		return row
 	}
-	if got, want := endpoint("d_w3bw3bw3"), "transport-wss opus,g722,ulaw dtls yes yes yes fingerprint actpass yes yes -"; got != want {
+	if got, want := endpoint("d_w3bw3bw3"), "transport-wss opus,g722,ulaw,h264,vp8 dtls yes yes yes fingerprint actpass yes yes - 1"; got != want {
 		t.Errorf("web endpoint = %q, want %q", got, want)
 	}
-	if got, want := endpoint("d_1a2b3c4d"), "transport-tls opus,g722,ulaw sdes no no no - - - no -"; got != want {
+	if got, want := endpoint("d_1a2b3c4d"), "transport-tls opus,g722,ulaw sdes no no no - - - no - -"; got != want {
 		t.Errorf("phone endpoint = %q, want %q", got, want)
 	}
 

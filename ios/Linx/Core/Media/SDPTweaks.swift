@@ -11,6 +11,12 @@ enum SDPTweaks {
     /// Opus's most, in bits per second: full-quality mono voice.
     static let opusMaxBitrate = 24000
 
+    /// A 1:1 video call's most, in bits per second (docs/PHASE2.md §7).
+    /// Small on purpose: the picture goes through Linx's own server, which
+    /// may be one core and a slow line, and sound comes first — a call that
+    /// looks worse is better than a call that sounds worse.
+    static let videoMaxBitrate = 600_000
+
     /// preferOpusFecDtx writes the Opus settings into an SDP this phone is
     /// about to send. An SDP without Opus is left exactly as it was.
     static func preferOpusFecDtx(_ sdp: String) -> String {
@@ -44,5 +50,75 @@ enum SDPTweaks {
         }
         lines[fmtp] = prefix + parameters.joined(separator: ";")
         return lines.joined(separator: eol)
+    }
+
+    /// capVideo writes that ceiling into an SDP this phone is about to send
+    /// (RFC 3556 `b=AS`, in kilobits), so the other side and Asterisk both
+    /// know it before a single frame is sent. An SDP with no video in it is
+    /// left exactly as it was.
+    static func capVideo(_ sdp: String) -> String {
+        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
+        var lines = sdp.components(separatedBy: eol)
+        guard let video = lines.firstIndex(where: { $0.hasPrefix("m=video ") }) else { return sdp }
+        // b= goes straight after c=, and there is at most one of each per
+        // media section (RFC 4566 §5).
+        var at = video + 1
+        while at < lines.count, lines[at].hasPrefix("i=") || lines[at].hasPrefix("c=") { at += 1 }
+        let cap = "b=AS:\(videoMaxBitrate / 1000)"
+        if at < lines.count, lines[at].hasPrefix("b=AS:") {
+            lines[at] = cap
+        } else {
+            lines.insert(cap, at: at)
+        }
+        return lines.joined(separator: eol)
+    }
+
+    /// hasVideo reports whether an SDP offers or answers a picture at all: a
+    /// video section that hasn't been turned down (port 0) or switched off.
+    static func hasVideo(_ sdp: String) -> Bool {
+        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
+        for section in sections(sdp, eol: eol) where section.first?.hasPrefix("m=video ") == true {
+            let port = section[0].dropFirst("m=video ".count).prefix { $0.isNumber }
+            guard port != "0" else { continue }
+            if section.contains(where: { $0.hasPrefix("a=inactive") }) { continue }
+            return true
+        }
+        return false
+    }
+
+    /// theySendVideo reports whether the other side's SDP says *they* will
+    /// send a picture — their `sendrecv` or `sendonly`, which is what
+    /// decides whether this phone shows a window for them.
+    static func theySendVideo(_ sdp: String) -> Bool {
+        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
+        for section in sections(sdp, eol: eol) where section.first?.hasPrefix("m=video ") == true {
+            let port = section[0].dropFirst("m=video ".count).prefix { $0.isNumber }
+            guard port != "0" else { continue }
+            if section.contains(where: { $0.hasPrefix("a=sendrecv") || $0.hasPrefix("a=sendonly") }) {
+                return true
+            }
+            // No direction at all means sendrecv (RFC 4566).
+            if !section.contains(where: {
+                $0.hasPrefix("a=recvonly") || $0.hasPrefix("a=inactive")
+            }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The SDP cut into its media sections, each starting with its own m=
+    /// line. Lines before the first m= belong to the session and are left
+    /// out: every question here is about one stream.
+    private static func sections(_ sdp: String, eol: String) -> [[String]] {
+        var out: [[String]] = []
+        for line in sdp.components(separatedBy: eol) {
+            if line.hasPrefix("m=") {
+                out.append([line])
+            } else if !out.isEmpty {
+                out[out.count - 1].append(line)
+            }
+        }
+        return out
     }
 }

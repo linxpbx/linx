@@ -45,13 +45,32 @@ The phone then makes its own security key, gets its own certificate from Linx, a
 
 To take Linx off a phone you still have: **Sign out of this phone** in the app. For a phone you've lost, stop it in Linx instead (below) — that works even if the phone is switched off.
 
+## What's in the app
+
+Four tabs along the bottom:
+
+- **Calls** — everything you've made, taken and missed, newest first, with a number on the tab for what you've missed since you last looked. Tap the phone beside a row to ring them back. **All** / **Missed** switches between them. Opening the tab clears the number, on this phone and on everything else you're signed in on, because missed calls belong to you and not to one phone.
+- **Team** — everyone with an extension, and what they're doing this second: Available, Away, Do not disturb, Ringing, On a call (with how long), or Offline. It changes as it happens; nothing needs refreshing. Search by name or extension, tap the phone to call or the camera to start a call with video. The button at the top right is **your own** status — **Do not disturb** stops your extension ringing anywhere and sends callers to your voicemail.
+- **Keypad** — type a number or an extension and tap the green call button; **Test my sound** calls Linx's echo test, which plays your own voice back so you can hear whether the microphone and the speaker are working.
+- **More** — **Voicemail** and **Settings**.
+
+## Voicemail
+
+**More** → **Voicemail**: your own messages and any ring group's you're in, newest first, with a dot beside the ones nobody has heard. Tap play to listen — that marks it heard for everyone who shares the box — swipe a message to delete it (also for everyone who shares the box), or tap the phone to ring the caller back. Nothing is kept on the phone: a message is fetched when you press play and forgotten when it stops.
+
 ## Making and taking calls
 
-The app opens on the keypad. Type a number or an extension and tap the green call button; **Test my sound** calls Linx's echo test, which plays your own voice back so you can hear whether the microphone and the speaker are working.
-
-While you're in a call: **Mute**, **Keypad** (for menus, extensions and PINs) and **Speaker**. **Hang up** ends it. The line at the top says **Encrypted**, and whether the sound is going straight to the other phone (**Direct**) or through your Linx server (**Relayed**) — relayed is normal on mobile data and on networks that block everything but web traffic.
+While you're in a call: **Mute**, **Keypad** (for menus, extensions and PINs), **Speaker** and **Video**. **Hang up** ends it. The line at the top says **Encrypted**, and whether the sound is going straight to the other phone (**Direct**) or through your Linx server (**Relayed**) — relayed is normal on mobile data and on networks that block everything but web traffic.
 
 A call that comes in while the app is open rings on the phone and shows **Answer** and **Decline**.
+
+## Video calls
+
+A Linx call always starts as an ordinary call, and the picture is added to it: tap **Video** during a call, or the camera button beside someone in **Team**, which rings them first and turns your camera on when they answer. The other person sees a picture when they turn theirs on too — yours never comes on by itself because somebody else pressed a button.
+
+In a video call: **Stop video** puts the camera away and the call carries straight on as a phone call; **Flip camera** swaps the front camera for the back one. The picture is kept deliberately small so the sound never suffers for it, and on a slow connection Linx turns your camera off by itself and tells you — a call you can hear is worth more than one you can see.
+
+The screen lays itself out for whatever you're holding: upright, turned on its side, and on an iPad (or an iPhone that opens out) the picture on one side and the buttons on the other.
 
 *A call to a locked or sleeping phone* rings like any other call on an iPhone: your own ringtone, the caller on the lock screen, and Answer without unlocking. You can take it from a car, from headphones or from a watch, and it shows afterwards in the Phone app's Recents with everything else. It works with the app closed, and even after you've swiped it away. The first time you set a phone up, Linx asks to send notifications — say yes, so a missed call and a new voicemail reach you too. (An admin has to turn this on once for the whole company: see below.)
 
@@ -86,6 +105,10 @@ Then the list says **Set it up again**: make a new code and set it up as above. 
 My account → **My phones** → **I've lost it**. It stops at once and for good, and any call on it drops. An admin can do the same from People → the person → **Stop it**.
 
 Even if someone has the phone, they can't use it to be you: the key is inside the phone and can't be copied, and the phone stops by itself after 6 months with no contact.
+
+## Settings on the phone
+
+**More** → **Settings**: your status, how this phone's line is doing, which extension it answers, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**.
 
 ## The app can't run Linx
 

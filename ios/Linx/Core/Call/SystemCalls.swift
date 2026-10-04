@@ -67,6 +67,9 @@ enum SystemCallEnding: Equatable, Sendable {
     func reportIncoming(id: UUID, from: SIPPeer) async -> Bool
     /// The caller's name, once the invitation itself says who it is.
     func rename(id: UUID, to peer: SIPPeer)
+    /// A picture went into the call, or came out of it: a Linx call always
+    /// rings as a phone call and gains video afterwards (docs/PHASE2.md §7).
+    func reportVideo(id: UUID, on: Bool)
     /// Their phone is ringing (an outgoing call only).
     func reportRingingThere(id: UUID)
     /// The call is up, in both directions.
@@ -89,6 +92,7 @@ enum SystemCallEnding: Equatable, Sendable {
 
     func reportIncoming(id: UUID, from: SIPPeer) async -> Bool { true }
     func rename(id: UUID, to peer: SIPPeer) {}
+    func reportVideo(id: UUID, on: Bool) {}
     func reportRingingThere(id: UUID) {}
     func reportAnswered(id: UUID) {}
     func reportEnded(id: UUID, _ ending: SystemCallEnding) {}

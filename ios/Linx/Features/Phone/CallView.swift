@@ -1,10 +1,15 @@
 import SwiftUI
 
 /// A call, in front of everything else (`docs/ui/iOS · Active call@1x.png`,
-/// in Cobalt rather than the mockup's teal). Hold, transfer, park, record and
-/// video are later build-order steps and aren't shown until they work.
+/// in Cobalt rather than the mockup's teal). Hold, transfer, park and record
+/// are later build-order steps and aren't shown until they work.
+///
+/// The moment there is a picture in the call — either side's — it hands over
+/// to `VideoCallView`, which lays itself out to the screen it is on. The
+/// call underneath is the same one throughout.
 struct CallView: View {
     @Environment(PhoneModel.self) private var phone
+    @Environment(\.horizontalSizeClass) private var horizontal
     let call: PhoneModel.Call
     /// Counted up from the moment the call was answered.
     @State private var now = Date()
@@ -13,6 +18,18 @@ struct CallView: View {
     private static let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        Group {
+            if call.video.on {
+                VideoCallView(call: call, now: now)
+            } else {
+                sound
+            }
+        }
+        .onReceive(Self.tick) { now = $0 }
+    }
+
+    /// A call with no picture in it: the screen the app has always had.
+    private var sound: some View {
         VStack(spacing: LinxSpace.s5) {
             HStack {
                 ConnectionPill(call: call)
@@ -80,11 +97,12 @@ struct CallView: View {
         .frame(maxWidth: 520)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LinxColor.surfaceDark.ignoresSafeArea())
-        .onReceive(Self.tick) { now = $0 }
     }
 
     private var buttons: some View {
-        HStack(spacing: LinxSpace.s8) {
+        // Four across a phone's width: the circles are 56 wide so even the
+        // narrowest iPhone has room for them without scrolling sideways.
+        HStack(spacing: LinxSpace.s4) {
             CallToggle(
                 symbol: call.muted ? "mic.slash.fill" : "mic.fill", words: call.muted ? "Muted" : "Mute",
                 on: call.muted
@@ -100,6 +118,12 @@ struct CallView: View {
                 symbol: call.speaker ? "speaker.wave.3.fill" : "speaker.fill", words: "Speaker",
                 on: call.speaker
             ) { phone.toggleSpeaker() }
+            // A picture is added to the call that is already up: the call
+            // itself never stops, and turning it off again leaves an
+            // ordinary phone call (docs/PHASE2.md §7).
+            CallToggle(symbol: "video.fill", words: "Video", on: false) { phone.toggleVideo() }
+                .disabled(call.phase != .active)
+                .opacity(call.phase == .active ? 1 : 0.5)
         }
         .padding(.bottom, LinxSpace.s4)
     }
@@ -152,7 +176,16 @@ struct CallView: View {
     }
 
     static func length(since: Date?, to now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(since ?? now)))
+        length(seconds: Int(now.timeIntervalSince(since ?? now)))
+    }
+
+    /// A length of time as a phone shows one: 2:14, or 1:02:14 for the rare
+    /// call that runs over an hour.
+    static func length(seconds: Int) -> String {
+        let seconds = max(0, seconds)
+        if seconds >= 3600 {
+            return String(format: "%d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+        }
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
@@ -197,7 +230,7 @@ private struct CallToggle: View {
                 Image(systemName: symbol)
                     .font(.title3)
                     .foregroundStyle(on ? LinxColor.surfaceDark : LinxColor.onSurfaceDark)
-                    .frame(width: 64, height: 64)
+                    .frame(width: 56, height: 56)
                     .background(
                         on ? LinxColor.onSurfaceDark : LinxColor.surface.opacity(0.18), in: .circle)
                 Text(words)

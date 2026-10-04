@@ -54,14 +54,61 @@ import Testing
     /// Whether the system has handed over the microphone and the speaker.
     private(set) var systemAudioOn: Bool?
 
-    func offer() async throws -> String { "v=0\r\nlinx-offer\r\n" }
+    // The picture (docs/PHASE2.md §7). The camera is make-believe: what the
+    // tests check is what the app *says* about it over SIP.
+    var video = CallVideo()
+    var onVideoChanged: ((CallVideo) -> Void)?
+    var onVideoTooExpensive: (() -> Void)?
+    let tracks = VideoTracks()
+    var mirrorsMyVideo = true
+    private(set) var rolledBack = false
+    private(set) var cameraSwitched = 0
+    /// Set to make the camera refuse, as one does when the person said no.
+    var cameraRefuses: CameraTrouble?
+
+    func offer() async throws -> String { video.mine ? Self.videoOffer : Self.soundOffer }
 
     func answer(to offer: String) async throws -> String {
         answeredOffer = offer
-        return "v=0\r\nlinx-answer\r\n"
+        if SDPTweaks.theySendVideo(offer) { setVideo(CallVideo(mine: video.mine, theirs: true)) }
+        return video.on ? Self.videoAnswer : Self.soundAnswer
     }
 
-    func accept(answer: String) async throws { acceptedAnswer = answer }
+    func startVideo() async throws -> String {
+        if let cameraRefuses { throw cameraRefuses }
+        setVideo(CallVideo(mine: true, theirs: video.theirs))
+        return Self.videoOffer
+    }
+
+    func stopVideo() async throws -> String {
+        setVideo(CallVideo(mine: false, theirs: video.theirs))
+        return Self.soundOffer
+    }
+
+    func switchCamera() { cameraSwitched += 1 }
+
+    func rollbackOffer() async {
+        rolledBack = true
+        setVideo(CallVideo(mine: false, theirs: video.theirs))
+    }
+
+    private func setVideo(_ now: CallVideo) {
+        guard now != video else { return }
+        video = now
+        onVideoChanged?(now)
+    }
+
+    static let soundOffer = "v=0\r\na=linx-offer\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendrecv\r\n"
+    static let soundAnswer = "v=0\r\na=linx-answer\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendrecv\r\n"
+    static let videoOffer =
+        soundOffer + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendrecv\r\n"
+    static let videoAnswer =
+        soundAnswer + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendrecv\r\n"
+
+    func accept(answer: String) async throws {
+        acceptedAnswer = answer
+        setVideo(CallVideo(mine: video.mine, theirs: SDPTweaks.theySendVideo(answer)))
+    }
     func setMuted(_ muted: Bool) { self.muted = muted }
     func setSpeaker(_ on: Bool) { speaker = on }
     func sendTone(_ digit: Character) { tones.append(digit) }

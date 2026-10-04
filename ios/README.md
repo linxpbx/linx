@@ -1,7 +1,7 @@
 # Linx for iOS / iPadOS
 
-The app's skeleton, built in **Phase 2, build-order step 1** (`docs/PHASE2.md` §12). Swift 6,
-SwiftUI, one app for iPhone and iPad, minimum **iOS 26.0**, bundle ID `com.linxpbx.app`.
+Linx's phone, for iPhone and iPad (`docs/PHASE2.md` §12; build-order steps 1 to 7 are built).
+Swift 6, SwiftUI, one app for both, minimum **iOS 26.0**, bundle ID `com.linxpbx.app`.
 
 ```
 ios/
@@ -15,7 +15,14 @@ ios/
       Call/              the system's side of a call: CallKit, and China's in-app ringing
       Push/              being woken for a call: PushKit, notifications, Apple's tokens
     DesignSystem/        buttons, cards and the page background, all from the tokens
-    Features/            one folder per part of the app (Enrollment, Home, Phone)
+    Features/            one folder per part of the app:
+                           Enrollment  setting the phone up
+                           Home        the four tabs, and what they share (HomeModel)
+                           Phone       the keypad, a call, a video call, and the layout rules
+                           Calls       call history
+                           Team        the directory, live, with presence
+                           Voicemail   the messages, played out of memory
+                           Settings    this phone's own settings
     Generated/           DesignTokens.swift — `make tokens`, never edited by hand
     Resources/           Colors.xcassets — `make tokens`, never edited by hand
   LinxTests/             unit tests (Swift Testing)
@@ -128,6 +135,35 @@ system is already showing.
 the dark and tinted app icons when the app goes to TestFlight), and the real-device tests of
 every ringing case, which are the demo's job (`docs/PHASE2.md` §13).
 
+## How a video call works (build step 7)
+
+A picture is **added to a call that is already up**, and never rung as one (`ADR-079`,
+`docs/PHASE2.md` §7). The call rings as an ordinary call — which is what the lock screen, a car
+and a headset understand — and then:
+
+1. The person presses **Start video**. `PhoneModel.toggleVideo` → `SIPUserAgent.setVideo(true)`.
+2. `WebRTCMedia.startVideo` starts the camera (`Core/Media/Camera.swift`: 640×480, 24 frames,
+   the smallest format the camera itself can give), adds the track and makes a new offer.
+3. The app sends a **re-INVITE** inside the same dialog. The 200 OK's answer goes straight back
+   into the peer connection; a refusal (488), both sides asking at once (491) or a mid-call
+   challenge each get their own ACK and a **rollback** (RFC 8829), so the call is exactly as it
+   was and the sound never stops.
+4. The other side's picture arrives as a track on the peer connection and the screen shows it.
+
+Two rules worth keeping in mind when changing any of this:
+
+- **Nobody else switches on this phone's camera.** An offer that adds video is answered
+  `recvonly`: their picture appears, and this phone sends nothing until its own button is pressed.
+- **Sound comes first.** The picture is capped at 600 kbit/s (`SDPTweaks.capVideo` writes `b=AS`
+  and the sender's own settings carry it), and when WebRTC reports under 150 kbit/s to spare for
+  three readings running the camera goes off by itself and the person is told the call carries on.
+
+The layout is decided by the **size of the screen**, never by the device (`CallLayout`): a phone
+upright, a phone on its side, and two panels on an iPad or an iPhone Duo opened out — side by
+side when the screen is square-ish, so that nothing anyone presses sits on the crease. Build-order
+step 8 replaces that near-square rule with the fold's own geometry (`ReservedRegion`,
+`ArrangementView`, iOS 27.1) and leaves everything else alone.
+
 ## Google's WebRTC
 
 `make ios-deps` fetches the prebuilt **WebRTC M154** XCFramework (BSD, ADR-006), checks it
@@ -153,7 +189,7 @@ slice a phone needs.
 | `make ios-build` | builds for the simulator, no signing and no Apple account |
 | `make ios-deps` | fetches Google's WebRTC (pinned version, checked against its SHA-256) |
 | `make ios-test` | the unit tests on a simulator (`IOS_SIM_DEVICE="iPad Pro 11-inch (M5)"` to choose one) |
-| `make ios-screens` | every screen (setup, signed in, keypad, in a call, a call coming in, set up again), light and dark, into `ios/screenshots/` — compare them with the mockups in `docs/ui/` |
+| `make ios-screens` | every screen, light and dark, into `ios/screenshots/` — compare them with the mockups in `docs/ui/`. The call screens are shot on their side as well (the app is asked to turn, `-LinxOrientation landscape`). `LINX_IOS_DEVICE="iPad Pro 11-inch (M5)"` for the iPad, and `LINX_IOS_DEVICE="iPhone Duo" DEVELOPER_DIR=/Applications/Xcode-27.1-beta.app` for the foldable |
 
 `ios/tools/sim.sh "iPhone 17"` prints a booted simulator's id, creating one if needed; on a
 machine with an older Xcode it falls back to the newest iPhone that Xcode has.

@@ -215,3 +215,61 @@ func TestTeamLive(t *testing.T) {
 		t.Errorf("one list too many: %v", err)
 	}
 }
+
+// TestTeamLiveForAPhone is the app's way into the same websocket
+// (docs/PHASE2.md §12, step 7): a device token in the Authorization header
+// and no Origin, exactly as GET /sip takes one. An app is not a web page
+// and sends no Origin, and no web page can put an Authorization header on a
+// websocket, so the browser's rules are untouched.
+func TestTeamLiveForAPhone(t *testing.T) {
+	e := newTestEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go e.hub.Run(ctx)
+	e.authn.Devices = testDevices{e.pbxStore}
+	ext := e.newExtension("101")
+	e.team.members = []pbx.TeamMember{{Extension: "101", Name: "Rana Haddad", Online: true, Presence: pbx.PresenceAvailable}}
+	user, _, _ := signedInPerson(t, e, "rana@example.com", &ext.ID)
+	_, token := e.newPhone(ext.ID, user)
+
+	dial := func(token string) (*websocket.Conn, *http.Response, error) {
+		h := http.Header{}
+		if token != "" {
+			h.Set("Authorization", "Bearer "+token)
+		}
+		dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer dcancel()
+		return websocket.Dial(dctx, "ws"+strings.TrimPrefix(e.srv.URL, "http")+controlplaneapi.TeamLivePath,
+			&websocket.DialOptions{HTTPHeader: h, Subprotocols: []string{controlplaneapi.TeamSubprotocol}})
+	}
+
+	c, _, err := dial(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	rctx, rcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer rcancel()
+	_, b, err := c.Read(rctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body teamListBody
+	if err := json.Unmarshal(b, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 1 || body.Items[0].Status != pbx.TeamAvailable {
+		t.Fatalf("the phone's first message: %+v", body)
+	}
+
+	// A phone that has been stopped gets nothing: the authenticator refuses
+	// its token before any of this is reached.
+	e.pbxStore.mu.Lock()
+	for id := range e.pbxStore.phones {
+		delete(e.pbxStore.phones, id)
+	}
+	e.pbxStore.mu.Unlock()
+	if _, resp, err := dial(token); err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("a stopped phone: %v", err)
+	}
+}

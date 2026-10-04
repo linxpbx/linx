@@ -37,6 +37,16 @@ import SwiftUI
     /// one, which is also what notices a phone that has been stopped.
     @ObservationIgnored lazy var phone: PhoneModel = PhoneModel(line: { [weak self] in await self?.lineForPhone() })
 
+    /// What the four tabs share: the team, this person's status and the two
+    /// counts on the tab bar (docs/PHASE2.md §12 step 7). It is rebuilt
+    /// whenever this phone's identity changes, because everything it reads
+    /// is read as that person.
+    var home = HomeModel(access: nil)
+    /// Which phone the model above belongs to, so signing in again — which
+    /// happens whenever a push wakes a phone that wasn't signed in — doesn't
+    /// quietly replace a live one that a screen is already watching.
+    private var homeFor: UUID?
+
     private let session: PhoneSession
     private let push: PushService
     /// The last tokens Linx was told about, so the app doesn't say the same
@@ -104,6 +114,18 @@ import SwiftUI
         }
     }
 
+    /// linx is how the app's screens ask Linx for things — the team, call
+    /// history, voicemail (docs/PHASE2.md §12 step 7). The token comes from
+    /// the session, which keeps it fresh and renews this phone's certificate
+    /// on its own, so no screen ever has to think about signing in.
+    var linx: LinxAccess? {
+        guard let identity else { return nil }
+        let session = self.session
+        return LinxAccess(
+            client: LinxClient(server: identity.server), server: identity.server,
+            token: { try await session.accessToken() })
+    }
+
     /// start runs once, as the app opens: if this phone is set up, it signs
     /// itself in and asks for its phone line. Nothing is typed, ever.
     func start() async {
@@ -145,6 +167,11 @@ import SwiftUI
             _ = try await session.accessToken()
             problem = nil
             state = .signedIn
+            if homeFor != identity?.deviceID {
+                home.stop()
+                home = HomeModel(access: linx)
+                homeFor = identity?.deviceID
+            }
             await phone.start()
             // Now that there is a phone here: ask about notifications once,
             // and tell Linx where Apple can reach it.
@@ -192,6 +219,9 @@ import SwiftUI
     /// what to use for a phone someone else has.
     func signOut() async {
         phone.stop()
+        home.stop()
+        home = HomeModel(access: nil)
+        homeFor = nil
         await session.forget()
         identity = nil
         line = nil
