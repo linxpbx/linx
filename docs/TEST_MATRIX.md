@@ -19,6 +19,7 @@ and scan it with the app. Nothing is typed, and no password exists.
 |---|---|---|
 | 1.1 | Open the app after setting it up | "Ready · Ext ___" at the top of the keypad |
 | 1.2 | **Test my sound** on the keypad | You hear your own voice back, about a second behind |
+| 1.2a | In that call, press **Speaker**, then press it again | The sound moves to the loudspeaker and back to the earpiece. Plug in a headset mid-call and the button follows the sound |
 | 1.3 | Dial your own landline from the keypad | It rings; you can hear both ways; **Encrypted · Direct** or **Relayed** shows |
 | 1.4 | Hang up | The call ends on both sides, and appears in **Calls** within a second or two |
 
@@ -29,7 +30,7 @@ landline, a desk phone, or the web app in a browser).
 
 | | What to do | What should happen |
 |---|---|---|
-| 2.1 | App open and in front | It rings, with Answer and Decline |
+| 2.1 | App open and in front | A **banner at the top of the screen** with Answer and Decline — the iPhone's own, the same as any other call. The app's call screen appears once you answer. (Two ringing screens at once was the bug fixed on 2026-10-04.) |
 | 2.2 | App open, phone **locked** | Rings on the lock screen like a normal call; answer without unlocking |
 | 2.3 | App in the background (home screen) | Same as 2.2 |
 | 2.4 | **App force-quit** (swipe it away in the app switcher) | Still rings. This is the one that proves the push works |

@@ -86,6 +86,26 @@ struct PushTokens: Equatable, Sendable {
     /// What the app has to tell Linx right now, if anything.
     var current: PushTokens? { tokens.worthSending ? tokens : nil }
 
+    /// What iOS says about notifications for this app at this moment —
+    /// what Settings shows the person, so "a missed call doesn't tell me"
+    /// has an answer on the phone itself rather than a guess.
+    func notificationState() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    /// The person pressed the button in Settings. iOS only ever shows its
+    /// own prompt once, so after that this does the one thing left: it
+    /// registers again, in case the answer was yes and the token never
+    /// arrived. Settings sends the person to iOS's own screen when the
+    /// answer was no.
+    func askAgainAboutNotifications() async {
+        askedAboutNotifications = false
+        await askAboutNotifications()
+        if await notificationState() == .authorized {
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+    }
+
     // MARK: - What Apple hands over
 
     fileprivate func voipToken(_ data: Data?) {

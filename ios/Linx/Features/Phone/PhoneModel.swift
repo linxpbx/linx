@@ -202,6 +202,7 @@ import UIKit
                 media.onConnection = { [weak self] connection in
                     self?.call?.connection = connection
                 }
+                media.onSpeakerChanged = { [weak self] on in self?.speakerMoved(on) }
                 media.onVideoChanged = { [weak self] video in self?.videoChanged(video) }
                 media.onVideoTooExpensive = { [weak self] in self?.videoCostTooMuch() }
                 self?.liveMedia = media
@@ -428,6 +429,13 @@ import UIKit
         call = current
     }
 
+    /// The sound moved on its own — a headset plugged in, the system's own
+    /// route picker — so the button says where it actually is.
+    private func speakerMoved(_ on: Bool) {
+        guard call?.speaker != on else { return }
+        call?.speaker = on
+    }
+
     // MARK: - What the system tells the app to do
 
     private func systemAsked(_ request: SystemCallRequest) {
@@ -533,11 +541,33 @@ import UIKit
         return waking.startIndex
     }
 
+    /// Whether the app shows its own call screen.
+    ///
+    /// An incoming call that is still ringing belongs to the **system**:
+    /// CallKit puts it on the lock screen, or as a banner over whatever is
+    /// on screen when the app is already open, and that banner is what
+    /// answers it. The app's own screen on top of it is two rings for one
+    /// call (the owner saw both at once on a real iPhone, 2026-10-04), so
+    /// the app waits and shows the call once it has been answered. Where
+    /// CallKit may not be used (ADR-078) there is no banner and the app's
+    /// screen is the only ring there is.
+    var showsCallScreen: Bool {
+        guard let call else { return false }
+        guard systemTakesCalls, call.incoming, call.phase == .ringing else { return true }
+        return false
+    }
+
+    /// Whether the system takes this phone's calls — CallKit's lock screen,
+    /// banner, car and headset. It follows the phone's own region
+    /// (`CallStyle`, ADR-078); the tests and the screenshot run set it the
+    /// other way to see the in-app ring that mainland China gets.
+    var systemTakesCalls = CallStyle.usesCallKit
+
     private func ringInTheApp() {
         // With CallKit the ring is the system's, played with the person's
         // own ringtone whether the phone is locked, in a pocket or in a car.
         // Where CallKit may not be used, the app rings for itself (ADR-078).
-        guard !CallStyle.usesCallKit else { return }
+        guard !systemTakesCalls else { return }
         ringer.start()
     }
 

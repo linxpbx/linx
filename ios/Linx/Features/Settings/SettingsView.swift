@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 /// Settings (`docs/PHASE2.md` §7): the few things that are this phone's own
 /// — its status, how calls arrive here, what the camera does — and the way
@@ -14,6 +15,7 @@ struct SettingsView: View {
     @AppStorage(Settings.appearance) private var appearance = Appearance.system.rawValue
     @AppStorage(Settings.showCallsInThePhoneApp) private var inPhoneApp = true
     @State private var signingOut = false
+    @State private var notifications: UNAuthorizationStatus = .notDetermined
 
     private var ready: Bool { phone.status == .ready }
 
@@ -85,15 +87,32 @@ struct SettingsView: View {
                 Text("Your call history")
             }
 
-            Section("How calls arrive here") {
+            Section {
                 Text(CallStyle.inAppRingingNote ?? Self.lockScreenNote)
                     .font(.subheadline)
                     .foregroundStyle(LinxColor.textMuted)
-                Button("Notification settings") {
-                    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                    UIApplication.shared.open(url)
+                LabeledContent("Notifications", value: notificationWords)
+                if notifications == .denied || notifications == .authorized {
+                    Button("Notification settings") {
+                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                        UIApplication.shared.open(url)
+                    }
+                    .foregroundStyle(LinxColor.accent)
+                } else {
+                    Button("Turn notifications on") {
+                        Task {
+                            await PushService.shared.askAgainAboutNotifications()
+                            notifications = await PushService.shared.notificationState()
+                        }
+                    }
+                    .foregroundStyle(LinxColor.accent)
                 }
-                .foregroundStyle(LinxColor.accent)
+            } header: {
+                Text("How calls arrive here")
+            } footer: {
+                Text(
+                    "A call rings this phone whether the app is open or not. Notifications are for the quieter things: a missed call and a new voicemail. Closing the app is fine — your extension shows as offline between calls, and Linx wakes the phone when someone rings you."
+                )
             }
 
             if let problem = model.problem ?? home.problem ?? phone.problem {
@@ -110,6 +129,7 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .task { notifications = await PushService.shared.notificationState() }
         .confirmationDialog(
             "Sign out of this phone?", isPresented: $signingOut, titleVisibility: .visible
         ) {
@@ -119,6 +139,17 @@ struct SettingsView: View {
             Button("Keep me signed in", role: .cancel) {}
         } message: {
             Text("This phone will stop ringing, and you'll need a new setup code to use it again.")
+        }
+    }
+
+    /// Plain words for what iOS allows, because "notifications don't work"
+    /// is nearly always the answer to a question nobody was asked.
+    private var notificationWords: String {
+        switch notifications {
+        case .authorized, .ephemeral: return "On"
+        case .provisional: return "Quietly on"
+        case .denied: return "Off"
+        default: return "Not asked yet"
         }
     }
 

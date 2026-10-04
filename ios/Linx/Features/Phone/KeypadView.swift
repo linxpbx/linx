@@ -14,9 +14,41 @@ struct KeypadView: View {
     ]
 
     var body: some View {
-        VStack(spacing: LinxSpace.s4) {
+        // Laid out like the iPhone's own Phone app (owner, 2026-10-04): big
+        // keys, a wide margin down each side, and the whole keypad standing
+        // in the middle of the screen rather than at the top with a hole
+        // underneath, which is what a tall phone showed before.
+        GeometryReader { screen in
+            let inset = Self.sideInset(in: screen.size.width)
+            let key = Self.keySize(in: screen.size, inset: inset)
+            body(keySize: key, digit: key * 0.42, inset: inset)
+        }
+        .linxBackground()
+    }
+
+    /// The gap between two keys, and how far the keypad stands in from each
+    /// side of the screen — a tenth of the width, as the Phone app does,
+    /// and never less than the room a small phone has always had.
+    static let keyGap: CGFloat = LinxSpace.s5
+
+    static func sideInset(in width: CGFloat) -> CGFloat {
+        max(LinxSpace.s6, min(width * 0.1, 64))
+    }
+
+    /// As big as the width allows, so three keys and two gaps fill the
+    /// space between the margins — unless the screen is too short for four
+    /// rows of them, which is what decides on a small phone.
+    static func keySize(in screen: CGSize, inset: CGFloat) -> CGFloat {
+        let byWidth = (screen.width - 2 * inset - 2 * keyGap) / 3
+        let byHeight = (screen.height * 0.62 - 3 * keyGap - 96) / 4
+        return max(68, min(byWidth, byHeight, 112))
+    }
+
+    @ViewBuilder private func body(keySize: CGFloat, digit: CGFloat, inset: CGFloat) -> some View {
+        VStack(spacing: LinxSpace.s6) {
+            Spacer(minLength: LinxSpace.s4)
+
             Text(phone.typed.isEmpty ? " " : phone.typed)
-                .padding(.top, LinxSpace.s8)
                 .font(.system(size: 40, weight: .regular, design: .monospaced))
                 .foregroundStyle(LinxColor.text)
                 .lineLimit(1)
@@ -30,12 +62,14 @@ struct KeypadView: View {
                     .multilineTextAlignment(.center)
             }
 
-            Grid(horizontalSpacing: LinxSpace.s5, verticalSpacing: LinxSpace.s4) {
+            Grid(horizontalSpacing: Self.keyGap, verticalSpacing: Self.keyGap) {
                 ForEach(0..<4) { row in
                     GridRow {
                         ForEach(0..<3) { column in
                             let key = Self.keys[row * 3 + column]
-                            KeypadKey(digit: key.0, letters: key.1) { press(key.0) }
+                            KeypadKey(digit: key.0, letters: key.1, size: keySize, digitSize: digit) {
+                                press(key.0)
+                            }
                         }
                     }
                 }
@@ -61,7 +95,7 @@ struct KeypadView: View {
                     Image(systemName: "phone.fill")
                         .font(.title2)
                         .foregroundStyle(LinxColor.onCall)
-                        .frame(width: 72, height: 72)
+                        .frame(width: keySize, height: keySize)
                         .background(LinxColor.call, in: .circle)
                 }
                 .disabled(phone.typed.isEmpty && phone.lastDialled.isEmpty)
@@ -81,13 +115,12 @@ struct KeypadView: View {
             }
             .padding(.top, LinxSpace.s2)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: LinxSpace.s4)
         }
-        .padding(.horizontal, LinxSpace.s6)
-        .padding(.vertical, LinxSpace.s5)
-        .frame(maxWidth: 480)
-        .frame(maxWidth: .infinity)
-        .linxBackground()
+        .padding(.horizontal, inset)
+        .padding(.vertical, LinxSpace.s4)
+        .frame(maxWidth: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func press(_ digit: String) {
@@ -100,13 +133,16 @@ struct KeypadView: View {
 private struct KeypadKey: View {
     let digit: String
     let letters: String
+    /// Both set by the screen there is to fill (`KeypadView.keySize`).
+    var size: CGFloat = 76
+    var digitSize: CGFloat = 30
     let press: () -> Void
 
     var body: some View {
         Button(action: press) {
             VStack(spacing: 0) {
                 Text(digit)
-                    .font(.system(size: 30, weight: .regular))
+                    .font(.system(size: digitSize, weight: .regular))
                     .foregroundStyle(LinxColor.text)
                 Text(letters)
                     .font(.caption2.weight(.medium))
@@ -114,10 +150,10 @@ private struct KeypadKey: View {
                     .foregroundStyle(LinxColor.textMuted)
                     .frame(height: 12)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 76)
+            .frame(width: size, height: size)
             .background(LinxColor.surface, in: .circle)
             .overlay { Circle().strokeBorder(LinxColor.border) }
+            .frame(maxWidth: .infinity)
         }
         .accessibilityLabel(digit)
     }

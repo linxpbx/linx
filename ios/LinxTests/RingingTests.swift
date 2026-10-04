@@ -169,6 +169,46 @@ struct RingingTests {
         #expect(calls.reported[0].peer.name == "Omar Nasser")
     }
 
+    @Test("while the system is ringing a call, the app doesn't ring it too")
+    func onlyOneRingingScreen() async throws {
+        let calls = FakeSystemCalls()
+        let (phone, transport, _) = await phone(calls: calls)
+        transport.asterisk(Self.invite(from: "1031", name: "Omar Nasser", callID: "call-both"))
+        #expect(phone.call?.phase == .ringing)
+        // CallKit is ringing it — on the lock screen, or as a banner over
+        // the app — so the app shows nothing of its own until it has been
+        // answered. Both at once is what the owner saw on a real iPhone
+        // (2026-10-04).
+        phone.systemTakesCalls = true
+        #expect(!phone.showsCallScreen)
+        // Reporting it to the system is a hop of its own, as it is for the
+        // call that comes in while the app is open, above.
+        #expect(await eventually { calls.reported.count == 1 })
+        let reported = try #require(calls.reported.first?.id)
+        calls.ask(.answer(reported))
+        #expect(await eventually { phone.call?.phase == .active })
+        #expect(phone.showsCallScreen)
+    }
+
+    @Test("where the system may not ring a call, the app's own screen does")
+    func theAppRingsItWhereCallKitMayNotBeUsed() async throws {
+        let calls = FakeSystemCalls()
+        let (phone, transport, _) = await phone(calls: calls)
+        phone.systemTakesCalls = false
+        transport.asterisk(Self.invite(from: "1031", name: "Omar Nasser", callID: "call-cn"))
+        #expect(phone.call?.phase == .ringing)
+        #expect(phone.showsCallScreen)
+    }
+
+    @Test("a call this phone makes is on screen from the start")
+    func anOutgoingCallIsOnScreen() async throws {
+        let calls = FakeSystemCalls()
+        let (phone, _, _) = await phone(calls: calls)
+        phone.callNumber("1031")
+        #expect(await eventually { phone.call != nil })
+        #expect(phone.showsCallScreen)
+    }
+
     @Test("a call the system won't take is turned down, not left ringing")
     func theSystemRefusesACall() async throws {
         let calls = FakeSystemCalls()

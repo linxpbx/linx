@@ -42,7 +42,7 @@ struct RootView: View {
         }
         .environment(model.phone)
         .preferredColorScheme(Appearance(rawValue: appearance)?.scheme)
-        .fullScreenCover(isPresented: .constant(model.phone.call != nil)) {
+        .fullScreenCover(isPresented: .constant(model.phone.showsCallScreen)) {
             if let call = model.phone.call {
                 CallView(call: call).environment(model.phone)
             }
@@ -186,6 +186,12 @@ enum Screen: String {
                                 route: .direct, roundTripMs: 38, relayProtocol: nil, audioBytesIn: 48_000)))
                 }
                 if self == .incomingCall {
+                    // The app's own ringing screen, which is what a phone
+                    // sees where CallKit may not be used (ADR-078).
+                    // Everywhere else the system rings the call — its
+                    // banner, or the lock screen — and the app waits until
+                    // it has been answered.
+                    model.phone.systemTakesCalls = false
                     model.phone.pretend(
                         PhoneModel.Call(
                             peer: SIPPeer(name: "Omar Nasser", number: "1031"), incoming: true,

@@ -51,6 +51,9 @@ enum SIPStatus: Equatable, Sendable {
     func setMuted(_ muted: Bool)
     /// The loudspeaker, or back to the earpiece.
     func setSpeaker(_ on: Bool)
+    /// Where the sound actually came out, when something other than the
+    /// button moved it: a headset arriving, or the system's route picker.
+    var onSpeakerChanged: ((Bool) -> Void)? { get set }
     /// Whose camera is on in this call, and the two pictures themselves
     /// (docs/PHASE2.md §7). A call is sound until somebody asks for more.
     var video: CallVideo { get }
