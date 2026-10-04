@@ -47,6 +47,11 @@ struct RootView: View {
                 CallView(call: call).environment(model.phone)
             }
         }
+        .onChange(of: model.phone.call?.video.on ?? false, initial: true) { _, picture in
+            // The app's pages stay upright, and so does a call with no
+            // picture in it; only video turns (owner, 2026-10-04).
+            ScreenRotation.videoIsUp = picture
+        }
         .onChange(of: scenePhase) { _, phase in
             // Nothing runs in the background: the websocket lives only while
             // the app is in front, and a push wakes it when a call comes
@@ -154,6 +159,9 @@ enum Screen: String {
             guard UserDefaults.standard.string(forKey: "LinxOrientation") == "landscape",
                 let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
             else { return }
+            // Only a video call is shot sideways, and only a video call
+            // may turn, so say so before asking the screen to turn.
+            ScreenRotation.videoIsUp = true
             scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
         #endif
     }

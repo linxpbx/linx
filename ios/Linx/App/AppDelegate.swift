@@ -20,6 +20,16 @@ import UIKit
         return true
     }
 
+    /// Which way round the app may turn (`ScreenRotation`): a phone's pages
+    /// stay upright, a call on the screen may turn, and an iPad or an
+    /// opened-out iPhone Duo turns as it always has. iOS asks here, and
+    /// only when something has told it to look again.
+    func application(
+        _ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        ScreenRotation.allowed(on: window)
+    }
+
     /// Apple's token for ordinary notifications: a missed call, a new
     /// voicemail, and where CallKit may not be used, a call that is ringing
     /// (ADR-078). It only ever arrives after the person has said yes.

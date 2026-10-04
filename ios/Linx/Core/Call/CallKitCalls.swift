@@ -25,9 +25,14 @@ import UIKit
     var onAudio: ((Bool) -> Void)?
     var onReset: (() -> Void)?
 
-    private let provider: CXProvider
+    private var provider: CXProvider
     private let controller = CXCallController()
     private let bridge = Bridge()
+    /// The calls the system knows about right now. A provider can only be
+    /// replaced between calls, and this is how that is known.
+    private var live: Set<UUID> = []
+    /// A change to Recents that is waiting for the call in progress to end.
+    private var recentsWanted: Bool?
 
     init() {
         provider = CXProvider(configuration: Self.configuration)
@@ -80,6 +85,7 @@ import UIKit
                 // number is blocked, or the person is in a Focus that the
                 // caller isn't allowed through. The call is simply not
                 // taken, and the server rings their other phones.
+                if error == nil { MainActor.assumeIsolated { self.live.insert(id) } }
                 finished.resume(returning: error == nil)
             }
         }
@@ -92,13 +98,38 @@ import UIKit
         provider.reportCall(with: id, updated: update)
     }
 
-    /// The person changed their mind about Recents. The system reads the
-    /// configuration when a call starts, so handing it a new one now is what
-    /// makes the next call follow the setting.
+    /// The person changed their mind about Recents.
+    ///
+    /// Handing a live provider a new configuration does **not** move this
+    /// one: iOS reads `includesCallsInRecents` when the provider itself is
+    /// made, and goes on writing calls into the Phone app's Recents however
+    /// often the configuration is replaced (the owner turned it off on a
+    /// real iPhone and the calls kept appearing, 2026-10-04). So the
+    /// provider is made afresh instead.
+    ///
+    /// That can't be done while a call is up — letting go of a provider
+    /// ends the calls it is holding — so a change made during a call waits
+    /// for the call to end, which is a moment later and before the next
+    /// call could be written anywhere.
     func showCallsInThePhoneApp(_ on: Bool) {
+        guard live.isEmpty else {
+            recentsWanted = on
+            return
+        }
+        recentsWanted = nil
         let configuration = Self.configuration
         configuration.includesCallsInRecents = on
-        provider.configuration = configuration
+        let fresh = CXProvider(configuration: configuration)
+        fresh.setDelegate(bridge, queue: nil)
+        provider.invalidate()
+        provider = fresh
+    }
+
+    /// Nothing is on the system's books any more: if the setting changed
+    /// during the call, it takes effect now.
+    private func noCallsLeft() {
+        guard live.isEmpty, let wanted = recentsWanted else { return }
+        showCallsInThePhoneApp(wanted)
     }
 
     /// A picture went into this call, or came out of it. The system shows
@@ -120,6 +151,8 @@ import UIKit
 
     func reportEnded(id: UUID, _ ending: SystemCallEnding) {
         provider.reportCall(with: id, endedAt: nil, reason: Self.reason(ending))
+        live.remove(id)
+        noCallsLeft()
     }
 
     private static func reason(_ ending: SystemCallEnding) -> CXCallEndedReason {
@@ -188,7 +221,18 @@ import UIKit
 
     fileprivate func deliver(_ request: SystemCallRequest) { onRequest?(request) }
     fileprivate func audio(_ on: Bool) { onAudio?(on) }
-    fileprivate func reset() { onReset?() }
+
+    /// A call this phone is making: on the system's books from now until it
+    /// is reported ended, like one that came in.
+    fileprivate func began(_ id: UUID) { live.insert(id) }
+
+    fileprivate func reset() {
+        // The system let go of everything it was holding, so there is
+        // nothing left to wait for.
+        live.removeAll()
+        onReset?()
+        noCallsLeft()
+    }
 
     /// CallKit's delegate calls arrive on the main queue, but the protocol
     /// itself promises nothing about where, so the conformance lives on its
@@ -205,7 +249,10 @@ import UIKit
             let id = action.callUUID
             let number = action.handle.value
             let name = action.contactIdentifier ?? number
-            MainActor.assumeIsolated { owner?.deliver(.start(id, SIPPeer(name: name, number: number))) }
+            MainActor.assumeIsolated {
+                owner?.began(id)
+                owner?.deliver(.start(id, SIPPeer(name: name, number: number)))
+            }
             action.fulfill()
         }
 

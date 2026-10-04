@@ -71,12 +71,72 @@ func TestTeamDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []pbx.TeamMember{
-		{Extension: "101", Name: "Sara Haddad", Online: true, Presence: pbx.PresenceAvailable},
-		{Extension: "102", Name: "Reception", Online: false},
-		{Extension: "103", Name: "Nobody's", Online: false},
+		{Extension: "101", Name: "Sara Haddad", Reachable: true, Presence: pbx.PresenceAvailable},
+		{Extension: "102", Name: "Reception", Reachable: false},
+		{Extension: "103", Name: "Nobody's", Reachable: false},
 	}
 	if !slices.Equal(members, want) {
 		t.Fatalf("TeamMembers = %+v\nwant %+v", members, want)
+	}
+
+	// A phone in a pocket is not a closed browser (owner, 2026-10-04,
+	// migration 0045). Reception's phone is an iPhone that has never
+	// signed in and never will until somebody rings it: with an Apple key
+	// in place and a push token sent, that person is reachable, and the
+	// Team list has to say so or nobody can tell who to ring.
+	omarExt := newExtension("104", "Omar's")
+	appPhone := uuid.Must(uuid.NewV7())
+	if err := s.CreateDevice(ctx, pbx.Device{ID: appPhone, TenantID: tenant, ExtensionID: omarExt.ID,
+		Name: "Omar's iPhone", Kind: pbx.KindIOS, SIPUsername: "d_omar0001",
+		DigestHash: pbx.DigestHash("d_omar0001", "password"), Enabled: true, Version: 1,
+		CreatedAt: now, UpdatedAt: now}, audit); err != nil {
+		t.Fatal(err)
+	}
+	omar := newPerson("omar@example.com", "Omar Nasser", &omarExt.ID)
+	if _, err := pool.Exec(ctx, `INSERT INTO device_identity
+		(device_id, tenant_id, user_id, public_key, cert_serial, cert_fingerprint, cert_not_after,
+		 enrolled_at, last_seen_at, expires_at, voip_token, push_environment)
+		VALUES ($1, $2, $3, '\x00', '01', '\x01', $4, $5, $5, $4, repeat('ab', 32), 'production')`,
+		appPhone, tenant, omar.ID, now.Add(180*24*time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	reachable := func(number string) bool {
+		t.Helper()
+		members, err := s.TeamMembers(ctx, tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range members {
+			if m.Extension == number {
+				return m.Reachable
+			}
+		}
+		t.Fatalf("no extension %s", number)
+		return false
+	}
+	// No Apple key yet: nothing can wake that phone, so saying the person
+	// is there would be a lie.
+	if reachable("104") {
+		t.Error("an app phone is reachable with no Apple key in place")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO push_settings
+		(tenant_id, enabled, team_id, key_id, bundle_id, key_enc, wait_ms, updated_at)
+		VALUES ($1, true, 'AY75S2Z9UK', 'ABCDE12345', 'com.linxpbx.app', '\x00', 6000, now())`,
+		tenant); err != nil {
+		t.Fatal(err)
+	}
+	if !reachable("104") {
+		t.Error("an app phone a push can wake should count as reachable")
+	}
+	// And it is the same phone the dialplan would push to: one view, read
+	// by both, so the list and the ringing can't disagree.
+	var aors string
+	if err := pool.QueryRow(ctx, `SELECT aors FROM asterisk.linx_wake($1)`,
+		"PJSIP/d_omar0001&PJSIP/d_desk0001").Scan(&aors); err != nil {
+		t.Fatal(err)
+	}
+	if aors != "d_omar0001" {
+		t.Errorf("linx_wake = %q, want d_omar0001", aors)
 	}
 
 	ringTargets := func(number string) []string {

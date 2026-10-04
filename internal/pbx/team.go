@@ -34,12 +34,16 @@ var ErrPresenceInvalid = errors.New("presence must be available, away or dnd")
 
 // TeamMember is an extension as the Team list shows it: the name of the
 // person on it (or the extension's own name, for a desk phone nobody signs
-// in to), whether any phone on it is signed in, and the person's chosen
+// in to), whether ringing them would reach anything, and the person's chosen
 // status ("" with nobody on it).
 type TeamMember struct {
 	Extension string
 	Name      string
-	Online    bool
+	// Reachable is a phone that would ring: one signed in now, or an app
+	// phone a push can wake (migration 0045). An app that isn't running is
+	// not an absent person — iOS suspends it seconds after it goes in a
+	// pocket (owner, 2026-10-04).
+	Reachable bool
 	Presence  string
 }
 
@@ -146,7 +150,7 @@ func TeamStatuses(members []TeamMember, calls []ActiveCall) []TeamStatus {
 			switch {
 			case m.Presence == PresenceDND:
 				s.Status = TeamDND
-			case !m.Online:
+			case !m.Reachable:
 				s.Status = TeamOffline
 			case m.Presence == PresenceAway:
 				s.Status = TeamAway

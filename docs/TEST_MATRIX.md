@@ -53,7 +53,7 @@ and something is wrong — tell me and the server's own numbers will say where.
 | 3.2 | Other side says **Not now** | They see you, you hear them, everything else behaves normally |
 | 3.3 | Other side turns theirs on | You see each other |
 | 3.4 | **Flip camera** | Front/back swaps |
-| 3.5 | Turn the phone on its side | The buttons move to the right-hand edge, out of the picture |
+| 3.5 | Turn the phone on its side **during a video call** | The buttons move to the right-hand edge, out of the picture. Turn it on its side anywhere else — keypad, Calls, Team, Settings, or a call with no picture — and **nothing turns** (owner, 2026-10-04) |
 | 3.6 | Press **Stop video** | The picture goes, the conversation carries on untouched |
 | 3.7 | Walk somewhere with poor signal while video is on | After about a quarter of a minute the camera turns itself off and says so; the call stays up |
 
@@ -65,11 +65,13 @@ and something is wrong — tell me and the server's own numbers will say where.
 | 4.2 | Tap the phone beside a row | It rings them back |
 | 4.3 | Search by a number you have called | Finds it, even if it's old enough to be off the screen |
 | 4.4 | **Team** tab | Everyone with an extension; call someone and watch their row change to "On a call" while you talk |
+| 4.4a | Close the app on a second phone, wait a minute, then look at **Team** | That person still shows **Available**, not Offline: their phone can be woken. A browser signed out still shows Offline |
 | 4.5 | Swipe someone right → **Favourite** | They move to a Favourites section at the top; still there after closing and reopening the app |
 | 4.6 | Set yourself **Do not disturb**, then call your extension | It doesn't ring; the caller gets your voicemail |
 | 4.7 | **More → Voicemail**, press play | It plays, the blue dot goes, and the number on **More** drops |
 | 4.8 | Swipe a voicemail → Delete | Gone, and gone in the web app too |
 | 4.9 | **More → Settings → Appearance → Dark** | The whole app goes dark and stays that way after a restart |
+| 4.9a | Settings → turn **Show Linx calls in the Phone app** off, make a call, then open the Phone app's **Recents** | The new call is **not** there (calls made before you turned it off stay) |
 | 4.10 | Keypad, press the green button with nothing typed | The last number you rang comes back, ready to ring |
 
 ## 5. Losing a phone, and the six-month rule

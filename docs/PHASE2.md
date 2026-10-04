@@ -178,6 +178,8 @@ The push gateway is built so the destination is one setting: Apple directly now,
 
 - **Found on a real iPhone, 2026-10-04 (four things, all fixed):** the loudspeaker button did nothing (the route has to be put back every time CallKit hands the session over and at every route change, and a headset arriving now wins and moves the button); a call ringing with the app open showed **twice**, the app's screen under CallKit's banner — the ring is the system's and the app's screen now waits for the answer (`PhoneModel.showsCallScreen`), except where CallKit may not be used (ADR-078); the keypad didn't use a big phone's screen and is now laid out like the Phone app's (owner's words: bigger keys, a margin down each side, centred); and Settings now says whether iOS is allowing notifications, with a way to ask, because the owner's phone had sent no notification token at all. `docs/HISTORY.md` has the whole of it.
 
+- **Three more from the owner's phone, 2026-10-04:** the app's pages no longer **turn** with the phone — only a **video** call does, an iPad and an opened-out iPhone Duo are untouched, and the picture the other side sees is unaffected either way (`ScreenRotation`); a person whose app isn't running now counts as **reachable** in the Team list, because a push wakes them (migration 0045's `device_wakeable`, read by the wake step and the list alike); and **Show Linx calls in the Phone app** now really turns Recents off — iOS reads that setting when the CallKit provider is made, so the provider is made again when it changes. `docs/HISTORY.md` has the whole of it.
+
 **Step 6 did the app's side of this** (above): the app registers for push, reports every VoIP push to CallKit at once, and rings on the lock screen.
 
 ### Step 4b, as built (2026-10-03)

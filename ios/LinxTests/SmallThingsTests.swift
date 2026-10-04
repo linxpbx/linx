@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 
 @testable import Linx
 
@@ -112,5 +113,39 @@ struct AppearanceTests {
         #expect(Appearance(rawValue: "dark") == .dark)
         // Anything else is the phone's own setting, which is the default.
         #expect(Appearance(rawValue: "nonsense") == nil)
+    }
+}
+
+@Suite("Which way round the app turns")
+struct ScreenRotationTests {
+    @Test("a phone's pages stay upright")
+    func aPhoneStaysUpright() {
+        #expect(
+            ScreenRotation.allowed(idiom: .phone, shorterSide: 440, videoIsUp: false) == .portrait)
+    }
+
+    @Test("a video call may be turned, a call without a picture may not")
+    func videoMayTurn() {
+        let allowed = ScreenRotation.allowed(idiom: .phone, shorterSide: 440, videoIsUp: true)
+        #expect(allowed.contains(.landscapeLeft))
+        #expect(allowed.contains(.landscapeRight))
+        #expect(allowed.contains(.portrait))
+        // Never upside down on a phone: the earpiece belongs at the top.
+        #expect(!allowed.contains(.portraitUpsideDown))
+    }
+
+    @Test("an iPad turns as it always has, call or no call")
+    func anIPadTurns() {
+        #expect(ScreenRotation.allowed(idiom: .pad, shorterSide: 834, videoIsUp: false) == .all)
+        #expect(ScreenRotation.allowed(idiom: .pad, shorterSide: 834, videoIsUp: true) == .all)
+    }
+
+    @Test("an iPhone Duo opened out is a big screen, and turns")
+    func theDuoOpenedOutTurns() {
+        // Folded, it is an ordinary phone and stays upright; opened out its
+        // inner screen is wider than any phone's and its layouts are built
+        // for both ways round (build-order step 8).
+        #expect(ScreenRotation.allowed(idiom: .phone, shorterSide: 420, videoIsUp: false) == .portrait)
+        #expect(ScreenRotation.allowed(idiom: .phone, shorterSide: 760, videoIsUp: false) == .all)
     }
 }

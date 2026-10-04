@@ -91,8 +91,8 @@ type teamListBody struct {
 func TestTeamList(t *testing.T) {
 	e := newTestEnv(t)
 	e.team.members = []pbx.TeamMember{
-		{Extension: "102", Name: "Omar", Online: false, Presence: pbx.PresenceAvailable},
-		{Extension: "101", Name: "Aisha", Online: true, Presence: pbx.PresenceAvailable},
+		{Extension: "102", Name: "Omar", Reachable: false, Presence: pbx.PresenceAvailable},
+		{Extension: "101", Name: "Aisha", Reachable: true, Presence: pbx.PresenceAvailable},
 	}
 	e.calls.calls = []pbx.ActiveCall{{From: pbx.CallParty{Extension: "103"}, To: "101", State: pbx.CallRinging, StartedAt: time.Now()}}
 	_, reader := e.newCredential(auth.TypeAPIKey, auth.RoleUser, "team:read")
@@ -161,7 +161,7 @@ func TestTeamLive(t *testing.T) {
 	t.Cleanup(cancel)
 	go e.hub.Run(ctx)
 	ext := e.newExtension("101")
-	e.team.members = []pbx.TeamMember{{Extension: "101", Name: "Rana Haddad", Online: true, Presence: pbx.PresenceAvailable}}
+	e.team.members = []pbx.TeamMember{{Extension: "101", Name: "Rana Haddad", Reachable: true, Presence: pbx.PresenceAvailable}}
 	_, cookies, csrf := signedInPerson(t, e, "rana@example.com", &ext.ID)
 	origin := "https://" + strings.TrimPrefix(e.srv.URL, "http://")
 
@@ -228,7 +228,7 @@ func TestTeamLiveForAPhone(t *testing.T) {
 	go e.hub.Run(ctx)
 	e.authn.Devices = testDevices{e.pbxStore}
 	ext := e.newExtension("101")
-	e.team.members = []pbx.TeamMember{{Extension: "101", Name: "Rana Haddad", Online: true, Presence: pbx.PresenceAvailable}}
+	e.team.members = []pbx.TeamMember{{Extension: "101", Name: "Rana Haddad", Reachable: true, Presence: pbx.PresenceAvailable}}
 	user, _, _ := signedInPerson(t, e, "rana@example.com", &ext.ID)
 	_, token := e.newPhone(ext.ID, user)
 

@@ -14,15 +14,15 @@ func TestTeamStatuses(t *testing.T) {
 	t0 := time.Date(2026, 9, 25, 9, 0, 0, 0, time.UTC)
 	t1 := t0.Add(5 * time.Second)
 	members := []TeamMember{
-		{Extension: "101", Name: "sara Haddad", Online: true, Presence: PresenceAvailable},
-		{Extension: "102", Name: "Daniel Reyes", Online: true, Presence: PresenceAvailable},
-		{Extension: "103", Name: "Aisha Rahman", Online: true, Presence: PresenceAvailable},
-		{Extension: "104", Name: "Yusuf Nasser", Online: true, Presence: PresenceAway},
-		{Extension: "105", Name: "Chen Wei", Online: false, Presence: PresenceAway},
-		{Extension: "106", Name: "Dana Dnd", Online: true, Presence: PresenceDND},
-		{Extension: "107", Name: "Reception", Online: true},
-		{Extension: "108", Name: "Echo Tester", Online: true, Presence: PresenceDND},
-		{Extension: "109", Name: "Ben Callee", Online: true, Presence: PresenceAway},
+		{Extension: "101", Name: "sara Haddad", Reachable: true, Presence: PresenceAvailable},
+		{Extension: "102", Name: "Daniel Reyes", Reachable: true, Presence: PresenceAvailable},
+		{Extension: "103", Name: "Aisha Rahman", Reachable: true, Presence: PresenceAvailable},
+		{Extension: "104", Name: "Yusuf Nasser", Reachable: true, Presence: PresenceAway},
+		{Extension: "105", Name: "Chen Wei", Reachable: false, Presence: PresenceAway},
+		{Extension: "106", Name: "Dana Dnd", Reachable: true, Presence: PresenceDND},
+		{Extension: "107", Name: "Reception", Reachable: true},
+		{Extension: "108", Name: "Echo Tester", Reachable: true, Presence: PresenceDND},
+		{Extension: "109", Name: "Ben Callee", Reachable: true, Presence: PresenceAway},
 	}
 	calls := []ActiveCall{
 		{From: CallParty{Extension: "101"}, To: "109", State: CallAnswered, StartedAt: t0, AnsweredAt: &t1, AnsweredBy: &CallParty{Extension: "109"}},

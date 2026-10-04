@@ -15,13 +15,23 @@ import (
 // status (migration 0014).
 
 // TeamMembers lists the tenant's live extensions, each with the name of the
-// first enabled person on it (or the extension's own name), whether any
-// phone on it Asterisk accepts is signed in, and that person's status.
+// first enabled person on it (or the extension's own name), whether that
+// person can be reached, and their chosen status.
+//
+// Reachable is not the same as signed in (owner, 2026-10-04: "don't treat
+// the app as a browser"). A browser that is closed can't take a call, and
+// says so. An iPhone or iPad whose app isn't running still can: iOS
+// suspends the app a few seconds after it goes in a pocket, and ringing
+// that person wakes it with a push. So an app phone a push can reach counts
+// just as a signed-in phone does — migration 0045's device_wakeable, which
+// the dialplan's wake step reads too, so the list and the ringing can never
+// disagree.
 func (s *Store) TeamMembers(ctx context.Context, tenant uuid.UUID) ([]pbx.TeamMember, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT e.number, coalesce(u.name, e.display_name),
 			EXISTS (SELECT 1 FROM device_live l JOIN device d ON d.id = l.id
-				WHERE l.extension_id = e.id AND d.online),
+				WHERE l.extension_id = e.id AND d.online)
+			OR EXISTS (SELECT 1 FROM device_wakeable w WHERE w.extension_id = e.id),
 			coalesce(u.presence, '')
 		FROM extension e
 		LEFT JOIN LATERAL (
@@ -35,7 +45,7 @@ func (s *Store) TeamMembers(ctx context.Context, tenant uuid.UUID) ([]pbx.TeamMe
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (pbx.TeamMember, error) {
 		var m pbx.TeamMember
-		err := r.Scan(&m.Extension, &m.Name, &m.Online, &m.Presence)
+		err := r.Scan(&m.Extension, &m.Name, &m.Reachable, &m.Presence)
 		return m, err
 	})
 }
