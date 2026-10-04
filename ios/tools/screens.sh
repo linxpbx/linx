@@ -4,7 +4,15 @@
 #
 #   ios/tools/screens.sh                 # the default device
 #   LINX_IOS_DEVICE="iPad Pro 11-inch (M5)" ios/tools/screens.sh
-#   LINX_IOS_DEVICE="iPhone Duo" DEVELOPER_DIR=/Applications/Xcode-27.1-beta.app ios/tools/screens.sh
+#   LINX_IOS_DEVICE="iPhone Duo" DEVELOPER_DIR=/Applications/Xcode-27.1-beta.app \
+#     LINX_IOS_DISPLAY=1 ios/tools/screens.sh     # the Duo's outer screen
+#
+# A foldable has two screens, and `simctl io ... enumerate` lists them:
+# LINX_IOS_DISPLAY picks one. The Duo's outer screen is 1 and its inner one
+# is 3, and the inner one is dark until the simulated phone is opened out —
+# which is Simulator's own Device menu, with no command to do it. So the
+# unfolded shots are taken by hand for now; build-order step 8 (the fold
+# APIs, iOS 27.1) is where that gets done properly.
 #
 # The call screens are also shot with the phone on its side (the app asks the
 # system to turn, `-LinxOrientation landscape`), because the layout a call
@@ -27,6 +35,7 @@ screens=(setup-phone signed-in this-phone keypad calls team more voicemail setti
 sideways=(video-call in-call)
 
 udid=$(tools/sim.sh "$device")
+display=${LINX_IOS_DISPLAY:+--display $LINX_IOS_DISPLAY}
 mkdir -p "$out"
 
 echo "screens: building…"
@@ -48,7 +57,7 @@ shoot() { # screen appearance orientation name
     sleep 0.25
   done
   sleep 1.5
-  xcrun simctl io "$udid" screenshot --type=png "$out/$name-$appearance.png" >/dev/null 2>&1
+  xcrun simctl io "$udid" screenshot --type=png $display "$out/$name-$appearance.png" >/dev/null 2>&1
   echo "screens: $out/$name-$appearance.png"
 }
 
