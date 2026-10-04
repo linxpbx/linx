@@ -127,11 +127,13 @@ ios-build-device: ios-deps ## Build the app for a real iPhone, Release, no signi
 
 .PHONY: ios-archive
 ios-archive: ios-deps ## Archive and export the app for TestFlight (needs the owner's Apple ID in Xcode; docs/ops/APPLE_SIGNING.md)
-	@xcrun security find-identity -v -p codesigning 2>/dev/null | grep -q "valid identities found" \
-		&& [ "$$(xcrun security find-identity -v -p codesigning | tail -1 | awk '{print $$1}')" != "0" ] \
-		|| { echo "ios archive: no signing identity on this Mac."; \
-		     echo "  Add the Apple ID in Xcode → Settings → Accounts → + (once), then run this again."; \
+	@defaults read com.apple.dt.Xcode DVTDeveloperAccountManagerAppleIDLists >/dev/null 2>&1 \
+		|| { echo "ios archive: no Apple ID in Xcode on this Mac."; \
+		     echo "  Xcode → Settings → Accounts → + and sign in (once), then run this again."; \
 		     echo "  docs/ops/APPLE_SIGNING.md has the rest."; exit 1; }
+	@# The certificate and the profile don't have to exist yet:
+	@# -allowProvisioningUpdates lets Xcode make them from the signed-in
+	@# account the first time, which is what happens on a fresh Mac.
 	@rm -rf ios/build/archive && mkdir -p ios/build/archive
 	@if out=$$(xcodebuild archive -project $(IOS_PROJECT) -scheme Linx -configuration Release \
 		-destination 'generic/platform=iOS' -archivePath ios/build/archive/Linx.xcarchive \
@@ -142,6 +144,17 @@ ios-archive: ios-deps ## Archive and export the app for TestFlight (needs the ow
 		-allowProvisioningUpdates 2>&1); then \
 		echo "ios archive: exported $$(ls ios/build/archive/export/*.ipa)"; \
 	else echo "$$out" | grep -E "error:" | sort -u | head -20; echo "ios export: FAILED"; exit 1; fi
+	@# A build with no aps-environment cannot register for push, so the phone
+	@# would never ring — which is the one thing this build is for. An
+	@# archive built without signing exports looking perfectly fine and is
+	@# exactly this (docs/ops/APPLE_SIGNING.md).
+	@rm -rf ios/build/archive/check && mkdir -p ios/build/archive/check \
+		&& unzip -q ios/build/archive/export/Linx.ipa -d ios/build/archive/check \
+		&& codesign -d --entitlements :- ios/build/archive/check/Payload/Linx.app 2>/dev/null \
+			| grep -q "aps-environment" \
+		|| { echo "ios archive: the exported build has no aps-environment — push would be dead."; \
+		     echo "  See \"A trap worth knowing\" in docs/ops/APPLE_SIGNING.md."; exit 1; }
+	@echo "ios archive: push entitlement present"
 
 .PHONY: ios-upload
 ios-upload: ## Upload the exported build to TestFlight (needs LINX_ASC_KEY_ID and LINX_ASC_ISSUER; the owner says when)

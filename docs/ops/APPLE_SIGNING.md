@@ -134,6 +134,33 @@ says "0 valid identities found" and no signed build is possible by any route.
 build** — it publishes something under your name to a service outside this
 machine.
 
+**A trap worth knowing (hit 2026-10-04).** Archiving with
+`CODE_SIGNING_ALLOWED=NO` and letting the export step sign it *looks* like it
+works — the `.ipa` comes out signed by **Apple Distribution**, with
+`beta-reports-active` set, and it would upload. But an unsigned archive has
+no entitlements baked in, so the exported build comes out **with no
+`aps-environment` at all**, and an app without that cannot register for push:
+the phone would never ring, which is the one thing the build exists for.
+Always check before uploading:
+
+```
+unzip -q ios/build/archive/export/Linx.ipa -d /tmp/ipa && \
+  codesign -d --entitlements :- /tmp/ipa/Payload/Linx.app | grep aps-environment
+```
+
+Nothing printed means do not upload it.
+
+**Why a device has to be registered first.** Xcode signs the archive itself
+with a *development* profile and only applies the *distribution* one when
+exporting — and Apple refuses to make a development profile for a team with
+no devices ("Your team has no devices from which to generate a provisioning
+profile"). So register one iPhone, once:
+
+<https://developer.apple.com/account/resources/devices/list> → **+** →
+Platform **iOS**, any name, the **UDID**. Plugging the phone into this Mac
+and unlocking it does the same thing automatically. The owner's phone is
+`00008150-00026C4A36C0401C` (iPhone 17 Pro Max), known to this Mac already.
+
 **Worth checking on the first signed archive:** the entitlement
 `aps-environment` must come out as `production` in the exported build (it says
 `development` in `ios/Linx.entitlements`, and Xcode is expected to substitute
@@ -156,6 +183,42 @@ belongs to out of its own profile, so it behaves correctly either way.
 unsigned, with no Apple account and no secrets, and that stays true.
 
 ---
+
+## Letting other people test it
+
+**Internal testers — up to 100, no review, builds appear in minutes.** They
+must be people on your App Store Connect team.
+
+1. App Store Connect → **Users and Access → +**.
+2. Their **Apple ID email address**, a name, and a role — **Developer** is
+   right for someone who should see builds but not change the listing;
+   **Customer Support** or **Marketing** is enough for a pure tester. Tick
+   **Access to Certificates, Identifiers & Profiles** only if they need it
+   (most testers don't).
+3. They get an email and have to accept it before they appear anywhere else.
+4. Then **TestFlight → Internal Testing → +** (a group, e.g. "Us"), add those
+   people, and tick which builds the group gets.
+
+They install Apple's **TestFlight** app from the App Store, open the invite
+email on the phone, and the build is there.
+
+**External testers — up to 10,000, no App Store Connect account needed, but
+the first build goes through Beta App Review** (usually a day or so).
+
+1. **TestFlight → External Testing → +** for a group.
+2. Add people by email address, or generate a **public link** that anyone can
+   open.
+3. Fill in **Test Information** first — what to test, your email, a privacy
+   policy URL — and **the review notes must give a reachable Linx server with
+   a working extension, a second extension to call, and a voicemail already
+   in the box** (`docs/PHASE2.md` §14 item 3). A reviewer who cannot sign in
+   is the commonest rejection for an app like this one.
+4. Submit for review; once it passes, invitations go out and later builds of
+   the same version don't need reviewing again.
+
+**Which to use.** Internal for you and anyone at the company: instant, no
+review, and enough for the Phase 2 demo. External only when people outside
+need it.
 
 ## If something goes wrong
 
