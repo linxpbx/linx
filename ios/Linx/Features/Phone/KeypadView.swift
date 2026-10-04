@@ -48,7 +48,15 @@ struct KeypadView: View {
                     .frame(maxWidth: .infinity)
 
                 Button {
-                    phone.dial()
+                    // Nothing typed and a number rung before: fill it in
+                    // rather than ring it, which is what every phone does
+                    // and what stops a pocket from redialling anybody.
+                    if phone.typed.isEmpty {
+                        @Bindable var phone = phone
+                        phone.typed = phone.lastDialled
+                    } else {
+                        phone.dial()
+                    }
                 } label: {
                     Image(systemName: "phone.fill")
                         .font(.title2)
@@ -56,9 +64,9 @@ struct KeypadView: View {
                         .frame(width: 72, height: 72)
                         .background(LinxColor.call, in: .circle)
                 }
-                .disabled(phone.typed.isEmpty)
-                .opacity(phone.typed.isEmpty ? 0.5 : 1)
-                .accessibilityLabel("Call")
+                .disabled(phone.typed.isEmpty && phone.lastDialled.isEmpty)
+                .opacity(phone.typed.isEmpty && phone.lastDialled.isEmpty ? 0.5 : 1)
+                .accessibilityLabel(phone.typed.isEmpty ? "Redial \(phone.lastDialled)" : "Call")
 
                 Button {
                     if !phone.typed.isEmpty { phone.typed.removeLast() }

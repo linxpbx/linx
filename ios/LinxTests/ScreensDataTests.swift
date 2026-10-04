@@ -209,6 +209,40 @@ final class FakeScreensLinx: URLProtocol, @unchecked Sendable {
         #expect(FakeScreensLinx.asked("/api/v1/voicemail/\(id)").last?.method == "DELETE")
     }
 
+    // Searching call history (owner, 2026-10-04). These live in this suite
+    // because they use the same stand-in Linx, and two suites resetting it
+    // at once would answer each other's requests.
+    private static let onePage = """
+        {"items":[{"id":"0199c0de-0000-7000-8000-00000000c001","direction":"inbound",
+         "started_at":"2026-10-04T08:00:00Z","ended_at":"2026-10-04T08:00:20Z","talk_seconds":0,
+         "result":"missed","missed":true,"rang_unanswered":true,
+         "from":{"number":"+97145550147","name":"Al Noor Trading"},
+         "to":{"number":"101","name":"Sara Haddad"},"steps":[]}],"keep_days":365}
+        """
+
+    @Test("a number is searched for at the server, so it finds calls off this page")
+    func searchingANumber() async throws {
+        FakeScreensLinx.reset()
+        FakeScreensLinx.answer("/api/v1/me/calls", 200, Self.onePage)
+        let calls = CallsModel(access: Self.access)
+        await calls.load()
+        await calls.search("4555 0147")
+        let asked = try #require(FakeScreensLinx.asked("/api/v1/me/calls").last)
+        #expect(asked.query?.contains("number=%2B") == false)
+        #expect(asked.query?.contains("number=45550147") == true)
+    }
+
+    @Test("a name is not sent to Linx: there is nothing there to search by name")
+    func searchingAName() async throws {
+        FakeScreensLinx.reset()
+        FakeScreensLinx.answer("/api/v1/me/calls", 200, Self.onePage)
+        let calls = CallsModel(access: Self.access)
+        await calls.load()
+        let before = FakeScreensLinx.asked("/api/v1/me/calls").count
+        await calls.search("Al Noor")
+        #expect(FakeScreensLinx.asked("/api/v1/me/calls").count == before)
+    }
+
     @Test("Linx's own words are what the screen shows when something goes wrong")
     func problemsAreShownAsTheyAre() async throws {
         FakeScreensLinx.reset()

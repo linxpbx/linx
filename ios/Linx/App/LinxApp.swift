@@ -24,6 +24,8 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
 
     @Environment(\.scenePhase) private var scenePhase
+    /// Light, dark or the phone's own setting (Settings → Appearance).
+    @AppStorage(Settings.appearance) private var appearance = Appearance.system.rawValue
 
     var body: some View {
         Group {
@@ -39,6 +41,7 @@ struct RootView: View {
             }
         }
         .environment(model.phone)
+        .preferredColorScheme(Appearance(rawValue: appearance)?.scheme)
         .fullScreenCover(isPresented: .constant(model.phone.call != nil)) {
             if let call = model.phone.call {
                 CallView(call: call).environment(model.phone)

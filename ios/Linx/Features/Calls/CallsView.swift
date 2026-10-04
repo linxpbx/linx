@@ -22,13 +22,30 @@ import SwiftUI
         self.access = access
     }
 
+    /// What is being searched for, if anything.
+    private(set) var searching = ""
+
+    /// A number searches every call Linx still keeps, because that is what
+    /// the server can do; a name is matched against the calls in hand,
+    /// because the server has no name search and inventing one here would
+    /// mean pretending to look further than this screen can see.
+    func search(_ text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard trimmed != searching else { return }
+        searching = trimmed
+        guard trimmed.contains(where: \.isNumber) else { return }
+        await load()
+    }
+
     /// The newest page. Asked for again whenever Linx says a call ended.
     func load() async {
         guard let access, !loading else { return }
         loading = true
         defer { loading = false }
+        let digits = searching.filter { $0.isNumber || $0 == "+" }
         do {
-            let page = try await access.client.myCalls(token: try await access.token())
+            let page = try await access.client.myCalls(
+                number: digits.isEmpty ? nil : digits, token: try await access.token())
             calls = page.items
             next = page.next
             loaded = true
@@ -45,7 +62,10 @@ import SwiftUI
         guard let access, let before = next, !loading else { return }
         loading = true
         defer { loading = false }
-        guard let page = try? await access.client.myCalls(before: before, token: try await access.token())
+        let digits = searching.filter { $0.isNumber || $0 == "+" }
+        guard
+            let page = try? await access.client.myCalls(
+                before: before, number: digits.isEmpty ? nil : digits, token: try await access.token())
         else { return }
         calls += page.items
         next = page.next
@@ -67,10 +87,18 @@ struct CallsView: View {
     @Environment(PhoneModel.self) private var phone
     @State private var calls: CallsModel?
     @State private var onlyMissed = false
+    @State private var search = ""
 
     private var shown: [CallRecord] {
-        let all = calls?.calls ?? []
-        return onlyMissed ? all.filter(\.missed) : all
+        var all = calls?.calls ?? []
+        if onlyMissed { all = all.filter(\.missed) }
+        let text = search.trimmingCharacters(in: .whitespaces).lowercased()
+        // A number has already been searched for at the server; a name is
+        // matched here, against what is on the screen.
+        guard !text.isEmpty, !text.contains(where: \.isNumber) else { return all }
+        return all.filter {
+            $0.from.name.lowercased().contains(text) || $0.to.name.lowercased().contains(text)
+        }
     }
 
     var body: some View {
@@ -95,6 +123,13 @@ struct CallsView: View {
                 }
             }
             .navigationTitle("Calls")
+            .searchable(
+                text: $search, placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Name or number"
+            )
+            .onChange(of: search) { _, text in
+                Task { await calls?.search(text) }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Picker("Which calls", selection: $onlyMissed) {

@@ -73,6 +73,10 @@ import UIKit
     private(set) var problem: String?
     /// What's on the keypad.
     var typed = ""
+    /// The last number this phone rang, for the keypad's redial: pressing
+    /// the call button with nothing typed fills it in, as a phone has
+    /// always done. The sound test isn't a number anybody redials.
+    private(set) var lastDialled = ""
 
     /// Calls to *43 hear themselves back (the echo test, docs/PBX.md).
     static let echoTest = "*43"
@@ -316,6 +320,7 @@ import UIKit
         guard !target.isEmpty else { return }
         problem = nil
         videoOnceAnswered = withVideo
+        if target != Self.echoTest { lastDialled = target }
         let peer = SIPPeer(name: name ?? (target == Self.echoTest ? "Test sound" : target), number: target)
         let id = UUID()
         intended[id] = peer
@@ -362,6 +367,10 @@ import UIKit
         if on, !call.speaker { toggleSpeaker() }
         Task { [weak self] in await self?.agent?.setVideo(on) }
     }
+
+    /// Whether a Linx call also goes into the iPhone's own Phone app
+    /// (Settings → Your call history). It takes effect from the next call.
+    func showCallsInThePhoneApp(_ on: Bool) { calls.showCallsInThePhoneApp(on) }
 
     /// The camera facing the person, or the one facing what they can see.
     func switchCamera() {

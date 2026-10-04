@@ -27,6 +27,9 @@ import Testing
     /// Every time the system was told a picture went into a call, or came
     /// out of it.
     private(set) var video: [(id: UUID, on: Bool)] = []
+    /// Whether the app last asked for its calls to show in the iPhone's own
+    /// Phone app (Settings → Your call history).
+    private(set) var inPhoneApp: Bool?
     private(set) var answered: [UUID] = []
     private(set) var ended: [(id: UUID, ending: SystemCallEnding)] = []
     private(set) var asked: [SystemCallRequest] = []
@@ -46,6 +49,7 @@ import Testing
 
     func rename(id: UUID, to peer: SIPPeer) { renamed.append((id, peer)) }
     func reportVideo(id: UUID, on: Bool) { video.append((id, on)) }
+    func showCallsInThePhoneApp(_ on: Bool) { inPhoneApp = on }
     func reportRingingThere(id: UUID) { ringingThere.append(id) }
     func reportAnswered(id: UUID) { answered.append(id) }
     func reportEnded(id: UUID, _ ending: SystemCallEnding) { ended.append((id, ending)) }

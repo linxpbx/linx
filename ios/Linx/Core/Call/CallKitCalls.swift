@@ -51,7 +51,12 @@ import UIKit
         configuration.maximumCallsPerCallGroup = 1
         // A number, and "generic" for an extension or a withheld number.
         configuration.supportedHandleTypes = [.phoneNumber, .generic]
-        configuration.includesCallsInRecents = true
+        // Whether a Linx call also lands in the iPhone's own Phone app
+        // (Settings → Your call history). On by default, because that is
+        // what people expect of a call their phone took; off for anyone who
+        // wants work calls kept to the Calls tab.
+        configuration.includesCallsInRecents =
+            UserDefaults.standard.object(forKey: Settings.showCallsInThePhoneApp) as? Bool ?? true
         if let icon = UIImage(named: "CallKitIcon")?.pngData() {
             configuration.iconTemplateImageData = icon
         }
@@ -85,6 +90,15 @@ import UIKit
         update.remoteHandle = Self.handle(for: peer)
         update.localizedCallerName = peer.name.isEmpty ? nil : peer.name
         provider.reportCall(with: id, updated: update)
+    }
+
+    /// The person changed their mind about Recents. The system reads the
+    /// configuration when a call starts, so handing it a new one now is what
+    /// makes the next call follow the setting.
+    func showCallsInThePhoneApp(_ on: Bool) {
+        let configuration = Self.configuration
+        configuration.includesCallsInRecents = on
+        provider.configuration = configuration
     }
 
     /// A picture went into this call, or came out of it. The system shows

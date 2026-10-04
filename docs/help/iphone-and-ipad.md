@@ -49,9 +49,9 @@ To take Linx off a phone you still have: **Sign out of this phone** in the app. 
 
 Four tabs along the bottom:
 
-- **Calls** — everything you've made, taken and missed, newest first, with a number on the tab for what you've missed since you last looked. Tap the phone beside a row to ring them back. **All** / **Missed** switches between them. Opening the tab clears the number, on this phone and on everything else you're signed in on, because missed calls belong to you and not to one phone.
-- **Team** — everyone with an extension, and what they're doing this second: Available, Away, Do not disturb, Ringing, On a call (with how long), or Offline. It changes as it happens; nothing needs refreshing. Search by name or extension, tap the phone to call or the camera to start a call with video. The button at the top right is **your own** status — **Do not disturb** stops your extension ringing anywhere and sends callers to your voicemail.
-- **Keypad** — type a number or an extension and tap the green call button; **Test my sound** calls Linx's echo test, which plays your own voice back so you can hear whether the microphone and the speaker are working.
+- **Calls** — everything you've made, taken and missed, newest first, with a number on the tab for what you've missed since you last looked. Tap the phone beside a row to ring them back. **All** / **Missed** switches between them. Search by number and Linx looks through every call it still keeps, not just the ones on the screen; search by name and it looks through the ones shown. Opening the tab clears the number, on this phone and on everything else you're signed in on, because missed calls belong to you and not to one phone.
+- **Team** — everyone with an extension, and what they're doing this second: Available, Away, Do not disturb, Ringing, On a call (with how long), or Offline. It changes as it happens; nothing needs refreshing. Search by name or extension, tap the phone to call or the camera to start a call with video. Swipe a row to the right to **Favourite** someone: starred people sit in their own section at the top, on this phone only. The button at the top right is **your own** status — **Do not disturb** stops your extension ringing anywhere and sends callers to your voicemail.
+- **Keypad** — type a number or an extension and tap the green call button; **Test my sound** calls Linx's echo test, which plays your own voice back so you can hear whether the microphone and the speaker are working. Tap the green button with nothing typed and the last number you called comes back, ready to ring again.
 - **More** — **Voicemail** and **Settings**.
 
 ## Voicemail
@@ -108,7 +108,10 @@ Even if someone has the phone, they can't use it to be you: the key is inside th
 
 ## Settings on the phone
 
-**More** → **Settings**: your status, how this phone's line is doing, which extension it answers, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**.
+**More** → **Settings**: your status, how this phone's line is doing, which extension it answers, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**. Two more:
+
+- **Appearance** — Light, Dark, or **Match this device**, the same choice the web app has. It is kept on this phone.
+- **Show Linx calls in the Phone app** — on, a Linx call sits in the iPhone's own Recents beside your ordinary calls and you can ring back from there; off, Linx keeps its calls to itself and only the **Calls** tab has them. Calls already made stay where they are.
 
 ## The app can't run Linx
 

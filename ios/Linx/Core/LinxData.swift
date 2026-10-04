@@ -181,10 +181,15 @@ extension LinxClient {
 
     // MARK: - Call history
 
-    /// My calls, newest first. `before` is the `next` of the page before it.
-    func myCalls(limit: Int = 50, before: String? = nil, token: String) async throws -> CallHistoryPage {
+    /// My calls, newest first. `before` is the `next` of the page before
+    /// it, and `number` searches every call Linx still keeps rather than
+    /// only the page in hand.
+    func myCalls(limit: Int = 50, before: String? = nil, number: String? = nil, token: String) async throws
+        -> CallHistoryPage
+    {
         var query = ["limit": String(limit)]
         if let before { query["before"] = before }
+        if let number, !number.isEmpty { query["number"] = number }
         return try await get("/api/v1/me/calls", query: query, token: token)
     }
 

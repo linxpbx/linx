@@ -76,6 +76,10 @@ enum SystemCallEnding: Equatable, Sendable {
     func reportAnswered(id: UUID)
     /// The call is over, however it went.
     func reportEnded(id: UUID, _ ending: SystemCallEnding)
+    /// Whether a call of this app's also goes into the iPhone's own Phone
+    /// app, under Recents (Settings → Your call history). It takes effect
+    /// from the next call: the system reads it when a call starts.
+    func showCallsInThePhoneApp(_ on: Bool)
     /// Asks the system for something on the person's behalf. The answer
     /// comes back through `onRequest`, which is the only place the app acts.
     func ask(_ request: SystemCallRequest)
@@ -96,5 +100,6 @@ enum SystemCallEnding: Equatable, Sendable {
     func reportRingingThere(id: UUID) {}
     func reportAnswered(id: UUID) {}
     func reportEnded(id: UUID, _ ending: SystemCallEnding) {}
+    func showCallsInThePhoneApp(_ on: Bool) {}
     func ask(_ request: SystemCallRequest) { onRequest?(request) }
 }

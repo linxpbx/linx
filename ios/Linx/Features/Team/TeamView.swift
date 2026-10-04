@@ -14,6 +14,7 @@ struct TeamView: View {
     @Environment(HomeModel.self) private var home
     @Environment(PhoneModel.self) private var phone
     @State private var search = ""
+    @State private var favourites = Favourites()
 
     private var mine: String { model.identity?.extensionNumber ?? "" }
 
@@ -25,6 +26,19 @@ struct TeamView: View {
         }
     }
 
+    /// One person, with the star that keeps them at the top of this phone's
+    /// own list.
+    @ViewBuilder private func row(_ member: TeamMember) -> some View {
+        let starred = favourites.has(member.extensionNumber)
+        TeamRow(member: member, isMe: member.extensionNumber == mine)
+            .swipeActions(edge: .leading) {
+                Button(starred ? "Unstar" : "Favourite", systemImage: starred ? "star.slash" : "star") {
+                    favourites.toggle(member.extensionNumber)
+                }
+                .tint(LinxColor.brandFill)
+            }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -32,8 +46,18 @@ struct TeamView: View {
                     TeamEmpty(loaded: home.loaded, problem: home.problem)
                 } else {
                     List {
-                        ForEach(shown) { member in
-                            TeamRow(member: member, isMe: member.extensionNumber == mine)
+                        let parts = favourites.split(shown)
+                        if !parts.favourites.isEmpty {
+                            Section("Favourites") {
+                                ForEach(parts.favourites) { member in
+                                    row(member)
+                                }
+                            }
+                        }
+                        Section {
+                            ForEach(parts.rest) { member in
+                                row(member)
+                            }
                         }
                     }
                     .listStyle(.plain)

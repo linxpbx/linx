@@ -11,6 +11,8 @@ struct SettingsView: View {
     @Environment(HomeModel.self) private var home
     @Environment(PhoneModel.self) private var phone
     @AppStorage(Settings.startVideoCallsWithTheFrontCamera) private var frontCamera = true
+    @AppStorage(Settings.appearance) private var appearance = Appearance.system.rawValue
+    @AppStorage(Settings.showCallsInThePhoneApp) private var inPhoneApp = true
     @State private var signingOut = false
 
     private var ready: Bool { phone.status == .ready }
@@ -57,6 +59,30 @@ struct SettingsView: View {
                 .foregroundStyle(LinxColor.textMuted)
             } header: {
                 Text("Video")
+            }
+
+            Section {
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(Appearance.allCases, id: \.self) { choice in
+                        Text(choice.words).tag(choice.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } header: {
+                Text("Appearance")
+            }
+
+            Section {
+                Toggle("Show Linx calls in the Phone app", isOn: $inPhoneApp)
+                    .onChange(of: inPhoneApp) { _, on in phone.showCallsInThePhoneApp(on) }
+                Text(
+                    "On, a Linx call sits in the iPhone's own Recents beside your ordinary calls, and you can tap one to ring it back from there. Off, Linx keeps its calls to itself — the Calls tab still has every one of them. Calls already made stay where they are."
+                )
+                .font(.footnote)
+                .foregroundStyle(LinxColor.textMuted)
+            } header: {
+                Text("Your call history")
             }
 
             Section("How calls arrive here") {
@@ -117,6 +143,36 @@ struct SettingsView: View {
 /// settings live in Linx (docs/PHASE2.md §7).
 enum Settings {
     static let startVideoCallsWithTheFrontCamera = "linx.video.front-camera"
+    static let appearance = "linx.appearance"
+    /// Whether a Linx call also goes into the iPhone's own Phone app, under
+    /// Recents, beside the person's ordinary calls.
+    static let showCallsInThePhoneApp = "linx.calls.in-phone-app"
+    /// The extensions this phone keeps at the top of Team.
+    static let favourites = "linx.team.favourites"
+}
+
+/// Light, dark, or whatever the phone itself is set to — the same choice the
+/// web app has on every page (owner, 2026-09-30), kept per phone.
+enum Appearance: String, CaseIterable {
+    case system
+    case light
+    case dark
+
+    var words: String {
+        switch self {
+        case .system: return "Match this device"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    var scheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
 }
 
 #Preview("Settings") {
