@@ -68,6 +68,10 @@ import UIKit
     private(set) var tracks = VideoTracks()
     /// Whether this phone's own picture should be mirrored (a front camera).
     private(set) var mirrorsMyVideo = true
+    /// Where the sound of the call is coming out, in the person's own words
+    /// ("Earpiece", "Speaker", a headset's name), read from the system
+    /// rather than assumed and shown under the loudspeaker button.
+    private(set) var audioRoute = ""
     /// They turned their camera on while this phone's was off, so the
     /// person is asked once whether to turn theirs on too (ADR-079, owner
     /// 2026-10-04). Saying no leaves a **one-way video call**, which is a
@@ -202,7 +206,8 @@ import UIKit
                 media.onConnection = { [weak self] connection in
                     self?.call?.connection = connection
                 }
-                media.onSpeakerChanged = { [weak self] on in self?.speakerMoved(on) }
+                media.onRoute = { [weak self] name, speaker in self?.soundIsComingOut(of: name, speaker) }
+                media.onRouteTrouble = { [weak self] words in self?.problem = words }
                 media.onVideoChanged = { [weak self] video in self?.videoChanged(video) }
                 media.onVideoTooExpensive = { [weak self] in self?.videoCostTooMuch() }
                 self?.liveMedia = media
@@ -372,7 +377,13 @@ import UIKit
         // Everyone expects a video call to come out of the loudspeaker; a
         // phone held to an ear with the camera on would show a ceiling.
         if on, !call.speaker { toggleSpeaker() }
-        Task { [weak self] in await self?.agent?.setVideo(on) }
+        Task { [weak self] in
+            await self?.agent?.setVideo(on)
+            guard let self, !on, let media = self.liveMedia else { return }
+            // Whatever the other side made of it, the screen follows the
+            // camera: if it is off, this is the call's own screen again.
+            self.videoChanged(media.video)
+        }
     }
 
     /// Whether a Linx call also goes into the iPhone's own Phone app
@@ -429,11 +440,13 @@ import UIKit
         call = current
     }
 
-    /// The sound moved on its own — a headset plugged in, the system's own
-    /// route picker — so the button says where it actually is.
-    private func speakerMoved(_ on: Bool) {
-        guard call?.speaker != on else { return }
-        call?.speaker = on
+    /// Where the sound is actually coming out, read from the system: the
+    /// button and the words beside it follow the sound, not the other way
+    /// round. A headset plugged in mid-call moves both.
+    private func soundIsComingOut(of name: String, _ speaker: Bool) {
+        audioRoute = name
+        guard call?.speaker != speaker else { return }
+        call?.speaker = speaker
     }
 
     // MARK: - What the system tells the app to do

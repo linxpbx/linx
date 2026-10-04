@@ -51,9 +51,12 @@ enum SIPStatus: Equatable, Sendable {
     func setMuted(_ muted: Bool)
     /// The loudspeaker, or back to the earpiece.
     func setSpeaker(_ on: Bool)
-    /// Where the sound actually came out, when something other than the
-    /// button moved it: a headset arriving, or the system's route picker.
-    var onSpeakerChanged: ((Bool) -> Void)? { get set }
+    /// Where the sound is actually coming out, in words ("Earpiece",
+    /// "Speaker", a headset's name), and whether that is the loudspeaker.
+    /// Read from the system each time it moves, never assumed.
+    var onRoute: ((String, Bool) -> Void)? { get set }
+    /// The sound wouldn't move where the person asked it to.
+    var onRouteTrouble: ((String) -> Void)? { get set }
     /// Whose camera is on in this call, and the two pictures themselves
     /// (docs/PHASE2.md §7). A call is sound until somebody asks for more.
     var video: CallVideo { get }
@@ -323,12 +326,16 @@ enum SIPStatus: Equatable, Sendable {
     /// video comes and goes inside it, which is why a bad network can drop
     /// the picture and leave the conversation alone.
     func setVideo(_ on: Bool) async {
-        guard let current = call, current.established, !current.changing else { return }
-        guard on != current.media.video.mine else { return }
+        guard let current = call, current.established else { return }
+        guard on else {
+            await stopTheCamera(of: current)
+            return
+        }
+        guard !current.changing, !current.media.video.mine else { return }
         call?.changing = true
         defer { call?.changing = false }
         do {
-            let offer = on ? try await current.media.startVideo() : try await current.media.stopVideo()
+            let offer = try await current.media.startVideo()
             guard call?.id == current.id else { return }
             sendReinvite(offer, of: current)
         } catch let trouble as CameraTrouble {
@@ -336,6 +343,25 @@ enum SIPStatus: Equatable, Sendable {
         } catch {
             onVideoRefused?("This phone couldn't start its camera. Try again in a moment.")
         }
+    }
+
+    /// Stop video always happens. The camera is the person's, not the other
+    /// side's and not the switch's: it goes off here and the screen goes
+    /// back to the call, whatever is still in the air — a change not yet
+    /// answered, or a far end that never answers at all. Only the message
+    /// that tells the other side has to wait its turn, and a call carrying
+    /// a camera that is off costs nothing but a line of SDP (the owner's
+    /// phone sat on the video screen with no way back, 2026-10-04).
+    private func stopTheCamera(of current: Call) async {
+        call?.changing = true
+        defer { call?.changing = false }
+        let offer = try? await current.media.stopVideo()
+        guard call?.id == current.id else { return }
+        // One change at a time (RFC 3261 §14.1): if the last one hasn't
+        // been answered, the camera is off here and the other side finds
+        // out from the next offer either side makes.
+        guard let offer, !(call?.reinviting ?? false) else { return }
+        sendReinvite(offer, of: current)
     }
 
     /// Hands the camera over to the one on the other side of the phone.

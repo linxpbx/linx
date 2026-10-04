@@ -45,7 +45,8 @@ import Testing
 /// The sound of a call, without any.
 @MainActor final class FakeMedia: SIPCallMedia {
     var onConnection: ((MediaConnection) -> Void)?
-    var onSpeakerChanged: ((Bool) -> Void)?
+    var onRoute: ((String, Bool) -> Void)?
+    var onRouteTrouble: ((String) -> Void)?
     private(set) var acceptedAnswer: String?
     private(set) var answeredOffer: String?
     private(set) var stopped = false

@@ -38,10 +38,13 @@ enum MediaTrouble: Error {
     var onConnection: ((MediaConnection) -> Void)?
     /// The sound dropped, or came back.
     var onTrouble: ((Bool) -> Void)?
-    /// The sound moved to the loudspeaker, or away from it, without the
-    /// button being pressed — a headset arriving, or the system's own route
-    /// picker. The button follows the sound, never the other way round.
-    var onSpeakerChanged: ((Bool) -> Void)?
+    /// Where the sound is coming out, in words, and whether that is the
+    /// loudspeaker. Read from the session itself every time it moves, so
+    /// the button and the label follow the sound rather than the other way
+    /// round.
+    var onRoute: ((String, Bool) -> Void)?
+    /// The sound wouldn't move where the person asked.
+    var onRouteTrouble: ((String) -> Void)?
 
     /// Whose camera is on, and the pictures themselves (docs/PHASE2.md §7).
     private(set) var video = CallVideo()
@@ -256,7 +259,7 @@ enum MediaTrouble: Error {
             NotificationCenter.default.removeObserver(routeWatch)
             self.routeWatch = nil
         }
-        Self.wantsSpeaker = false
+        if Self.live === self { Self.live = nil }
         gatheringLimit?.cancel()
         gatheringLimit = nil
         gathered?.resume()
@@ -279,9 +282,12 @@ enum MediaTrouble: Error {
     /// only thing that ever starts or stops a call's sound.
     func systemAudio(_ on: Bool) {
         Self.handOver(on)
-        // CallKit has just set the session up its own way, so whatever the
-        // person asked for goes back on now.
-        if on { Self.applyTheRoute() }
+        // Nothing else happens here, and nothing may. Setting the category
+        // on the session CallKit has just handed over stops the sound dead,
+        // both ways — which is what a build that did it turned out to do on
+        // a real iPhone (2026-10-04). The hand-over, and only the
+        // hand-over.
+        if on { Self.tellTheRoute() }
     }
 
     /// WebRTC counts the hand-over, so it has to be balanced exactly once
@@ -304,38 +310,38 @@ enum MediaTrouble: Error {
 
     /// Puts the call on the loudspeaker, or back on the earpiece.
     ///
-    /// Asking once isn't enough on a real iPhone: the system sets the audio
-    /// session up again under the app every time CallKit hands the call
-    /// over and at every route change, and each of those puts the sound
-    /// back in the earpiece. So what the person asked for is remembered and
-    /// put back each time, and the category is set with it — an override on
-    /// its own is dropped by the next reconfiguration (the button did
-    /// nothing at all before this, found on a real phone 2026-10-04).
+    /// Only the output is moved, and nothing else about the session is
+    /// touched: the category and the mode were set before the call started
+    /// and must stay exactly as they are while CallKit has the session,
+    /// because changing them mid-call silences it (2026-10-04).
+    ///
+    /// Whether it worked is read back from the route itself rather than
+    /// assumed, and that is what the button and the words beside it show.
     func setSpeaker(_ on: Bool) {
-        Self.wantsSpeaker = on
-        Self.applyTheRoute()
-    }
-
-    /// What the person asked for. One call is up at a time, so this is the
-    /// class's rather than a call's — the system hands the session over and
-    /// takes it back around the call's own life.
-    private static var wantsSpeaker = false
-
-    private static let routeOptions: AVAudioSession.CategoryOptions =
-        [.allowBluetoothHFP, .allowBluetoothA2DP, .duckOthers]
-
-    private static func applyTheRoute() {
         let session = RTCAudioSession.sharedInstance()
         session.lockForConfiguration()
-        defer { session.unlockForConfiguration() }
         do {
-            try session.setCategory(
-                .playAndRecord, mode: .voiceChat,
-                options: wantsSpeaker ? routeOptions.union(.defaultToSpeaker) : routeOptions)
-            try session.overrideOutputAudioPort(wantsSpeaker ? .speaker : .none)
+            try session.overrideOutputAudioPort(on ? .speaker : .none)
         } catch {
-            // Nothing to do here: the call carries on wherever the sound
-            // is, and the button says what the route actually is below.
+            // Say so rather than leave the button lit with the sound still
+            // in the earpiece.
+            onRouteTrouble?("This phone wouldn't move the sound. The call carries on.")
+        }
+        session.unlockForConfiguration()
+        Self.tellTheRoute()
+    }
+
+    /// Where the sound is actually coming out, in the person's words.
+    nonisolated static func routeName(_ route: AVAudioSessionRouteDescription) -> String {
+        guard let output = route.outputs.first else { return "No sound" }
+        switch output.portType {
+        case .builtInSpeaker: return "Speaker"
+        case .builtInReceiver: return "Earpiece"
+        case .headphones, .headsetMic: return "Headphones"
+        case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE: return output.portName
+        case .carAudio: return "Car"
+        case .airPlay: return "AirPlay"
+        default: return output.portName
         }
     }
 
@@ -345,37 +351,35 @@ enum MediaTrouble: Error {
         AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
     }
 
-    /// A headset, a car or a speaker of someone else's arriving or leaving
-    /// is the person's own choice and beats the button; anything else that
-    /// moves the sound (the system setting the session up again, its own
-    /// route picker) gets what the person asked for put back.
+    /// Watches where the sound goes and says so — and only says so. The
+    /// route is never put back by force: a headset, a car or the system's
+    /// own picker is the person's choice, and fighting it is how a call
+    /// ends up silent.
     private func watchTheRoute() {
         guard routeWatch == nil else { return }
         routeWatch = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-            let why = raw.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
-            MainActor.assumeIsolated {
-                switch why {
-                case .newDeviceAvailable, .oldDeviceUnavailable:
-                    Self.wantsSpeaker = Self.onTheSpeaker
-                case .none:
-                    return
-                default:
-                    guard Self.wantsSpeaker != Self.onTheSpeaker else { return }
-                    Self.applyTheRoute()
-                }
-                self?.onSpeakerChanged?(Self.onTheSpeaker)
-            }
+        ) { _ in
+            MainActor.assumeIsolated { Self.tellTheRoute() }
         }
     }
+
+    /// The one place the app finds out where the sound is: read from the
+    /// session, never guessed.
+    private static func tellTheRoute() {
+        let route = AVAudioSession.sharedInstance().currentRoute
+        live?.onRoute?(routeName(route), onTheSpeaker)
+    }
+
+    /// The call whose sound is up, so a route change can be told to it.
+    /// One call at a time, as everywhere else here.
+    private static weak var live: WebRTCMedia?
 
     // MARK: - The peer connection
 
     private func start() throws -> RTCPeerConnection {
         if let connection { return connection }
-        Self.wantsSpeaker = false
+        Self.live = self
         Self.prepareAudioSession()
         watchTheRoute()
         let configuration = RTCConfiguration()

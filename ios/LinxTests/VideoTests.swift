@@ -110,6 +110,25 @@ struct VideoTests {
         #expect(system.video.last?.on == false)
     }
 
+    @Test("Stop video works even when the other side never answered")
+    func stopVideoAlwaysWorks() async throws {
+        // The owner's phone sat on the video screen with no way back
+        // (2026-10-04): the camera had gone on, the switch never answered
+        // the change, and Stop video did nothing at all. The camera is the
+        // person's — it goes off here whatever is still in the air.
+        let (phone, transport, media, _) = try await inACall()
+        phone.toggleVideo()
+        #expect(await eventually { media.video.mine })
+        // Nothing comes back for that re-INVITE. Ever.
+        _ = try #require(transport.last("INVITE"))
+
+        phone.toggleVideo()
+        #expect(await eventually { media.video.mine == false })
+        #expect(await eventually { phone.call?.video.on == false })
+        // And the call itself is untouched by any of it.
+        #expect(phone.call?.phase == .active)
+    }
+
     @Test("the other side wouldn't have it: the call carries on, and says so once")
     func theyRefuseTheVideo() async throws {
         let (phone, transport, media, _) = try await inACall()

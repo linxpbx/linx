@@ -134,7 +134,13 @@ struct CallView: View {
             .disabled(call.phase != .active)
             .opacity(call.phase == .active ? 1 : 0.5)
             CallToggle(
-                symbol: call.speaker ? "speaker.wave.3.fill" : "speaker.fill", words: "Speaker",
+                symbol: call.speaker ? "speaker.wave.3.fill" : "speaker.fill",
+                // Where the sound is actually coming out, read from the
+                // system: "Earpiece", "Speaker", or the name of whatever
+                // the person has plugged in or paired. A button that only
+                // lights up tells you what was asked for, not what
+                // happened (owner, 2026-10-04).
+                words: phone.audioRoute.isEmpty ? "Speaker" : phone.audioRoute,
                 on: call.speaker
             ) { phone.toggleSpeaker() }
             // A picture is added to the call that is already up: the call
