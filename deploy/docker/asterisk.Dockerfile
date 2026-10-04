@@ -182,7 +182,11 @@ LABEL org.opencontainers.image.source="https://github.com/linxpbx/linx" \
 # Asterisk itself stays GPLv2 in this image (ADR-031); Linx's own code
 # (the entrypoint) is Apache-2.0 like the rest of the repo.
 
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+# apt-get upgrade as well as install: the base image is pinned by digest, so
+# a library that Debian patches after that digest was built (libpcre2's
+# CVE-2026-103111, October 2026) would otherwise sit in the image until the
+# next base bump, and the image scan in CI fails on it — rightly.
+RUN apt-get update -qq && apt-get upgrade -y -qq && apt-get install -y -qq --no-install-recommends \
       libxml2 libsqlite3-0 libssl3 libjansson4 libedit2 libodbc2 libsrtp2-1 libopus0 odbc-postgresql \
       # The public CAs trunks' certificates are checked against (ADR-045).
       ca-certificates \
