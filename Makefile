@@ -113,15 +113,17 @@ ios-deps: ## Fetch Google's WebRTC for the app (pinned version, checked against 
 
 .PHONY: ios-build
 ios-build: ios-deps ## Build the iPhone/iPad app for the simulator (no signing, no Apple account)
-	@xcodebuild build -project $(IOS_PROJECT) -scheme Linx -configuration Debug \
+	@if out=$$(xcodebuild build -project $(IOS_PROJECT) -scheme Linx -configuration Debug \
 		-destination 'generic/platform=iOS Simulator' -derivedDataPath $(IOS_DERIVED) \
-		CODE_SIGNING_ALLOWED=NO >/dev/null && echo "ios build: ok"
+		CODE_SIGNING_ALLOWED=NO 2>&1); then echo "ios build: ok"; \
+	else echo "$$out" | grep -E "error:|warning: .*deprecat" | sort -u | head -40; echo "ios build: FAILED"; exit 1; fi
 
 .PHONY: ios-build-device
 ios-build-device: ios-deps ## Build the app for a real iPhone, Release, no signing (what an archive compiles)
-	@xcodebuild build -project $(IOS_PROJECT) -scheme Linx -configuration Release \
+	@if out=$$(xcodebuild build -project $(IOS_PROJECT) -scheme Linx -configuration Release \
 		-destination 'generic/platform=iOS' -derivedDataPath ios/build/rel \
-		CODE_SIGNING_ALLOWED=NO >/dev/null && echo "ios device build: ok"
+		CODE_SIGNING_ALLOWED=NO 2>&1); then echo "ios device build: ok"; \
+	else echo "$$out" | grep -E "error:" | sort -u | head -40; echo "ios device build: FAILED"; exit 1; fi
 
 .PHONY: ios-test
 ios-test: ios-deps ## Run the app's unit tests on a simulator

@@ -322,8 +322,11 @@ struct VideoPicture: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     /// Which track this view is showing, so it is taken off that track
-    /// again when the call ends or the picture changes.
-    @MainActor final class Coordinator {
+    /// again when the call ends or the picture changes. SwiftUI only ever
+    /// touches a representable's coordinator on the main thread, and
+    /// `dismantleUIView` below is a static call with no actor of its own,
+    /// so this is deliberately plain.
+    final class Coordinator: @unchecked Sendable {
         var showing: RTCVideoTrack?
         weak var view: RTCMTLVideoView?
     }

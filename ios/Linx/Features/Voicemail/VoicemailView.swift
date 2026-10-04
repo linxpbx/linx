@@ -21,7 +21,7 @@ import SwiftUI
 
     private let access: LinxAccess?
     private var player: AVAudioPlayer?
-    private var listener: Listener?
+    private var listener: VoicemailEnded?
     private var usingTheSpeaker = false
 
     init(access: LinxAccess?) {
@@ -65,7 +65,9 @@ import SwiftUI
             try Self.readyToPlay()
             usingTheSpeaker = true
             let player = try AVAudioPlayer(data: wav)
-            let listener = Listener { [weak self] in self?.stop() }
+            let listener = VoicemailEnded { [weak self] in
+                Task { @MainActor in self?.stop() }
+            }
             player.delegate = listener
             self.listener = listener
             self.player = player
@@ -126,25 +128,27 @@ import SwiftUI
         try session.setActive(true)
     }
 
-    /// AVAudioPlayer still wants an object with a delegate method on it.
-    private final class Listener: NSObject, AVAudioPlayerDelegate {
-        private let finished: @MainActor () -> Void
-
-        init(finished: @escaping @MainActor () -> Void) {
-            self.finished = finished
-        }
-
-        func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully: Bool) {
-            Task { @MainActor in self.finished() }
-        }
-    }
-
     #if DEBUG
         func pretend(_ messages: [VoicemailMessage]) {
             self.messages = messages
             loaded = true
         }
     #endif
+}
+
+/// AVAudioPlayer still wants an object with a delegate method on it. It is
+/// deliberately not on the main actor: AVFoundation calls this from its own
+/// queue, and all it does is hop back.
+private final class VoicemailEnded: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+    private let finished: @Sendable () -> Void
+
+    init(finished: @escaping @Sendable () -> Void) {
+        self.finished = finished
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully: Bool) {
+        finished()
+    }
 }
 
 struct VoicemailView: View {
