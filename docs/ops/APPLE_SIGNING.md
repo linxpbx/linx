@@ -21,7 +21,11 @@ uploaded. Keep them apart and labelled; Apple lets you download each of them
 
 1. Sign in at <https://developer.apple.com/account>.
 2. Click **Membership details** in the sidebar.
-3. **Team ID** is ten characters, like `A1B2C3D4E5`. Copy it.
+3. **Team ID** is ten characters. **This account's is `AY75S2Z9UK`** (found
+   2026-10-04); it is already set in `ios/Linx.xcodeproj` as
+   `DEVELOPMENT_TEAM`, so Xcode can make the signing profiles itself. A Team
+   ID is not a secret — it is visible inside every published app — but it is
+   the one number everything else here is tied to.
 
 That one number is needed for: the push key below, signing the app, and the
 `/.well-known/apple-app-site-association` file that makes an emailed setup
@@ -46,9 +50,14 @@ This is the one Linx asks for.
 
 1. <https://developer.apple.com/account/resources/identifiers/list>
 2. **+ → App IDs → App → Continue.**
-3. **Description:** `Linx`. **Bundle ID:** Explicit, `com.linxpbx.app`.
-4. In the capability list, tick **Push Notifications**.
-5. **Continue → Register.**
+3. **Description:** `Linx` — letters, numbers and spaces only; Apple refuses
+   punctuation in this field.
+4. **Bundle ID:** Explicit, `com.linxpbx.app`.
+5. In the capability list tick **Push Notifications**, and tick **Associated
+   Domains** while you are there: that is what later lets an emailed setup
+   link open the app itself instead of the browser (`docs/PHASE2.md` §12,
+   "Parked for the owner"). Ticking it now saves a second visit.
+6. **Continue → Register.**
 
 ### 4. The App Store Connect record (needed before any TestFlight build)
 
@@ -57,7 +66,12 @@ This is the one Linx asks for.
    home-screen name stays `Linx`). **Primary language:** English.
    **Bundle ID:** the one you just registered. **SKU:** anything unique, e.g.
    `linx-uc-1`.
-3. **Create.**
+3. **Create.** The bundle ID only appears in that dropdown once step 3 above
+   is done.
+
+If **Business → Agreements** shows "Action needed", accept it there. Without
+it a build uploads and then never appears in TestFlight, with no useful
+message about why.
 
 ### 5. Optional, and only if you want me to do the uploading: an App Store Connect API key
 
