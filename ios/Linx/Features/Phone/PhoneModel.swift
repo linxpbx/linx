@@ -68,10 +68,11 @@ import UIKit
     private(set) var tracks = VideoTracks()
     /// Whether this phone's own picture should be mirrored (a front camera).
     private(set) var mirrorsMyVideo = true
-    /// Where the sound of the call is coming out, in the person's own words
-    /// ("Earpiece", "Speaker", a headset's name), read from the system
-    /// rather than assumed and shown under the loudspeaker button.
-    private(set) var audioRoute = ""
+    /// Where the sound of the call is coming out, read from the system
+    /// rather than assumed. The call screen shows a plain Speaker switch
+    /// while it is the phone's own earpiece or loudspeaker, and the
+    /// system's picker once anything else is connected.
+    private(set) var audioRoute: AudioRoute?
     /// They turned their camera on while this phone's was off, so the
     /// person is asked once whether to turn theirs on too (ADR-079, owner
     /// 2026-10-04). Saying no leaves a **one-way video call**, which is a
@@ -172,11 +173,51 @@ import UIKit
         connect(to: line)
     }
 
+    /// The call relay's credentials, and the job that keeps them fresh.
+    ///
+    /// They last an hour; a phone is signed in for days. A call made with
+    /// expired ones gets no relay at all, which on a mobile network is the
+    /// only way the sound can go — the call connects and nobody hears
+    /// anything (owner, 2026-10-04, on 5G). The browser has refreshed them
+    /// since Phase 1C (`web/src/phone/line.ts`); this is the app's side of
+    /// the same thing.
+    private var relay: PhoneLine.Turn?
+    private var relayRefresh: Task<Void, Never>?
+
+    private func keepTheRelayFresh(for line: Line) {
+        relayRefresh?.cancel()
+        relayRefresh = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let until = self?.relay?.expiresAt else { return }
+                // Five minutes before they run out, as the browser does,
+                // and never less than half a minute from now.
+                let wait = max(30, until.timeIntervalSinceNow - 5 * 60)
+                try? await Task.sleep(for: .seconds(wait))
+                guard !Task.isCancelled, let self, !self.stopped else { return }
+                do {
+                    let fresh = try await LinxClient(server: line.server)
+                        .turnCredentials(token: line.token)
+                    guard !Task.isCancelled else { return }
+                    self.relay = fresh
+                    // A call that is already up gets them too, so a long
+                    // call can still mend a broken route.
+                    self.liveMedia?.use(relay: fresh)
+                } catch {
+                    // The network, or a token that has moved on. Try again
+                    // shortly rather than give up for the rest of the day.
+                    try? await Task.sleep(for: .seconds(60))
+                }
+            }
+        }
+    }
+
     /// stop closes the line (the app went away, or the person signed out).
     func stop() {
         stopped = true
         reconnect?.cancel()
         reconnect = nil
+        relayRefresh?.cancel()
+        relayRefresh = nil
         ringer.stop()
         agent?.stop()
         agent = nil
@@ -198,15 +239,16 @@ import UIKit
             status = .unavailable("Linx gave this phone a line it couldn't read. Set the phone up again.")
             return
         }
-        let turn = line.line.turn
+        relay = line.line.turn
+        keepTheRelayFresh(for: line)
         let agent = SIPUserAgent(
             account: account, transport: makeTransport(account),
             media: { [makeMedia, weak self] in
-                let media = makeMedia(turn)
+                let media = makeMedia(self?.relay)
                 media.onConnection = { [weak self] connection in
                     self?.call?.connection = connection
                 }
-                media.onRoute = { [weak self] name, speaker in self?.soundIsComingOut(of: name, speaker) }
+                media.onRoute = { [weak self] route in self?.soundIsComingOut(route) }
                 media.onRouteTrouble = { [weak self] words in self?.problem = words }
                 media.onVideoChanged = { [weak self] video in self?.videoChanged(video) }
                 media.onVideoTooExpensive = { [weak self] in self?.videoCostTooMuch() }
@@ -403,6 +445,7 @@ import UIKit
     }
 
     private func videoChanged(_ video: CallVideo) {
+        defer { watchForAnEar() }
         guard var current = call else { return }
         let was = current.video
         current.video = video
@@ -441,12 +484,34 @@ import UIKit
     }
 
     /// Where the sound is actually coming out, read from the system: the
-    /// button and the words beside it follow the sound, not the other way
-    /// round. A headset plugged in mid-call moves both.
-    private func soundIsComingOut(of name: String, _ speaker: Bool) {
-        audioRoute = name
-        guard call?.speaker != speaker else { return }
-        call?.speaker = speaker
+    /// button follows the sound, not the other way round, so a headset
+    /// plugged in mid-call moves it.
+    /// The name of whatever the sound is coming out of, when it isn't the
+    /// phone itself — a headset, a car. Nil means the plain Speaker switch.
+    var otherAudioDevice: String? {
+        guard let audioRoute, !audioRoute.builtIn else { return nil }
+        return audioRoute.name
+    }
+
+    private func soundIsComingOut(_ route: AudioRoute) {
+        audioRoute = route
+        watchForAnEar()
+        guard call?.speaker != route.speaker else { return }
+        call?.speaker = route.speaker
+    }
+
+    /// The screen goes dark and stops taking taps while the phone is held
+    /// to an ear, as every phone has done since phones had screens — and
+    /// only then: not on the loudspeaker, not with a headset, and never
+    /// during a video call, where the screen is the point (owner,
+    /// 2026-10-04: "if I put the phone on my ear the screen is active and
+    /// touch is enabled").
+    private func watchForAnEar() {
+        let atAnEar =
+            call != nil && call?.phase == .active && call?.video.on != true
+            && audioRoute?.speaker == false && audioRoute?.builtIn == true
+        guard UIDevice.current.isProximityMonitoringEnabled != atAnEar else { return }
+        UIDevice.current.isProximityMonitoringEnabled = atAnEar
     }
 
     // MARK: - What the system tells the app to do
@@ -592,6 +657,7 @@ import UIKit
 
     private func answered() {
         ringer.stop()
+        defer { watchForAnEar() }
         guard var current = call else { return }
         current.phase = .active
         current.answeredAt = Date()
@@ -609,6 +675,7 @@ import UIKit
 
     private func ended(_ why: SIPEnded) {
         ringer.stop()
+        UIDevice.current.isProximityMonitoringEnabled = false
         guard let finished = call else { return }
         call = nil
         askAboutTheirVideo = nil

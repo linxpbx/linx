@@ -122,31 +122,24 @@ struct CallView: View {
         // Four across a phone's width: the circles are 56 wide so even the
         // narrowest iPhone has room for them without scrolling sideways.
         HStack(spacing: LinxSpace.s4) {
-            CallToggle(
+            CallToggleButton(
                 symbol: call.muted ? "mic.slash.fill" : "mic.fill", words: call.muted ? "Muted" : "Mute",
                 on: call.muted
             ) { phone.toggleMute() }
             .disabled(call.phase != .active)
             .opacity(call.phase == .active ? 1 : 0.5)
-            CallToggle(symbol: "circle.grid.3x3.fill", words: "Keypad", on: keypadOpen) {
+            CallToggleButton(symbol: "circle.grid.3x3.fill", words: "Keypad", on: keypadOpen) {
                 keypadOpen.toggle()
             }
             .disabled(call.phase != .active)
             .opacity(call.phase == .active ? 1 : 0.5)
-            CallToggle(
-                symbol: call.speaker ? "speaker.wave.3.fill" : "speaker.fill",
-                // Where the sound is actually coming out, read from the
-                // system: "Earpiece", "Speaker", or the name of whatever
-                // the person has plugged in or paired. A button that only
-                // lights up tells you what was asked for, not what
-                // happened (owner, 2026-10-04).
-                words: phone.audioRoute.isEmpty ? "Speaker" : phone.audioRoute,
-                on: call.speaker
+            AudioRouteButton(
+                onSpeaker: call.speaker, deviceName: phone.otherAudioDevice
             ) { phone.toggleSpeaker() }
             // A picture is added to the call that is already up: the call
             // itself never stops, and turning it off again leaves an
             // ordinary phone call (docs/PHASE2.md §7).
-            CallToggle(symbol: "video.fill", words: "Video", on: false) { phone.toggleVideo() }
+            CallToggleButton(symbol: "video.fill", words: "Video", on: false) { phone.toggleVideo() }
                 .disabled(call.phase != .active)
                 .opacity(call.phase == .active ? 1 : 0.5)
         }
@@ -240,31 +233,6 @@ private struct ConnectionPill: View {
         var out = "Encrypted · " + (connection.route == .direct ? "Direct" : "Relayed")
         if let rtt = connection.roundTripMs { out += " · \(rtt) ms" }
         return out
-    }
-}
-
-private struct CallToggle: View {
-    let symbol: String
-    let words: String
-    let on: Bool
-    let press: () -> Void
-
-    var body: some View {
-        Button(action: press) {
-            VStack(spacing: LinxSpace.s2) {
-                Image(systemName: symbol)
-                    .font(.title3)
-                    .foregroundStyle(on ? LinxColor.surfaceDark : LinxColor.onSurfaceDark)
-                    .frame(width: 56, height: 56)
-                    .background(
-                        on ? LinxColor.onSurfaceDark : LinxColor.surface.opacity(0.18), in: .circle)
-                Text(words)
-                    .font(.caption)
-                    .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
-            }
-        }
-        .accessibilityLabel(words)
-        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 

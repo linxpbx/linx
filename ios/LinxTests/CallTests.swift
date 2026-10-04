@@ -45,7 +45,7 @@ import Testing
 /// The sound of a call, without any.
 @MainActor final class FakeMedia: SIPCallMedia {
     var onConnection: ((MediaConnection) -> Void)?
-    var onRoute: ((String, Bool) -> Void)?
+    var onRoute: ((AudioRoute) -> Void)?
     var onRouteTrouble: ((String) -> Void)?
     private(set) var acceptedAnswer: String?
     private(set) var answeredOffer: String?
@@ -112,7 +112,12 @@ import Testing
         setVideo(CallVideo(mine: video.mine, theirs: SDPTweaks.theySendVideo(answer)))
     }
     func setMuted(_ muted: Bool) { self.muted = muted }
-    func setSpeaker(_ on: Bool) { speaker = on }
+    func setSpeaker(_ on: Bool) {
+        speaker = on
+        onRoute?(AudioRoute(name: "Speaker", speaker: on, builtIn: true))
+    }
+    private(set) var relayGiven: PhoneLine.Turn?
+    func use(relay: PhoneLine.Turn) { relayGiven = relay }
     func sendTone(_ digit: Character) { tones.append(digit) }
     func systemAudio(_ on: Bool) { systemAudioOn = on }
     func stop() { stopped = true }

@@ -173,6 +173,15 @@ struct LinxClient: Sendable {
         try await post("/api/v1/me/phone-line", body: nil, bearer: token)
     }
 
+    /// Fresh credentials for Linx's call relay. They last an hour, and a
+    /// phone that is signed in for longer than that — which is every phone,
+    /// every day — needs new ones before the old ones run out, or its next
+    /// call has no way through a mobile network (the browser has done this
+    /// since Phase 1C; the app never did, until 2026-10-04).
+    func turnCredentials(token: String) async throws -> PhoneLine.Turn {
+        try await get("/api/v1/me/turn-credentials", token: token)
+    }
+
     /// Where Apple can reach this phone: the PushKit token for calls and,
     /// once the person allows notifications, the one for a missed call or a
     /// new voicemail (docs/PHASE2.md §5). Linx answers 204, so there is

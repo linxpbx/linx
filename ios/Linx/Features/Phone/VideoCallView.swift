@@ -236,8 +236,7 @@ private struct Buttons: View {
             .disabled(!call.video.mine)
             .opacity(call.video.mine ? 1 : 0.4)
             CallCircle(
-                symbol: call.speaker ? "speaker.wave.3.fill" : "speaker.fill",
-                words: phone.audioRoute.isEmpty ? "Speaker" : phone.audioRoute,
+                symbol: call.speaker ? "speaker.wave.3.fill" : "speaker.fill", words: "Speaker",
                 on: call.speaker
             ) { phone.toggleSpeaker() }
             CallCircle(symbol: "phone.down.fill", words: "Hang up", on: false, danger: true) {

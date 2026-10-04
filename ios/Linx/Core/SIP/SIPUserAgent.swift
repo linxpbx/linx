@@ -35,6 +35,16 @@ enum SIPStatus: Equatable, Sendable {
     case unavailable(String)
 }
 
+/// Where a call's sound is coming out. `builtIn` is the phone's own
+/// earpiece or loudspeaker, which is a plain switch between two; anything
+/// else — a headset, a car — is one of several, and the system's own picker
+/// chooses between them, exactly as the Phone app does.
+struct AudioRoute: Equatable, Sendable {
+    let name: String
+    let speaker: Bool
+    let builtIn: Bool
+}
+
 /// The sound of a call, from the user agent's side. WebRTCMedia is the real
 /// one; the tests use a stand-in.
 @MainActor protocol SIPCallMedia: AnyObject {
@@ -48,13 +58,15 @@ enum SIPStatus: Equatable, Sendable {
     func answer(to offer: String) async throws -> String
     /// The other side's answer to the offer this phone sent.
     func accept(answer: String) async throws
+    /// Newer credentials for Linx's call relay, while a call is up: the
+    /// old ones last an hour and a call can outlive them.
+    func use(relay: PhoneLine.Turn)
     func setMuted(_ muted: Bool)
     /// The loudspeaker, or back to the earpiece.
     func setSpeaker(_ on: Bool)
-    /// Where the sound is actually coming out, in words ("Earpiece",
-    /// "Speaker", a headset's name), and whether that is the loudspeaker.
-    /// Read from the system each time it moves, never assumed.
-    var onRoute: ((String, Bool) -> Void)? { get set }
+    /// Where the sound is actually coming out, read from the system each
+    /// time it moves, never assumed.
+    var onRoute: ((AudioRoute) -> Void)? { get set }
     /// The sound wouldn't move where the person asked it to.
     var onRouteTrouble: ((String) -> Void)? { get set }
     /// Whose camera is on in this call, and the two pictures themselves
