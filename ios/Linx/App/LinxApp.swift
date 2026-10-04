@@ -58,7 +58,18 @@ struct RootView: View {
             else { return }
             switch phase {
             case .background: model.phone.stop()
-            case .active: Task { await model.phone.start() }
+            case .active:
+                Task {
+                    await model.phone.start()
+                    // iOS shows its notification prompt only to an app that
+                    // is in front, and at the moment this phone signs itself
+                    // in — as it launches — it isn't yet. So the question is
+                    // asked here, the first time the app is really in front.
+                    // Without this it was never asked at all, and a missed
+                    // call or a new voicemail told the person nothing (the
+                    // owner's own phone, 2026-10-04).
+                    await model.askAboutNotifications()
+                }
             default: break
             }
         }

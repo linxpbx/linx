@@ -99,6 +99,16 @@ import SwiftUI
         }
     }
 
+    /// askAboutNotifications asks iOS, once, for the quiet notifications: a
+    /// missed call and a new voicemail. It does nothing at all unless this
+    /// phone is signed in and the app is in front, and nothing a second
+    /// time, so it is safe to call whenever either of those becomes true.
+    func askAboutNotifications() async {
+        guard case .signedIn = state else { return }
+        await push.askAboutNotifications()
+        if let tokens = push.current { await tellLinxWhereToReachThisPhone(tokens) }
+    }
+
     /// tellLinxWhereToReachThisPhone sends Apple's tokens on to Linx
     /// (`POST /api/v1/me/phone-push`). A phone that isn't signed in yet
     /// keeps them until it is.
@@ -174,8 +184,11 @@ import SwiftUI
             }
             await phone.start()
             // Now that there is a phone here: ask about notifications once,
-            // and tell Linx where Apple can reach it.
-            await push.askAboutNotifications()
+            // and tell Linx where Apple can reach it. Signing in happens as
+            // the app launches, when it isn't in front yet and iOS won't
+            // show its prompt, so the question is asked again the moment the
+            // app really is in front (`LinxApp`'s scene phase).
+            await askAboutNotifications()
             if let tokens = push.current { await tellLinxWhereToReachThisPhone(tokens) }
         } catch let error as LinxError where error.setUpAgain {
             state = .setUpAgain(error.words)
