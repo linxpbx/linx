@@ -314,7 +314,11 @@ func TestRenderARI(t *testing.T) {
 		"[linx-wake]", "Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})",
 		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN})",
 		"Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})",
-		`GotoIf($["${WAKESTATE}" = "UNAVAILABLE" | "${WAKESTATE}" = "INVALID" | "${WAKESTATE}" = "UNKNOWN"]?notyet)`} {
+		// A device state Asterisk couldn't answer means wake the phone: the
+		// wrong way round is a phone that never rings (the whole of row 2.4
+		// in docs/TEST_MATRIX.md, 2026-10-04).
+		`GotoIf($["${WAKESTATE}" != "" & "${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?next)`,
+		`GotoIf($["${WAKESTATE}" = "" | "${WAKESTATE}" = "UNAVAILABLE" | "${WAKESTATE}" = "INVALID" | "${WAKESTATE}" = "UNKNOWN"]?notyet)`} {
 		if got := read(t, c, "extensions.conf"); !strings.Contains(got, want) {
 			t.Errorf("extensions.conf missing %q", want)
 		}

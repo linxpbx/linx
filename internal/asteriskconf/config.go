@@ -1122,6 +1122,11 @@ exten => s,1,Gosub(linx-wake,s,1(${ARG1}))
 ; wait runs out. The caller hears ringing throughout. Everything else about
 ; the step is unchanged: all the phones are dialled together afterwards,
 ; and the first to answer takes the call.
+;
+; "Already here" is only ever a state DEVICE_STATE actually gave: an empty
+; answer means the phone is woken, not skipped. A wrong guess either way is
+; one redundant push (the app ties it to the invitation that follows), while
+; the other way round is a phone that never rings at all.
 [linx-wake]
 exten => s,1,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
  same => n,GotoIf($[${ODBCROWS} < 1]?done)
@@ -1132,7 +1137,7 @@ exten => s,1,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
  same => n,Set(WAKELIST=)
  same => n(scan),Set(WAKEONE=${CUT(WAKEAORS,&,${WAKEI})})
  same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
- same => n,GotoIf($["${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?next)
+ same => n,GotoIf($["${WAKESTATE}" != "" & "${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?next)
  same => n,Set(WAKELIST=${IF($["${WAKELIST}" = ""]?${WAKEONE}:${WAKELIST}&${WAKEONE})})
  same => n(next),Set(WAKEI=$[${WAKEI} + 1])
  same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?scan)
@@ -1146,7 +1151,7 @@ exten => s,1,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
  same => n,Set(WAKEI=1)
  same => n(check),Set(WAKEONE=${CUT(WAKELIST,&,${WAKEI})})
  same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
- same => n,GotoIf($["${WAKESTATE}" = "UNAVAILABLE" | "${WAKESTATE}" = "INVALID" | "${WAKESTATE}" = "UNKNOWN"]?notyet)
+ same => n,GotoIf($["${WAKESTATE}" = "" | "${WAKESTATE}" = "UNAVAILABLE" | "${WAKESTATE}" = "INVALID" | "${WAKESTATE}" = "UNKNOWN"]?notyet)
  same => n,Set(WAKEI=$[${WAKEI} + 1])
  same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?check)
  same => n,Goto(done)

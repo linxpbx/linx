@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,14 +51,27 @@ func TestCallsDocker(t *testing.T) {
 	defer cancel()
 	tracker := &pbx.CallTracker{Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	var voicemails *voicemail.Importer
+	var wakeMu sync.Mutex
+	var wakes []map[string]any
+	wokenSoFar := func() []map[string]any {
+		wakeMu.Lock()
+		defer wakeMu.Unlock()
+		return append([]map[string]any(nil), wakes...)
+	}
 	e := start(t, ctx, func(e *env) ari.App {
 		tracker.Store = e.store
 		tracker.Log = slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 		// As the control plane: the dialplan's event takes the message in.
 		voicemails = &voicemail.Importer{Dir: filepath.Join(e.dir, "voicemail"), Store: e.store, Now: time.Now, Log: tracker.Log}
-		tracker.UserEvent = func(name string, _ map[string]any) {
-			if name == voicemail.EventName {
+		tracker.UserEvent = func(name string, fields map[string]any) {
+			switch name {
+			case voicemail.EventName:
 				voicemails.Kick()
+			case asteriskconf.WakeEvent:
+				// As the control plane: this is what sends the push.
+				wakeMu.Lock()
+				wakes = append(wakes, fields)
+				wakeMu.Unlock()
 			}
 		}
 		return tracker
@@ -165,6 +181,63 @@ func TestCallsDocker(t *testing.T) {
 			}
 		}
 		_ = carol
+	})
+
+	// Every function the dialplan uses has to exist in the image
+	// (deploy/docker/asterisk.Dockerfile's menuselect step picks the
+	// modules). A missing one is silent — ${DEVICE_STATE(...)} and
+	// ${IF(...)} simply came out empty, and a sleeping iPhone never rang
+	// (row 2.4 of docs/TEST_MATRIX.md on a real phone, 2026-10-04).
+	t.Run("every dialplan function is in the image", func(t *testing.T) {
+		conf := docker(t, ctx, "exec", astName, "sh", "-c",
+			"cat /etc/asterisk/extensions.conf /etc/asterisk/func_odbc.conf")
+		used := map[string]bool{}
+		for _, m := range regexp.MustCompile(`\$\{([A-Z][A-Z0-9_]*)\(`).FindAllStringSubmatch(conf, -1) {
+			used[m[1]] = true
+		}
+		if len(used) < 10 {
+			t.Fatalf("read only %d functions out of the rendered dialplan: %v", len(used), used)
+		}
+		names := slices.Sorted(maps.Keys(used))
+		out := docker(t, ctx, "exec", astName, "sh", "-c",
+			`for f in `+strings.Join(names, " ")+`; do asterisk -rx "core show function $f" | `+
+				`grep -q "No function by that name" && echo "$f"; done; exit 0`)
+		if missing := strings.Fields(out); len(missing) > 0 {
+			t.Errorf("the dialplan uses %s, which this image hasn't got: enable their modules in deploy/docker/asterisk.Dockerfile",
+				strings.Join(missing, ", "))
+		}
+	})
+
+	// A sleeping iPhone or iPad (ADR-074, docs/PHASE2.md §5): its line
+	// isn't connected, so before the step rings, the dialplan asks the
+	// control plane to wake it and holds the call ringing meanwhile. The
+	// push itself is the control plane's; what matters here is that the
+	// event carries the right phone and that the caller hears ringing
+	// rather than being sent straight on.
+	t.Run("a sleeping app phone is woken", func(t *testing.T) {
+		ivy := e.newAppPhone("110", "Ivy")
+		e.pushOn(2 * time.Second)
+		defer e.pushOff()
+		before := len(wokenSoFar())
+		caller := e.sipp("wake", "call-message.xml", alice, "-s", "110")
+		eventually(t, "the wake event the push is sent from", 20*time.Second,
+			func() bool { return len(wokenSoFar()) > before })
+		// To is the step's own number, which is "s" for one person's
+		// phones and a ring group's number for a group.
+		ev := wokenSoFar()[before]
+		if ev["Aors"] != ivy.dev.SIPUsername || ev["From"] != "101" {
+			t.Errorf("wake event = %v, want Ivy's phone %q from 101", ev, ivy.dev.SIPUsername)
+		}
+		e.wait(caller)
+
+		// Nothing waits for a phone that can't be woken: with the key gone
+		// the same call goes straight to the step.
+		e.pushOff()
+		before = len(wokenSoFar())
+		e.run("no-wake", "call-message.xml", alice, "-s", "110")
+		if got := wokenSoFar(); len(got) > before {
+			t.Errorf("woke a phone with no Apple key in place: %v", got[before])
+		}
 	})
 
 	t.Run("nobody answers", func(t *testing.T) {

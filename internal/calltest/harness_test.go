@@ -316,6 +316,68 @@ func (e *env) newPhone(number, name string) phone {
 	return phone{number: number, ext: ext, dev: dev, password: pw}
 }
 
+// newAppPhone creates an extension whose only phone is the iPhone/iPad app
+// (docs/PHASE2.md §5): a device of kind ios with the identity a set-up
+// phone has, and a push token for Apple. It never signs in — a phone that
+// has to be woken is exactly the case the wake step is for.
+func (e *env) newAppPhone(number, name string) phone {
+	e.t.Helper()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ext := pbx.Extension{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, Number: number, DisplayName: name,
+		Enabled: true, Version: 1, CreatedAt: now, UpdatedAt: now}
+	if err := e.store.CreateExtension(e.ctx, ext, e.audit("extension.create")); err != nil {
+		e.t.Fatal(err)
+	}
+	e.voicemailOn(ext.ID, false) // as newPhone
+	u := auth.User{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, Email: strings.ToLower(name) + "@linx.test", Name: name,
+		Role: auth.RoleUser, ExtensionID: &ext.ID, PasswordHash: "unused", PasswordUpdatedAt: now, Version: 1, CreatedAt: now, UpdatedAt: now}
+	if err := e.store.CreateUser(e.ctx, u, e.audit("user.create")); err != nil {
+		e.t.Fatal(err)
+	}
+	user := pbx.NewSIPUsername()
+	pw := pbx.NewDevicePassword()
+	dev := pbx.Device{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, ExtensionID: ext.ID, Name: name + "'s iPhone",
+		Kind: pbx.KindIOS, SIPUsername: user, DigestHash: pbx.DigestHash(user, pw), Enabled: true, Version: 1,
+		CreatedAt: now, UpdatedAt: now}
+	if err := e.store.CreateDevice(e.ctx, dev, e.audit("device.create")); err != nil {
+		e.t.Fatal(err)
+	}
+	fingerprint := make([]byte, 32)
+	if _, err := rand.Read(fingerprint); err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(e.ctx, `INSERT INTO device_identity
+		(device_id, tenant_id, user_id, public_key, cert_serial, cert_fingerprint, cert_not_after,
+		 enrolled_at, last_seen_at, expires_at, voip_token, push_environment)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, 'production')`,
+		dev.ID, e.tenant, u.ID, fingerprint, "01", fingerprint, now.Add(6*30*24*time.Hour),
+		now, now.Add(6*30*24*time.Hour), strings.Repeat("ab", 32)); err != nil {
+		e.t.Fatal(err)
+	}
+	return phone{number: number, ext: ext, dev: dev, password: pw}
+}
+
+// pushOn is the Apple key in place (System → Settings → Calls to the app),
+// which is the only thing that makes a call wait for a woken phone at all;
+// wait is how long it waits. pushOff puts it back.
+func (e *env) pushOn(wait time.Duration) {
+	e.t.Helper()
+	if _, err := e.pool.Exec(e.ctx, `INSERT INTO push_settings
+		(tenant_id, enabled, team_id, key_id, bundle_id, key_enc, wait_ms, updated_at)
+		VALUES ($1, true, 'AY75S2Z9UK', 'ABCDE12345', 'com.linxpbx.app', '\x00', $2, now())
+		ON CONFLICT (tenant_id) DO UPDATE SET enabled = true, wait_ms = $2`,
+		e.tenant, wait.Milliseconds()); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func (e *env) pushOff() {
+	e.t.Helper()
+	if _, err := e.pool.Exec(e.ctx, `UPDATE push_settings SET enabled = false WHERE tenant_id = $1`, e.tenant); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
 // voicemailOn turns box (a person's or ring group's id) on or off.
 func (e *env) voicemailOn(box uuid.UUID, on bool) {
 	e.t.Helper()
