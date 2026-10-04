@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The keys Xcode has no build setting for. Everything else about this
+	     app's Info.plist is still generated from the build settings
+	     (GENERATE_INFOPLIST_FILE), and Xcode merges those into this file. -->
+
+	<!-- What may run while the app isn't on the display (docs/PHASE2.md §14
+	     item 7). Only these two, and both are what the app actually does:
+	       voip  — PushKit wakes the app for a call and it reports it to
+	               CallKit at once.
+	       audio — a call that is already up keeps its sound while the
+	               person puts the phone to their ear, locks it, or looks
+	               at something else.
+	     Nothing else is asked for: no background fetch, no location, no
+	     processing. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>voip</string>
+		<string>audio</string>
+	</array>
+</dict>
+</plist>

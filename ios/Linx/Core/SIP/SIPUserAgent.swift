@@ -51,6 +51,11 @@ enum SIPStatus: Equatable, Sendable {
     func setMuted(_ muted: Bool)
     /// The loudspeaker, or back to the earpiece.
     func setSpeaker(_ on: Bool)
+    /// The system has handed over the microphone and the speaker, or taken
+    /// them back. With CallKit the app never starts a call's sound itself:
+    /// it waits to be given them, which is also what stops the sound
+    /// cutting out on an answered call (docs/PHASE2.md §14, "Audio path").
+    func systemAudio(_ on: Bool)
     func sendTone(_ digit: Character)
     /// The call is over: everything the phone had open for it closes.
     func stop()

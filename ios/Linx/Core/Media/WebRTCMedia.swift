@@ -127,6 +127,30 @@ enum MediaTrouble: Error {
         Self.releaseAudioSession()
     }
 
+    /// The system has given the app the microphone and the speaker, or
+    /// taken them back (CallKit's `didActivate`/`didDeactivate`). WebRTC is
+    /// in manual-audio mode whenever CallKit is in charge, so this is the
+    /// only thing that ever starts or stops a call's sound.
+    func systemAudio(_ on: Bool) { Self.handOver(on) }
+
+    /// WebRTC counts the hand-over, so it has to be balanced exactly once
+    /// each way — and the call's media is often gone by the time the system
+    /// takes the session back, which is why this is the class's and not one
+    /// call's.
+    private static var handedOver = false
+
+    private static func handOver(_ on: Bool) {
+        guard on != handedOver else { return }
+        let session = RTCAudioSession.sharedInstance()
+        if on {
+            session.audioSessionDidActivate(AVAudioSession.sharedInstance())
+        } else {
+            session.audioSessionDidDeactivate(AVAudioSession.sharedInstance())
+        }
+        session.isAudioEnabled = on
+        handedOver = on
+    }
+
     /// Puts the call on the loudspeaker, or back on the earpiece.
     func setSpeaker(_ on: Bool) {
         let session = RTCAudioSession.sharedInstance()
@@ -302,18 +326,26 @@ enum MediaTrouble: Error {
         ])
 
     /// A phone call's audio session: the earpiece by default, the sound of
-    /// other apps ducked, and Bluetooth headsets allowed. CallKit takes this
-    /// over in build-order step 6, where the session is activated by the
-    /// system instead (docs/PHASE2.md §14).
+    /// other apps ducked, and Bluetooth headsets allowed.
+    ///
+    /// Who turns it on depends on who owns the call. With CallKit the system
+    /// does, in `didActivate`, and WebRTC is put in **manual audio** mode so
+    /// nothing of the call's sound starts a moment earlier — which is what
+    /// prevents the dropouts reviewers notice (docs/PHASE2.md §14, "Audio
+    /// path"). Where CallKit may not be used (ADR-078) the app turns it on
+    /// itself, as it did before step 6.
     private static func prepareAudioSession() {
         let session = RTCAudioSession.sharedInstance()
+        let system = CallStyle.usesCallKit
+        session.useManualAudio = system
+        if system { session.isAudioEnabled = false }
         session.lockForConfiguration()
         defer { session.unlockForConfiguration() }
         do {
             try session.setCategory(
                 .playAndRecord, mode: .voiceChat,
                 options: [.allowBluetoothHFP, .allowBluetoothA2DP, .duckOthers])
-            try session.setActive(true)
+            if !system { try session.setActive(true) }
         } catch {
             // Nothing to do about it here: the call goes on without sound and
             // the person hears nothing, which the in-call screen shows.
@@ -322,6 +354,13 @@ enum MediaTrouble: Error {
 
     private static func releaseAudioSession() {
         let session = RTCAudioSession.sharedInstance()
+        if CallStyle.usesCallKit {
+            // The system owns the session, and deactivating it from here is
+            // what makes the *next* call silent. Only the hand-over is
+            // closed, so WebRTC's count is even again.
+            handOver(false)
+            return
+        }
         session.lockForConfiguration()
         defer { session.unlockForConfiguration() }
         try? session.setActive(false)

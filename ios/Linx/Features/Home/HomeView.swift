@@ -7,7 +7,9 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(PhoneModel.self) private var phone
-    @State private var showThisPhone = false
+    /// Open from the start only for the screenshot that shows it
+    /// (`ios/tools/screens.sh`); always closed in a release build.
+    @State private var showThisPhone = Screen.launched == .thisPhone
 
     var body: some View {
         VStack(spacing: 0) {

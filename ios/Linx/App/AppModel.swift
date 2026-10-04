@@ -19,6 +19,11 @@ import SwiftUI
         case setUpAgain(String)
     }
 
+    /// The app's one model. A push can arrive before any screen exists, so
+    /// the delegate and the views have to be looking at the same one
+    /// (`AppDelegate`).
+    static let shared = AppModel()
+
     var state: State = .setUp
     /// Who this phone is, once it has been set up.
     var identity: PhoneIdentity?
@@ -33,9 +38,70 @@ import SwiftUI
     @ObservationIgnored lazy var phone: PhoneModel = PhoneModel(line: { [weak self] in await self?.lineForPhone() })
 
     private let session: PhoneSession
+    private let push: PushService
+    /// The last tokens Linx was told about, so the app doesn't say the same
+    /// thing again every time it signs in.
+    private var toldLinx: PushTokens?
 
-    init(session: PhoneSession = PhoneSession()) {
+    init(session: PhoneSession = PhoneSession(), push: PushService = .shared) {
         self.session = session
+        self.push = push
+    }
+
+    // MARK: - Calls to a sleeping phone (docs/PHASE2.md §5, build step 6)
+
+    /// listenForCalls runs once, at the very first moment of the app's life
+    /// (`AppDelegate`): PushKit only delivers a call to an app that was
+    /// already listening for one.
+    func listenForCalls() {
+        push.onCall = { [weak self] _, from, done in
+            Task { @MainActor in
+                await self?.woken(from: from)
+                // Apple's "I'm finished with this push", once the phone is
+                // ringing. Opening the line goes on in the background.
+                done()
+            }
+        }
+        push.onTokens = { [weak self] tokens in
+            Task { @MainActor in await self?.tellLinxWhereToReachThisPhone(tokens) }
+        }
+        push.start()
+    }
+
+    /// woken is a call arriving at a phone whose app was asleep or closed.
+    /// The phone rings first — that is all that happens here — and the line
+    /// is opened afterwards, because the call is held ringing for a few
+    /// seconds at the server's end (docs/PHASE2.md §5).
+    func woken(from: String) async {
+        guard await phone.woken(from: from) else { return }
+        Task { [weak self] in await self?.openTheLineForACall() }
+    }
+
+    private func openTheLineForACall() async {
+        if identity == nil {
+            // Launched from nothing by the push: this is the whole of
+            // signing in, and it is the same path as an ordinary start.
+            await start()
+        } else if case .signedIn = state {
+            await phone.start()
+        } else {
+            await signIn()
+        }
+    }
+
+    /// tellLinxWhereToReachThisPhone sends Apple's tokens on to Linx
+    /// (`POST /api/v1/me/phone-push`). A phone that isn't signed in yet
+    /// keeps them until it is.
+    func tellLinxWhereToReachThisPhone(_ tokens: PushTokens) async {
+        guard let identity, tokens != toldLinx else { return }
+        do {
+            let token = try await session.accessToken()
+            try await LinxClient(server: identity.server).setPhonePush(tokens, token: token)
+            toldLinx = tokens
+        } catch {
+            // Nothing to tell the person: the app says it again next time
+            // it signs in, which is every time it starts.
+        }
     }
 
     /// start runs once, as the app opens: if this phone is set up, it signs
@@ -80,6 +146,10 @@ import SwiftUI
             problem = nil
             state = .signedIn
             await phone.start()
+            // Now that there is a phone here: ask about notifications once,
+            // and tell Linx where Apple can reach it.
+            await push.askAboutNotifications()
+            if let tokens = push.current { await tellLinxWhereToReachThisPhone(tokens) }
         } catch let error as LinxError where error.setUpAgain {
             state = .setUpAgain(error.words)
         } catch let error as LinxError {
@@ -126,6 +196,7 @@ import SwiftUI
         identity = nil
         line = nil
         problem = nil
+        toldLinx = nil
         state = .setUp
     }
 }

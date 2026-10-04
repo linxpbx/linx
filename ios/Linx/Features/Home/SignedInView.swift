@@ -5,7 +5,8 @@ import SwiftUI
 /// "sign out of this phone".
 ///
 /// The Calls, Team and More screens arrive in build-order step 7
-/// (`docs/PHASE2.md` §12), and ringing a sleeping phone is steps 5 and 6.
+/// (`docs/PHASE2.md` §12); the note about ringing inside the app moves to
+/// Settings when that screen exists.
 struct SignedInView: View {
     @Environment(AppModel.self) private var model
     @Environment(PhoneModel.self) private var phone
@@ -41,11 +42,31 @@ struct SignedInView: View {
                                 .foregroundStyle(LinxColor.text)
                             Text(
                                 ready
-                                    ? "Calls come and go on this phone while the app is open. Ringing when it's asleep comes next."
+                                    ? "This phone rings for your extension, asleep or awake, and calls from it show your number."
                                     : "The app asks Linx for it every time it starts, and never keeps a password."
                             )
                             .font(.subheadline)
                             .foregroundStyle(LinxColor.textMuted)
+                        }
+                    }
+                }
+
+                // Said once, where Apple doesn't allow a call on the lock
+                // screen (ADR-078). Everywhere else there is nothing to say.
+                if let note = CallStyle.inAppRingingNote {
+                    LinxCard {
+                        HStack(alignment: .top, spacing: LinxSpace.s3) {
+                            Image(systemName: "bell.badge")
+                                .foregroundStyle(LinxColor.accent)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: LinxSpace.s1) {
+                                Text("How calls arrive here")
+                                    .font(.headline)
+                                    .foregroundStyle(LinxColor.text)
+                                Text(note)
+                                    .font(.subheadline)
+                                    .foregroundStyle(LinxColor.textMuted)
+                            }
                         }
                     }
                 }

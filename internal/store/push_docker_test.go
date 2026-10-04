@@ -100,7 +100,8 @@ func TestPushDocker(t *testing.T) {
 	}
 
 	// The app sends its tokens.
-	if err := s.SavePushTokens(ctx, device.ID, "aabbccdd", "eeff0011", push.Sandbox, now); err != nil {
+	if err := s.SavePushTokens(ctx, device.ID,
+		push.Tokens{VoIP: "aabbccdd", Alert: "eeff0011", Environment: push.Sandbox}, now); err != nil {
 		t.Fatal(err)
 	}
 	aors, wait := wake(t, ctx, pool, "PJSIP/"+username+"&PJSIP/d_nosuchone")
@@ -132,8 +133,25 @@ func TestPushDocker(t *testing.T) {
 		t.Errorf("linx_wake still names a phone whose token Apple refused: %q", aors)
 	}
 
+	// A phone where CallKit may not be used sends no VoIP token at all
+	// (ADR-078): the call still waits for it, and the gateway is given the
+	// notification token to announce it with.
+	if err := s.SavePushTokens(ctx, device.ID,
+		push.Tokens{Alert: "eeff0011", Environment: push.Sandbox, CallAlerts: true}, now); err != nil {
+		t.Fatal(err)
+	}
+	if aors, _ := wake(t, ctx, pool, "PJSIP/"+username); aors != username {
+		t.Errorf("linx_wake left out a phone that can only be told by notification: %q", aors)
+	}
+	china, err := s.WakeDevices(ctx, []string{username})
+	if err != nil || len(china) != 1 || china[0].VoIPToken != "" || china[0].AlertToken != "eeff0011" ||
+		!china[0].CallAlerts {
+		t.Fatalf("WakeDevices for a China phone = %+v, %v", china, err)
+	}
+
 	// A phone that is no longer set up is never woken, token or not.
-	if err := s.SavePushTokens(ctx, device.ID, "aabbccdd", "eeff0011", push.Sandbox, now); err != nil {
+	if err := s.SavePushTokens(ctx, device.ID,
+		push.Tokens{VoIP: "aabbccdd", Alert: "eeff0011", Environment: push.Sandbox}, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE device_identity SET expired_at = now() WHERE device_id = $1`, device.ID); err != nil {

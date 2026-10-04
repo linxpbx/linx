@@ -4,6 +4,9 @@ import SwiftUI
 /// phone and adapts on iPad (build-order step 8 adds the iPad and fold layouts).
 @main
 struct LinxApp: App {
+    /// A push can arrive before any of this exists, so the delegate is what
+    /// registers for one (`AppDelegate`) and it works on the same model.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = Screen.launched.model()
 
     var body: some Scene {
@@ -43,11 +46,11 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             // Nothing runs in the background: the websocket lives only while
             // the app is in front, and a push wakes it when a call comes
-            // (docs/PHASE2.md §7, build-order steps 5 and 6). A call in
-            // progress keeps its line until that step gives the app the
-            // background audio it needs.
+            // (docs/PHASE2.md §7, §5). A call in progress keeps its line, and
+            // so does a phone that a push has just woken and whose call is
+            // still on its way.
             // A screenshot run talks to nothing at all (`Screen`).
-            guard Screen.launched == nil, case .signedIn = model.state, model.phone.call == nil
+            guard Screen.launched == nil, case .signedIn = model.state, !model.phone.busy
             else { return }
             switch phase {
             case .background: model.phone.stop()
@@ -89,6 +92,8 @@ struct WorkingView: View {
 enum Screen: String {
     case setUpPhone = "setup-phone"
     case signedIn = "signed-in"
+    /// The home screen with "This phone" open over it.
+    case thisPhone = "this-phone"
     case setUpAgain = "set-up-again"
     case keypad
     case inCall = "in-call"
@@ -111,7 +116,7 @@ enum Screen: String {
         switch self {
         case .setUpPhone:
             break
-        case .signedIn, .keypad, .inCall, .incomingCall:
+        case .signedIn, .thisPhone, .keypad, .inCall, .incomingCall:
             model.identity = Screen.sampleIdentity
             model.line = nil
             model.state = .signedIn
@@ -157,8 +162,9 @@ enum Screen: String {
 }
 
 extension Optional where Wrapped == Screen {
-    /// A screenshot run with no `-LinxScreen` starts the app for real.
-    @MainActor func model() -> AppModel { self?.model() ?? AppModel() }
+    /// A screenshot run with no `-LinxScreen` starts the app for real, on
+    /// the one model a push also reaches (`AppModel.shared`).
+    @MainActor func model() -> AppModel { self?.model() ?? AppModel.shared }
 }
 
 #Preview {

@@ -254,6 +254,13 @@ func (g *Gateway) Wake(ctx context.Context, sipUsernames []string, c Call) {
 		g.Log.Error("writing the wake push", "err", err)
 		return
 	}
+	// The same call, for a phone that may not use CallKit: an ordinary,
+	// time-sensitive notification on the app's own topic (ADR-078).
+	announcement, err := callPayload(c)
+	if err != nil {
+		g.Log.Error("writing the call notification", "err", err)
+		return
+	}
 	now := g.now()
 	for _, d := range devices {
 		if !g.wakes.Allow("wake:"+d.DeviceID.String(), now) {
@@ -271,12 +278,24 @@ func (g *Gateway) Wake(ctx context.Context, sipUsernames []string, c Call) {
 		}
 		g.woke[d.SIPUsername] = now
 		g.mu.Unlock()
-		err := g.send(ctx, key, environmentOf(d, settings), notice{
+		n := notice{
 			Token: d.VoIPToken, Topic: settings.BundleID + ".voip", PushType: "voip",
 			// Right now or not at all: a call is no use late.
 			Priority: 10, Expiration: 0, Payload: payload,
-		})
-		g.after(ctx, d, KindWake, err)
+		}
+		kind := KindWake
+		if d.VoIPToken == "" {
+			// No CallKit where this phone is, so the call is announced
+			// instead; it is worth nothing once the caller gives up, so it
+			// expires with the ringing.
+			kind = KindCall
+			n = notice{
+				Token: d.AlertToken, Topic: settings.BundleID, PushType: "alert",
+				Priority: 10, Expiration: now.Add(CallAlertLife).Unix(), Payload: announcement,
+			}
+		}
+		err := g.send(ctx, key, environmentOf(d, settings), n)
+		g.after(ctx, d, kind, err)
 	}
 }
 
@@ -396,18 +415,25 @@ func (g *Gateway) Registered(sipUsername string) {
 
 // SaveTokens is the app saying where to reach it. The phone proves who it
 // is with its device token, as it does for its phone line.
-func (g *Gateway) SaveTokens(ctx context.Context, device uuid.UUID, voip, alert, environment string) error {
+func (g *Gateway) SaveTokens(ctx context.Context, device uuid.UUID, t Tokens) error {
 	g.init()
-	if err := checkToken(voip); err != nil {
+	if err := checkToken(t.VoIP); err != nil {
 		return err
 	}
-	if err := checkToken(alert); err != nil {
+	if err := checkToken(t.Alert); err != nil {
 		return err
 	}
-	if environment != Production && environment != Sandbox {
+	if t.Environment != Production && t.Environment != Sandbox {
 		return invalid("push_environment_invalid", "That isn't one of Apple's push services.")
 	}
-	return g.Store.SavePushTokens(ctx, device, strings.ToLower(voip), strings.ToLower(alert), environment, g.now())
+	// A phone that may not use CallKit has nowhere to put a VoIP push, and
+	// a phone that can be woken properly is never announced instead.
+	if t.CallAlerts && t.VoIP != "" {
+		return invalid("push_tokens_conflict",
+			"A phone that can't use CallKit has no VoIP token to send.")
+	}
+	t.VoIP, t.Alert = strings.ToLower(t.VoIP), strings.ToLower(t.Alert)
+	return g.Store.SavePushTokens(ctx, device, t, g.now())
 }
 
 func checkToken(t string) error {

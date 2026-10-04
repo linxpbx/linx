@@ -6,6 +6,7 @@ import Foundation
 //   POST /v1/enroll          the setup code and a certificate request
 //   POST /v1/device-token    the certificate and a signed proof → a token
 //   POST /api/v1/me/phone-line   that token → this phone's SIP login
+//   POST /api/v1/me/phone-push   where Apple can reach this phone
 //
 // Always HTTPS, always with the certificate checked (Linx never talks
 // plaintext, and the app never turns verification off). Everything is small,
@@ -158,11 +159,33 @@ struct LinxClient: Sendable {
         try await post("/api/v1/me/phone-line", body: nil, bearer: token)
     }
 
+    /// Where Apple can reach this phone: the PushKit token for calls and,
+    /// once the person allows notifications, the one for a missed call or a
+    /// new voicemail (docs/PHASE2.md §5). Linx answers 204, so there is
+    /// nothing to read back.
+    func setPhonePush(_ tokens: PushTokens, token: String) async throws {
+        _ = try await send(
+            "/api/v1/me/phone-push",
+            body: [
+                "voip_token": tokens.voip, "alert_token": tokens.alert,
+                "environment": tokens.environment, "call_alerts": tokens.callAlerts,
+            ], bearer: token)
+    }
+
     // MARK: - One request
 
     private func post<T: Decodable>(_ path: String, body: [String: String]?, bearer: String? = nil) async throws
         -> T
     {
+        let data = try await send(path, body: body, bearer: bearer)
+        do {
+            return try JSONDecoder.linx.decode(T.self, from: data)
+        } catch {
+            throw LinxError.unexpected
+        }
+    }
+
+    private func send(_ path: String, body: [String: Any]?, bearer: String?) async throws -> Data {
         var request = URLRequest(url: server.appending(path: path))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -180,11 +203,7 @@ struct LinxClient: Sendable {
         }
         guard let http = response as? HTTPURLResponse else { throw LinxError.unexpected }
         guard (200..<300).contains(http.statusCode) else { throw problem(data, status: http.statusCode) }
-        do {
-            return try JSONDecoder.linx.decode(T.self, from: data)
-        } catch {
-            throw LinxError.unexpected
-        }
+        return data
     }
 
     /// problem reads Linx's answer to something that didn't work. Linx always

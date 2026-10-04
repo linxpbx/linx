@@ -128,8 +128,10 @@ func (s *Server) SetMyPhonePush(ctx context.Context, req SetMyPhonePushRequestOb
 		return fail(&apihttp.Error{Status: http.StatusBadRequest, Code: "not_a_phone",
 			Detail: "This only works for the Linx app on a phone that has been set up."})
 	}
-	err := s.push.SaveTokens(ctx, *p.DeviceID, deref(req.Body.VoipToken), deref(req.Body.AlertToken),
-		string(req.Body.Environment))
+	err := s.push.SaveTokens(ctx, *p.DeviceID, push.Tokens{
+		VoIP: deref(req.Body.VoipToken), Alert: deref(req.Body.AlertToken),
+		Environment: string(req.Body.Environment), CallAlerts: deref(req.Body.CallAlerts),
+	})
 	if err != nil {
 		e, err := apiError(err)
 		if e == nil {

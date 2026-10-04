@@ -51,7 +51,11 @@ The app opens on the keypad. Type a number or an extension and tap the green cal
 
 While you're in a call: **Mute**, **Keypad** (for menus, extensions and PINs) and **Speaker**. **Hang up** ends it. The line at the top says **Encrypted**, and whether the sound is going straight to the other phone (**Direct**) or through your Linx server (**Relayed**) — relayed is normal on mobile data and on networks that block everything but web traffic.
 
-A call that comes in while the app is open rings on the phone and shows **Answer** and **Decline**. Ringing when the app is closed or the phone is asleep comes with the next part of the app; until then, keep Linx open on the phone to be reachable on it.
+A call that comes in while the app is open rings on the phone and shows **Answer** and **Decline**.
+
+*A call to a locked or sleeping phone* rings like any other call on an iPhone: your own ringtone, the caller on the lock screen, and Answer without unlocking. You can take it from a car, from headphones or from a watch, and it shows afterwards in the Phone app's Recents with everything else. It works with the app closed, and even after you've swiped it away. The first time you set a phone up, Linx asks to send notifications — say yes, so a missed call and a new voicemail reach you too. (An admin has to turn this on once for the whole company: see below.)
+
+In mainland China Apple doesn't allow calls on the lock screen, so Linx rings inside the app there instead: a call arrives as a notification you tap, and the app rings its own screen. The app says so on **This phone** when that's where it is.
 
 Every call is encrypted both ways, and the app has no password of any kind on it — it asks Linx for a one-time phone line each time it starts.
 
@@ -62,6 +66,8 @@ For a call to ring an iPhone or iPad whose app is closed or asleep, Linx has to 
 System → **Settings** → **Calls to the app** → **Set it up**: the team id, the key id, and the `.p8` file Apple lets you download once, pasted in. The key is sealed on this server and never shown again, and only a system admin can change it.
 
 Once it's on, a call for someone whose app is asleep waits a few seconds — the caller hears ringing — while the phone wakes up and joins; then every phone of theirs rings together, as always. The card shows how many phones have been woken and how long they took. Apple is told the call's number and nothing else: no names, and nothing about what is said.
+
+A missed call and a new voicemail also arrive as ordinary notifications, on the phones whose owner allowed them.
 
 Leave it off and nothing is sent to Apple at all; the app then rings only while it is open.
 

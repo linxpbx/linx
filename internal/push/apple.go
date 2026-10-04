@@ -124,6 +124,23 @@ func wakePayload(c Call) ([]byte, error) {
 	})
 }
 
+// callPayload announces a ringing call to a phone that may not use CallKit
+// (ADR-078). It carries exactly what a wake push carries — the call's id,
+// the caller's number and the time — with the words the lock screen shows
+// and the "time sensitive" level, which is what lets it through Focus.
+func callPayload(c Call) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"aps": map[string]any{
+			"alert":              map[string]any{"title": "Incoming call", "body": calledBy(c.From)},
+			"sound":              "ringtone.caf",
+			"interruption-level": "time-sensitive",
+		},
+		"linx": map[string]any{
+			"kind": KindCall, "call": c.ID, "from": c.From, "at": c.At.Unix(),
+		},
+	})
+}
+
 // quietPayload is a missed call or a new voicemail: the same bare facts,
 // in the words the phone shows.
 func quietPayload(kind, title, body string, badge *int) ([]byte, error) {

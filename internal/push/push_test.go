@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -116,7 +117,7 @@ func (s *store) WakeDevices(_ context.Context, names []string) ([]push.Device, e
 	out := []push.Device{}
 	for _, d := range s.devices {
 		for _, name := range names {
-			if d.SIPUsername == name && d.VoIPToken != "" {
+			if d.SIPUsername == name && (d.VoIPToken != "" || (d.CallAlerts && d.AlertToken != "")) {
 				out = append(out, d)
 			}
 		}
@@ -141,10 +142,11 @@ func (s *store) ForgetPushToken(_ context.Context, device uuid.UUID, kind string
 	return nil
 }
 
-func (s *store) SavePushTokens(_ context.Context, device uuid.UUID, voip, alert, environment string, _ time.Time) error {
+func (s *store) SavePushTokens(_ context.Context, device uuid.UUID, t push.Tokens, _ time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.saved = append(s.saved, strings.Join([]string{device.String(), voip, alert, environment}, "|"))
+	s.saved = append(s.saved, strings.Join([]string{
+		device.String(), t.VoIP, t.Alert, t.Environment, strconv.FormatBool(t.CallAlerts)}, "|"))
 	return nil
 }
 
@@ -251,6 +253,55 @@ func TestWakeSendsOneVoIPPush(t *testing.T) {
 	}
 	if head["alg"] != "ES256" || head["kid"] != "KEY1234567" {
 		t.Errorf("provider token header = %v", head)
+	}
+}
+
+func TestACallWhereCallKitMayNotBeUsed(t *testing.T) {
+	e := newEnv(t)
+	// A phone in mainland China: no VoIP token at all, a notification
+	// token, and the flag that says why (ADR-078).
+	d := e.phone("", "eeff0011")
+	d.CallAlerts = true
+	e.store.devices[len(e.store.devices)-1] = d
+	e.gateway.Wake(context.Background(), []string{d.SIPUsername}, push.Call{
+		ID: "1759500000.9", From: "+971500000002", At: e.now})
+
+	sent := e.apple.sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent %d pushes, want 1", len(sent))
+	}
+	got := sent[0]
+	// Never a VoIP push: Apple kills an app that takes one without ringing
+	// a call, and this app can't ring one (docs/PHASE2.md §14 item 1).
+	if got.Topic != "com.linxpbx.app" || got.PushType != "alert" {
+		t.Errorf("topic %q, type %q", got.Topic, got.PushType)
+	}
+	if got.Path != "/3/device/eeff0011" {
+		t.Errorf("path = %q", got.Path)
+	}
+	// It is worth delivering only while the caller is still there.
+	if got.Priority != "10" || got.Expires == "0" {
+		t.Errorf("priority %q, expiration %q", got.Priority, got.Expires)
+	}
+	aps, _ := got.Body["aps"].(map[string]any)
+	if aps["interruption-level"] != "time-sensitive" {
+		t.Errorf("aps = %v", aps)
+	}
+	alert, _ := aps["alert"].(map[string]any)
+	if alert["title"] != "Incoming call" || alert["body"] != "+971500000002" {
+		t.Errorf("what the lock screen shows = %v", alert)
+	}
+	linx, _ := got.Body["linx"].(map[string]any)
+	if linx["call"] != "1759500000.9" || linx["from"] != "+971500000002" || linx["kind"] != "call" {
+		t.Errorf("payload = %v", got.Body)
+	}
+	// The same three facts, and the kind that says which notification it
+	// is. Nothing else reaches Apple.
+	if len(linx) != 4 {
+		t.Errorf("the call notification carries more than the call, the caller and the time: %v", linx)
+	}
+	if s := e.gateway.Snapshot(); s.Sent["call"] != 1 || s.Sent["wake"] != 0 {
+		t.Errorf("counted as %v", s.Sent)
 	}
 }
 
@@ -401,17 +452,33 @@ func TestSaveRefusesAStaleEtag(t *testing.T) {
 func TestSaveTokensChecksWhatThePhoneSends(t *testing.T) {
 	e := newEnv(t)
 	device := uuid.New()
-	if err := e.gateway.SaveTokens(context.Background(), device, "AABBCC", "", push.Sandbox); err != nil {
+	if err := e.gateway.SaveTokens(context.Background(), device,
+		push.Tokens{VoIP: "AABBCC", Environment: push.Sandbox}); err != nil {
 		t.Fatalf("saving a token: %v", err)
 	}
-	if len(e.store.saved) != 1 || !strings.Contains(e.store.saved[0], "|aabbcc||sandbox") {
+	if len(e.store.saved) != 1 || !strings.Contains(e.store.saved[0], "|aabbcc||sandbox|false") {
 		t.Errorf("saved = %v", e.store.saved)
 	}
-	if err := e.gateway.SaveTokens(context.Background(), device, "not-a-token", "", push.Production); err == nil {
+	if err := e.gateway.SaveTokens(context.Background(), device,
+		push.Tokens{VoIP: "not-a-token", Environment: push.Production}); err == nil {
 		t.Error("a token that isn't hex was accepted")
 	}
-	if err := e.gateway.SaveTokens(context.Background(), device, "aabb", "", "elsewhere"); err == nil {
+	if err := e.gateway.SaveTokens(context.Background(), device,
+		push.Tokens{VoIP: "aabb", Environment: "elsewhere"}); err == nil {
 		t.Error("an unknown push service was accepted")
+	}
+	// A phone that may not use CallKit sends a notification token and the
+	// flag, and never a VoIP token with it (ADR-078).
+	if err := e.gateway.SaveTokens(context.Background(), device,
+		push.Tokens{VoIP: "aabb", Alert: "ccdd", Environment: push.Production, CallAlerts: true}); err == nil {
+		t.Error("a VoIP token was accepted from a phone that can't use CallKit")
+	}
+	if err := e.gateway.SaveTokens(context.Background(), device,
+		push.Tokens{Alert: "CCDD", Environment: push.Production, CallAlerts: true}); err != nil {
+		t.Fatalf("saving a China phone's tokens: %v", err)
+	}
+	if last := e.store.saved[len(e.store.saved)-1]; !strings.Contains(last, "||ccdd|production|true") {
+		t.Errorf("saved = %v", last)
 	}
 }
 

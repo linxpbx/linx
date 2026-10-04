@@ -6,8 +6,10 @@ import Foundation
 // pattern the web client rings (web/src/phone/ringtone.ts), so the two sound
 // like one product.
 //
-// On a locked or sleeping phone the ring is CallKit's, not this one
-// (build-order step 6): the system rings with the person's own ringtone.
+// This is not the ring for a locked or sleeping phone: that one is the
+// system's own, through CallKit, played with the person's own ringtone. The
+// app only rings for itself where CallKit may not be used — mainland China
+// (ADR-078) — and while it is already open there.
 
 @MainActor final class Ringer {
     private var player: AVAudioPlayer?

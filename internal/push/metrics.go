@@ -57,12 +57,12 @@ func (g *Gateway) WriteMetrics(b *strings.Builder) {
 	s := g.Snapshot()
 	fmt.Fprintf(b, "# HELP linx_push_sent_total Pushes Apple accepted, by what they were for.\n")
 	fmt.Fprintf(b, "# TYPE linx_push_sent_total counter\n")
-	for _, kind := range []string{KindWake, KindMissed, KindVoicemail} {
+	for _, kind := range []string{KindWake, KindCall, KindMissed, KindVoicemail} {
 		fmt.Fprintf(b, "linx_push_sent_total{kind=%q} %d\n", kind, s.Sent[kind])
 	}
 	fmt.Fprintf(b, "# HELP linx_push_failed_total Pushes that didn't go out.\n")
 	fmt.Fprintf(b, "# TYPE linx_push_failed_total counter\n")
-	for _, kind := range []string{KindWake, KindMissed, KindVoicemail} {
+	for _, kind := range []string{KindWake, KindCall, KindMissed, KindVoicemail} {
 		fmt.Fprintf(b, "linx_push_failed_total{kind=%q} %d\n", kind, s.Failed[kind])
 	}
 	fmt.Fprintf(b, "# HELP linx_push_dead_tokens_total Push tokens Apple refused as no longer good.\n")

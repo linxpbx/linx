@@ -51,6 +51,8 @@ import Testing
     private(set) var muted = false
     private(set) var speaker = false
     private(set) var tones = ""
+    /// Whether the system has handed over the microphone and the speaker.
+    private(set) var systemAudioOn: Bool?
 
     func offer() async throws -> String { "v=0\r\nlinx-offer\r\n" }
 
@@ -63,6 +65,7 @@ import Testing
     func setMuted(_ muted: Bool) { self.muted = muted }
     func setSpeaker(_ on: Bool) { speaker = on }
     func sendTone(_ digit: Character) { tones.append(digit) }
+    func systemAudio(_ on: Bool) { systemAudioOn = on }
     func stop() { stopped = true }
 }
 

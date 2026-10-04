@@ -14,7 +14,7 @@ bundle=com.linxpbx.app
 
 # Every screen the app can be launched straight into. The app reads -LinxScreen
 # in debug builds; more screens join this list as they are built.
-screens=(setup-phone signed-in keypad in-call incoming-call set-up-again)
+screens=(setup-phone signed-in this-phone keypad in-call incoming-call set-up-again)
 
 udid=$(tools/sim.sh "$device")
 mkdir -p "$out"

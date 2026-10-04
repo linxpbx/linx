@@ -962,9 +962,9 @@ verify_server_hostname = yes
 // that line (migration 0040), no row if the line isn't a gateway's.
 //
 // LINX_WAKE(targets): of the devices this step is about to ring, which are
-// app phones that can be woken by a push, and how long to wait for them
-// (migration 0042, ADR-074). The answer is empty unless the Apple key is
-// in place, so a server without push never waits.
+// app phones a push can reach, and how long to wait for them (migrations
+// 0042 and 0043, ADR-074 and ADR-078). The answer is empty unless the
+// Apple key is in place, so a server without push never waits.
 const funcOdbcConf = `; Rendered by linx-asterisk-entrypoint.
 [ROUTE]
 prefix = LINX

@@ -2737,7 +2737,7 @@ export interface paths {
         put?: never;
         /**
          * Where Apple can reach this phone
-         * @description For the Linx app, with its device token (ADR-074, docs/PHASE2.md §5). The app sends the token Apple gave it for calls (PushKit) and, once the person allows notifications, the one for a missed call or a new voicemail. Sending an empty token forgets that one. Anything that isn't a set-up phone gets 400 `not_a_phone`.
+         * @description For the Linx app, with its device token (ADR-074, docs/PHASE2.md §5). The app sends the token Apple gave it for calls (PushKit) and, once the person allows notifications, the one for a missed call or a new voicemail. Sending an empty token forgets that one. Where CallKit may not be used (mainland China, ADR-078) the app sends no PushKit token and sets `call_alerts` instead, and a ringing call reaches it as a time-sensitive notification. Anything that isn't a set-up phone gets 400 `not_a_phone`.
          */
         post: operations["setMyPhonePush"];
         delete?: never;
@@ -10486,6 +10486,11 @@ export interface operations {
                      * @enum {string}
                      */
                     environment: "production" | "sandbox";
+                    /**
+                     * @description This phone may not use CallKit, so announce a ringing call with a time-sensitive notification instead. It may not be sent together with a PushKit token.
+                     * @default false
+                     */
+                    call_alerts?: boolean;
                 };
             };
         };

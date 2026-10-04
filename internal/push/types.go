@@ -40,6 +40,10 @@ const (
 	KindWake      = "wake"
 	KindMissed    = "missed_call"
 	KindVoicemail = "voicemail"
+	// KindCall is the same ringing call as KindWake, announced to a phone
+	// that may not use CallKit (ADR-078): an ordinary, time-sensitive
+	// notification instead of a VoIP push.
+	KindCall = "call"
 )
 
 // Limits (docs/PHASE2.md §5).
@@ -58,6 +62,11 @@ const (
 	// QuietPerHour bounds the missed-call and voicemail notifications one
 	// device is sent.
 	QuietPerHour = 60
+
+	// CallAlertLife is how long a call notification is worth delivering to
+	// a phone that may not use CallKit (ADR-078). It is the ringing, near
+	// enough: after that the caller has gone or is in someone's voicemail.
+	CallAlertLife = 45 * time.Second
 
 	// SendTimeout bounds one request to Apple.
 	SendTimeout = 10 * time.Second
@@ -108,6 +117,18 @@ type Device struct {
 	VoIPToken   string
 	AlertToken  string
 	Environment string
+	// CallAlerts: this phone may not use CallKit (mainland China,
+	// ADR-078), so a call reaches it as a time-sensitive notification on
+	// the app's ordinary topic and never as a VoIP push.
+	CallAlerts bool
+}
+
+// Tokens is what one app phone says about where Apple can reach it.
+type Tokens struct {
+	VoIP        string
+	Alert       string
+	Environment string
+	CallAlerts  bool
 }
 
 // Call is what a wake push says: the call's id, who is calling, and when.
@@ -124,8 +145,9 @@ type Call struct {
 type Store interface {
 	PushSettings(ctx context.Context) (Settings, []byte, error)
 	SavePushSettings(ctx context.Context, s Settings, keyEnc []byte, ifVersion int, audit auth.AuditEntry) (Settings, error)
-	// WakeDevices returns the app phones for these SIP usernames that have
-	// a VoIP token and are still set up.
+	// WakeDevices returns the app phones for these SIP usernames that are
+	// still set up and can be rung: a VoIP token, or a notification token
+	// and CallAlerts.
 	WakeDevices(ctx context.Context, sipUsernames []string) ([]Device, error)
 	// AlertDevices returns the app phones of whoever has this extension
 	// that may show a quiet notification.
@@ -134,7 +156,7 @@ type Store interface {
 	// to it again until the app gives Linx a new one.
 	ForgetPushToken(ctx context.Context, device uuid.UUID, kind string, at time.Time) error
 	// SavePushTokens is the app telling Linx where to reach it.
-	SavePushTokens(ctx context.Context, device uuid.UUID, voip, alert, environment string, at time.Time) error
+	SavePushTokens(ctx context.Context, device uuid.UUID, t Tokens, at time.Time) error
 }
 
 var (

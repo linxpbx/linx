@@ -9,9 +9,11 @@ ios/
   Linx/
     App/                 LinxApp.swift (which screen is on) and AppModel (what the app is doing)
     Core/                being set up and signed in: the Secure Enclave key, the certificate
-                         request (DER), the proof, the Keychain, and the three calls to Linx
+                         request (DER), the proof, the Keychain, and the calls to Linx
       SIP/               the app's own SIP: messages, digest, the websocket, the user agent
       Media/             the sound: WebRTC, the Opus settings, the ring
+      Call/              the system's side of a call: CallKit, and China's in-app ringing
+      Push/              being woken for a call: PushKit, notifications, Apple's tokens
     DesignSystem/        buttons, cards and the page background, all from the tokens
     Features/            one folder per part of the app (Enrollment, Home, Phone)
     Generated/           DesignTokens.swift — `make tokens`, never edited by hand
@@ -79,8 +81,52 @@ way (`internal/db/migrations/0041_ios_devices.sql`).
   keypad, speaker, hang up); hold, transfer, park, record and video arrive with the steps that
   build them, because App Review refuses placeholders.
 - **While the app is in front, and no longer.** The websocket opens when the app comes
-  forward and closes when it goes away; a call in progress keeps it. Ringing a sleeping phone
-  is push and CallKit (build steps 5 and 6).
+  forward and closes when it goes away; a call in progress keeps it, and so does a phone a
+  push has just woken whose call is still on its way.
+
+## How a sleeping phone rings (build step 6)
+
+A call for someone whose app is asleep goes: Linx asks Apple to wake it → Apple delivers a
+**VoIP push** → the app reports the call to **CallKit** at once → the system rings the phone
+with the person's own ringtone, on the lock screen, in a car → the app signs its line in while
+the server holds the call ringing → Asterisk's invitation arrives and the call is the one the
+system is already showing.
+
+- **Ready before there is a screen** (`App/AppDelegate.swift`). PushKit only delivers a call
+  to an app that was already listening, and a push to a closed app launches it with no window,
+  so registering happens in the delegate's first moment rather than a view's `task`. SwiftUI
+  keeps the lifecycle; `AppModel.shared` is the one model the delegate and the screens share.
+- **Report first, everything else after** (`AppModel.woken`, `PhoneModel.woken`). iOS kills an
+  app that takes a VoIP push without reporting a call, and stops sending pushes to one that
+  keeps doing it, so nothing — no token, no network, no database — happens before the report.
+  A phone woken for a call that never comes stops ringing after 20 seconds and closes its line
+  again, because a registration left behind would make Linx think the phone is awake.
+- **The system owns the call** (`Core/Call`). Every button goes one way round: the app **asks**
+  the system (`CXCallController`), the system **tells** the app (`CXProviderDelegate`), and
+  only then does the app act — so the lock screen, a car and the app's own screen can never
+  disagree. `SystemCalls` is the seam, with `CallKitCalls` the real one and `NoSystemCalls`
+  for China and the tests.
+- **The sound waits to be handed over.** WebRTC is in **manual audio** mode whenever CallKit is
+  in charge: a call's sound starts in `didActivate` and nowhere else, which is what stops the
+  dropouts on an answered call.
+- **Which call is which.** The push carries the call's id, but Asterisk's invitation doesn't,
+  so the two are matched on the caller's number (digits only) and otherwise on which push has
+  been waiting longest. The phone has one line: a second caller hears busy and goes to
+  voicemail, and their push is reported and then ended at once, because iOS is watching.
+- **China** (`Core/Call/CallStyle.swift`, ADR-078). Apple doesn't allow CallKit there, so the
+  app sends **no PushKit token** and tells Linx `call_alerts` instead: a ringing call arrives as
+  a time-sensitive notification to tap, the app rings on its own screen, and the signed-in
+  screen says so once.
+- **Which Apple** (`Core/Push/PushEnvironment.swift`). A token from a development build only
+  works on Apple's sandbox, so the app reads `aps-environment` out of its own provisioning
+  profile and tells Linx; a TestFlight phone and an Xcode build both ring without a setting.
+- **What it asks iOS for**: background modes `voip` and `audio` and nothing else
+  (`ios/Info.plist`), and the Push Notifications entitlement (`ios/Linx.entitlements`, which
+  signing turns into `production` for TestFlight and the App Store).
+
+**Not here yet:** the CallKit icon on the lock screen (a monochrome template, worth doing with
+the dark and tinted app icons when the app goes to TestFlight), and the real-device tests of
+every ringing case, which are the demo's job (`docs/PHASE2.md` §13).
 
 ## Google's WebRTC
 
