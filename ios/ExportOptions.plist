@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- How `make ios-archive` exports what it built, for TestFlight and the
+	     App Store (docs/ops/APPLE_SIGNING.md). Xcode makes the distribution
+	     certificate and profile itself from the team below, which is why the
+	     owner's Apple ID has to be in Xcode → Settings → Accounts first. -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>AY75S2Z9UK</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<!-- Apple's own thinning happens on its side; one build goes up. -->
+	<key>uploadSymbols</key>
+	<true/>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>

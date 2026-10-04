@@ -108,17 +108,38 @@ all** and a sleeping phone simply doesn't ring.
 
 ## Part 3 — Who can put a build on your phone
 
-**What I can do from this Mac**, once Part 1 is done and your Apple ID is
-added in Xcode (Xcode → Settings → Accounts → +):
+**Two `make` targets do it** (added 2026-10-04):
 
-- build and archive the app;
-- export it, signed with your distribution certificate (Xcode creates and
-  stores that itself the first time, under "Automatically manage signing");
-- upload it to App Store Connect, which is what puts it in TestFlight.
+```
+make ios-archive   # archive + export a signed build into ios/build/archive/export
+make ios-upload    # send that build to App Store Connect (TestFlight)
+```
 
-With the API key from step 5 that is one command and needs nothing typed by
-you. **I will not run it without you saying so for that particular build** —
-it publishes something under your name to a service outside this machine.
+`make ios-archive` refuses with a plain message if there is no signing
+identity on this Mac, which is the state until the step below is done.
+`make ios-upload` needs the App Store Connect API key from Part 1 step 5:
+put the `.p8` in `~/.appstoreconnect/private_keys/` and run it with
+`LINX_ASC_KEY_ID=... LINX_ASC_ISSUER=... make ios-upload`.
+
+**The one thing only you can do, and it is interactive:**
+
+> **Xcode → Settings → Accounts → +** → Apple ID → sign in (it asks for your
+> password and a code on your phone). Once, on this Mac.
+
+That is what lets Xcode make the distribution certificate and the
+provisioning profile. Until then `security find-identity -v -p codesigning`
+says "0 valid identities found" and no signed build is possible by any route.
+
+**I will not upload a build without you saying so for that particular
+build** — it publishes something under your name to a service outside this
+machine.
+
+**Worth checking on the first signed archive:** the entitlement
+`aps-environment` must come out as `production` in the exported build (it says
+`development` in `ios/Linx.entitlements`, and Xcode is expected to substitute
+it when exporting for the App Store). If the upload is refused over it, the
+fix is a Release-only entitlements file. The app itself reads which Apple it
+belongs to out of its own profile, so it behaves correctly either way.
 
 **What stays yours, because Apple requires a person:**
 

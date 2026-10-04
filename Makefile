@@ -125,6 +125,32 @@ ios-build-device: ios-deps ## Build the app for a real iPhone, Release, no signi
 		CODE_SIGNING_ALLOWED=NO 2>&1); then echo "ios device build: ok"; \
 	else echo "$$out" | grep -E "error:" | sort -u | head -40; echo "ios device build: FAILED"; exit 1; fi
 
+.PHONY: ios-archive
+ios-archive: ios-deps ## Archive and export the app for TestFlight (needs the owner's Apple ID in Xcode; docs/ops/APPLE_SIGNING.md)
+	@xcrun security find-identity -v -p codesigning 2>/dev/null | grep -q "valid identities found" \
+		&& [ "$$(xcrun security find-identity -v -p codesigning | tail -1 | awk '{print $$1}')" != "0" ] \
+		|| { echo "ios archive: no signing identity on this Mac."; \
+		     echo "  Add the Apple ID in Xcode → Settings → Accounts → + (once), then run this again."; \
+		     echo "  docs/ops/APPLE_SIGNING.md has the rest."; exit 1; }
+	@rm -rf ios/build/archive && mkdir -p ios/build/archive
+	@if out=$$(xcodebuild archive -project $(IOS_PROJECT) -scheme Linx -configuration Release \
+		-destination 'generic/platform=iOS' -archivePath ios/build/archive/Linx.xcarchive \
+		-allowProvisioningUpdates 2>&1); then echo "ios archive: built"; \
+	else echo "$$out" | grep -E "error:" | sort -u | head -20; echo "ios archive: FAILED"; exit 1; fi
+	@if out=$$(xcodebuild -exportArchive -archivePath ios/build/archive/Linx.xcarchive \
+		-exportOptionsPlist ios/ExportOptions.plist -exportPath ios/build/archive/export \
+		-allowProvisioningUpdates 2>&1); then \
+		echo "ios archive: exported $$(ls ios/build/archive/export/*.ipa)"; \
+	else echo "$$out" | grep -E "error:" | sort -u | head -20; echo "ios export: FAILED"; exit 1; fi
+
+.PHONY: ios-upload
+ios-upload: ## Upload the exported build to TestFlight (needs LINX_ASC_KEY_ID and LINX_ASC_ISSUER; the owner says when)
+	@[ -n "$(LINX_ASC_KEY_ID)" ] && [ -n "$(LINX_ASC_ISSUER)" ] \
+		|| { echo "ios upload: set LINX_ASC_KEY_ID and LINX_ASC_ISSUER (App Store Connect API key)."; \
+		     echo "  docs/ops/APPLE_SIGNING.md, Part 1 step 5. The .p8 goes in ~/.appstoreconnect/private_keys/."; exit 1; }
+	@xcrun altool --upload-app -f $$(ls ios/build/archive/export/*.ipa) -t ios \
+		--apiKey $(LINX_ASC_KEY_ID) --apiIssuer $(LINX_ASC_ISSUER) && echo "ios upload: sent to App Store Connect"
+
 .PHONY: ios-test
 ios-test: ios-deps ## Run the app's unit tests on a simulator
 	@udid=$$(ios/tools/sim.sh "$(IOS_SIM_DEVICE)") \
