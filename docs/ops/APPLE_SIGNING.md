@@ -184,6 +184,23 @@ unsigned, with no Apple account and no secrets, and that stays true.
 
 ---
 
+## What the first upload actually looked like (2026-10-04)
+
+```
+make ios-archive
+LINX_ASC_KEY_ID=<key id> LINX_ASC_ISSUER=<issuer id> make ios-upload
+```
+
+Linx **0.1.0 (1)**, 6.7 MB, signed *Apple Distribution: Mohammed AlMudharreb
+(AY75S2Z9UK)*, `aps-environment = production`, `beta-reports-active` set. The
+upload itself took about two minutes. **A build number can only be used once,
+ever**: the next upload must be build 2, whatever its version number.
+
+Apple then processes the build for a few minutes before it can be given to
+testers; it appears in **TestFlight → iOS Builds** when it is ready, and
+App Store Connect emails if it is rejected (usually a missing icon size or a
+privacy manifest).
+
 ## Letting other people test it
 
 **Internal testers — up to 100, no review, builds appear in minutes.** They
