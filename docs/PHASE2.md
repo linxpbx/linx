@@ -121,7 +121,7 @@ The push gateway is built so the destination is one setting: Apple directly now,
 8. **iPad, adaptive and fold layouts**: `ArrangementView` / `ReservedRegion` behind an iOS 27.1 check, screenshots of every screen on iPhone, iPad and the **iPhone Duo simulator folded and unfolded**, compared with `docs/ui/`.
 9. **Lifetime and loss**: renewal, the six-month idle expiry, revoke-everywhere, "set this phone up again", plus the security review and `THREAT_MODEL.md` rows.
 9b. **`*97` and the message-waiting light** (owner, 2026-10-04, folded into this phase): dialling `*97` from a desk phone reaches that phone's own voicemail, and the light comes on when there is a new message and goes out when there isn't. Both need Linx to control the call through ARI, which step 5 built.
-10. **Finish**: `TEST_MATRIX.md` (with the China rows), `APPLE_SIGNING.md`, `STORE_SUBMISSION.md`, resource and data-per-minute measurements in `docs/RESOURCES.md`, `docs/DEMO_PHASE2.md`, and the demo on the test VPS.
+10. **Finish**: `TEST_MATRIX.md` (with the China rows), ~~`APPLE_SIGNING.md`~~ (**written 2026-10-04 as `docs/ops/APPLE_SIGNING.md`**, because the owner needed it before the signing session rather than after), `STORE_SUBMISSION.md`, resource and data-per-minute measurements in `docs/RESOURCES.md`, `docs/DEMO_PHASE2.md`, and the demo on the test VPS.
 
 ### Step 7, as built (2026-10-04)
 **The app is the whole app now**: four tabs — **Calls**, **Team**, **Keypad**, **More** (Voicemail, Settings) — and 1:1 video. Four and no more: Meetings arrive with Phase 3 and Chat with Phase 4, and App Review refuses a tab that does nothing (§14 item 2).
