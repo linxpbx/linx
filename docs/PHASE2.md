@@ -72,6 +72,8 @@ The push gateway is built so the destination is one setting: Apple directly now,
 - **UIKit**: `UIArrangementViewController`, `UISplitArrangement`, `UIOverlayArrangement`, `UIArrangementViewState`, `UISplitArrangementDimension(Range)`, and `UIView.ReservedRegion` (`frame`, `kind`, `margins`, `isActive`, `Kind`, `QueryOptions`).
 - Together these are what keep a call's buttons, the caller's name and the video tile off the fold and out from under the camera.
 
+**The iPad must look like an iPad app, not a stretched iPhone one** (owner, 2026-10-04). A sidebar alone is not enough: step 8 gives each tab a **list beside a detail**, the way Mail and Messages do — Calls with the call's own details next to the list, Team with the person's card, Voicemail with the player, and the keypad laid out for a tablet rather than a phone's column floated in the middle. A call in progress sits beside the list rather than covering everything. Nothing in the app may look like a phone screen stretched to fill a 13-inch display.
+
 **What this means for Phase 2:**
 - **Done 2026-10-03:** the beta is installed as above. 27.0 stays the one that builds releases and CI until 27.1 is final, around the phone's launch. The app project will pin which Xcode it needs per build setting, and `make ios-screens` names the beta explicitly (`DEVELOPER_DIR`), so neither Xcode can be picked up by accident.
 - Screens are built adaptive by size first (`NavigationSplitView`, size classes, no hard-coded widths), so they are right on every iPhone and iPad and when a window changes size *while* open.
@@ -98,12 +100,12 @@ The push gateway is built so the destination is one setting: Apple directly now,
 | # | Question | My recommendation |
 |---|---|---|
 | 1 | ~~Apple Developer Program~~ | **Answered 2026-10-03: you have the subscription.** Nothing blocked. |
-| 2 | **Test devices**: which iPhone and iPad, both on iOS 27? | Your own iPhone plus one iPad. Push and CallKit can't be tested any other way. |
-| 3 | **Push for other self-hosters** (§6) | **(a) now**: your server, your Apple key, nothing third-party, works in China. Decide on a Linx push relay (b) when the app goes to the App Store for other people (Phase 5+). |
+| 2 | ~~**Test devices**~~ **Answered 2026-10-04: iPhone 18 Pro Max and iPad Pro 13-inch (M5).** The screenshots are taken on exactly those two from now on. | — |
+| 3 | ~~**Push for other self-hosters**~~ **Answered 2026-10-04: (a), your own key only.** Your server, your Apple key, nothing passes through anyone else, works in China. A Linx-run relay is revisited only when the app goes to the App Store for other people (Phase 5+). | — |
 | 4 | **Foldable iPhone** (§8): the simulator and APIs exist, but only in the **Xcode 27.1 beta**. Develop the app on a beta Xcode, or stay on 27.0 and add the fold layout when 27.1 is final (about 23 October)? | **Install the 27.1 beta and use it for the app**, keeping 27.0 for release builds and CI. Nothing else about Phase 2 depends on the beta, the fold layout gets designed from the start rather than retrofitted, and the only cost is one extra Xcode on disk (~10 GB). |
 | 4b | **Minimum iOS version** for the app | **iOS 26.0.** One version back covers every phone people actually carry, keeps SwiftUI simple, and the fold APIs sit behind an `iOS 27.1` check anyway. |
 | 5 | ~~**Where the app goes first**~~ **Answered 2026-10-03: TestFlight, but not until push and CallKit are in** (steps 5 and 6), so the first build the owner installs can ring. Signing and the App Store Connect record are set up then (they need the Apple Team ID), before step 7. | **TestFlight first.** The trademark check (`ADR-015`) and `STORE_SUBMISSION.md` get written in Phase 2; submitting can wait until Phase 3's meetings are in, so reviewers see the finished app. |
-| 6 | **`*97` and the message-waiting light** (parked in Phase 1F because they need ARI, which step 5 below adds): fold them into Phase 2 or keep them separate? | **Keep them separate**, right after Phase 2: they're small then, and they'd stretch an already long phase. |
+| 6 | ~~**`*97` and the message-waiting light**~~ **Answered 2026-10-04: fold them into Phase 2.** They become build-order step 9b below, before the finish. *(I had recommended keeping them separate; the owner decided otherwise, and that is the plan.)* | — |
 | 7 | **Chat tab**: show it with a "coming later" card, or leave it out until Phase 4? | **Leave it out** — this reverses what I recommended earlier today. App Review's "app completeness" rule (2.1) rejects visible placeholder or "coming soon" content, and you asked for no rejections. Four tabs in Phase 2, Chat added in Phase 4. §14 has the rest. |
 
 ## 12. Build order (one session each, in this order)
@@ -118,6 +120,7 @@ The push gateway is built so the destination is one setting: Apple directly now,
 7. ~~**The rest of the app**~~ — **done 2026-10-04**: the four tabs, 1:1 video with a layout that follows the screen, Calls, Team with presence, Voicemail and Settings. "Step 7, as built" below.
 8. **iPad, adaptive and fold layouts**: `ArrangementView` / `ReservedRegion` behind an iOS 27.1 check, screenshots of every screen on iPhone, iPad and the **iPhone Duo simulator folded and unfolded**, compared with `docs/ui/`.
 9. **Lifetime and loss**: renewal, the six-month idle expiry, revoke-everywhere, "set this phone up again", plus the security review and `THREAT_MODEL.md` rows.
+9b. **`*97` and the message-waiting light** (owner, 2026-10-04, folded into this phase): dialling `*97` from a desk phone reaches that phone's own voicemail, and the light comes on when there is a new message and goes out when there isn't. Both need Linx to control the call through ARI, which step 5 built.
 10. **Finish**: `TEST_MATRIX.md` (with the China rows), `APPLE_SIGNING.md`, `STORE_SUBMISSION.md`, resource and data-per-minute measurements in `docs/RESOURCES.md`, `docs/DEMO_PHASE2.md`, and the demo on the test VPS.
 
 ### Step 7, as built (2026-10-04)

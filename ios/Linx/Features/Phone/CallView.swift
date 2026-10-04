@@ -26,6 +26,25 @@ struct CallView: View {
             }
         }
         .onReceive(Self.tick) { now = $0 }
+        // They turned their camera on and this phone's is off: ask once
+        // (ADR-079, owner 2026-10-04). "Not now" leaves a one-way video
+        // call, which carries on exactly as it is.
+        .alert(
+            theirVideoQuestion,
+            isPresented: Binding(
+                get: { phone.askAboutTheirVideo != nil },
+                set: { if !$0 { phone.answeredAboutTheirVideo(turningMineOn: false) } })
+        ) {
+            Button("Turn mine on too") { phone.answeredAboutTheirVideo(turningMineOn: true) }
+            Button("Not now", role: .cancel) { phone.answeredAboutTheirVideo(turningMineOn: false) }
+        } message: {
+            Text("You can see them either way. Turning your camera on lets them see you.")
+        }
+    }
+
+    private var theirVideoQuestion: String {
+        guard let peer = phone.askAboutTheirVideo else { return "" }
+        return "\(peer.name) turned their camera on"
     }
 
     /// A call with no picture in it: the screen the app has always had.

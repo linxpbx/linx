@@ -181,6 +181,51 @@ struct VideoTests {
         #expect(media.answeredOffer == FakeMedia.videoOffer)
     }
 
+    @Test("they turn their camera on: this phone asks once, and a no leaves a one-way call")
+    func askedAboutTheirVideo() async throws {
+        let (phone, transport, media, _) = try await inACall()
+        #expect(phone.askAboutTheirVideo == nil)
+
+        // Their camera arrives.
+        media.onVideoChanged?(CallVideo(mine: false, theirs: true))
+        #expect(phone.askAboutTheirVideo?.number == "1024")
+
+        // "Not now": the call carries on with their picture and none of
+        // this phone's, and nothing is sent about it.
+        let before = transport.count("INVITE")
+        phone.answeredAboutTheirVideo(turningMineOn: false)
+        #expect(phone.askAboutTheirVideo == nil)
+        #expect(phone.call?.video == CallVideo(mine: false, theirs: true))
+        #expect(transport.count("INVITE") == before)
+        #expect(phone.call?.phase == .active)
+    }
+
+    @Test("they turn their camera on and the person says yes: this phone's goes on too")
+    func saidYesToTheirVideo() async throws {
+        let (phone, transport, media, _) = try await inACall()
+        media.onVideoChanged?(CallVideo(mine: false, theirs: true))
+        #expect(phone.askAboutTheirVideo != nil)
+
+        phone.answeredAboutTheirVideo(turningMineOn: true)
+        #expect(phone.askAboutTheirVideo == nil)
+        #expect(await eventually { media.video.mine })
+        #expect(await eventually { transport.last("INVITE")?.body.contains("m=video") == true })
+    }
+
+    @Test("nobody is asked when this phone's camera is already on")
+    func notAskedWhenAlreadySending() async throws {
+        let (phone, transport, media, _) = try await inACall()
+        phone.toggleVideo()
+        #expect(await eventually { media.video.mine })
+        var ok = SIPMessage.response(200, "OK", to: try #require(transport.last("INVITE"))).withTag("theirs")
+        ok.body = FakeMedia.videoAnswer
+        transport.asterisk(ok)
+        #expect(await eventually { phone.call?.video == CallVideo(mine: true, theirs: true) })
+        // Their camera came on, but this phone was already sending: there
+        // is nothing to ask.
+        #expect(phone.askAboutTheirVideo == nil)
+    }
+
     @Test("the camera is refused: the person is told, and nothing is sent")
     func cameraRefused() async throws {
         let (phone, transport, media, _) = try await inACall()

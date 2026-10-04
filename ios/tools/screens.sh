@@ -56,7 +56,9 @@ shoot() { # screen appearance orientation name
     pgrep -f "$(basename "$app")/Linx" >/dev/null && break
     sleep 0.25
   done
-  sleep 1.5
+  # Long enough for the screen to settle: a list with a search field slides
+  # it in, and a shot taken during that catches it half-faded.
+  sleep 3
   xcrun simctl io "$udid" screenshot --type=png $display "$out/$name-$appearance.png" >/dev/null 2>&1
   echo "screens: $out/$name-$appearance.png"
 }

@@ -68,6 +68,11 @@ import UIKit
     private(set) var tracks = VideoTracks()
     /// Whether this phone's own picture should be mirrored (a front camera).
     private(set) var mirrorsMyVideo = true
+    /// They turned their camera on while this phone's was off, so the
+    /// person is asked once whether to turn theirs on too (ADR-079, owner
+    /// 2026-10-04). Saying no leaves a **one-way video call**, which is a
+    /// perfectly ordinary call: they are seen, this phone is heard.
+    private(set) var askAboutTheirVideo: SIPPeer?
     private(set) var recent: [Recent] = []
     /// The last thing that didn't work, for the screen to show once.
     private(set) var problem: String?
@@ -174,6 +179,7 @@ import UIKit
         if let call { calls.reportEnded(id: call.id, .failed) }
         call = nil
         videoOnceAnswered = false
+        askAboutTheirVideo = nil
         forgetWhatWasWoken(.missed)
         status = .starting
     }
@@ -378,12 +384,25 @@ import UIKit
         mirrorsMyVideo = liveMedia?.mirrorsMyVideo ?? true
     }
 
+    /// The person has answered the question above, one way or the other.
+    func answeredAboutTheirVideo(turningMineOn: Bool) {
+        askAboutTheirVideo = nil
+        if turningMineOn { toggleVideo() }
+    }
+
     private func videoChanged(_ video: CallVideo) {
         guard var current = call else { return }
         let was = current.video
         current.video = video
         call = current
         mirrorsMyVideo = liveMedia?.mirrorsMyVideo ?? true
+        // Asked once, each time their camera comes on while this phone's is
+        // off. Never while this phone is already sending: there is nothing
+        // to ask then.
+        if !was.theirs, video.theirs, !video.mine {
+            askAboutTheirVideo = current.peer
+        }
+        if video.mine { askAboutTheirVideo = nil }
         // The system shows a call with a picture in it as a video call.
         if was.on != video.on { calls.reportVideo(id: current.id, on: video.on) }
         if was.theirs != video.theirs, video.theirs, !current.speaker {
@@ -549,6 +568,7 @@ import UIKit
         ringer.stop()
         guard let finished = call else { return }
         call = nil
+        askAboutTheirVideo = nil
         calls.reportEnded(id: finished.id, Self.ending(why))
         if case .failed(let said) = why { problem = said }
         defer { closeIfNobodyIsLooking() }
