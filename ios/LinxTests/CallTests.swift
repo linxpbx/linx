@@ -47,6 +47,8 @@ import Testing
     var onConnection: ((MediaConnection) -> Void)?
     var onRoute: ((AudioRoute) -> Void)?
     var onRouteTrouble: ((String) -> Void)?
+    var diagnostics = CallDiagnostics()
+    var onDiagnostics: ((CallDiagnostics) -> Void)?
     private(set) var acceptedAnswer: String?
     private(set) var answeredOffer: String?
     private(set) var stopped = false
@@ -118,6 +120,18 @@ import Testing
     }
     private(set) var relayGiven: PhoneLine.Turn?
     func use(relay: PhoneLine.Turn) { relayGiven = relay }
+
+    /// What a call found out about itself, as WebRTCMedia would say it.
+    func found(_ what: CallDiagnostics) {
+        diagnostics = what
+        onDiagnostics?(what)
+    }
+
+    /// Where the sound is, as the system would say it.
+    func soundComesOut(of route: AudioRoute) { onRoute?(route) }
+
+    /// Their camera came on, or went off, as WebRTC would say it.
+    func pretendTheirVideo(_ on: Bool) { setVideo(CallVideo(mine: video.mine, theirs: on)) }
     func sendTone(_ digit: Character) { tones.append(digit) }
     func systemAudio(_ on: Bool) { systemAudioOn = on }
     func stop() { stopped = true }

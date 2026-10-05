@@ -22,6 +22,9 @@ struct MediaConnection: Equatable, Sendable {
     var relayProtocol: String?
     /// Sound received so far, in bytes — "can I hear them?" in a number.
     var audioBytesIn: Int
+    /// Sound sent so far, in bytes — "can they hear me?" in a number. The two
+    /// together say which way round a one-way call is.
+    var audioBytesOut = 0
     /// How much room WebRTC thinks this link has, in bits per second. It is
     /// what decides whether a picture can stay in the call.
     var outgoingBitrate: Int?
@@ -33,6 +36,102 @@ struct MediaConnection: Equatable, Sendable {
 enum MediaTrouble: Error {
     case noOffer
     case noAnswer
+}
+
+/// Why a call sounds the way it does, in facts a person can read out to
+/// somebody who can help (`CallDetailsView`). It is a diagnostic and nothing
+/// more: nothing here changes what a call does.
+///
+/// It exists because a call that connects and carries no sound looks, from
+/// the screen, exactly like a call that is working — and that is what the
+/// owner's phone did on a mobile network while a phone on the same Wi-Fi was
+/// fine (2026-10-04, 2026-10-05). The place the sound stops is now on the
+/// screen instead of being guessed at.
+struct CallDiagnostics: Equatable, Sendable {
+    /// Linx's relay wouldn't give this phone a way through: its address, the
+    /// code it answered with and its own words. 401 and 403 mean the
+    /// credentials were refused; 701 means it couldn't be reached at all.
+    struct RelayTrouble: Equatable, Sendable {
+        var url: String
+        var code: Int
+        var said: String
+    }
+
+    /// The kinds of route this phone found for itself, in plain words.
+    var found: [String] = []
+    var relayTrouble: [RelayTrouble] = []
+    /// How far the connection itself got.
+    var ice = "not started"
+    /// The relay this phone was given, and when its credentials run out. They
+    /// last an hour and are refreshed; expired ones mean no relay at all.
+    var relayURLs: [String] = []
+    var relayExpiresAt: Date?
+
+    /// The words for a route through Linx's relay. On a mobile network it is
+    /// the only way the sound can go.
+    static let theRelay = "Linx's relay"
+
+    /// Whether a route through the relay was found at all.
+    var foundTheRelay: Bool { found.contains(Self.theRelay) }
+
+    /// What to tell the person when the relay wouldn't have them. Only worth
+    /// saying when no route through it was found: a phone that reaches the
+    /// relay over TLS and not UDP is perfectly fine and says nothing.
+    var relayWords: String? {
+        guard !foundTheRelay, let first = relayTrouble.first else { return nil }
+        switch first.code {
+        case 401, 403, 438:
+            return "Linx's call relay wouldn't accept this phone, so the call may have no sound."
+        case 701:
+            return "This phone couldn't reach Linx's call relay, so the call may have no sound."
+        default:
+            return "Linx's call relay answered \(first.code), so the call may have no sound."
+        }
+    }
+}
+
+/// Whether the other side's picture is really arriving, from the frame count
+/// alone — the only honest answer, because a side can stop sending without
+/// saying so (the echo test does exactly that the moment this phone's camera
+/// goes off) and can start again just as quietly.
+///
+/// A frozen last frame left on the screen for the rest of the call was the
+/// first half of this (owner, 2026-10-04: "the big screen freezes"); a picture
+/// switched off at the first reading and then unable ever to come back was the
+/// second (owner, 2026-10-05: the echo test showed no picture at all, because
+/// the first reading arrives before the first frame does).
+struct PictureWatch {
+    /// Readings with no new frame before the picture is called gone — two, so
+    /// a lift, a lorry or a handover between masts doesn't take it away.
+    static let quietReadings = 2
+
+    private var seen = 0
+    private var quiet = 0
+
+    /// What the reading changes, or nil for "nothing has changed". `showing`
+    /// is whether their picture is on the screen now.
+    mutating func reading(framesIn: Int, showing: Bool) -> Bool? {
+        defer { seen = framesIn }
+        if framesIn > seen {
+            quiet = 0
+            return showing ? nil : true
+        }
+        guard showing else {
+            quiet = 0
+            return nil
+        }
+        quiet += 1
+        guard quiet >= Self.quietReadings else { return nil }
+        quiet = 0
+        return false
+    }
+
+    /// Their picture came or went for a reason of its own (their SDP said so,
+    /// or the call ended): the count starts again.
+    mutating func forget() {
+        quiet = 0
+        seen = 0
+    }
 }
 
 @MainActor final class WebRTCMedia: NSObject, SIPCallMedia {
@@ -47,6 +146,8 @@ enum MediaTrouble: Error {
     var onRoute: ((AudioRoute) -> Void)?
     /// The sound wouldn't move where the person asked.
     var onRouteTrouble: ((String) -> Void)?
+    /// Why the call sounds the way it does, each time there is more to say.
+    var onDiagnostics: ((CallDiagnostics) -> Void)?
 
     /// Whose camera is on, and the pictures themselves (docs/PHASE2.md §7).
     private(set) var video = CallVideo()
@@ -95,6 +196,25 @@ enum MediaTrouble: Error {
     init(turn: PhoneLine.Turn?) {
         self.turn = turn
         super.init()
+        noteTheRelay()
+    }
+
+    /// What the call knows about itself, for the Call details screen.
+    private(set) var diagnostics = CallDiagnostics()
+
+    private func note(_ change: (inout CallDiagnostics) -> Void) {
+        var now = diagnostics
+        change(&now)
+        guard now != diagnostics else { return }
+        diagnostics = now
+        onDiagnostics?(now)
+    }
+
+    private func noteTheRelay() {
+        note {
+            $0.relayURLs = turn?.urls ?? []
+            $0.relayExpiresAt = turn?.expiresAt
+        }
     }
 
     // MARK: - SIPCallMedia
@@ -207,6 +327,7 @@ enum MediaTrouble: Error {
     func use(relay: PhoneLine.Turn) {
         turn = relay
         connection?.setConfiguration(Self.configuration(relay: relay))
+        noteTheRelay()
     }
 
     /// Nobody took the offer this phone just made (the other side wouldn't
@@ -250,7 +371,14 @@ enum MediaTrouble: Error {
 
     private func theirVideo(_ on: Bool) {
         guard on != video.theirs else { return }
-        if !on { tracks.remote = nil }
+        // The track itself is kept either way. A picture that stopped has to
+        // be able to come back — the same track starts carrying frames again
+        // and WebRTC says nothing about it, because as far as it is concerned
+        // nothing changed (owner, 2026-10-05: the echo test showed no picture
+        // at all, the camera having been called off at the first reading,
+        // before the first frame had had time to arrive). It is let go of when
+        // the other side really takes it away, and when the call ends.
+        frames.forget()
         said(CallVideo(mine: video.mine, theirs: on))
     }
 
@@ -353,17 +481,55 @@ enum MediaTrouble: Error {
         Self.tellTheRoute()
     }
 
-    /// Where the sound is actually coming out.
-    nonisolated static func route(of route: AVAudioSessionRouteDescription) -> AudioRoute {
+    /// Where the sound is actually coming out, and whether there is anywhere
+    /// else it could.
+    nonisolated static func route(
+        of route: AVAudioSessionRouteDescription, others: Bool = false
+    ) -> AudioRoute {
         guard let output = route.outputs.first else {
-            return AudioRoute(name: "No sound", speaker: false, builtIn: true)
+            return AudioRoute(name: "No sound", speaker: false, builtIn: true, others: others)
         }
         switch output.portType {
-        case .builtInSpeaker: return AudioRoute(name: "Speaker", speaker: true, builtIn: true)
-        case .builtInReceiver: return AudioRoute(name: "Speaker", speaker: false, builtIn: true)
-        case .carAudio: return AudioRoute(name: "Car", speaker: false, builtIn: false)
-        default: return AudioRoute(name: output.portName, speaker: false, builtIn: false)
+        case .builtInSpeaker:
+            return AudioRoute(name: "Speaker", speaker: true, builtIn: true, others: others)
+        case .builtInReceiver:
+            return AudioRoute(name: "Speaker", speaker: false, builtIn: true, others: others)
+        case .carAudio:
+            return AudioRoute(name: "Car", speaker: false, builtIn: false, others: others)
+        default:
+            return AudioRoute(name: output.portName, speaker: false, builtIn: false, others: others)
         }
+    }
+
+    /// Whether the sound could come out of something other than this phone:
+    /// AirPods, a wired headset, a car. The *current* route is not the
+    /// question — a pair of AirPods connected in the middle of a call is
+    /// available long before anything moves to it, and the person has to be
+    /// able to choose it (owner, 2026-10-05: "the speaker icon didn't change
+    /// and didn't include the airpod option unless I make a new call").
+    private static var somewhereElseToSend: Bool {
+        let session = AVAudioSession.sharedInstance()
+        if session.currentRoute.outputs.contains(where: { !builtIn($0.portType) }) { return true }
+        // A headset's *input* is how iOS says it is there at all, which is
+        // what the Phone app's own button goes by.
+        return (session.availableInputs ?? []).contains { $0.portType != .builtInMic }
+    }
+
+    private nonisolated static func builtIn(_ port: AVAudioSession.Port) -> Bool {
+        port == .builtInSpeaker || port == .builtInReceiver
+    }
+
+    /// Something was just connected. An output the person asked for by hand —
+    /// the loudspeaker — otherwise sits in the way of it: iOS leaves the
+    /// override where it was put, and the AirPods never get the call. Clearing
+    /// it hands the choice back to the system, which does what every phone
+    /// does and moves the sound to what was just connected.
+    private static func newDeviceArrived() {
+        guard onTheSpeaker, somewhereElseToSend else { return }
+        let session = RTCAudioSession.sharedInstance()
+        session.lockForConfiguration()
+        try? session.overrideOutputAudioPort(.none)
+        session.unlockForConfiguration()
     }
 
     /// Whether the sound is coming out of the loudspeaker right now, which
@@ -380,15 +546,21 @@ enum MediaTrouble: Error {
         guard routeWatch == nil else { return }
         routeWatch = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
-        ) { _ in
-            MainActor.assumeIsolated { Self.tellTheRoute() }
+        ) { note in
+            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
+                .flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            MainActor.assumeIsolated {
+                if reason == .newDeviceAvailable { Self.newDeviceArrived() }
+                Self.tellTheRoute()
+            }
         }
     }
 
     /// The one place the app finds out where the sound is: read from the
     /// session, never guessed.
     private static func tellTheRoute() {
-        live?.onRoute?(route(of: AVAudioSession.sharedInstance().currentRoute))
+        live?.onRoute?(
+            route(of: AVAudioSession.sharedInstance().currentRoute, others: somewhereElseToSend))
     }
 
     /// The call whose sound is up, so a route change can be told to it.
@@ -484,23 +656,16 @@ enum MediaTrouble: Error {
         gathered = nil
     }
 
-    /// Their picture is only on the screen while pictures are actually
-    /// arriving. A side that stops sending without saying so — which is
-    /// what the echo test does the moment this phone's camera goes off —
-    /// would otherwise leave its last frame frozen on the screen for the
-    /// rest of the call (owner, 2026-10-04: "the big screen freezes").
+    /// Their picture is on the screen while pictures are arriving — and back
+    /// on it the moment they start arriving again.
     private func checkTheirPicture(_ connection: MediaConnection) {
-        guard video.theirs else {
-            framesSeen = 0
-            return
-        }
-        defer { framesSeen = connection.framesIn }
-        guard connection.framesIn == framesSeen else { return }
-        theirVideo(false)
+        guard let arriving = frames.reading(framesIn: connection.framesIn, showing: video.theirs)
+        else { return }
+        guard !arriving || tracks.remote != nil else { return }
+        theirVideo(arriving)
     }
 
-    /// How many pictures had arrived at the last reading.
-    private var framesSeen = 0
+    private var frames = PictureWatch()
 
     /// Sound comes first (docs/PHASE2.md §7). When the link has not got the
     /// room for a picture for three readings running — a quarter of a minute
@@ -564,12 +729,15 @@ enum MediaTrouble: Error {
             connection.statistics { done.resume(returning: $0) }
         }
         var audioBytesIn = 0
+        var audioBytesOut = 0
         var framesIn = 0
         var pairID: String?
         for (_, statistic) in report.statistics {
             switch statistic.type {
             case "transport":
                 pairID = statistic.values["selectedCandidatePairId"] as? String ?? pairID
+            case "outbound-rtp" where statistic.values["kind"] as? String == "audio":
+                audioBytesOut += (statistic.values["bytesSent"] as? NSNumber)?.intValue ?? 0
             case "inbound-rtp" where statistic.values["kind"] as? String == "audio":
                 audioBytesIn += (statistic.values["bytesReceived"] as? NSNumber)?.intValue ?? 0
             case "inbound-rtp" where statistic.values["kind"] as? String == "video":
@@ -593,7 +761,8 @@ enum MediaTrouble: Error {
             route: relayed ? .relayed : .direct,
             roundTripMs: rtt.map { Int(($0 * 1000).rounded()) },
             relayProtocol: relayed ? local?.values["relayProtocol"] as? String : nil,
-            audioBytesIn: audioBytesIn, outgoingBitrate: room, framesIn: framesIn)
+            audioBytesIn: audioBytesIn, audioBytesOut: audioBytesOut, outgoingBitrate: room,
+            framesIn: framesIn)
     }
 
     // MARK: - One engine for the whole app
@@ -679,27 +848,75 @@ extension WebRTCMedia: RTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_ connection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
+        let kind = Self.kind(of: candidate.sdp)
         // A candidate through Linx's relay means every route worth trying is
         // in hand: send the offer a moment later rather than waiting out the
         // whole gathering (the browser does the same).
-        guard candidate.sdp.contains(" typ relay") else { return }
+        let relay = candidate.sdp.contains(" typ relay")
         Task { @MainActor in
+            if let kind { self.note { if !$0.found.contains(kind) { $0.found.append(kind) } } }
+            guard relay else { return }
             try? await Task.sleep(for: Self.afterRelayCandidate)
             self.doneGathering()
+        }
+    }
+
+    /// A route this phone found for itself, in words rather than in ICE's.
+    private nonisolated static func kind(of candidate: String) -> String? {
+        guard let typ = candidate.range(of: " typ ") else { return nil }
+        switch candidate[typ.upperBound...].prefix(while: { !$0.isWhitespace }) {
+        case "host": return "this network"
+        case "srflx", "prflx": return "the internet"
+        case "relay": return CallDiagnostics.theRelay
+        default: return nil
+        }
+    }
+
+    /// Linx's relay wouldn't give this phone a way through. It is the one
+    /// thing that silences a call on a mobile network, where there is no other
+    /// route, and the reason is worth keeping word for word: 401 is credentials
+    /// it wouldn't take, 701 a relay it couldn't reach at all.
+    nonisolated func peerConnection(
+        _ connection: RTCPeerConnection, didFailToGatherIceCandidate event: RTCIceCandidateErrorEvent
+    ) {
+        let trouble = CallDiagnostics.RelayTrouble(
+            url: event.url, code: Int(event.errorCode), said: event.errorText)
+        Task { @MainActor in
+            self.note {
+                guard !$0.relayTrouble.contains(trouble) else { return }
+                $0.relayTrouble.append(trouble)
+            }
         }
     }
 
     nonisolated func peerConnection(
         _ connection: RTCPeerConnection, didChange state: RTCIceConnectionState
     ) {
+        let words = Self.words(for: state)
         let trouble: Bool?
         switch state {
         case .connected, .completed: trouble = false
         case .disconnected, .failed: trouble = true
         default: trouble = nil
         }
-        guard let trouble else { return }
-        Task { @MainActor in self.onTrouble?(trouble) }
+        Task { @MainActor in
+            self.note { $0.ice = words }
+            guard let trouble else { return }
+            self.onTrouble?(trouble)
+        }
+    }
+
+    private nonisolated static func words(for state: RTCIceConnectionState) -> String {
+        switch state {
+        case .new: return "not started"
+        case .checking: return "finding a way through"
+        case .connected: return "connected"
+        case .completed: return "connected"
+        case .failed: return "no way through"
+        case .disconnected: return "dropped"
+        case .closed: return "closed"
+        @unknown default: return "unknown"
+        }
     }
 
     /// The other side's picture has arrived (unified plan tells the app

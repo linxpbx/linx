@@ -73,6 +73,16 @@ import UIKit
     /// while it is the phone's own earpiece or loudspeaker, and the
     /// system's picker once anything else is connected.
     private(set) var audioRoute: AudioRoute?
+    /// Why the call sounds the way it does, for the Call details screen: the
+    /// routes this phone found, what Linx's relay said, how far the connection
+    /// got. It is the answer to "the call connected and I can't hear anything",
+    /// which no other screen can give.
+    private(set) var diagnostics = CallDiagnostics()
+    /// A camera is going on or coming off the call that is up. On a mobile
+    /// network that takes a moment — the picture needs a way through Linx's
+    /// relay of its own — so the button says so instead of looking broken
+    /// (owner, 2026-10-05: "it doesn't work immediately").
+    private(set) var changingVideo = false
     /// They turned their camera on while this phone's was off, so the
     /// person is asked once whether to turn theirs on too (ADR-079, owner
     /// 2026-10-04). Saying no leaves a **one-way video call**, which is a
@@ -135,6 +145,8 @@ import UIKit
     /// The video button started this call: the camera goes on as soon as
     /// the other side picks up.
     private var videoOnceAnswered = false
+    /// Whether this call has already asked about their camera.
+    private var askedAboutTheirVideo = false
     /// The sound of the call that is up, for handing the microphone and the
     /// speaker over when the system says so.
     private weak var liveMedia: (any SIPCallMedia)?
@@ -225,6 +237,8 @@ import UIKit
         call = nil
         videoOnceAnswered = false
         askAboutTheirVideo = nil
+        askedAboutTheirVideo = false
+        changingVideo = false
         forgetWhatWasWoken(.missed)
         status = .starting
     }
@@ -250,6 +264,8 @@ import UIKit
                 }
                 media.onRoute = { [weak self] route in self?.soundIsComingOut(route) }
                 media.onRouteTrouble = { [weak self] words in self?.problem = words }
+                media.onDiagnostics = { [weak self] what in self?.callDiagnostics(what) }
+                self?.diagnostics = media.diagnostics
                 media.onVideoChanged = { [weak self] video in self?.videoChanged(video) }
                 media.onVideoTooExpensive = { [weak self] in self?.videoCostTooMuch() }
                 self?.liveMedia = media
@@ -413,15 +429,18 @@ import UIKit
     /// itself carries straight on either way — that is why video is added to
     /// a call here and never rung as a different kind of call.
     func toggleVideo() {
-        guard let call, call.phase == .active else { return }
+        guard let call, call.phase == .active, !changingVideo else { return }
         let on = !call.video.mine
         problem = nil
         // Everyone expects a video call to come out of the loudspeaker; a
         // phone held to an ear with the camera on would show a ceiling.
         if on, !call.speaker { toggleSpeaker() }
+        changingVideo = true
         Task { [weak self] in
             await self?.agent?.setVideo(on)
-            guard let self, !on, let media = self.liveMedia else { return }
+            guard let self else { return }
+            self.changingVideo = false
+            guard !on, let media = self.liveMedia else { return }
             // Whatever the other side made of it, the screen follows the
             // camera: if it is off, this is the call's own screen again.
             self.videoChanged(media.video)
@@ -451,10 +470,12 @@ import UIKit
         current.video = video
         call = current
         mirrorsMyVideo = liveMedia?.mirrorsMyVideo ?? true
-        // Asked once, each time their camera comes on while this phone's is
-        // off. Never while this phone is already sending: there is nothing
-        // to ask then.
-        if !was.theirs, video.theirs, !video.mine {
+        // Asked once in a call, when their camera comes on while this phone's
+        // is off. Never while this phone is already sending — there is nothing
+        // to ask then — and never twice, because a picture that comes and goes
+        // with a thin link would otherwise keep asking.
+        if !was.theirs, video.theirs, !video.mine, !askedAboutTheirVideo {
+            askedAboutTheirVideo = true
             askAboutTheirVideo = current.peer
         }
         if video.mine { askAboutTheirVideo = nil }
@@ -486,11 +507,19 @@ import UIKit
     /// Where the sound is actually coming out, read from the system: the
     /// button follows the sound, not the other way round, so a headset
     /// plugged in mid-call moves it.
-    /// The name of whatever the sound is coming out of, when it isn't the
-    /// phone itself — a headset, a car. Nil means the plain Speaker switch.
-    var otherAudioDevice: String? {
-        guard let audioRoute, !audioRoute.builtIn else { return nil }
-        return audioRoute.name
+    /// What the sound button says when it is the system's own route picker:
+    /// the name of whatever the sound is coming out of. Nil means there is
+    /// nowhere else for it to go, and the button is the plain Speaker switch.
+    ///
+    /// The picker appears as soon as there is somewhere else — AirPods
+    /// connected in the middle of a call are a choice then and there, not on
+    /// the next call (owner, 2026-10-05) — and it wears the name of whatever
+    /// has the sound now, this phone included.
+    var whereTheSoundGoes: String? {
+        guard let audioRoute else { return nil }
+        guard audioRoute.builtIn else { return audioRoute.name }
+        guard audioRoute.others else { return nil }
+        return audioRoute.speaker ? "Speaker" : UIDevice.current.model
     }
 
     private func soundIsComingOut(_ route: AudioRoute) {
@@ -499,6 +528,31 @@ import UIKit
         guard call?.speaker != route.speaker else { return }
         call?.speaker = route.speaker
     }
+
+    // MARK: - Why a call sounds the way it does
+
+    private func callDiagnostics(_ what: CallDiagnostics) {
+        diagnostics = what
+        // Only when the relay was the way through and wouldn't have this
+        // phone: a phone that reaches it over TLS and not UDP is perfectly
+        // well and says nothing.
+        guard let words = what.relayWords, problem == nil else { return }
+        problem = words
+    }
+
+    /// Nothing is being heard. A call that has been up for a few seconds with
+    /// no sound coming in is broken however well the rest of the screen looks,
+    /// and the person is told so rather than left holding a silent phone
+    /// (owner, repeatedly, on a mobile network: "I still don't hear anything").
+    func noSoundComingIn(at now: Date) -> Bool {
+        guard let call, call.phase == .active, let answeredAt = call.answeredAt else { return false }
+        guard now.timeIntervalSince(answeredAt) >= Self.silenceIsWrong else { return false }
+        return (call.connection?.audioBytesIn ?? 0) == 0
+    }
+
+    /// How long a call may be silent before the screen says so. Long enough
+    /// for the first reading of the connection to have happened.
+    private static let silenceIsWrong: TimeInterval = 7
 
     /// The screen goes dark and stops taking taps while the phone is held
     /// to an ear, as every phone has done since phones had screens — and
@@ -679,6 +733,8 @@ import UIKit
         guard let finished = call else { return }
         call = nil
         askAboutTheirVideo = nil
+        askedAboutTheirVideo = false
+        changingVideo = false
         calls.reportEnded(id: finished.id, Self.ending(why))
         if case .failed(let said) = why { problem = said }
         defer { closeIfNobodyIsLooking() }

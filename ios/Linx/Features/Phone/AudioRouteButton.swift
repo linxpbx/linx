@@ -73,17 +73,29 @@ struct CallToggleButton: View {
     let symbol: String
     let words: String
     let on: Bool
+    /// The phone is doing it and hasn't finished — a camera going into a call
+    /// over a mobile network takes a moment, and a button that looks dead for
+    /// that moment looks broken.
+    var waiting = false
     let press: () -> Void
 
     var body: some View {
         Button(action: press) {
             VStack(spacing: LinxSpace.s2) {
-                Image(systemName: symbol)
-                    .font(.title3)
-                    .foregroundStyle(on ? LinxColor.surfaceDark : LinxColor.onSurfaceDark)
-                    .frame(width: 56, height: 56)
-                    .background(
-                        on ? LinxColor.onSurfaceDark : LinxColor.surface.opacity(0.18), in: .circle)
+                Group {
+                    if waiting {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(LinxColor.onSurfaceDark)
+                    } else {
+                        Image(systemName: symbol)
+                            .font(.title3)
+                            .foregroundStyle(on ? LinxColor.surfaceDark : LinxColor.onSurfaceDark)
+                    }
+                }
+                .frame(width: 56, height: 56)
+                .background(
+                    on ? LinxColor.onSurfaceDark : LinxColor.surface.opacity(0.18), in: .circle)
                 Text(words)
                     .font(.caption)
                     .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))

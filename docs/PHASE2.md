@@ -143,6 +143,55 @@ The push gateway is built so the destination is one setting: Apple directly now,
 
 **The iPhone Duo, as far as a simulator goes** (2026-10-04). Its **outer screen** is shot and is right: at 1398×2034 it is a wide phone, and the call takes the upright layout — the picture full-bleed, the caller top-left, this phone's own picture top-right, the buttons along the bottom (`LINX_IOS_DEVICE="iPhone Duo" DEVELOPER_DIR=/Applications/Xcode-27.1-beta.app LINX_IOS_DISPLAY=1 ios/tools/screens.sh`; a foldable has two screens and `simctl io … enumerate` lists them — the outer is 1, the inner 3). The **inner screen is dark until the simulated phone is opened out**, and opening it is Simulator's own Device menu with **no command behind it**, so that shot is taken by hand. What the inner screen will show is already decided and tested — 1024×1080 is square-ish and regular, so `CallLayout` gives it two panels side by side, with every button in one half and nothing on the crease (`CallLayoutTests`) — and **step 8 is where it is photographed and where the fold's own geometry replaces the near-square rule**.
 
+### On a real phone, build 4 (2026-10-05)
+
+What the owner found with build 4 on an iPhone 18 Pro Max, and what it changed
+(`docs/HISTORY.md` "Build 4 on the phone"). All five are things only a real
+phone, a real pair of AirPods and a real mobile network can show.
+
+- **The camera must not touch the sound.** WebRTC's camera capturer gives its
+  capture session an audio session of its own, and starting one takes the sound
+  hardware off the call — the AirPods went the moment the camera came on. The
+  camera now borrows the **call's** session and may not configure it
+  (`Camera.usesTheCallsAudioSession`, held to it by a test). The rule for the
+  whole app: while CallKit owns the session, nothing else configures it.
+- **The sound button offers whatever is connected, when it is connected.** It
+  becomes the system's own picker as soon as there is anywhere else to send the
+  sound — read from `availableInputs`, which is how iOS says a headset is there
+  at all — rather than only once the sound has already moved; and a device
+  arriving (`newDeviceAvailable`) **clears an explicit loudspeaker override**,
+  because iOS leaves the override where it was put and the new AirPods would
+  otherwise never get the call.
+- **Their picture can stop and come back** (`PictureWatch`): two quiet readings
+  take it off the screen, one new frame puts it back, the track is kept either
+  way, and WebRTC's silence about an existing track no longer means the picture
+  is gone for the rest of the call.
+- **A one-way video call looks like an ordinary call** (ADR-079's condition):
+  with only this phone's camera on, **this phone's own picture takes the big
+  screen**, with their name and "Their camera is off. This is yours — they can
+  see you." beside it, and no second copy in the corner.
+- **A picture going into a call takes a moment and says so.** Asterisk's answers
+  carry no BUNDLE group, so the video stream gathers its own routes — on a
+  mobile network that is a TURN allocation of its own, a second or two.
+  `PhoneModel.changingVideo` turns the button into a spinner saying "Starting…",
+  and a second press while the first is in the air does nothing.
+- **Call details, for the call that connects and carries no sound.** The one
+  thing still open is no sound on a call made from outside the owner's network
+  (the echo test is heard over the home VPN; on 5G nothing), after the
+  relay-credentials and gathering fixes of 2026-10-04. Instead of guessing a
+  third time, the app now says **where the sound stops**: a call up for seven
+  seconds with not a byte arriving shows a red line, and the "Encrypted · …"
+  line opens **Call details** — whether a route was agreed at all, direct or
+  relayed and over what, sound in and out in bytes, round trip, the routes this
+  phone found, the relay's addresses and how long its credentials have left,
+  and **what the relay answered if it refused the phone**, word for word from
+  `didFailToGatherIceCandidate` (401 credentials it wouldn't take, 701 a relay
+  it couldn't reach). **Copy these details** puts the lot on the clipboard. A
+  relay that refused the phone *and* left it no route is said out loud during
+  the call; a relay reached over TLS but not UDP says nothing, because that is
+  ordinary. It is a diagnostic and nothing more: no decision in the app is made
+  from it.
+
 ### Step 6, as built (2026-10-04)
 **A sleeping phone rings now.** Step 5 gave the server the push; this is the app's side of it, and the rule that shapes all of it is Apple's: a VoIP push must report a call to CallKit *at once, every time*, or iOS kills the app and stops delivering its pushes (§14 item 1).
 

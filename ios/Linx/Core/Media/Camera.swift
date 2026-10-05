@@ -64,6 +64,20 @@ enum CameraTrouble: Error {
         source = factory.videoSource()
         source.adaptOutputFormat(toWidth: Int32(Self.width), height: Int32(Self.height), fps: Int32(Self.frameRate))
         capturer = RTCCameraVideoCapturer(delegate: source)
+        // The camera uses the **call's** audio session and is never allowed
+        // to configure it.
+        //
+        // WebRTC's capturer gives its capture session a session of its own
+        // (`usesApplicationAudioSession = NO`), and starting one of those
+        // takes the sound hardware away from the call: the AirPods went the
+        // moment the camera came on and didn't even appear as something to
+        // choose again (owner, 2026-10-05). A camera has no business
+        // touching the sound of a call, so it borrows the call's session
+        // and is forbidden from setting its category — which is the same
+        // rule as everywhere else here: while CallKit owns the session,
+        // nothing else configures it.
+        capturer.captureSession.usesApplicationAudioSession = true
+        capturer.captureSession.automaticallyConfiguresApplicationAudioSession = false
         track = factory.videoTrack(with: source, trackId: "linx-video")
     }
 
@@ -98,6 +112,14 @@ enum CameraTrouble: Error {
     /// Whether this phone's own picture should be shown mirrored, as a
     /// mirror does — only the front camera is.
     var mirrored: Bool { front }
+
+    /// Whether the camera is using the call's own audio session and keeping
+    /// its hands off it, which is what leaves a Bluetooth headset where it
+    /// was when the camera goes on. A test holds this to it.
+    var usesTheCallsAudioSession: Bool {
+        capturer.captureSession.usesApplicationAudioSession
+            && !capturer.captureSession.automaticallyConfiguresApplicationAudioSession
+    }
 
     // MARK: - Picking a camera and a format
 

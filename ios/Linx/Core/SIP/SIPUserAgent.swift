@@ -43,6 +43,12 @@ struct AudioRoute: Equatable, Sendable {
     let name: String
     let speaker: Bool
     let builtIn: Bool
+    /// Whether there is anywhere *else* the sound could come out — AirPods, a
+    /// headset, a car — whether or not it has moved there yet. It is what
+    /// turns the plain Speaker switch into the system's own picker, so a pair
+    /// of AirPods connected in the middle of a call can be chosen there and
+    /// then instead of on the next call (owner, 2026-10-05).
+    var others = false
 }
 
 /// The sound of a call, from the user agent's side. WebRTCMedia is the real
@@ -69,6 +75,11 @@ struct AudioRoute: Equatable, Sendable {
     var onRoute: ((AudioRoute) -> Void)? { get set }
     /// The sound wouldn't move where the person asked it to.
     var onRouteTrouble: ((String) -> Void)? { get set }
+    /// Why the call sounds the way it does — the routes this phone found, what
+    /// Linx's relay said, how far the connection got. A diagnostic for the
+    /// person (`CallDetailsView`), never a decision.
+    var diagnostics: CallDiagnostics { get }
+    var onDiagnostics: ((CallDiagnostics) -> Void)? { get set }
     /// Whose camera is on in this call, and the two pictures themselves
     /// (docs/PHASE2.md §7). A call is sound until somebody asks for more.
     var video: CallVideo { get }

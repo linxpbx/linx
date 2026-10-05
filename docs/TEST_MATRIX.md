@@ -20,8 +20,11 @@ and scan it with the app. Nothing is typed, and no password exists.
 | 1.1 | Open the app after setting it up | "Ready · Ext ___" at the top of the keypad |
 | 1.2 | **Test my sound** on the keypad | You hear your own voice back, about a second behind |
 | 1.2a | In that call, press **Speaker**, then press it again | The sound moves to the loudspeaker and back to the earpiece. Plug in a headset mid-call and the button follows the sound |
+| 1.2b | In a call, **connect AirPods** (open the case, or put them in) | The sound moves to them within a second or two — even if you were on the loudspeaker — and the sound button becomes the system's **picker** wearing their name. Tap it: AirPods, iPhone and Speaker are all in the list, with no need to make another call |
 | 1.3 | Dial your own landline from the keypad | It rings; you can hear both ways; **Encrypted · Direct** or **Relayed** shows |
 | 1.4 | Hang up | The call ends on both sides, and appears in **Calls** within a second or two |
+| 1.5 | In any call, tap the **Encrypted · …** line at the top | **Call details** opens: whether the sound is going straight there or through Linx's relay, how much is coming in and going out, what routes the phone found, and what Linx's relay said. **Copy these details** puts the lot on the clipboard |
+| 1.6 | A call where you hear nothing | After about seven seconds a red line says **No sound is coming through**. Tap it, then **Copy these details** and send them to me — that is the one thing that says where the sound stops |
 
 ## 2. Ringing — the whole point of a native app
 
@@ -56,6 +59,9 @@ and something is wrong — tell me and the server's own numbers will say where.
 | 3.5 | Turn the phone on its side **during a video call** | The buttons move to the right-hand edge, out of the picture. Turn it on its side anywhere else — keypad, Calls, Team, Settings, or a call with no picture — and **nothing turns** (owner, 2026-10-04) |
 | 3.6 | Press **Stop video** | The picture goes, the conversation carries on untouched |
 | 3.7 | Walk somewhere with poor signal while video is on | After about a quarter of a minute the camera turns itself off and says so; the call stays up |
+| 3.8 | Press **Video** with AirPods or a headset connected | The sound stays with them. The camera must never take the sound back to the phone (owner, 2026-10-05) |
+| 3.9 | **Stop video**, then press **Video** again straight away | The button shows it is working ("Starting…") and the picture comes back. On mobile data it takes a second or two: the picture needs a way through the relay of its own |
+| 3.10 | **Video** in the **Test my sound** call | You see your own camera **on the big screen** (the echo test sends it back, and a call where only one camera is on is an ordinary call). **Stop video** returns to the call screen |
 
 ## 4. The rest of the app
 
@@ -101,7 +107,10 @@ Worth trying if you can, not blockers:
 
 ## What to tell me when something fails
 
-The row number, what the phone showed, and roughly when. If it is about
+The row number, what the phone showed, and roughly when. **If it is about
+sound** — a call you can't hear — tap the **Encrypted · …** line while the
+call is still up, press **Copy these details** and paste them to me: that
+names the exact place the sound stopped. If it is about
 ringing, the server keeps its own count of every push sent and how long each
 phone took to arrive — System → Settings → **Calls to the app** shows it in
 words, and I can read the exact numbers.

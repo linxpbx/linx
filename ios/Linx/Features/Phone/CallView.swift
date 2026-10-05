@@ -14,6 +14,7 @@ struct CallView: View {
     /// Counted up from the moment the call was answered.
     @State private var now = Date()
     @State private var keypadOpen = false
+    @State private var detailsOpen = false
 
     private static let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -40,6 +41,12 @@ struct CallView: View {
         } message: {
             Text("You can see them either way. Turning your camera on lets them see you.")
         }
+        // Why the call sounds the way it does. A call that connects and
+        // carries no sound looks exactly like one that works, so the facts
+        // are one tap away and can be copied out whole.
+        .sheet(isPresented: $detailsOpen) {
+            CallDetailsView(call: call, diagnostics: phone.diagnostics) { detailsOpen = false }
+        }
     }
 
     private var theirVideoQuestion: String {
@@ -51,8 +58,20 @@ struct CallView: View {
     private var sound: some View {
         VStack(spacing: LinxSpace.s5) {
             HStack {
-                ConnectionPill(call: call)
+                Button {
+                    detailsOpen = true
+                } label: {
+                    ConnectionPill(call: call)
+                }
+                .accessibilityLabel("Call details")
                 Spacer()
+            }
+            if let warning = warning {
+                Button {
+                    detailsOpen = true
+                } label: {
+                    CallWarning(words: warning)
+                }
             }
             Spacer(minLength: 0)
 
@@ -134,14 +153,17 @@ struct CallView: View {
             .disabled(call.phase != .active)
             .opacity(call.phase == .active ? 1 : 0.5)
             AudioRouteButton(
-                onSpeaker: call.speaker, deviceName: phone.otherAudioDevice
+                onSpeaker: call.speaker, deviceName: phone.whereTheSoundGoes
             ) { phone.toggleSpeaker() }
             // A picture is added to the call that is already up: the call
             // itself never stops, and turning it off again leaves an
             // ordinary phone call (docs/PHASE2.md §7).
-            CallToggleButton(symbol: "video.fill", words: "Video", on: false) { phone.toggleVideo() }
-                .disabled(call.phase != .active)
-                .opacity(call.phase == .active ? 1 : 0.5)
+            CallToggleButton(
+                symbol: "video.fill", words: phone.changingVideo ? "Starting…" : "Video", on: false,
+                waiting: phone.changingVideo
+            ) { phone.toggleVideo() }
+            .disabled(call.phase != .active || phone.changingVideo)
+            .opacity(call.phase == .active ? 1 : 0.5)
         }
         .padding(.bottom, LinxSpace.s4)
     }
@@ -175,6 +197,18 @@ struct CallView: View {
         .padding(.bottom, LinxSpace.s4)
     }
 
+    /// What is wrong with this call, in a line, while it is still going on:
+    /// no sound coming in, or whatever else the phone has to say. The call
+    /// screen is the only place a person is looking at this point, which is
+    /// why it is here and not only on the keypad.
+    private var warning: String? {
+        if phone.noSoundComingIn(at: now) {
+            return "No sound is coming through. Tap to see why."
+        }
+        guard call.phase == .active, let problem = phone.problem else { return nil }
+        return problem
+    }
+
     private var what: String {
         switch call.phase {
         case .ringing: return "Calling you"
@@ -205,6 +239,28 @@ struct CallView: View {
             return String(format: "%d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
         }
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+/// Something is wrong with the call that is going on, in one line that opens
+/// the details.
+private struct CallWarning: View {
+    let words: String
+
+    var body: some View {
+        HStack(spacing: LinxSpace.s2) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .accessibilityHidden(true)
+            Text(words)
+                .font(.caption.weight(.medium))
+                .multilineTextAlignment(.leading)
+        }
+        .foregroundStyle(LinxColor.onEnd)
+        .padding(.horizontal, LinxSpace.s3)
+        .padding(.vertical, LinxSpace.s2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LinxColor.end, in: .rect(cornerRadius: LinxRadius.md))
     }
 }
 

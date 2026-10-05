@@ -62,13 +62,17 @@ Four tabs along the bottom:
 
 While you're in a call: **Mute**, **Keypad** (for menus, extensions and PINs), **Speaker** and **Video**. **Hang up** ends it. The line at the top says **Encrypted**, and whether the sound is going straight to the other phone (**Direct**) or through your Linx server (**Relayed**) — relayed is normal on mobile data and on networks that block everything but web traffic.
 
+*Where the sound comes out.* With nothing else connected, **Speaker** is a plain switch between the earpiece and the loudspeaker. Connect AirPods, a headset or a car — before the call or in the middle of it — and the sound moves there, and the button becomes the iPhone's own picker wearing the name of whatever has the sound, so you can move it between them without hanging up. Turning your camera on never moves the sound.
+
+*When you can't hear anything.* Tap the **Encrypted · …** line to open **Call details**: whether a route for the sound was found at all, whether it goes straight there or through your Linx server's relay, how much sound is coming in and going out, and what the relay said if it wouldn't take this phone. A call that has been up for a few seconds with nothing arriving says so on the screen. **Copy these details** puts the lot on the clipboard to send to whoever looks after your Linx server.
+
 A call that comes in while the app is open rings on the phone and shows **Answer** and **Decline**.
 
 ## Video calls
 
 A Linx call always starts as an ordinary call, and the picture is added to it: tap **Video** during a call, or the camera button beside someone in **Team**, which rings them first and turns your camera on when they answer. The other person sees a picture when they turn theirs on too — yours never comes on by itself because somebody else pressed a button.
 
-In a video call: **Stop video** puts the camera away and the call carries straight on as a phone call; **Flip camera** swaps the front camera for the back one. The picture is kept deliberately small so the sound never suffers for it, and on a slow connection Linx turns your camera off by itself and tells you — a call you can hear is worth more than one you can see.
+In a video call you see them on the big screen and yourself in the corner. If only your camera is on, *your own picture takes the big screen* — a call with one camera on is a perfectly ordinary call. **Stop video** puts the camera away and the call carries straight on as a phone call; **Flip camera** swaps the front camera for the back one. Turning the camera on over mobile data takes a second or two, and the button says so while it works. The picture is kept deliberately small so the sound never suffers for it, and on a slow connection Linx turns your camera off by itself and tells you — a call you can hear is worth more than one you can see.
 
 The screen lays itself out for whatever you're holding: upright, turned on its side, and on an iPad (or an iPhone that opens out) the picture on one side and the buttons on the other.
 
