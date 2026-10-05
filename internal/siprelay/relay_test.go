@@ -57,11 +57,21 @@ func TestURIUser(t *testing.T) {
 		`sip:d_x@h;tag=1`:                    "d_x",
 		`SIPS:d_x@h`:                         "d_x",
 		`"Bob \"<sip:evil@h>\"" <sip:d_x@h>`: "d_x",
-		`"x" <sip:d%5Fx@h>`:                  "d%5Fx",
 		`<sip:h>`:                            "",
 		`<tel:+1555>`:                        "",
 		`"unterminated <sip:d_x@h>`:          "",
 		`<sip:d_x@h`:                         "",
+		// A user part the relay can't read the same way Asterisk would is
+		// refused outright, not returned for the comparison to reject.
+		// Percent-encoding is the clearest case: Asterisk unescapes %5F to
+		// "_", the relay would keep it, so the two could disagree — so it
+		// is refused here (the comparison would refuse it anyway; this is
+		// the stronger place to do it).
+		`"x" <sip:d%5Fx@h>`: "",
+		`sip:>@`:            "", // the fuzzer's find: a host-less, bracket-laden mess
+		`sip:d_x@`:          "", // empty host
+		`sip:@h`:            "", // empty user
+		`<sip:a b@h>`:       "", // whitespace in the user part
 	} {
 		if got := uriUser(in); got != want {
 			t.Errorf("uriUser(%q) = %q, want %q", in, got, want)

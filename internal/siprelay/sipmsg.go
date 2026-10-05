@@ -193,9 +193,26 @@ func uriUser(v string) string {
 	default:
 		return ""
 	}
-	user, _, ok := strings.Cut(uri, "@")
-	if !ok {
+	user, host, ok := strings.Cut(uri, "@")
+	if !ok || user == "" || host == "" {
 		return ""
+	}
+	// A user part the relay can't read cleanly is refused, not guessed at.
+	// The relay forwards the bytes verbatim and compares this against the
+	// one username the line is allowed, so anything holding a character
+	// that Asterisk's own parser might take as a delimiter — a bracket, an
+	// @, a quote, a separator, whitespace or a control byte — must not slip
+	// through as a match. Linx's usernames are d_ + lowercase base32
+	// (internal/pbx.NewSIPUsername); this set is wider than that and still
+	// free of every character that could mean two things.
+	for i := 0; i < len(user); i++ {
+		c := user[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case strings.IndexByte("-_.+*#", c) >= 0:
+		default:
+			return ""
+		}
 	}
 	return user
 }
