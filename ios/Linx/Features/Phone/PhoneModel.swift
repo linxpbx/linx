@@ -68,6 +68,12 @@ import UIKit
     private(set) var tracks = VideoTracks()
     /// Whether this phone's own picture should be mirrored (a front camera).
     private(set) var mirrorsMyVideo = true
+    /// Which picture has the big screen. The other person's by default — that
+    /// is who you are talking to — and this phone's own when the person taps
+    /// to swap them, which puts the other picture in the small tile (owner's
+    /// ask, 2026-10-05). It lasts for the call, and only means anything while
+    /// both cameras are on.
+    private(set) var myPictureIsBig = false
     /// Where the sound of the call is coming out, read from the system
     /// rather than assumed. The call screen shows a plain Speaker switch
     /// while it is the phone's own earpiece or loudspeaker, and the
@@ -240,6 +246,7 @@ import UIKit
         askedAboutTheirVideo = false
         changingVideo = false
         saidAboutTheRelay = false
+        myPictureIsBig = false
         forgetWhatWasWoken(.missed)
         status = .starting
     }
@@ -455,6 +462,20 @@ import UIKit
     /// (Settings → Your call history). It takes effect from the next call.
     func showCallsInThePhoneApp(_ on: Bool) { calls.showCallsInThePhoneApp(on) }
 
+    /// Swaps the two pictures over: a tap on either one puts it on the big
+    /// screen and sends the other to the small tile. With only one picture in
+    /// the call there is nothing to swap, so nothing happens.
+    func swapPictures() {
+        guard let call, call.video.mine, call.video.theirs else { return }
+        myPictureIsBig.toggle()
+    }
+
+    /// Whether tapping a picture does anything right now — both cameras on.
+    var canSwapPictures: Bool {
+        guard let call else { return false }
+        return call.video.mine && call.video.theirs
+    }
+
     /// The camera facing the person, or the one facing what they can see.
     func switchCamera() {
         agent?.switchCamera()
@@ -474,6 +495,10 @@ import UIKit
         current.video = video
         call = current
         mirrorsMyVideo = liveMedia?.mirrorsMyVideo ?? true
+        // A picture that has left the call takes the swap with it: the next
+        // one starts the ordinary way round, with the other person on the big
+        // screen.
+        if !video.mine || !video.theirs { myPictureIsBig = false }
         // Asked once in a call, when their camera comes on while this phone's
         // is off. Never while this phone is already sending — there is nothing
         // to ask then — and never twice, because a picture that comes and goes
@@ -754,6 +779,7 @@ import UIKit
         askedAboutTheirVideo = false
         changingVideo = false
         saidAboutTheRelay = false
+        myPictureIsBig = false
         calls.reportEnded(id: finished.id, Self.ending(why))
         if case .failed(let said) = why { problem = said }
         defer { closeIfNobodyIsLooking() }

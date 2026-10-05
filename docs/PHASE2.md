@@ -322,6 +322,21 @@ far end's view, so not mirrored — and when the echo stops it becomes this
 phone's own preview, which is mirrored. Both are right; they only look odd
 because in that one call the two pictures are the same face.
 
+### Either picture can have the big screen (owner's ask, 2026-10-05)
+
+"I want to have the option to switch which camera takes the big screen (mine or
+the other party), so tapping on my camera — the small screen — makes it the big
+screen and the other party goes to the small screen, and vice versa."
+
+Built as one piece of state for the call (`PhoneModel.myPictureIsBig`, swapped
+by `swapPictures()`) and two views that can each draw either picture
+(`Picture`, `SmallPicture`, `Whose`). A tap on **either** picture swaps them.
+It means something only while both cameras are on — with one picture in the
+call, that picture *is* the big screen — and it goes back to the ordinary way
+round (the other person big) as soon as a camera leaves the call, so the next
+video call never starts inside out. The two-panel layouts on an iPad and an
+opened-out Duo swap the same way.
+
 ### Step 6, as built (2026-10-04)
 **A sleeping phone rings now.** Step 5 gave the server the push; this is the app's side of it, and the rule that shapes all of it is Apple's: a VoIP push must report a call to CallKit *at once, every time*, or iOS kills the app and stops delivering its pushes (§14 item 1).
 

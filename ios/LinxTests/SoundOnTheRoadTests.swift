@@ -26,6 +26,34 @@ struct SoundOnTheRoadTests {
         #expect(camera.usesTheCallsAudioSession)
     }
 
+    // MARK: - Which picture has the big screen (owner, 2026-10-05)
+
+    @Test("a tap swaps the two pictures over, and only when there are two")
+    func swappingThePictures() async throws {
+        let (phone, _, media, _) = try await inACall()
+        // One camera on: the only picture there is has the big screen, and
+        // there is nothing to swap.
+        phone.toggleVideo()
+        #expect(await eventually { phone.call?.video.mine == true })
+        #expect(!phone.canSwapPictures)
+        phone.swapPictures()
+        #expect(!phone.myPictureIsBig)
+        // Both cameras on: the other person has the big screen to begin with,
+        // and a tap puts this phone's own picture there instead.
+        media.pretendTheirVideo(true)
+        #expect(await eventually { phone.canSwapPictures })
+        phone.swapPictures()
+        #expect(phone.myPictureIsBig)
+        phone.swapPictures()
+        #expect(!phone.myPictureIsBig)
+        phone.swapPictures()
+        // Their picture leaving the call takes the swap with it, so the next
+        // video call starts the ordinary way round.
+        #expect(phone.myPictureIsBig)
+        media.pretendTheirVideo(false)
+        #expect(await eventually { phone.myPictureIsBig == false })
+    }
+
     // MARK: - A picture that follows the link (ADR-081)
 
     @Test("the picture never asks for more than the route allows")

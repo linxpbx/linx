@@ -30,15 +30,24 @@ struct VideoCallView: View {
         .background(LinxColor.surfaceDark.ignoresSafeArea())
     }
 
-    /// Whether this phone's own picture needs a tile of its own: only when
-    /// their camera has the big picture. In a one-way video call this phone's
-    /// camera *is* the big picture, and showing it twice is just smaller.
-    private var showsMyTile: Bool { call.video.theirs }
+    /// Who has the big screen. The other person by default — they are who you
+    /// are talking to — and this phone when the person taps to swap them
+    /// (owner's ask, 2026-10-05), or when theirs isn't there to show.
+    private var big: Whose {
+        guard call.video.theirs else { return .mine }
+        guard call.video.mine else { return .theirs }
+        return phone.myPictureIsBig ? .mine : .theirs
+    }
 
-    /// Their camera is on but nothing is coming through — a stutter, or a
-    /// picture that has stopped without saying so. The screen stays where it
-    /// is and says so, rather than flipping back to the voice call.
-    private var waitingForTheirs: Bool { call.video.theirs && !call.video.theirPicture }
+    /// What goes in the small tile: whichever picture the big screen hasn't
+    /// got, when there is one. With a single camera on in the call, that one
+    /// picture *is* the big screen and showing it twice is just smaller.
+    private var tile: Whose? {
+        guard call.video.theirs else { return nil }
+        return big == .theirs ? .mine : .theirs
+    }
+
+    private func swap() { phone.swapPictures() }
 
     // MARK: - A phone: the picture fills the screen
 
@@ -47,11 +56,14 @@ struct VideoCallView: View {
     /// somebody's face and never sit under a notch.
     private func overlaid(shape: CallLayout.Shape, size: CGSize) -> some View {
         ZStack(alignment: shape == .wide ? .topLeading : .top) {
-            BigPicture(call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo, fills: true)
+            Picture(whose: big, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo, fills: true)
                 .ignoresSafeArea()
+                .onTapGesture(perform: swap)
+                .accessibilityAddTraits(phone.canSwapPictures ? .isButton : [])
+                .accessibilityHint(phone.canSwapPictures ? "Swaps the two pictures over" : "")
 
             VStack(spacing: LinxSpace.s2) {
-                Who(call: call, now: now, big: false, theirCameraOff: !showsMyTile && call.video.mine)
+                Who(call: call, now: now, big: false, theirCameraOff: !call.video.theirs && call.video.mine)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, LinxSpace.s5)
@@ -60,9 +72,12 @@ struct VideoCallView: View {
 
             if shape == .wide {
                 HStack(alignment: .bottom) {
-                    if showsMyTile {
-                        MyPicture(mirrored: phone.mirrorsMyVideo, tracks: phone.tracks, on: call.video.mine)
-                            .frame(width: CallLayout.selfViewWidth(for: shape, size: size))
+                    if let tile {
+                        SmallPicture(
+                            whose: tile, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo,
+                            tap: swap
+                        )
+                        .frame(width: CallLayout.selfViewWidth(for: shape, size: size))
                     }
                     Spacer(minLength: 0)
                     Buttons(call: call, across: false)
@@ -73,9 +88,12 @@ struct VideoCallView: View {
                 VStack(spacing: 0) {
                     HStack {
                         Spacer(minLength: 0)
-                        if showsMyTile {
-                            MyPicture(mirrored: phone.mirrorsMyVideo, tracks: phone.tracks, on: call.video.mine)
-                                .frame(width: CallLayout.selfViewWidth(for: shape, size: size))
+                        if let tile {
+                            SmallPicture(
+                                whose: tile, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo,
+                                tap: swap
+                            )
+                            .frame(width: CallLayout.selfViewWidth(for: shape, size: size))
                         }
                     }
                     .padding(.top, LinxSpace.s10)
@@ -93,21 +111,24 @@ struct VideoCallView: View {
 
     private func split(sideBySide: Bool, size: CGSize) -> some View {
         let panel = VStack(spacing: LinxSpace.s5) {
-            Who(call: call, now: now, big: true, theirCameraOff: !showsMyTile && call.video.mine)
-            if showsMyTile {
-                MyPicture(mirrored: phone.mirrorsMyVideo, tracks: phone.tracks, on: call.video.mine)
-                    .frame(width: CallLayout.selfViewWidth(for: .split(sideBySide: sideBySide), size: size))
+            Who(call: call, now: now, big: true, theirCameraOff: !call.video.theirs && call.video.mine)
+            if let tile {
+                SmallPicture(
+                    whose: tile, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo, tap: swap
+                )
+                .frame(width: CallLayout.selfViewWidth(for: .split(sideBySide: sideBySide), size: size))
             }
             Buttons(call: call, across: true)
         }
         .padding(LinxSpace.s6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        let picture = BigPicture(
-            call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo, fills: false
+        let picture = Picture(
+            whose: big, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo, fills: false
         )
         .clipShape(.rect(cornerRadius: LinxRadius.lg))
         .padding(LinxSpace.s4)
+        .onTapGesture(perform: swap)
 
         return Group {
             if sideBySide {
@@ -127,14 +148,17 @@ struct VideoCallView: View {
 
 // MARK: - The pieces
 
-/// The big picture. Their camera has it while pictures are arriving; where
-/// only this phone's camera is on — a one-way video call, which is an
-/// ordinary call and has to look like one (ADR-079, owner's condition) — it
-/// shows **this phone's own camera**, full size, because that is the picture
-/// there is and a person wants to see what they are sending (owner,
-/// 2026-10-05: "the video button doesn't show my camera on the big screen").
-/// With no picture at all it shows their initials.
-private struct BigPicture: View {
+/// Whose picture a screen is showing.
+enum Whose: Equatable, Sendable { case mine, theirs }
+
+/// A picture, big: whoever has the big screen (`VideoCallView.big`). By
+/// default that is the other person — they are who you are talking to — and a
+/// tap swaps the two over (owner's ask, 2026-10-05). Where only this phone's
+/// camera is on, a one-way video call is an ordinary call and has to look like
+/// one (ADR-079, the owner's condition), so this phone's own picture fills the
+/// screen. With no picture to show at all it says why, over their initials.
+private struct Picture: View {
+    let whose: Whose
     let call: PhoneModel.Call
     let tracks: VideoTracks
     let mirrored: Bool
@@ -144,10 +168,8 @@ private struct BigPicture: View {
     var body: some View {
         ZStack {
             LinxColor.surfaceDark
-            if call.video.theirs, call.video.theirPicture, let track = tracks.remote {
-                VideoPicture(track: track, fills: fills, mirrored: false)
-            } else if call.video.mine, let track = tracks.local {
-                VideoPicture(track: track, fills: fills, mirrored: mirrored)
+            if let track = showing {
+                VideoPicture(track: track, fills: fills, mirrored: whose == .mine && mirrored)
             } else {
                 VStack(spacing: LinxSpace.s3) {
                     Text(CallView.initials(of: call.peer.name))
@@ -163,41 +185,70 @@ private struct BigPicture: View {
                 }
             }
         }
-        .accessibilityLabel(
-            call.video.theirs ? "\(call.peer.name)'s camera" : (call.video.mine ? "Your camera" : "No picture"))
+        .accessibilityLabel(Self.label(whose, call: call, showing: showing != nil))
+    }
+
+    private var showing: RTCVideoTrack? {
+        switch whose {
+        case .mine: return call.video.mine ? tracks.local : nil
+        case .theirs: return call.video.theirs && call.video.theirPicture ? tracks.remote : nil
+        }
     }
 
     private var waitingWords: String {
-        if call.video.theirs { return "Their picture has stopped. The call carries on." }
-        if call.video.mine { return "Starting your camera…" }
-        return "Their camera is off."
+        switch whose {
+        case .mine: return "Starting your camera…"
+        case .theirs:
+            return call.video.theirs
+                ? "Their picture has stopped. The call carries on." : "Their camera is off."
+        }
+    }
+
+    static func label(_ whose: Whose, call: PhoneModel.Call, showing: Bool) -> String {
+        switch whose {
+        case .mine: return showing ? "Your camera" : "Your camera is off"
+        case .theirs: return showing ? "\(call.peer.name)'s camera" : "No picture from \(call.peer.name)"
+        }
     }
 }
 
-/// This phone's own picture, in a small rounded tile.
-private struct MyPicture: View {
-    let mirrored: Bool
+/// The other picture, in a small rounded tile. Tapping it puts it on the big
+/// screen and sends the big one here.
+private struct SmallPicture: View {
+    let whose: Whose
+    let call: PhoneModel.Call
     let tracks: VideoTracks
-    let on: Bool
+    let mirrored: Bool
+    let tap: () -> Void
 
     var body: some View {
-        ZStack {
-            LinxColor.surface.opacity(0.25)
-            if on, let track = tracks.local {
-                VideoPicture(track: track, fills: true, mirrored: mirrored)
-            } else {
-                Image(systemName: "video.slash")
-                    .font(.title3)
-                    .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
+        Button(action: tap) {
+            ZStack {
+                LinxColor.surface.opacity(0.25)
+                if let track = showing {
+                    VideoPicture(track: track, fills: true, mirrored: whose == .mine && mirrored)
+                } else {
+                    Image(systemName: "video.slash")
+                        .font(.title3)
+                        .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
+                }
+            }
+            .aspectRatio(3.0 / 4.0, contentMode: .fit)
+            .clipShape(.rect(cornerRadius: LinxRadius.md))
+            .overlay {
+                RoundedRectangle(cornerRadius: LinxRadius.md)
+                    .strokeBorder(LinxColor.onSurfaceDark.opacity(0.25))
             }
         }
-        .aspectRatio(3.0 / 4.0, contentMode: .fit)
-        .clipShape(.rect(cornerRadius: LinxRadius.md))
-        .overlay {
-            RoundedRectangle(cornerRadius: LinxRadius.md)
-                .strokeBorder(LinxColor.onSurfaceDark.opacity(0.25))
+        .accessibilityLabel(Picture.label(whose, call: call, showing: showing != nil))
+        .accessibilityHint("Puts this picture on the big screen")
+    }
+
+    private var showing: RTCVideoTrack? {
+        switch whose {
+        case .mine: return call.video.mine ? tracks.local : nil
+        case .theirs: return call.video.theirs && call.video.theirPicture ? tracks.remote : nil
         }
-        .accessibilityLabel(on ? "Your camera" : "Your camera is off")
     }
 }
 
