@@ -59,8 +59,9 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 
 ## Phase 4 — 3CX parity (web + iOS)
 - Queues, IVR builder, BLF/presence panel, park/pickup, recording with retention.
-- Chat, CardDAV/LDAPS directory, desk-phone provisioning.
-- Site-to-site agent. This is the likely point to build the ADR-008 tunnel.
+- Chat, CardDAV/LDAPS directory.
+- **Desk-phone auto-provisioning** (owner, 2026-10-05): Linx serves each handset its own settings — Yealink and Grandstream config files over HTTPS, per-MAC, so a phone out of the box picks up its extension instead of somebody typing six fields into it. Pointing a site's phones at their own **Linx Connector** is part of it.
+- **Linx Connector** (owner, 2026-10-05: in this phase, and that is its name): the small container at a remote office that carries its phones and its lines back to the main Linx over TLS 443. Written up below. This is the point where the ADR-008 tunnel gets built.
 
 ## Desk phones from outside the office (owner requirement, 2026-10-05)
 
@@ -74,7 +75,9 @@ This is its own piece of design, not a setting, because going public with SIP is
 - **With or without an SBC.** Both have to work: an SBC (or the Site Connector below) in front for people who have one, and nothing in front for people who don't.
 - **What it must not cost.** The standing rules hold: no public 5060 of any kind, TLS and encrypted audio only, no weakening of what the LAN path does today.
 
-**Where it goes:** not Phase 2, which is the app. Desk-phone **auto-provisioning** stays in Phase 4 as planned (owner, 2026-10-05) — this is a separate thing and may land earlier, since it is about reachability rather than convenience. Design for approval when it starts.
+**How it meets the Linx Connector.** The Connector (Phase 4, below) is the *with an SBC* half of this requirement, and a good one: a remote **office** gets a box on its network and its phones never face the internet at all. It does not answer the other half — one phone in somebody's house, or a handset that travels — which still needs Linx itself reachable and hardened. Both have to work, so the design covers both and the Connector is not an excuse to skip the direct path.
+
+**Where it goes:** not Phase 2, which is the app. It sits beside Phase 4's auto-provisioning and the Connector, and may land earlier, since it is about reachability rather than convenience. Design for approval when it starts.
 
 ## Phase 5 — Hardening and ops
 - Capacity page and benchmark, Pi Lite validation.
@@ -104,12 +107,12 @@ A watcher on the server that spots problems and gets a fix proposed, which the o
 - **Approve:** nothing changes until the owner merges. The fix reaches the server through the normal build and update.
 - **Trigger it yourself:** the admin portal gets "Check now" (runs the checks at once) and "Report a problem" (a short description of your own, sent the same way); `linx watch --now` does the same from the server.
 
-## After going live, second phase — Site Connector (owner idea, 2026-09-26)
-An SBC for remote offices, done the way Pangolin adds a site with Newt. It's for Linx hosted in the cloud (or at one main office), with phones in other places.
+## Linx Connector (Phase 4; owner idea 2026-09-26, named and scheduled 2026-10-05)
+**The name is "Linx Connector"** (owner, 2026-10-05), and it is built in **Phase 4**, not after going live. An SBC for remote offices, done the way Pangolin adds a site with Newt. It's for Linx hosted in the cloud (or at one main office), with phones in other places.
 - **Add a site in one step:** in the admin portal (or `linx site add`), the admin names the site. Linx shows a link with a one-time code and a single command to run it (`docker run …` or a compose snippet). The code works once and expires quickly. It only enrols the connector and never contains a SIP password (security rules).
 - **Runs anywhere:** the connector is one small container on any machine at the remote site (a Raspberry Pi, a NAS, any Docker host). It connects **out** to the main Linx over an encrypted tunnel on **TCP 443**, through the same front door as everything else, so it gets past firewalls that block SIP or UDP and needs no port forwarding at the site.
-- **Local phones use it:** desk phones and mobile clients on that site's network connect to the connector's local address, as if Linx were in the room. The connector carries their calls (signalling and audio) through the tunnel to the main Linx. Auto-provisioning (Phase 2) points a site's phones at their site's connector.
-- **Softphones move without dropping calls:** a mobile or desktop app using the site's connector keeps working, and keeps its call, when the person walks out onto 4G/5G or another Wi-Fi without a connector. It switches straight to the main Linx over 443 (WSS + TURN, as today) and back again on returning. The app treats the connector and the direct route as two ways to reach the same line: the same login, one registration at a time. The switch happens during the call: ICE restart for audio, and SIP re-registration with the dialog kept, the way CallKit apps hand over between Wi-Fi and cellular. The person hears at most a short gap. The app finds the connector on the site's network by itself (provisioning, then a local discovery check), and never uses it anywhere else. Desk phones don't move, so this only concerns softphones (the iOS app in Phase 2, then the web client). The release test: walk out of the office during a call and it stays up.
+- **Local phones use it:** desk phones and mobile clients on that site's network connect to the connector's local address, as if Linx were in the room. The connector carries their calls (signalling and audio) through the tunnel to the main Linx. Auto-provisioning — the same phase — points a site's phones at their site's connector.
+- **Softphones move without dropping calls:** a mobile or desktop app using the site's connector keeps working, and keeps its call, when the person walks out onto 4G/5G or another Wi-Fi without a connector. It switches straight to the main Linx over 443 (WSS + TURN, as today) and back again on returning. The app treats the connector and the direct route as two ways to reach the same line: the same login, one registration at a time. The switch happens during the call: ICE restart for audio, and SIP re-registration with the dialog kept, the way CallKit apps hand over between Wi-Fi and cellular. The person hears at most a short gap. The app finds the connector on the site's network by itself (provisioning, then a local discovery check), and never uses it anywhere else. Desk phones don't move, so this only concerns softphones (the iOS app, built in Phase 2, then the web client). The release test: walk out of the office during a call and it stays up.
 - **Local phone lines use it too:** a trunk on the remote site's network (a UCM with landlines, an FXO gateway like the GXW4104, a local provider's line that only works from that office) is reached through the same connector. In the trunk setup it's one more "Connection" choice, next to "Internet" and a WireGuard profile (ADR-024): "Through site X". Outgoing calls can prefer the site's own line for that site's people (local caller ID and local rates), with the main lines as backup. Calls to that line's numbers ring whoever Linx routes them to, anywhere. The toll-fraud rules stay as they are (no trunk-to-trunk, permission levels, limits), and the connector only lets the main Linx reach the local trunk addresses the admin picked.
 - **The admin sees and controls each site:** online or offline, how many phones, call quality, last seen. Site down or back up raises an alert. One click revokes a site, and its tunnel closes at once. The connector gets its own certificate from Linx's internal CA when it enrols (step-ca); the code itself is only a one-time ticket.
 - **To decide when it's designed:**
