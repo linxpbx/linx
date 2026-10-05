@@ -99,6 +99,7 @@ the app may look like a phone screen stretched to fill a 13-inch one.
 | 4b.6 | Take or make a call on the iPad | The call stands in its **own column beside the app** — the list you were looking at stays on screen. Hang up and it goes away again |
 | 4b.7 | Turn the iPad on its side during a video call | The picture takes one panel and the buttons the other, both ways round, and nothing jumps |
 | 4b.8 | Put the app in a narrow Split View beside another app, then take a call | It becomes a phone again: one column, and the call covers it |
+| 4b.8a | **While a call is up**, drag the Split View divider slowly from narrow to full width and back | This is the nearest thing to opening a folding phone out, and it is what to watch: the call moves between covering the screen and standing in its own column **without dropping**, the sound never breaks, the list behind it stays where it was, and the in-call keypad stays open if you had it open |
 | 4b.9 | Same on the iPhone | Everything is exactly as it was: one column, and a call covers the screen |
 
 ## 5. Losing a phone, and the six-month rule

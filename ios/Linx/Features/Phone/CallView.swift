@@ -13,12 +13,11 @@ struct CallView: View {
     let call: PhoneModel.Call
     /// Counted up from the moment the call was answered.
     @State private var now = Date()
-    @State private var keypadOpen = false
-    @State private var detailsOpen = false
 
     private static let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        @Bindable var phone = phone
         // One container, whichever screen is inside it. The switch between the
         // call's two screens used to change this view's identity, and anything
         // attached here — the question below above all — went with it (owner,
@@ -56,8 +55,10 @@ struct CallView: View {
         // Why the call sounds the way it does. A call that connects and
         // carries no sound looks exactly like one that works, so the facts
         // are one tap away and can be copied out whole.
-        .sheet(isPresented: $detailsOpen) {
-            CallDetailsView(call: call, diagnostics: phone.diagnostics) { detailsOpen = false }
+        .sheet(isPresented: $phone.callDetailsAreOpen) {
+            CallDetailsView(call: call, diagnostics: phone.diagnostics) {
+                phone.callDetailsAreOpen = false
+            }
         }
     }
 
@@ -71,7 +72,7 @@ struct CallView: View {
         VStack(spacing: LinxSpace.s5) {
             HStack {
                 Button {
-                    detailsOpen = true
+                    phone.callDetailsAreOpen = true
                 } label: {
                     ConnectionPill(call: call)
                 }
@@ -80,7 +81,7 @@ struct CallView: View {
             }
             if let warning = warning {
                 Button {
-                    detailsOpen = true
+                    phone.callDetailsAreOpen = true
                 } label: {
                     CallWarning(words: warning)
                 }
@@ -115,7 +116,7 @@ struct CallView: View {
             // While it is still ringing there is nothing to mute or dial
             // into, so only Answer and Decline are shown.
             if call.phase != .ringing {
-                if keypadOpen {
+                if phone.callKeypadIsOpen {
                     toneKeys
                 } else {
                     buttons
@@ -159,8 +160,8 @@ struct CallView: View {
             ) { phone.toggleMute() }
             .disabled(call.phase != .active)
             .opacity(call.phase == .active ? 1 : 0.5)
-            CallToggleButton(symbol: "circle.grid.3x3.fill", words: "Keypad", on: keypadOpen) {
-                keypadOpen.toggle()
+            CallToggleButton(symbol: "circle.grid.3x3.fill", words: "Keypad", on: phone.callKeypadIsOpen) {
+                phone.callKeypadIsOpen.toggle()
             }
             .disabled(call.phase != .active)
             .opacity(call.phase == .active ? 1 : 0.5)
@@ -202,7 +203,7 @@ struct CallView: View {
                     }
                 }
             }
-            Button("Done") { keypadOpen = false }
+            Button("Done") { phone.callKeypadIsOpen = false }
                 .font(.body)
                 .foregroundStyle(LinxColor.accentOnDark)
         }

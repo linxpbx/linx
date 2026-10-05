@@ -94,6 +94,15 @@ import UIKit
     /// 2026-10-04). Saying no leaves a **one-way video call**, which is a
     /// perfectly ordinary call: they are seen, this phone is heard.
     private(set) var askAboutTheirVideo: SIPPeer?
+    /// Whether the in-call keypad and the Call details sheet are open.
+    /// They live here rather than in the call screen because the screen
+    /// itself is rebuilt whenever the call moves — a phone being opened
+    /// out, an iPad turned, a call going from covering the screen to
+    /// standing beside the app — and a keypad that closes itself halfway
+    /// through someone typing a PIN into a menu is its own small disaster
+    /// (owner's point about the fold, 2026-10-05).
+    var callKeypadIsOpen = false
+    var callDetailsAreOpen = false
     private(set) var recent: [Recent] = []
     /// The last thing that didn't work, for the screen to show once.
     private(set) var problem: String?
@@ -818,6 +827,8 @@ import UIKit
         changingVideo = false
         saidAboutTheRelay = false
         myPictureIsBig = false
+        callKeypadIsOpen = false
+        callDetailsAreOpen = false
         calls.reportEnded(id: finished.id, Self.ending(why))
         if case .failed(let said) = why { problem = said }
         defer { closeIfNobodyIsLooking() }

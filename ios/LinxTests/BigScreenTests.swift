@@ -124,6 +124,62 @@ struct CallBesideTheAppTests {
     }
 }
 
+/// Opening the phone out, and closing it again (owner, 2026-10-05: "there
+/// is also the transition when you unfold the phone").
+///
+/// Unfolding is not one event the app is told about: the window grows, the
+/// size class changes, and a moment later iOS says where the crease is.
+/// Every rule below is asked the same question at each step of that, so a
+/// half-finished fold can never leave a layout nobody designed.
+struct UnfoldingTests {
+    /// The Duo as it goes: shut, opened out, and opened out once the phone
+    /// has said where its fold is.
+    static let shut = CGSize(width: 466, height: 678)
+    static let open = CreaseTests.duo
+    static var fold: Crease? { Crease.from(band: CreaseTests.downTheMiddle, in: open) }
+
+    @Test("a call covers the folded phone and takes one leaf of the opened one")
+    func theCallFindsItsPlace() {
+        #expect(!CallLayout.callFitsBeside(size: Self.shut, horizontal: .compact))
+        // Opened out, before the crease has arrived: the call already
+        // stands beside the app, on a sensible share of the screen.
+        #expect(CallLayout.callFitsBeside(size: Self.open, horizontal: .regular))
+        let guessed = CallLayout.callWidth(size: Self.open)
+        #expect(guessed >= 380)
+        // And once the fold is known, exactly one leaf of it.
+        #expect(CallLayout.callWidth(size: Self.open, crease: Self.fold) == 512)
+    }
+
+    @Test("the call screen goes from one panel to two and back again")
+    func theCallScreenFollows() {
+        #expect(CallLayout.shape(size: Self.shut, horizontal: .compact) == .tall)
+        // Opened out, the near-square rule already says two panels; the
+        // crease then confirms it rather than changing it, so the screen
+        // does not jump when the fold is reported a moment later.
+        #expect(CallLayout.shape(size: Self.open, horizontal: .regular) == .split(sideBySide: true))
+        #expect(
+            CallLayout.shape(size: Self.open, horizontal: .regular, crease: Self.fold)
+                == .split(sideBySide: true))
+        // Shut again: back to one panel, with any stale crease ignored
+        // because it no longer crosses this screen.
+        let stale = Crease.from(band: CreaseTests.downTheMiddle, in: Self.shut)
+        #expect(stale == nil)
+        #expect(CallLayout.shape(size: Self.shut, horizontal: .compact, crease: stale) == .tall)
+    }
+
+    @Test("the fold is reported once, not on every layout pass")
+    func theFoldIsReportedOnChange() {
+        // The same band in the same screen is the same fold: a view is laid
+        // out constantly and a phone folds rarely, which is why the probe
+        // only speaks when the answer changes.
+        let first = Crease.from(band: CreaseTests.downTheMiddle, in: Self.open)
+        let again = Crease.from(band: CreaseTests.downTheMiddle, in: Self.open)
+        #expect(first == again)
+        let moved = Crease.from(band: CGRect(x: 600, y: 0, width: 16, height: 1080), in: Self.open)
+        #expect(first != moved)
+    }
+}
+
 @MainActor
 struct FoldedRotationTests {
     @Test("a phone opened out turns like a tablet, without guessing at its width")

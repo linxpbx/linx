@@ -168,6 +168,23 @@ a stretched iPhone one" — is what this step is held to.
   change) and sits behind `#available(iOS 27.1, *)` as well. Checked both
   ways on 2026-10-05 by reading the symbols out of `Crease.o`: 107 under the
   beta, none under 27.0. CI is untouched.
+- **Opening the phone out, mid-use (the owner's point, 2026-10-05).** Unfolding
+  is not one event the app is told about: the window grows, the size class
+  changes, and only a moment later does iOS say where the crease is. So every
+  rule is asked the same question at each step, and the steps agree — the
+  near-square rule already says "two panels" before the fold is reported, and
+  the crease then *confirms* it rather than changing it, so nothing jumps. The
+  things that must survive the transition are deliberately not in the views
+  that get rebuilt: the call itself lives in `PhoneModel` and cannot drop, the
+  app never moves between containers as the call comes and goes, the typed
+  number and the chosen row are model and view state that outlive the reflow,
+  and the **in-call keypad and Call details moved into `PhoneModel`** for this
+  reason — a keypad that shuts itself while somebody is typing a PIN into a
+  menu is its own small disaster. `UnfoldingTests` walks shut → open → open
+  with the fold known → shut again. **Nobody has watched it happen**: the
+  simulator's fold can't be driven from the command line and no real Duo
+  exists. The nearest thing that can be watched today is dragging an iPad's
+  Split View divider while a call is up (`docs/TEST_MATRIX.md` row 4b.8a).
 - **Tests:** `ios/LinxTests/BigScreenTests.swift` — what counts as a fold and
   what doesn't (a band across the view, one in a corner, one so near the edge
   that two panels would be pointless), a call dividing along the fold even on

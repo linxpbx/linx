@@ -42,6 +42,10 @@ struct Crease: Equatable, Sendable {
     /// is not a fold across this view at all.
     static func from(band: CGRect, in size: CGSize) -> Crease? {
         guard !band.isNull, !band.isEmpty, size.width > 0, size.height > 0 else { return nil }
+        // A band that doesn't cross this view isn't this view's fold. It is
+        // what a stale answer looks like for the moment between the phone
+        // closing and iOS saying so.
+        guard band.intersects(CGRect(origin: .zero, size: size)) else { return nil }
         // A fold that runs down the screen is a tall, narrow band; one that
         // runs across it is short and wide.
         let runsDown = band.height >= band.width
