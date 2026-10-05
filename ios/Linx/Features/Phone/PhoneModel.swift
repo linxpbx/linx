@@ -269,6 +269,9 @@ import UIKit
                 self?.diagnostics = media.diagnostics
                 media.onVideoChanged = { [weak self] video in self?.videoChanged(video) }
                 media.onVideoTooExpensive = { [weak self] in self?.videoCostTooMuch() }
+                media.onPictureGone = { [weak self] in
+                    Task { await self?.agent?.dropVideo() }
+                }
                 self?.liveMedia = media
                 self?.tracks = media.tracks
                 return media

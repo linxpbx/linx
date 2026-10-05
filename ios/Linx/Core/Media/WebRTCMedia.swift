@@ -146,6 +146,13 @@ struct PictureWatch {
         quiet = 0
         seen = 0
     }
+
+    /// Call it stopped on the very next quiet reading rather than the second.
+    /// Used the moment this phone's own camera goes off, because what was
+    /// arriving was very often this phone's own picture coming back.
+    mutating func oneReadingIsEnough() {
+        quiet = Self.quietReadings - 1
+    }
 }
 
 @MainActor final class WebRTCMedia: NSObject, SIPCallMedia {
@@ -371,6 +378,11 @@ struct PictureWatch {
         // away altogether would renumber the call's streams, which Asterisk
         // and the other side would have to follow for no good reason.
         videoSender?.track = nil
+        // Their picture very often *was* this phone's, coming back (the sound
+        // test does exactly that). So one quiet reading is enough to call it
+        // stopped now, instead of the usual two: it is what takes the big
+        // picture off the screen within a few seconds rather than ten.
+        frames.oneReadingIsEnough()
         if video.theirs {
             watchOnly()
         } else {
@@ -410,12 +422,38 @@ struct PictureWatch {
         said(CallVideo(mine: video.mine, theirs: on, theirPicture: on && video.theirPicture))
     }
 
-    /// Whether their frames are arriving. It never changes which screen the
-    /// call is on — only what the picture area shows — so a stutter can't flip
-    /// the app between the video screen and the voice screen.
+    /// Whether their frames are arriving. On its own it never changes which
+    /// screen the call is on — only what the picture area shows — so a stutter
+    /// can't flip the app between the video screen and the voice screen.
     private func theirPicture(_ arriving: Bool) {
         guard arriving != video.theirPicture, video.theirs || !arriving else { return }
         said(CallVideo(mine: video.mine, theirs: video.theirs, theirPicture: arriving))
+        // Nobody is sending a picture any more — theirs has stopped and this
+        // phone's camera is off. A video screen with nothing in it is not what
+        // the call is, so the picture is taken **out of the call** and both
+        // sides go back to an ordinary call (owner, 2026-10-05: "it should have
+        // taken to the voice only active call since video is off"). It comes
+        // back the way it arrived in the first place: whenever either side
+        // presses the button.
+        guard !arriving, !video.mine else { return }
+        onPictureGone?()
+    }
+
+    /// Nobody is sending a picture any more.
+    var onPictureGone: (() -> Void)?
+
+    /// Takes the picture out of the call altogether and hands back the offer
+    /// that says so. Unlike stopping the camera, this also stops *asking* for
+    /// theirs: the call becomes a plain call again at both ends.
+    func dropVideo() async throws -> String {
+        await stopCamera()
+        for transceiver in connection?.transceivers ?? [] where transceiver.mediaType == .video {
+            transceiver.setDirection(.inactive, error: nil)
+        }
+        tracks.remote = nil
+        frames.forget()
+        said(CallVideo())
+        return try await offer()
     }
 
     private func said(_ now: CallVideo) {

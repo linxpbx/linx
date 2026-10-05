@@ -291,6 +291,37 @@ the voice call after pressing Stop video.
   and the voice screen every few seconds.
 - **Call details** shows the step in the words people use for it ("540p").
 
+### Build 8 on the phone: a picture nobody is sending leaves the call (2026-10-05)
+
+The flicker was gone and the owner found the three things left in it.
+
+- **A video screen with nothing in it isn't what the call is.** With this phone's
+  camera off and their picture stopped, the app sat on the video screen saying
+  "Their picture has stopped" — where the owner rightly expected the voice call
+  back. A picture is in a call only while somebody is sending one, so when
+  theirs stops and ours is off, Linx now takes the video **out of the call**
+  with one more re-INVITE (`WebRTCMedia.dropVideo`, `SIPUserAgent.dropVideo`),
+  both ends agree about it, and either side pressing the button puts a picture
+  back exactly as it did the first time.
+- **The big picture goes within a few seconds of Stop video,** not ten: the
+  moment this phone's camera goes off, one quiet reading is enough to call their
+  picture stopped (`PictureWatch.oneReadingIsEnough`), because what was arriving
+  was very often this phone's own picture coming back — which is exactly what
+  the sound test does.
+- **A picture just switched on is no longer made worse while the link is still
+  being measured** (owner: "it shows my actual camera with the same quality but
+  then it mirrors it with lower quality"). The room on a link is measured from
+  what is flowing on it, so for the first seconds of a picture the measurement
+  is still catching up and reads low — and the ladder was acting on it. It now
+  ignores the first two readings for going **down**, and needs **two** tight
+  readings rather than one before making the picture smaller. Going up is
+  unchanged: about ten seconds of real headroom.
+
+In the sound test the big picture is the echo of this phone's own camera — the
+far end's view, so not mirrored — and when the echo stops it becomes this
+phone's own preview, which is mirrored. Both are right; they only look odd
+because in that one call the two pictures are the same face.
+
 ### Step 6, as built (2026-10-04)
 **A sleeping phone rings now.** Step 5 gave the server the push; this is the app's side of it, and the rule that shapes all of it is Apple's: a VoIP push must report a call to CallKit *at once, every time*, or iOS kills the app and stops delivering its pushes (§14 item 1).
 

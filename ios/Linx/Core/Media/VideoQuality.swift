@@ -106,9 +106,21 @@ struct VideoLadder {
     /// ten seconds of a link that is genuinely good — long enough that a lift,
     /// a lorry or a mast handover never makes the picture jump about.
     static let steadyReadings = 3
+    /// Readings saying the link is too tight before the picture is made
+    /// smaller. Two, not one: a single reading is wrong too often to act on.
+    static let tightReadings = 2
+    /// Readings ignored when a camera has just come on, for going **down**
+    /// only. A link's room is measured from what is flowing on it, and for the
+    /// first few seconds of a picture that measurement is still catching up —
+    /// so a perfectly good link reads as a poor one and the picture would be
+    /// made worse the moment it appeared (owner, 2026-10-05: "it shows my
+    /// actual camera with the same quality but then... lower quality").
+    static let settlingReadings = 2
 
     private(set) var quality: VideoQuality
     private var good = 0
+    private var tight = 0
+    private var settling = Self.settlingReadings
 
     init(start: VideoQuality = .standard) { quality = start }
 
@@ -116,25 +128,41 @@ struct VideoLadder {
     /// link says it has room for; `ceiling` is the most this call may use.
     mutating func reading(spare: Int?, ceiling: VideoQuality) -> VideoQuality? {
         if quality > ceiling {
-            good = 0
+            reset()
             quality = ceiling
             return ceiling
         }
         guard let spare else { return nil }
         if spare < quality.bitrate {
             good = 0
-            guard let lower = quality.lower else { return nil }
+            if settling > 0 {
+                settling -= 1
+                return nil
+            }
+            tight += 1
+            guard tight >= Self.tightReadings, let lower = quality.lower else { return nil }
+            reset()
             quality = lower
             return lower
         }
+        tight = 0
+        if settling > 0 { settling -= 1 }
         guard let higher = quality.higher, higher <= ceiling, spare >= higher.needs else {
             good = 0
             return nil
         }
         good += 1
         guard good >= Self.steadyReadings else { return nil }
-        good = 0
+        reset()
         quality = higher
         return higher
+    }
+
+    /// The counts start again whenever the step changes: each step is judged on
+    /// its own readings, not the one before's.
+    private mutating func reset() {
+        good = 0
+        tight = 0
+        settling = 0
     }
 }

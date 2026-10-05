@@ -91,6 +91,11 @@ struct AudioRoute: Equatable, Sendable {
     /// that tells the other side.
     func startVideo() async throws -> String
     func stopVideo() async throws -> String
+    /// Takes the picture out of the call altogether — neither side is sending
+    /// one — and answers with the offer that says so.
+    func dropVideo() async throws -> String
+    /// Nobody is sending a picture any more.
+    var onPictureGone: (() -> Void)? { get set }
     func switchCamera()
     /// Nobody accepted the last offer: put the call back exactly as it was,
     /// so the sound carries on untouched.
@@ -384,6 +389,21 @@ struct AudioRoute: Equatable, Sendable {
         // been answered, the camera is off here and the other side finds
         // out from the next offer either side makes.
         guard let offer, !(call?.reinviting ?? false) else { return }
+        sendReinvite(offer, of: current)
+    }
+
+    /// Nobody is sending a picture any more, so the call goes back to being an
+    /// ordinary call: the picture is taken out of it with one more re-INVITE,
+    /// and both ends agree about it. Either side pressing the button puts a
+    /// picture back in, exactly as it did the first time.
+    func dropVideo() async {
+        guard let current = call, current.established, !current.changing else { return }
+        call?.changing = true
+        defer { call?.changing = false }
+        guard let offer = try? await current.media.dropVideo(), call?.id == current.id else { return }
+        // One change at a time (RFC 3261 §14.1): if a change of this phone's is
+        // still in the air, the next offer either side makes says it anyway.
+        guard !(call?.reinviting ?? false) else { return }
         sendReinvite(offer, of: current)
     }
 

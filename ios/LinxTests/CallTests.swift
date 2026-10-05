@@ -89,6 +89,19 @@ import Testing
         return Self.soundOffer
     }
 
+    var onPictureGone: (() -> Void)?
+    private(set) var dropped = false
+
+    func dropVideo() async throws -> String {
+        dropped = true
+        setVideo(CallVideo())
+        return Self.soundOffer
+    }
+
+    /// Their picture has stopped and this phone isn't sending one, as
+    /// WebRTCMedia's frame watch would say it.
+    func pretendTheirPictureStopped() { onPictureGone?() }
+
     func switchCamera() { cameraSwitched += 1 }
 
     func rollbackOffer() async {
