@@ -164,4 +164,6 @@ The useful half of the record: **do not try these again.**
 
 **Worth putting to the owner** (from step 9's review, not blocking anything): the app has **no lock of its own** — anyone holding the unlocked phone can see the team, the call history and voicemail, and ring anyone, exactly as they could with the phone's own Phone app. iOS's passcode and Face ID are what protect it today. A Face ID lock on the app itself is small and separate; ask whether they want it.
 
+**Recorded, not started (owner, 2026-10-05):** a desk phone must work **on the network and from outside it, with or without an SBC**. Today it is LAN-only by design. The requirement and what it has to answer — the port, registration lockout, where the audio goes, and both the SBC and no-SBC cases — are in `docs/ROADMAP.md` "Desk phones from outside the office". Auto-provisioning stays in Phase 4.
+
 **Still waiting on the owner** (none of it blocks the build order): the §11 answers in `docs/PHASE2.md` (push for other self-hosters, TestFlight vs App Store), their look at `ios/screenshots/`, the two standing `doctor` warnings, and whether to forward UDP 443 to `192.168.1.213` for slightly smoother audio.

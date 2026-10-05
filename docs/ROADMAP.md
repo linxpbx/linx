@@ -62,6 +62,20 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - Chat, CardDAV/LDAPS directory, desk-phone provisioning.
 - Site-to-site agent. This is the likely point to build the ADR-008 tunnel.
 
+## Desk phones from outside the office (owner requirement, 2026-10-05)
+
+**A desk phone must work on the home or office network *and* from outside it, with or without an SBC in front.** Today only the first half is true: 5061 (TLS) and the audio ports are published on the LAN address alone and the firewall drops everything else, which is what "desk phones work on your home or office network" means in the help.
+
+This is its own piece of design, not a setting, because going public with SIP is the thing that gets a phone system attacked. What it has to answer:
+
+- **Which port the phone reaches.** Linx already multiplexes TLS on 443 by name (`linx-sni` routes the web app, the browser websocket and the relay), so `sip.<domain>:443` could carry a desk phone's SIP/TLS with nothing new opened — which also gets through hotel and office networks that allow only 443. Phones that insist on 5061 would need it published.
+- **Registration lockout.** `docs/THREAT_MODEL.md` already names this as the precondition: a phone login on the LAN has no lockout today, and a password that only a LAN attacker could guess becomes one the whole internet can. The control plane sees every registration over ARI, so the count and the lockout belong there, with the same per-address and per-account shape as sign-in.
+- **Where the audio goes.** A desk phone does not do ICE or TURN the way the app and the browser do; it sends SRTP straight to whatever address Asterisk gave it. From outside that means either publishing the RTP range (with `rtp_symmetric`/`force_rport`, which already handle the phone's own NAT) or putting something in front that terminates media.
+- **With or without an SBC.** Both have to work: an SBC (or the Site Connector below) in front for people who have one, and nothing in front for people who don't.
+- **What it must not cost.** The standing rules hold: no public 5060 of any kind, TLS and encrypted audio only, no weakening of what the LAN path does today.
+
+**Where it goes:** not Phase 2, which is the app. Desk-phone **auto-provisioning** stays in Phase 4 as planned (owner, 2026-10-05) — this is a separate thing and may land earlier, since it is about reachability rather than convenience. Design for approval when it starts.
+
 ## Phase 5 — Hardening and ops
 - Capacity page and benchmark, Pi Lite validation.
 - ~~External storage and encrypted backups with restore tests.~~ Pulled forward ahead of going live (owner decision, 2026-09-27): see `docs/BACKUP.md`, ADR-055.
