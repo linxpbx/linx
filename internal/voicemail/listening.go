@@ -383,7 +383,14 @@ func (s *session) write(ctx context.Context, tenant uuid.UUID, m Message) (file,
 	}
 	file = filepath.Join(s.l.Dir, m.ID.String()+playExt)
 	tmp := file + ".tmp"
-	if err := os.WriteFile(tmp, full.Audio, 0o640); err != nil {
+	// Readable by whatever user Asterisk runs as: the folder is what
+	// keeps a message private (compose's voicemail-play is 2750, so only
+	// the control plane and Asterisk can even open it), not the file's
+	// own mode. With 0640 the file is unreadable to Asterisk wherever
+	// its uid isn't in the folder's group — which is how the call suite
+	// mounts it, and how it failed there while working on a Mac, whose
+	// Docker ignores uids.
+	if err := os.WriteFile(tmp, full.Audio, 0o644); err != nil {
 		_ = os.Remove(tmp)
 		return "", "", err
 	}

@@ -331,6 +331,30 @@ func TestListeningIgnoresOtherApps(t *testing.T) {
 	}
 }
 
+// Asterisk runs as its own user and reads the folder over a mount, so a
+// message written for it has to be readable whatever uid that is. The
+// folder is what keeps it private, not the file (compose's
+// voicemail-play is 2750).
+func TestMessageIsReadableByAsterisk(t *testing.T) {
+	store, ids := boxWith(1)
+	l := &Listening{Store: store, Dir: t.TempDir(), Log: quietLog()}
+	s := &session{l: l}
+	file, play, err := s.write(context.Background(), store.box.TenantID, store.messages[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode&0o044 == 0 {
+		t.Errorf("a message written for Asterisk is %o: it can't read it", mode)
+	}
+	if want := l.Dir + "/" + ids[0].String(); play != want {
+		t.Errorf("played as %q, want %q", play, want)
+	}
+}
+
 func TestDigits(t *testing.T) {
 	for _, c := range []struct {
 		number string
