@@ -407,6 +407,11 @@ func (s *Store) RevokeDevice(ctx context.Context, tenant, id uuid.UUID, at time.
 			if err := insertEvent(ctx, tx, ev, nil); err != nil {
 				return err
 			}
+			// A phone stopped for good is not woken again, so Linx keeps no
+			// Apple token for it (docs/PHASE2.md §9).
+			if err := forgetPushTokensTx(ctx, tx, []uuid.UUID{id}); err != nil {
+				return err
+			}
 		}
 		return insertAudit(ctx, tx, audit)
 	})

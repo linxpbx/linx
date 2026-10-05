@@ -247,6 +247,25 @@ func (s *Store) DevicePrincipalFor(ctx context.Context, device uuid.UUID, now ti
 	return tenant, user, err
 }
 
+// forgetPushTokensTx takes away where Apple could reach phones that have
+// stopped being phones (docs/PHASE2.md §9). Nothing would be sent to them in
+// any case — device_wakeable names only phones that are still set up — but a
+// phone somebody has lost, or one that has been quiet for six months, has no
+// business leaving its Apple tokens on the server. A phone that comes back
+// sends new ones the first time it runs.
+//
+// Being disabled is not stopping: the person's phones work again the moment
+// the person does, so their tokens stay.
+func forgetPushTokensTx(ctx context.Context, tx pgx.Tx, devices []uuid.UUID) error {
+	if len(devices) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `UPDATE device_identity
+		SET voip_token = '', alert_token = '', push_environment = '', push_updated_at = NULL
+		WHERE device_id = ANY($1) AND (voip_token <> '' OR alert_token <> '')`, devices)
+	return err
+}
+
 // ExpireIdentities marks the phones that have gone six months without being
 // in touch, each with a device.expired event.
 func (s *Store) ExpireIdentities(ctx context.Context, now time.Time) ([]pbx.Device, error) {
@@ -279,7 +298,7 @@ func (s *Store) ExpireIdentities(ctx context.Context, now time.Time) ([]pbx.Devi
 			}
 			expired = append(expired, d)
 		}
-		return nil
+		return forgetPushTokensTx(ctx, tx, ids)
 	})
 	return expired, err
 }
@@ -315,7 +334,7 @@ func expirePhonesTx(ctx context.Context, tx pgx.Tx, user uuid.UUID, at time.Time
 			return err
 		}
 	}
-	return nil
+	return forgetPushTokensTx(ctx, tx, ids)
 }
 
 // PhonesForUser is this person's own set-up phones, newest first.

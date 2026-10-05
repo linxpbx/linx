@@ -13,6 +13,7 @@ import (
 	"linxpbx.com/linx/internal/db/dbtest"
 	"linxpbx.com/linx/internal/enroll"
 	"linxpbx.com/linx/internal/pbx"
+	"linxpbx.com/linx/internal/push"
 )
 
 // TestEnrollDocker checks setting up an iPhone against real Postgres
@@ -155,6 +156,13 @@ func TestEnrollDocker(t *testing.T) {
 		t.Error("Asterisk can't see a phone that was just set up")
 	}
 
+	// The moved-server checklist counts an app phone apart from a desk
+	// phone: a desk phone is given the new address, an iPhone has to be set
+	// up again (docs/PHASE2.md §9, internal/moved).
+	if f, err := s.Facts(ctx, tenant); err != nil || f.AppPhones != 1 || f.DeskPhones != 0 {
+		t.Errorf("moved-server facts: %d app phones, %d desk phones, %v", f.AppPhones, f.DeskPhones, err)
+	}
+
 	// The app asks for its phone line: the SIP username stays, the password
 	// is new, and Asterisk has the new digest the moment it's issued.
 	line, lineExt, err := s.IssuePhoneLine(ctx, tenant, device.ID,
@@ -203,6 +211,25 @@ func TestEnrollDocker(t *testing.T) {
 		t.Fatalf("after renewal: %+v, %v", renewed, err)
 	}
 
+	// Where Apple can reach it, so the rest of this test can watch what
+	// happens to that when the phone stops being one (docs/PHASE2.md §9).
+	tokens := func() (voip, alert string) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT voip_token, alert_token FROM device_identity WHERE device_id = $1`,
+			device.ID).Scan(&voip, &alert); err != nil {
+			t.Fatal(err)
+		}
+		return voip, alert
+	}
+	sendTokens := func(at time.Time) {
+		t.Helper()
+		if err := s.SavePushTokens(ctx, device.ID,
+			push.Tokens{VoIP: "aabbccdd", Alert: "eeff0011", Environment: push.Sandbox}, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sendTokens(later)
+
 	// Six months with no contact: expired, with its event, and gone from
 	// Asterisk's view.
 	expired, err := s.ExpireIdentities(ctx, later.Add(184*24*time.Hour))
@@ -226,6 +253,9 @@ func TestEnrollDocker(t *testing.T) {
 	if again, err := s.ExpireIdentities(ctx, later.Add(185*24*time.Hour)); err != nil || len(again) != 0 {
 		t.Errorf("expiring twice: %+v, %v", again, err)
 	}
+	if voip, alert := tokens(); voip != "" || alert != "" {
+		t.Errorf("an expired phone still has Apple's tokens: %q, %q", voip, alert)
+	}
 
 	// Being in touch again brings it back.
 	back := later.Add(185 * 24 * time.Hour)
@@ -238,6 +268,7 @@ func TestEnrollDocker(t *testing.T) {
 	}
 	// Changing the password asks for the phone to be set up again (owner,
 	// 2026-10-03), with its own device.expired event.
+	sendTokens(back)
 	changed := back.Add(time.Minute)
 	if err := s.SetPassword(ctx, tenant, sara.ID, "a-new-hash", changed, true, audit("user.password_change")); err != nil {
 		t.Fatal(err)
@@ -255,6 +286,9 @@ func TestEnrollDocker(t *testing.T) {
 	if expiredEvents != 2 {
 		t.Errorf("device.expired events after the password change: %d, want 2", expiredEvents)
 	}
+	if voip, alert := tokens(); voip != "" || alert != "" {
+		t.Errorf("a phone still has Apple's tokens after a password change: %q, %q", voip, alert)
+	}
 	// Adding a password to a passkey-only account doesn't end sessions, and
 	// doesn't touch the phones either.
 	if err := s.SetPassword(ctx, tenant, sara.ID, "another-hash", changed.Add(time.Minute), false, audit("user.password_added")); err != nil {
@@ -271,6 +305,7 @@ func TestEnrollDocker(t *testing.T) {
 	if !live() {
 		t.Fatal("a phone set up again isn't live")
 	}
+	sendTokens(again)
 	if _, err := s.DisableUser(ctx, tenant, sara.ID, again, audit("user.disable")); err != nil {
 		t.Fatal(err)
 	}
@@ -279,6 +314,11 @@ func TestEnrollDocker(t *testing.T) {
 	}
 	if _, _, err := s.DevicePrincipalFor(ctx, device.ID, again); !errors.Is(err, pbx.ErrNotFound) {
 		t.Errorf("a disabled person's phone still has a token: %v", err)
+	}
+	// Disabling the person is not stopping the phone: it works again the
+	// moment they do, so Apple's tokens stay (docs/PHASE2.md §9).
+	if voip, _ := tokens(); voip != "aabbccdd" {
+		t.Errorf("a disabled person's phone lost Apple's tokens: %q", voip)
 	}
 
 	// Revoked for good: no phone line either, however valid the token in
@@ -289,5 +329,8 @@ func TestEnrollDocker(t *testing.T) {
 	if _, _, err := s.IssuePhoneLine(ctx, tenant, device.ID,
 		func(string) string { return "x" }, again, audit("device.phone_line")); !errors.Is(err, pbx.ErrNotFound) {
 		t.Errorf("a revoked phone got a phone line: %v", err)
+	}
+	if voip, alert := tokens(); voip != "" || alert != "" {
+		t.Errorf("a revoked phone still has Apple's tokens: %q, %q", voip, alert)
 	}
 }
