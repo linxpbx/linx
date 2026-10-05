@@ -97,7 +97,13 @@ RUN make menuselect.makeopts || make menuselect.makeopts
 # an analog line's busy tone (docs/PBX.md §4); func_devstate for DEVICE_STATE, which is
 # how the wake step tells whether an app phone is already here or has to
 # be woken with a push, and func_logic for the IF() that builds the list of
-# phones to wake (docs/PHASE2.md §5) — trimmed at the category level, not by
+# phones to wake (docs/PHASE2.md §5); and, for the message-waiting light
+# and *97 (Phase 2 step 9b), res_mwi_external with res_ari_mailboxes (Linx
+# keeps voicemail itself, so the counts come from outside over ARI rather
+# than from a mailbox of Asterisk's — app_voicemail is still not built,
+# ADR-069) and res_pjsip_mwi with res_pjsip_pubsub and the MWI body
+# generator, which are what turn those counts into a NOTIFY the phone
+# understands — trimmed at the category level, not by
 # hand-picking every res_pjsip_* submodule menuselect enables together.
 # BUILD_NATIVE off: it compiles with -march=native, for the CPU that built
 # the image, and the image must run on any amd64/arm64 server (Asterisk
@@ -111,11 +117,12 @@ RUN menuselect/menuselect \
       --disable-category MENUSELECT_TESTS --disable-category MENUSELECT_AGIS \
       --disable-category MENUSELECT_MOH --disable MOH-OPSOUND-WAV \
       --enable app_dial --enable app_echo --enable app_playback --enable app_verbose --enable app_stack \
-      --enable app_record --enable app_userevent \
+      --enable app_record --enable app_userevent --enable app_stasis \
       --enable res_rtp_asterisk \
       --enable res_ari --enable res_ari_applications --enable res_ari_asterisk \
       --enable res_ari_bridges --enable res_ari_channels --enable res_ari_device_states \
       --enable res_ari_endpoints --enable res_ari_events --enable res_ari_model \
+      --enable res_ari_mailboxes --enable res_stasis_mailbox --enable res_mwi_external \
       --enable res_ari_playbacks --enable res_ari_recordings --enable res_ari_sounds \
       --enable res_config_odbc --enable res_config_sqlite3 \
       --enable res_format_attr_opus \
@@ -125,6 +132,7 @@ RUN menuselect/menuselect \
       --enable res_pjsip_caller_id --enable res_pjsip_dtmf_info \
       --enable res_pjsip_endpoint_identifier_ip --enable res_pjsip_endpoint_identifier_user \
       --enable res_pjsip_exten_state --enable res_pjsip_logger --enable res_pjsip_nat \
+      --enable res_pjsip_pubsub --enable res_pjsip_mwi --enable res_pjsip_mwi_body_generator \
       --enable res_pjsip_registrar --enable res_pjsip_sdp_rtp --enable res_pjsip_session \
       --enable res_pjsip_outbound_registration --enable res_pjsip_outbound_authenticator_digest \
       --enable res_realtime --enable res_security_log \

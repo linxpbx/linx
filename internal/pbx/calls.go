@@ -49,6 +49,10 @@ const (
 // EchoTestNumber is the dialplan's echo test (internal/asteriskconf).
 const EchoTestNumber = "*43"
 
+// VoicemailCode is the dialplan's "play me my messages" (*97, Phase 2
+// step 9b): Linx answers it itself, like the echo test.
+const VoicemailCode = "*97"
+
 // trunkEndpointPrefix is how trunks' PJSIP endpoints are named
 // (trunk.Trunk's Endpoint).
 const trunkEndpointPrefix = "trunk-"
@@ -150,6 +154,15 @@ type CallTracker struct {
 	// Asterisk's call records then, internal/callhistory). It must not
 	// block.
 	Ended func()
+	// Stasis, if set, takes the events of a call the control plane is
+	// holding instead of the dialplan: listening to voicemail from a
+	// phone (*97, internal/voicemail). It must not block.
+	Stasis func(ctx context.Context, c *ari.Conn, ev ari.Event)
+	// Registered, if set, is called when Asterisk's ARI application
+	// registers: a phone engine that may have just started and knows
+	// nothing, so what it has to be told again is sent then (the
+	// message-waiting lights). It must not block.
+	Registered func(c *ari.Conn)
 
 	mu        sync.Mutex
 	connected bool
@@ -228,16 +241,37 @@ func (t *CallTracker) Serve(ctx context.Context, c *ari.Conn) {
 		t.changed()
 	}()
 
+	if t.Registered != nil {
+		defer t.Registered(nil)
+	}
 	for ev := range c.Events() {
 		if ev.Type == "ApplicationRegistered" {
 			// Asterisk only answers REST requests once the app is
 			// registered; catch up on calls that changed while we were away.
 			t.resync(ctx, c)
 			t.changed()
+			if t.Registered != nil {
+				t.Registered(c)
+			}
 			continue
+		}
+		if t.Stasis != nil && stasisEvent(ev.Type) {
+			t.Stasis(ctx, c, ev)
 		}
 		t.handle(ctx, ev)
 	}
+}
+
+// stasisEvent reports whether a call the control plane is holding needs
+// to hear about this (StasisEnd tells it the caller hung up; the hangup
+// events arrive first and say the same thing sooner).
+func stasisEvent(typ string) bool {
+	switch typ {
+	case "StasisStart", "StasisEnd", "ChannelDtmfReceived", "PlaybackFinished",
+		"ChannelDestroyed", "ChannelHangupRequest":
+		return true
+	}
+	return false
 }
 
 func (t *CallTracker) now() time.Time {
@@ -404,7 +438,7 @@ func isExtensionNumber(s string) bool {
 // outside numbers (migration 0016), so a number that's one of those goes
 // out, and a short number that isn't is an extension.
 func dialledOutside(home, dialled string) (numbering.Result, bool) {
-	if dialled == EchoTestNumber {
+	if dialled == EchoTestNumber || dialled == VoicemailCode {
 		return numbering.Result{}, false
 	}
 	r := numbering.Classify(home, dialled)
@@ -627,6 +661,10 @@ func (t *CallTracker) end(ctx context.Context, c *call, at time.Time) {
 		outcome = OutcomeAnswered
 	case c.to == EchoTestNumber:
 		outcome = OutcomeEchoTest
+	case c.to == VoicemailCode:
+		// Linx answered it and played the person their messages, so the
+		// call was answered — by Linx, as the echo test is.
+		outcome = OutcomeAnswered
 	case c.where == "linx-messages/no-lines":
 		// Every line tried failed (down, full, refused its certificate):
 		// dialled, but nothing rang.

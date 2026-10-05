@@ -142,6 +142,12 @@ const VoicemailDir = "/var/spool/linx-voicemail"
 // box's own file when it's there, Linx's own greeting otherwise.
 const GreetingsDir = "/var/lib/linx/greetings"
 
+// PlayDir is where the control plane writes one voicemail at a time for
+// Asterisk to play to whoever dialled *97 (internal/voicemail's
+// Listening, Phase 2 step 9b). Asterisk only reads it; the file is
+// removed as soon as it has played.
+const PlayDir = "/var/lib/linx/voicemail-play"
+
 // ConfigFromEnv reads the configuration from the environment, defaulting
 // every path to the layout compose.yaml mounts.
 func ConfigFromEnv(getenv func(string) string) Config {
@@ -892,11 +898,13 @@ tlscipher=ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDS
 
 // ariConf serves the "linx" ARI app over the outbound websocket to the
 // control plane, subscribed to every channel, bridge, endpoint and device
-// state event (docs/PBX.md §4). REST requests arriving on that websocket act
-// as a read-only local user: the control plane can look but not change calls
-// in this slice. The local user's password is random per start and unused
-// (http.conf is off, so there's nowhere to log in with it), but ari.conf
-// requires one.
+// state event (docs/PBX.md §4). The local user those REST requests act as
+// may change things as well as read them since Phase 2 step 9b: listening
+// to voicemail from a desk phone (*97) is a call the control plane answers
+// and plays into, and the message-waiting light is a mailbox count it sets.
+// Nothing else in Linx writes over ARI. The local user's password is random
+// per start and unused (http.conf is off, so there's nowhere to log in with
+// it), but ari.conf requires one.
 func ariConf(localPassword string) string {
 	return `; Rendered by linx-asterisk-entrypoint.
 [general]
@@ -906,7 +914,7 @@ websocket_write_timeout = 1000
 
 [linx-local]
 type = user
-read_only = yes
+read_only = no
 password_format = plain
 password = ` + localPassword + `
 
@@ -1047,6 +1055,19 @@ exten => *43,1,Answer()
  same => n,Wait(0.5)
  same => n,Echo()
  same => n,Hangup()
+
+; Listening to your own messages from a phone (*97, Phase 2 step 9b). The
+; call is handed to the control plane, which answers it, plays the
+; messages of whichever extension is calling and takes 1, 2 and 3. Which
+; box that is is decided there, from the endpoint this channel belongs
+; to, so nothing a phone sends can ask for somebody else's messages. With
+; the control plane away the app isn't registered, Stasis comes straight
+; back, and the caller hears "nobody can take your call right now".
+exten => *97,1,Set(CDR(linx_dialled)=*97)
+ same => n,Stasis(` + ARIApp + `,voicemail)
+ same => n,GotoIf($["${STASISSTATUS}" = "SUCCESS"]?done)
+ same => n,Goto(linx-messages,not-available,1)
+ same => n(done),Hangup()
 
 exten => _XX,1,Goto(linx-local,${EXTEN},1)
 exten => _XXX,1,Goto(linx-local,${EXTEN},1)

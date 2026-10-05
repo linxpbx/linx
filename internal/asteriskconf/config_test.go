@@ -293,12 +293,16 @@ func TestRenderARI(t *testing.T) {
 			t.Errorf("websocket_client.conf missing %q:\n%s", want, got)
 		}
 	}
-	for _, want := range []string{"type = outbound_websocket", "apps = linx", "subscribe_all = yes", "read_only = yes"} {
+	for _, want := range []string{"type = outbound_websocket", "apps = linx", "subscribe_all = yes", "read_only = no"} {
 		if got := read(t, c, "ari.conf"); !strings.Contains(got, want) {
 			t.Errorf("ari.conf missing %q:\n%s", want, got)
 		}
 	}
 	for _, want := range []string{"exten => *43,1,Answer()", "exten => _X.,1,Gosub(linx-wake,s,1(${ARG1}))",
+		// *97 hands the call to the control plane, and says "nobody can
+		// take your call" when it isn't there to take it (step 9b).
+		"exten => *97,1,Set(CDR(linx_dialled)=*97)", "Stasis(linx,voicemail)",
+		`GotoIf($["${STASISSTATUS}" = "SUCCESS"]?done)`,
 		// Calls are routed one step at a time, at most 10 places (ADR-068).
 		"Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(${DEST},${CALLER})})", "GotoIf($[${STEPS} <= 10]?again)",
 		"Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(n:${EXTEN},${CALLERID(num)})})", "Playback(linx/not-in-use)", "Playback(linx/not-available)",

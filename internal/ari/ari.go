@@ -123,6 +123,8 @@ type Conn struct {
 
 	mu      sync.Mutex
 	pending map[string]chan restResponse
+	// write serialises websocket writes: one request at a time on the wire.
+	write sync.Mutex
 }
 
 func newConn(ws *websocket.Conn) *Conn {
@@ -152,6 +154,20 @@ type restResponse struct {
 // Get performs a read-only REST request (e.g. "channels") over the
 // websocket and decodes the JSON body into out.
 func (c *Conn) Get(ctx context.Context, uri string, out any) error {
+	return c.Do(ctx, http.MethodGet, uri, out)
+}
+
+// Do performs one REST request over the websocket and decodes the JSON
+// body into out (nil: the answer is thrown away). Several callers may use
+// one connection at once — the call that *97 is controlling runs beside
+// the call tracker's own requests — so the write is serialised here.
+//
+// Linx writes five things over ARI and nothing else (ADR-083): answering
+// the channel that dialled *97, playing into it, stopping a playback,
+// hanging up, and setting a mailbox's counts for the message-waiting
+// light. Asterisk allows them because ari.conf's local user is no longer
+// read-only.
+func (c *Conn) Do(ctx context.Context, method, uri string, out any) error {
 	id := fmt.Sprintf("linx-%d", c.nextID.Add(1))
 	ch := make(chan restResponse, 1)
 	c.mu.Lock()
@@ -167,30 +183,51 @@ func (c *Conn) Get(ctx context.Context, uri string, out any) error {
 		c.mu.Unlock()
 	}()
 
-	msg, err := json.Marshal(restRequest{Type: "RESTRequest", TransactionID: id, RequestID: id, Method: http.MethodGet, URI: uri})
+	msg, err := json.Marshal(restRequest{Type: "RESTRequest", TransactionID: id, RequestID: id, Method: method, URI: uri})
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	if err := c.ws.Write(ctx, websocket.MessageText, msg); err != nil {
-		return fmt.Errorf("ARI GET %s: %w", uri, err)
+	c.write.Lock()
+	err = c.ws.Write(ctx, websocket.MessageText, msg)
+	c.write.Unlock()
+	if err != nil {
+		return fmt.Errorf("ARI %s %s: %w", method, uri, err)
 	}
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("ARI GET %s: %w", uri, ctx.Err())
+		return fmt.Errorf("ARI %s %s: %w", method, uri, ctx.Err())
 	case resp, ok := <-ch:
 		if !ok {
-			return fmt.Errorf("ARI GET %s: connection closed", uri)
+			return fmt.Errorf("ARI %s %s: connection closed", method, uri)
 		}
 		if resp.StatusCode/100 != 2 {
-			return fmt.Errorf("ARI GET %s: %d %s", uri, resp.StatusCode, resp.Reason)
+			return &RESTError{Method: method, URI: uri, Status: resp.StatusCode, Reason: resp.Reason}
 		}
 		if out == nil {
 			return nil
 		}
 		return json.Unmarshal([]byte(resp.MessageBody), out)
 	}
+}
+
+// RESTError is Asterisk refusing a request. Status matters to the caller:
+// a channel that has already hung up answers 404, which is ordinary.
+type RESTError struct {
+	Method, URI, Reason string
+	Status              int
+}
+
+func (e *RESTError) Error() string {
+	return fmt.Sprintf("ARI %s %s: %d %s", e.Method, e.URI, e.Status, e.Reason)
+}
+
+// Gone reports whether err is Asterisk saying the channel or playback is
+// no longer there (the caller hung up): nothing to log, nothing to fix.
+func Gone(err error) bool {
+	var e *RESTError
+	return errors.As(err, &e) && (e.Status == http.StatusNotFound || e.Status == http.StatusConflict)
 }
 
 // readLoop reads until the connection or ctx ends: REST responses go to

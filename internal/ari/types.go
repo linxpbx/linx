@@ -19,6 +19,14 @@ type Event struct {
 	Endpoint    *Endpoint    `json:"endpoint,omitempty"`
 	ContactInfo *ContactInfo `json:"contact_info,omitempty"`
 	EventName   string       `json:"eventname,omitempty"` // ChannelUserevent
+	// Args are what the dialplan's Stasis() passed after the app's name
+	// (StasisStart): "voicemail" is listening to your own messages (*97).
+	Args []string `json:"args,omitempty"`
+	// Digit is the key the caller pressed (ChannelDtmfReceived).
+	Digit string `json:"digit,omitempty"`
+	// Playback is the sound being played into a channel the control plane
+	// is holding (PlaybackStarted, PlaybackFinished).
+	Playback *Playback `json:"playback,omitempty"`
 	// Userevent carries what the dialplan's UserEvent() put in it (the
 	// wake request, docs/PBX.md §4). Asterisk sends the channel's own
 	// details in the same object; only the keys Linx put there are read.
@@ -72,6 +80,25 @@ type Dialplan struct {
 	Exten    string `json:"exten"`
 	Priority int    `json:"priority"`
 	AppName  string `json:"app_name"`
+}
+
+// Playback is one sound being played into a channel. A PlaybackStarted
+// or PlaybackFinished event carries no channel of its own: the channel is
+// in TargetURI, as "channel:<id>".
+type Playback struct {
+	ID        string `json:"id"`
+	MediaURI  string `json:"media_uri"`
+	TargetURI string `json:"target_uri"`
+	State     string `json:"state"` // queued, playing, done, failed
+}
+
+// Channel returns the channel a playback is playing into, or "".
+func (p Playback) Channel() string {
+	rest, ok := strings.CutPrefix(p.TargetURI, "channel:")
+	if !ok {
+		return ""
+	}
+	return rest
 }
 
 // Endpoint is a PJSIP endpoint: one Linx device.
