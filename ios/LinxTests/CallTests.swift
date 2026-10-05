@@ -102,6 +102,13 @@ import Testing
     /// WebRTCMedia's frame watch would say it.
     func pretendTheirPictureStopped() { onPictureGone?() }
 
+    /// Readings in which their camera is announced and nothing arrives from
+    /// it, as WebRTCMedia's own count of that would end.
+    func pretendNothingIsArriving(readings: Int) {
+        guard readings >= PictureWatch.quietReadings else { return }
+        onPictureGone?()
+    }
+
     func switchCamera() { cameraSwitched += 1 }
 
     func rollbackOffer() async {

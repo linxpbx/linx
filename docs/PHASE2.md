@@ -374,6 +374,29 @@ alight. The two rules about the screen during a call now live side by side in
 `theScreenDuringTheCall()`. **Meetings (Phase 3) must do the same** when they
 arrive.
 
+### A picture nobody is sending, on a call to the outside world (2026-10-05)
+
+On the iPad, video on and then off again on a call to an **outside number** left
+the split video screen up with neither picture in it; the same thing on an
+internal call came back to the voice screen properly. Both halves of that are
+explained by the far end being a phone line: Asterisk negotiates video per
+channel, so it answers the app's video offer with a video stream of its own
+even though the trunk leg has none — their camera is *announced* and not one
+frame ever arrives.
+
+Two rules were missing for that:
+
+- **Stopping the camera when nothing is arriving takes the picture out of the
+  call** in the same re-INVITE, instead of asking to go on watching a camera
+  that has sent nothing (`stopCamera` now looks at `theirPicture`, not
+  `theirs`).
+- **A picture announced but never arriving is counted too**
+  (`checkNobodyIsSending`): the frame watch only notices a picture that
+  *stops*, so one that never starts needed its own count. After two readings
+  with nothing arriving and this phone's camera off, the video leaves the call.
+  It can never take a camera away from the person holding the phone — it only
+  acts when **neither** side is sending.
+
 ### Step 6, as built (2026-10-04)
 **A sleeping phone rings now.** Step 5 gave the server the push; this is the app's side of it, and the rule that shapes all of it is Apple's: a VoIP push must report a call to CallKit *at once, every time*, or iOS kills the app and stops delivering its pushes (§14 item 1).
 

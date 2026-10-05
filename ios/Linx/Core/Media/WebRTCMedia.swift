@@ -383,7 +383,12 @@ struct PictureWatch {
         // stopped now, instead of the usual two: it is what takes the big
         // picture off the screen within a few seconds rather than ten.
         frames.oneReadingIsEnough()
-        if video.theirs {
+        // Keep a place for their picture only if one is really arriving. Asking
+        // to go on watching a camera that has sent nothing leaves the call in
+        // its video screen with neither picture in it, which is what the owner
+        // found on the iPad (2026-10-05): video on, video off, and a split
+        // screen with nothing in either half.
+        if video.theirPicture {
             watchOnly()
         } else {
             for transceiver in connection?.transceivers ?? [] where transceiver.mediaType == .video {
@@ -747,6 +752,23 @@ struct PictureWatch {
         theirPicture(arriving)
     }
 
+    /// Readings where their camera is announced, nothing is arriving from it,
+    /// and this phone isn't sending either. The frame watch only notices a
+    /// picture that *stops*; a picture that never starts needs counting too,
+    /// or the call sits in its video screen with nothing in it.
+    private var nothingArriving = 0
+
+    private func checkNobodyIsSending() {
+        guard !video.mine, video.theirs, !video.theirPicture else {
+            nothingArriving = 0
+            return
+        }
+        nothingArriving += 1
+        guard nothingArriving >= PictureWatch.quietReadings else { return }
+        nothingArriving = 0
+        onPictureGone?()
+    }
+
     private var frames = PictureWatch()
 
     /// Sound comes first (docs/PHASE2.md §7). When the link has not got the
@@ -824,6 +846,7 @@ struct PictureWatch {
                     self.adaptTheVideo(connection)
                     self.checkTheLink(connection)
                     self.checkTheirPicture(connection)
+                    self.checkNobodyIsSending()
                 }
                 try? await Task.sleep(for: self.video.mine ? Self.readRouteEveryWithVideo : Self.readRouteEvery)
             }

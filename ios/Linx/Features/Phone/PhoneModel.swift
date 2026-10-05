@@ -238,7 +238,7 @@ import UIKit
         relayRefresh = nil
         ringer.stop()
         UIDevice.current.isProximityMonitoringEnabled = false
-        UIApplication.shared.isIdleTimerDisabled = false
+        holdTheScreen(false)
         agent?.stop()
         agent = nil
         if let call { calls.reportEnded(id: call.id, .failed) }
@@ -632,14 +632,21 @@ import UIKit
     /// alight. It is let go of the moment the picture or the call ends, so a
     /// phone left on a table after a video call sleeps as it should.
     private func keepTheScreenAwake() {
-        let awake = call?.phase == .active && call?.video.on == true
-        guard UIApplication.shared.isIdleTimerDisabled != awake else { return }
+        holdTheScreen(call?.phase == .active && call?.video.on == true)
+    }
+
+    private func holdTheScreen(_ awake: Bool) {
+        guard screenIsHeldAwake != awake else { return }
+        screenIsHeldAwake = awake
         UIApplication.shared.isIdleTimerDisabled = awake
     }
 
-    /// Whether a video call is holding the screen awake, for the tests and the
-    /// screenshot harness to read.
-    var screenIsHeldAwake: Bool { UIApplication.shared.isIdleTimerDisabled }
+    /// Whether this call is holding the screen awake. It is the app's own
+    /// decision, kept here rather than read back from `isIdleTimerDisabled`,
+    /// because iOS only honours that flag while the app is in front — so the
+    /// flag answers "is the screen being held *now*", which is not the same
+    /// question and is not one a test can ask.
+    private(set) var screenIsHeldAwake = false
 
     // MARK: - What the system tells the app to do
 
@@ -803,7 +810,7 @@ import UIKit
     private func ended(_ why: SIPEnded) {
         ringer.stop()
         UIDevice.current.isProximityMonitoringEnabled = false
-        UIApplication.shared.isIdleTimerDisabled = false
+        holdTheScreen(false)
         guard let finished = call else { return }
         call = nil
         askAboutTheirVideo = nil

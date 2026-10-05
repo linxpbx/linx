@@ -42,7 +42,10 @@ struct SoundOnTheRoadTests {
         phone.toggleVideo()
         #expect(await eventually { phone.call?.video.on == false })
         #expect(!phone.screenIsHeldAwake)
-        // And the call ending always lets it go, however it ended.
+        // And the call ending always lets it go, however it ended. (One press
+        // at a time: the button ignores a second while the first is still in
+        // the air, which is the point of `changingVideo`.)
+        #expect(await eventually { !phone.changingVideo })
         phone.toggleVideo()
         #expect(await eventually { phone.screenIsHeldAwake })
         phone.stop()
@@ -75,6 +78,7 @@ struct SoundOnTheRoadTests {
         #expect(phone.myPictureIsBig)
         media.pretendTheirVideo(false)
         #expect(await eventually { phone.myPictureIsBig == false })
+        phone.stop()
     }
 
     // MARK: - A picture that follows the link (ADR-081)
@@ -257,6 +261,25 @@ struct SoundOnTheRoadTests {
         media.pretendTheirVideo(true)
         media.pretendTheirVideo(false)
         #expect(phone.askAboutTheirVideo == nil)
+    }
+
+    @Test("a picture announced but never arriving leaves the call too")
+    func thePictureThatNeverCame() async throws {
+        let (phone, transport, media, _) = try await inACall()
+        // The other side says they are sending and nothing ever arrives: on
+        // the iPad the owner turned video on and off again and was left on a
+        // split video screen with neither picture in it (2026-10-05). The
+        // frame watch only notices a picture that *stops*, so one that never
+        // starts is counted instead.
+        media.pretendTheirVideo(true)
+        #expect(await eventually { phone.call?.video.theirs == true })
+        phone.answeredAboutTheirVideo(turningMineOn: false)
+        let invites = transport.count("INVITE")
+        media.pretendNothingIsArriving(readings: PictureWatch.quietReadings)
+        #expect(await eventually { media.dropped })
+        #expect(await eventually { transport.count("INVITE") == invites + 1 })
+        #expect(phone.call?.video.on == false)
+        #expect(phone.call?.phase == .active)
     }
 
     @Test("their camera is asked about once in a call, however often it comes and goes")
