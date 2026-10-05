@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  What Linx does with people's information, in the form Apple reads
+  (docs/PHASE2.md §14 item 5, docs/ops/STORE_SUBMISSION.md). A missing or
+  mismatched manifest is refused at upload, and what it says here has to
+  match the privacy answers in App Store Connect word for word.
+
+  The short version, and the reason this file is nearly empty: **Linx is
+  a client for a phone system the company runs itself.** Calls, voicemail,
+  the directory and call history live on that company's own server and
+  are never sent to Linx's makers, to an analytics service, or to anyone
+  else. The app has no accounts of its own, no advertising, no tracking
+  and no third-party SDK but Google's WebRTC, which carries its own
+  manifest inside the framework.
+
+  Apple's own push service sees what any push carries — the call's id,
+  the caller's number and the time (docs/PHASE2.md §5) — which is between
+  the company's server and Apple, not something this app collects.
+-->
+<plist version="1.0">
+<dict>
+	<!-- No tracking, and nothing is shared with other companies' apps or
+	     websites, so there is no tracking domain to declare. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!-- Nothing is collected. "Collected" means sent off the device to
+	     the developer or a third party; what the app sends to the
+	     company's own Linx server is that company's own data, held by
+	     them, and is not collection in Apple's sense. -->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+
+	<!-- APIs Apple asks a reason for. -->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<!-- User defaults: the few choices this phone remembers for
+			     the person using it — light or dark, whether Linx calls
+			     appear in the iPhone's own Recents, which camera a video
+			     call starts on, and who they have starred. All of it is
+			     read and written by this app alone and never leaves the
+			     phone. -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
