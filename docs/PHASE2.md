@@ -192,6 +192,40 @@ phone, a real pair of AirPods and a real mobile network can show.
   ordinary. It is a diagnostic and nothing more: no decision in the app is made
   from it.
 
+### The silent call from outside, found and fixed (2026-10-05, ADR-080)
+
+**WebRTC wouldn't trust the relay's certificate, so there was never a relay.**
+The owner's calls from outside their network connected and carried no sound,
+while the same phone on the same Wi-Fi was perfect and **the web client on the
+same mobile network was perfect too** — which was the clue that mattered: a
+browser verifies certificates with the system's trust store, and Google's
+WebRTC verifies them against a list compiled into the library.
+
+Let's Encrypt began issuing from a new chain (ISRG Root YE) on 2026-09-29; the
+owner's relay certificate is from 2026-09-29. WebRTC's bundled list predates
+it, so every `turns:` connection failed before it began ("Failed to establish
+connection"), no relay candidate was ever gathered, the offer went out after
+waiting the full ten seconds with nothing but the phone's own private
+addresses in it, and on a network where the relay is the only way through the
+call connected and nobody heard anything.
+
+Proved, not guessed, on 2026-10-05 against **two** Linx servers behind two
+different front doors (`home.mym.ae` through its proxy, `vps.mym.ae` on 443
+directly): the same failure on both, Apple's own TLS to the same host and port
+`ready` in the same process, a full TURN allocation from the same Mac in
+Python, and the gathering succeeding the moment certificate checking was taken
+out of the picture. The fix (**ADR-080**) is `RelayCertificates`: iOS's own
+trust store answers the question, pinned to the relay hostname Linx issued,
+and WebRTC only asks after its own list has failed. Verification is never
+disabled or weakened. After it, both relays gather a relay candidate in about
+a second.
+
+Worth knowing for the owner's own network: from the internet, **UDP 443 on
+`turn.home.mym.ae` answers from a different machine** (it calls itself
+`pbx.mym.ae`) which refuses this Linx's credentials, so the UDP relay URL can
+never work from outside until that port forward is corrected. The TLS one does,
+which is what every restrictive network needs anyway.
+
 ### Step 6, as built (2026-10-04)
 **A sleeping phone rings now.** Step 5 gave the server the push; this is the app's side of it, and the rule that shapes all of it is Apple's: a VoIP push must report a call to CallKit *at once, every time*, or iOS kills the app and stops delivering its pushes (§14 item 1).
 

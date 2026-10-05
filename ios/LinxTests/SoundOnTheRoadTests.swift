@@ -26,6 +26,31 @@ struct SoundOnTheRoadTests {
         #expect(camera.usesTheCallsAudioSession)
     }
 
+    // MARK: - Who says the relay's certificate is good
+
+    @Test("the relay is trusted by iOS, for the hostname Linx named, or not at all")
+    func relayCertificates() {
+        // The hostnames come out of the URLs Linx issued, which are not
+        // ordinary URLs: turns:host:port?transport=tcp has no "//".
+        #expect(
+            RelayCertificates.hosts(in: [
+                "turn:turn.example.com:443?transport=udp",
+                "turns:turn.example.com:443?transport=tcp",
+                "stun:stun.example.com:3478",
+                "turns:[2001:db8::1]:443?transport=tcp",
+                "turn:relay.example.net",
+                "https://example.com",
+            ]) == ["turn.example.com", "stun.example.com", "2001:db8::1", "relay.example.net"])
+        // Nothing that isn't a certificate is let through, and neither is
+        // anything at all when Linx named no relay.
+        #expect(!RelayCertificates(relay: nil).verify(Data([1, 2, 3])))
+        let relay = PhoneLine.Turn(
+            urls: ["turns:turn.example.com:443?transport=tcp"], username: "u", credential: "c",
+            expiresAt: Date(timeIntervalSinceNow: 3600))
+        #expect(!RelayCertificates(relay: relay).verify(Data()))
+        #expect(!RelayCertificates(relay: relay).verify(Data(repeating: 0x30, count: 64)))
+    }
+
     // MARK: - Their picture coming and going
 
     @Test("a picture that stops arriving comes back when it starts again")

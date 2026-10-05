@@ -594,9 +594,14 @@ struct PictureWatch {
         Self.prepareAudioSession()
         watchTheRoute()
         let configuration = Self.configuration(relay: turn)
+        // Who says the relay's TLS certificate is good: iOS, not the list
+        // frozen inside WebRTC (`RelayCertificates`). Without this, a relay
+        // certificate newer than the library is refused and a call that needs
+        // the relay has nowhere for its sound to go.
         guard
             let connection = Self.factory.peerConnection(
-                with: configuration, constraints: Self.noConstraints, delegate: self)
+                with: configuration, constraints: Self.noConstraints,
+                certificateVerifier: RelayCertificates(relay: turn), delegate: self)
         else { throw MediaTrouble.noOffer }
         let source = Self.factory.audioSource(with: Self.microphone)
         let track = Self.factory.audioTrack(with: source, trackId: "linx-audio")
