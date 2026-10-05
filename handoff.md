@@ -94,6 +94,8 @@ Phase by phase, each finished with a demo the owner approved. **Every step's det
 
 ## 5. Failed attempts (the whole project)
 
+- **cosign v3 `sign-blob` broke the first `v1.0.0` release run (2026-10-05).** The `program` job failed: *"must specify --bundle with --new-bundle-format"*. cosign v3 makes `--new-bundle-format` the default for `sign-blob` and drops the old `--output-signature`/`--output-certificate` pair. Fixed in `.github/workflows/release.yml` to emit one `<file>.sigstore.json` bundle per binary (verify-blob example in the step comment). The image-signing step uses `cosign sign` (OCI) and was fine. Lesson for any future cosign bump: `sign-blob` and `sign` have different flag surfaces.
+
 The useful half of the record: **do not try these again.**
 
 **Guesses that cost a build each (the "no sound from outside" hunt, 2026-10-04/05)**
@@ -166,8 +168,8 @@ The useful half of the record: **do not try these again.**
 
 **Going live at 1.0.0 now (owner, 2026-10-05: server first, app after), in order:**
 
-1. **CI green on `HEAD`** (`gh run list --limit 1`). This is the one gate for the tag: the Release workflow refuses a tag whose commit CI hasn't published images for. Head at the go-live push is `f5bc985` (code-review fixes).
-2. **Tag `v1.0.0`** and push (`git tag -a v1.0.0 -m "Linx 1.0.0" && git push origin v1.0.0`). The Release workflow re-tags + cosign-signs this commit's images as `1.0.0`/`1.0`/`stable`, builds and signs the `linx` binaries, and opens the GitHub release (`docs/ops/RELEASES.md`). Nothing is rebuilt — what ships is what CI tested. First release, so no migration-vs-patch check applies.
+1. ✅ **DONE — CI green and `v1.0.0` released** (2026-10-05). The tag sits at **`c3e61d6`** (not the original `f5bc985`: the first release run failed in the `program` job on a cosign v3 change — see §5 — so the fix landed and the tag was moved before anyone had pulled it). GitHub release: https://github.com/linxpbx/linx/releases/tag/v1.0.0 — the five `ghcr.io/linxpbx/linx-*` images carry `1.0.0`/`1.0`/`stable` and are cosign-signed; `linx-linux-amd64`/`-arm64` + `SHA256SUMS` + `.sigstore.json` bundles attached.
+2. ✅ **DONE** (folded into 1).
 3. **Fresh install of 1.0.0 on a new server** (owner, 2026-10-05: *"start with a fresh server, no backup"* — not an in-place update of `home.mym.ae`, and no data carried over, so everything is reconfigured: people, extensions, trunks + the UCM landline, phones, front door, the Apple push key). Provision a clean Ubuntu 24.04 / Debian box, download the release's `linx` binary, check it against `SHA256SUMS`, `sudo install` it, then web-first install (`docs/INSTALL.md`): one link from the terminal → TLS-ALPN-01 → HTTPS. A fresh server gets a clean internal CA and clean schema (no migration history), which is the cleanest possible 1.0.0.
 4. **Harden the new server's CA when settled** (`docs/ops/INTERNAL_CA.md`): take the CA root key off the box — the task the owner said to do "when it's time". Not a go-live blocker; done *with* the owner once the server is up.
 5. **Then handle the app:** the owner signs in to Xcode (only interactive step left), archive + upload build 14 → TestFlight, then the App Store path (`docs/ops/STORE_SUBMISSION.md`: reachable demo server + live setup code is the thing that sinks self-hosted clients) and the hands-on Phase 2 demo rows (`docs/DEMO_PHASE2.md`: ringing incl. force-quit, video + data cost, iPad/fold, `*97` on a desk phone, the 1-core feel).
