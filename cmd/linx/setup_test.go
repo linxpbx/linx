@@ -404,3 +404,37 @@ func TestIsReleaseBuild(t *testing.T) {
 		}
 	}
 }
+
+// A release binary re-running against a setup.yaml written on a dev build
+// (staging: true) must not keep test certificates — the installer prints
+// exactly this --config command as the update step, so the override has to
+// cover the config path, not only the interactive wizard (ADR-084).
+func TestReleaseForcesTrustedCertFromConfig(t *testing.T) {
+	yaml := "version: 1\ndocker:\n  install: true\n" +
+		"domain:\n  name: lab.linxpbx.com\n  dns_provider: cloudflare\n" +
+		"certificates:\n  staging: true\n  email: admin@example.com\n"
+	env := testEnv("", map[string]string{"s.yaml": yaml, installer.DNSTokenPath: testToken})
+	env.interactive, env.isRoot, env.version = false, true, "v1.0.0"
+	var out, errOut bytes.Buffer
+	code := runSetup(context.Background(), []string{"--config", "s.yaml", "--dry-run"}, &out, &errOut, env)
+	if code != 0 {
+		t.Fatalf("dry-run exit %d\nout:\n%s\nerr:\n%s", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(out.String(), "Using a trusted certificate") {
+		t.Errorf("release install didn't force a trusted certificate:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "Test certificate issued") {
+		t.Errorf("release install issued a test certificate:\n%s", out.String())
+	}
+
+	// A development binary with the same config leaves staging alone.
+	env2 := testEnv("", map[string]string{"s.yaml": yaml, installer.DNSTokenPath: testToken})
+	env2.interactive, env2.isRoot, env2.version, env2.commit = false, true, "dev", testCommit
+	var out2, errOut2 bytes.Buffer
+	if code := runSetup(context.Background(), []string{"--config", "s.yaml", "--dry-run"}, &out2, &errOut2, env2); code != 0 {
+		t.Fatalf("dev dry-run exit %d\n%s\n%s", code, out2.String(), errOut2.String())
+	}
+	if strings.Contains(out2.String(), "Using a trusted certificate") {
+		t.Errorf("a development build overrode staging:\n%s", out2.String())
+	}
+}

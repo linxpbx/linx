@@ -195,7 +195,7 @@ func ValidateDomain(name, provider string) error {
 func ValidateEmail(email string, staging bool) error {
 	switch {
 	case email == "" && !staging:
-		return errors.New("required for trusted certificates (set certificates.staging: true to test without one)")
+		return errors.New("required for a trusted certificate")
 	case email != "" && !emailRE.MatchString(email):
 		return fmt.Errorf("%q doesn't look like an email address", email)
 	}

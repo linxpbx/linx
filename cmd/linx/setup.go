@@ -148,6 +148,18 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	// A test (staging) certificate is a development-only thing (ADR-084):
+	// browsers warn about it, and a live phone system always wants a
+	// trusted one. On a release build force it off whatever the config or a
+	// saved setup.yaml says — the installer prints `setup --config
+	// /etc/linx/setup.yaml` as the update command, so a server first set up
+	// on a dev build (staging: true) must not silently keep test
+	// certificates when a release binary re-runs it. The interactive wizard
+	// also skips the question (askCertificates); this covers --config.
+	if installer.IsRelease(env.version) && cfg.Certificates.Staging {
+		cfg.Certificates.Staging = false
+		fmt.Fprintln(stdout, "Using a trusted certificate (a test certificate is for development builds only).")
+	}
 	ask := *configFile == ""
 	if !*dryRun && !env.isRoot {
 		fmt.Fprintln(stderr, "linx setup changes system settings and must run as root. Try: sudo linx setup")
@@ -700,11 +712,9 @@ func loadSetupConfig(path string, env setupEnv) (installer.Config, error) {
 		}
 	} else if b, err = env.savedConfig(); err != nil {
 		// No saved answers yet (or not readable without sudo): start fresh.
-		def := installer.DefaultConfig()
-		if installer.IsRelease(env.version) {
-			def.Certificates.Staging = false // a real install wants a trusted certificate
-		}
-		return def, nil
+		// runSetup forces a trusted certificate on a release build, so the
+		// staging default here matters only to development.
+		return installer.DefaultConfig(), nil
 	}
 	return installer.ParseConfig(strings.NewReader(string(b)))
 }
