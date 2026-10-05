@@ -68,6 +68,8 @@ func (s Step) Words() string {
 		return "Heard a message"
 	case StepEcho:
 		return "Echo test"
+	case StepListened:
+		return "Listened to voicemail"
 	}
 	return ""
 }

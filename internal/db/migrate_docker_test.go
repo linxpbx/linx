@@ -21,7 +21,7 @@ func TestMigrateDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 45 {
+	if version != 46 {
 		t.Errorf("Migrate() version = %d, want 45", version)
 	}
 
@@ -45,7 +45,7 @@ func TestMigrateDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version2 != 45 {
+	if version2 != 46 {
 		t.Errorf("second Migrate() version = %d, want 45", version2)
 	}
 }

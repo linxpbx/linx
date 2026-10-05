@@ -336,3 +336,82 @@ func (s *Store) ExpireVoicemail(ctx context.Context, now time.Time) ([]uuid.UUID
 	}
 	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 }
+
+// Listening from a phone, and the message-waiting light (Phase 2 step 9b).
+
+// BoxForEndpoint is the voicemail box of the extension whose live device
+// has this SIP username, and the person it belongs to. *97 asks this
+// about the channel that dialled it, so a phone can only ever reach its
+// own extension's messages.
+//
+// An extension may have no person (a phone in a corridor): there is still
+// a box, and the phone may still hear it. Nobody's name goes against the
+// messages it marks heard, which is what "heard by nobody in particular"
+// looks like in the web app already.
+func (s *Store) BoxForEndpoint(ctx context.Context, sipUsername string) (voicemail.Box, *uuid.UUID, error) {
+	var b voicemail.Box
+	var owner *uuid.UUID
+	err := s.pool.QueryRow(ctx, `SELECT b.id, b.tenant_id, b.extension_id, b.ring_group_id,
+			coalesce(e.display_name || ' (' || e.number || ')', ''), b.enabled, b.email, u.id
+		FROM device_live l
+		JOIN extension e ON e.id = l.extension_id
+		JOIN voicemail_box b ON b.extension_id = l.extension_id
+		LEFT JOIN app_user u ON u.extension_id = e.id AND u.disabled_at IS NULL
+		WHERE l.sip_username = $1`, sipUsername).
+		Scan(&b.ID, &b.TenantID, &b.ExtensionID, &b.RingGroupID, &b.Owner, &b.Enabled, &b.Email, &owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return b, nil, voicemail.ErrNotFound
+	}
+	return b, owner, err
+}
+
+// UnheardVoicemail is a box's messages nobody has heard, oldest first and
+// without their audio: *97 plays them in the order they arrived.
+func (s *Store) UnheardVoicemail(ctx context.Context, box uuid.UUID) ([]voicemail.Message, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, tenant_id, box_id, caller_number, caller_name, received_at, duration_ms
+		FROM voicemail_message WHERE box_id = $1 AND heard_at IS NULL
+		ORDER BY received_at LIMIT $2`, box, voicemail.MaxList)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []voicemail.Message
+	for rows.Next() {
+		var m voicemail.Message
+		var ms int
+		if err := rows.Scan(&m.ID, &m.TenantID, &m.BoxID, &m.CallerNumber, &m.CallerName, &m.ReceivedAt, &ms); err != nil {
+			return nil, err
+		}
+		m.Duration = time.Duration(ms) * time.Millisecond
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// VoicemailCounts is every person's box with what it holds, for the
+// message-waiting light. A ring group's box isn't counted: no phone
+// belongs to one, so there is no light to turn on. A box with nothing in
+// it is still named, because that is how a light goes out.
+func (s *Store) VoicemailCounts(ctx context.Context) (map[uuid.UUID]voicemail.Counts, error) {
+	rows, err := s.pool.Query(ctx, `SELECT b.id,
+			count(m.id) FILTER (WHERE m.heard_at IS NULL),
+			count(m.id) FILTER (WHERE m.heard_at IS NOT NULL)
+		FROM voicemail_box b
+		LEFT JOIN voicemail_message m ON m.box_id = b.id
+		WHERE b.extension_id IS NOT NULL AND b.enabled
+		GROUP BY b.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uuid.UUID]voicemail.Counts{}
+	for rows.Next() {
+		var id uuid.UUID
+		var c voicemail.Counts
+		if err := rows.Scan(&id, &c.New, &c.Old); err != nil {
+			return nil, err
+		}
+		out[id] = c
+	}
+	return out, rows.Err()
+}

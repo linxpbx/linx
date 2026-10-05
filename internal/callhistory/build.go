@@ -80,6 +80,7 @@ const (
 	StepVoicemail = "voicemail" // reached a voicemail box
 	StepMessage   = "message"   // Linx played a message and hung up
 	StepEcho      = "echo"      // the echo test
+	StepListened  = "listened"  // *97: heard your own messages
 )
 
 // Step is one part of a call's way through Linx, kept as call_record.steps.
@@ -571,6 +572,10 @@ func Build(ctx context.Context, lk Lookup, rows []Row) (Call, error) {
 	case end != nil && end.Dst == "*43":
 		c.Result = ResultEchoTest
 		c.Steps = append(c.Steps, Step{Kind: StepEcho})
+	case end != nil && end.Dst == "*97":
+		// Linx answered and played this person their messages (step 9b).
+		c.Result = ResultAnswered
+		c.Steps = append(c.Steps, Step{Kind: StepListened})
 	case len(lines) > 0 && !rang:
 		c.Result = ResultMissed
 		switch lines[len(lines)-1].Outcome {

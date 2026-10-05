@@ -194,6 +194,10 @@ services:
       # The voicemail greetings people recorded, copied from the database
       # for Asterisk to play (internal/voicemail's Greetings).
       - voicemail-greetings:/var/lib/linx/greetings
+      # One message at a time, written out for Asterisk to play when
+      # somebody dials *97 (internal/voicemail's Listening) and removed
+      # as soon as it has played.
+      - voicemail-play:/var/lib/linx/voicemail-play
     # The server helper's socket (linx-ops-agent reaches it through docker
     # exec, docs/ADMIN.md §9): in memory, only this image's user can open it.
     tmpfs:
@@ -328,6 +332,11 @@ services:
       - type: volume
         source: voicemail-greetings
         target: /var/lib/linx/greetings
+        read_only: true
+      # Plays a message to whoever dialled *97 (read only).
+      - type: volume
+        source: voicemail-play
+        target: /var/lib/linx/voicemail-play
         read_only: true
       # To check the control plane's ARI certificate (see control-plane).
       - type: volume
@@ -590,6 +599,17 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: uid=65532,gid=101,mode=2750,size=64m
+  # One voicemail at a time while *97 plays it (Phase 2 step 9b), under
+  # the same owners as the greetings. In memory, and nothing stays: a
+  # message is written, played and removed. The longest message is 3
+  # minutes of 8 kHz mu-law, 1.4 MB, so 16 MB is room for a few calls at
+  # once and a cap if one is ever left behind.
+  voicemail-play:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=65532,gid=101,mode=2750,size=16m
   postgres-data:
   asterisk-state:
   step-ca:

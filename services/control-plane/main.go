@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 
 	"linxpbx.com/linx/internal/alert"
+	"linxpbx.com/linx/internal/ari"
 	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/backupschedule"
@@ -426,8 +427,33 @@ func main() {
 	} else {
 		greetings.SyncLogged(context.Background())
 	}
+	// The message-waiting light on a desk phone (Phase 2 step 9b): Linx
+	// keeps voicemail itself, so Asterisk is told how many messages each
+	// box holds over ARI, at every change and whenever it reconnects.
+	light := &voicemail.Light{Store: st, Log: log}
+	voicemailChanged := func(tenant uuid.UUID) {
+		hub.VoicemailChanged(tenant)
+		light.Changed()
+	}
+	voicemails.Changed = voicemailChanged
 	voicemailSvc := &voicemail.Service{Store: st, EmailOn: emailSvc.On, Greetings: greetings, TimeZone: st.TimeZone,
-		Changed: hub.VoicemailChanged, Now: time.Now, Log: log}
+		Changed: voicemailChanged, Now: time.Now, Log: log}
+	// Listening to your own messages from a phone (*97): the dialplan
+	// hands the call over and this answers it and plays.
+	listening := &voicemail.Listening{Store: st, Dir: envOr(os.Getenv, "LINX_VOICEMAIL_PLAY_DIR", asteriskconf.PlayDir),
+		Light: light, Changed: voicemailChanged, Now: time.Now, Log: log}
+	if _, err := os.Stat(listening.Dir); err != nil {
+		log.Warn("no folder for playing voicemail; *97 can't play messages", "err", err)
+		listening.Dir = ""
+	}
+	tracker.Stasis = func(ctx context.Context, c *ari.Conn, ev ari.Event) { listening.Stasis(ctx, c, ev) }
+	tracker.Registered = func(c *ari.Conn) {
+		if c == nil {
+			light.Disconnected()
+			return
+		}
+		light.Connected(c)
+	}
 	emailSvc.Voicemail = voicemail.Attachment(st)
 	// Call history (ADR-070): Asterisk adds its call records to the
 	// database itself; this reads them into one line per call as each
@@ -468,6 +494,7 @@ func main() {
 	runBackground(func(ctx context.Context) { sweepWebDevices(ctx, st, relay, webDeviceSweepInterval, log) })
 	runBackground(hub.Run)
 	runBackground(voicemailSvc.RunExpiry)
+	runBackground(light.Run)
 	runBackground(historyBuilder.Run)
 	runBackground(trunkFiles.Run)
 	runBackground(trunkMonitor.Run)

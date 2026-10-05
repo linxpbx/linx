@@ -303,6 +303,12 @@ func TestBuild(t *testing.T) {
 			parties: map[string]bool{"Alice": false},
 		},
 		{
+			name:   "listened to voicemail from a phone",
+			rows:   []Row{row(2, 0, 0, 1, aliceCLID, "101", "*97", "linx-extensions", "PJSIP/d_alice-00000002", "", 1, "ANSWERED", "1.2", "", "", "")},
+			result: ResultAnswered, dir: DirectionInternal, words: "Listened to voicemail",
+			parties: map[string]bool{"Alice": false},
+		},
+		{
 			name:   "echo test",
 			rows:   []Row{row(2, 0, 0, 1, aliceCLID, "101", "*43", "linx-extensions", "PJSIP/d_alice-00000002", "", 1, "ANSWERED", "1.2", "", "", "")},
 			result: ResultEchoTest, dir: DirectionInternal, words: "Echo test",
