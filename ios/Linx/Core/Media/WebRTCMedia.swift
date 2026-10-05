@@ -66,6 +66,12 @@ struct CallDiagnostics: Equatable, Sendable {
     /// last an hour and are refreshed; expired ones mean no relay at all.
     var relayURLs: [String] = []
     var relayExpiresAt: Date?
+    /// Whether the phone has finished looking for routes. Until it has, a
+    /// relay address that failed means nothing: a server may offer two and
+    /// one of them answer, and the one that fails usually fails first — which
+    /// is how the owner got "couldn't reach Linx's call relay" on a call they
+    /// could hear perfectly (2026-10-05).
+    var settled = false
 
     /// The words for a route through Linx's relay. On a mobile network it is
     /// the only way the sound can go.
@@ -78,7 +84,7 @@ struct CallDiagnostics: Equatable, Sendable {
     /// saying when no route through it was found: a phone that reaches the
     /// relay over TLS and not UDP is perfectly fine and says nothing.
     var relayWords: String? {
-        guard !foundTheRelay, let first = relayTrouble.first else { return nil }
+        guard settled, !foundTheRelay, let first = relayTrouble.first else { return nil }
         switch first.code {
         case 401, 403, 438:
             return "Linx's call relay wouldn't accept this phone, so the call may have no sound."
@@ -109,12 +115,17 @@ struct PictureWatch {
     private var quiet = 0
 
     /// What the reading changes, or nil for "nothing has changed". `showing`
-    /// is whether their picture is on the screen now.
-    mutating func reading(framesIn: Int, showing: Bool) -> Bool? {
+    /// is whether their picture is on the screen now; `announced` is what
+    /// their SDP last said about their camera.
+    mutating func reading(framesIn: Int, showing: Bool, announced: Bool) -> Bool? {
         defer { seen = framesIn }
         if framesIn > seen {
             quiet = 0
-            return showing ? nil : true
+            // A picture nobody says they are sending is never put back on the
+            // screen. The last frames of a call whose video has just been
+            // turned off would otherwise put the video screen back up with
+            // nobody's camera on (owner, 2026-10-05).
+            return showing || !announced ? nil : true
         }
         guard showing else {
             quiet = 0
@@ -258,7 +269,7 @@ struct PictureWatch {
         guard let full = connection.localDescription?.sdp else { throw MediaTrouble.noAnswer }
         capWhatThisPhoneSends()
         startWatching()
-        theirVideo(theirs)
+        theySaid(theirs)
         return ours(full)
     }
 
@@ -268,7 +279,7 @@ struct PictureWatch {
         startWatching()
         // What they agreed to: a side that turns video down answers with a
         // video section of port 0, and this phone stops showing a window.
-        theirVideo(SDPTweaks.theySendVideo(answer))
+        theySaid(SDPTweaks.theySendVideo(answer))
         if video.mine, !SDPTweaks.hasVideo(answer) { await stopCamera() }
     }
 
@@ -369,6 +380,19 @@ struct PictureWatch {
         }
     }
 
+    /// Their SDP, or a stream starting, says whether they *mean* to send a
+    /// picture; the frame count says whether it is really arriving. Both are
+    /// needed: without the first, the last few frames of a call whose video
+    /// has just been turned off put the video screen back up with nobody's
+    /// camera on (owner, 2026-10-05); without the second, a picture that
+    /// stopped sits frozen on the screen.
+    private func theySaid(_ on: Bool) {
+        theyMeanToSendVideo = on
+        theirVideo(on)
+    }
+
+    private var theyMeanToSendVideo = false
+
     private func theirVideo(_ on: Bool) {
         guard on != video.theirs else { return }
         // The track itself is kept either way. A picture that stopped has to
@@ -420,6 +444,7 @@ struct PictureWatch {
         tracks.local = nil
         tracks.remote = nil
         video = CallVideo()
+        theyMeanToSendVideo = false
         audio = nil
         connection?.close()
         connection = nil
@@ -659,12 +684,15 @@ struct PictureWatch {
         gatheringLimit = nil
         gathered?.resume()
         gathered = nil
+        note { $0.settled = true }
     }
 
     /// Their picture is on the screen while pictures are arriving — and back
     /// on it the moment they start arriving again.
     private func checkTheirPicture(_ connection: MediaConnection) {
-        guard let arriving = frames.reading(framesIn: connection.framesIn, showing: video.theirs)
+        guard
+            let arriving = frames.reading(
+                framesIn: connection.framesIn, showing: video.theirs, announced: theyMeanToSendVideo)
         else { return }
         guard !arriving || tracks.remote != nil else { return }
         theirVideo(arriving)
@@ -933,7 +961,7 @@ extension WebRTCMedia: RTCPeerConnectionDelegate {
         guard let track = receiver.track as? RTCVideoTrack else { return }
         Task { @MainActor in
             self.tracks.remote = track
-            self.theirVideo(true)
+            self.theySaid(true)
         }
     }
 
@@ -941,7 +969,7 @@ extension WebRTCMedia: RTCPeerConnectionDelegate {
         guard receiver.track is RTCVideoTrack else { return }
         Task { @MainActor in
             self.tracks.remote = nil
-            self.theirVideo(false)
+            self.theySaid(false)
         }
     }
 

@@ -226,6 +226,37 @@ Worth knowing for the owner's own network: from the internet, **UDP 443 on
 never work from outside until that port forward is corrected. The TLS one does,
 which is what every restrictive network needs anyway.
 
+### Build 6 on the phone: the relay cap, and two screens telling the truth (2026-10-05)
+
+With the certificate fix on the phone and the owner's old UDP 443 forward
+switched off, **the call had sound from outside at last**. Three things left,
+all three found:
+
+- **A red line said "this phone couldn't reach Linx's call relay" on a call the
+  owner could hear.** The warning was decided the moment a relay address
+  failed, and the address that fails usually fails first: with UDP 443 no
+  longer forwarded, every call now has one failure and one success. It is now
+  decided only once the phone has **finished looking for routes**
+  (`CallDiagnostics.settled`), and it comes off the screen if a route through
+  the relay turns up after all.
+- **The picture froze within seconds of coming on, and it was the relay's own
+  bandwidth cap.** `turnconf.MaxBPS` was **64 kB/s** — sized in Phase 1C for
+  Opus at 8 kB/s and never revisited when video arrived in step 7. A 1:1 video
+  call is 600 kbit/s of picture plus 24 of voice, about **90 kB/s** with every
+  header, and more for a moment at each keyframe. So every **relayed** video
+  call was throttled and the picture stopped, while a video call on the same
+  LAN was perfect — which is exactly what the owner saw. Now **160 kB/s**:
+  twice what a video call needs, and still nowhere near enough to move data
+  about with, which is what the cap is for. **A server has to be updated for
+  this** (the cap is in coturn's config, which `linx-coturn` renders at start).
+- **Stop video sometimes came back as a video call with nobody's camera on.**
+  The frame watch, which brings a picture back when frames start arriving
+  again, was treating the last frames of a call whose video had just been
+  turned off as a picture returning. It now needs the other side's **SDP** to
+  say they mean to send one as well: the SDP says whether a picture is meant to
+  be there, the frames say whether it really is, and both have to agree before
+  it goes back on the screen.
+
 ### Step 6, as built (2026-10-04)
 **A sleeping phone rings now.** Step 5 gave the server the push; this is the app's side of it, and the rule that shapes all of it is Apple's: a VoIP push must report a call to CallKit *at once, every time*, or iOS kills the app and stops delivering its pushes (§14 item 1).
 

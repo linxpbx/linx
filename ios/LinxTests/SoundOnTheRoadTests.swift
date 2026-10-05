@@ -58,16 +58,29 @@ struct SoundOnTheRoadTests {
         var watch = PictureWatch()
         // It is announced before any frame has arrived, which is the ordinary
         // way round: nothing is said until frames stop coming.
-        #expect(watch.reading(framesIn: 0, showing: true) == nil)
-        #expect(watch.reading(framesIn: 0, showing: true) == false)
+        #expect(watch.reading(framesIn: 0, showing: true, announced: true) == nil)
+        #expect(watch.reading(framesIn: 0, showing: true, announced: true) == false)
         // The echo test's picture starts the moment this phone's camera does.
-        #expect(watch.reading(framesIn: 12, showing: false) == true)
-        #expect(watch.reading(framesIn: 30, showing: true) == nil)
+        #expect(watch.reading(framesIn: 12, showing: false, announced: true) == true)
+        #expect(watch.reading(framesIn: 30, showing: true, announced: true) == nil)
         // It stops. One quiet reading is a hiccup; two mean it has gone.
-        #expect(watch.reading(framesIn: 30, showing: true) == nil)
-        #expect(watch.reading(framesIn: 30, showing: true) == false)
+        #expect(watch.reading(framesIn: 30, showing: true, announced: true) == nil)
+        #expect(watch.reading(framesIn: 30, showing: true, announced: true) == false)
         // And it comes back, which is the half that was missing.
-        #expect(watch.reading(framesIn: 31, showing: false) == true)
+        #expect(watch.reading(framesIn: 31, showing: false, announced: true) == true)
+    }
+
+    @Test("frames left over from a picture that has been turned off don't put it back")
+    func theirPictureStaysOffWhenNobodyIsSending() {
+        var watch = PictureWatch()
+        // Stop video: their SDP says they are not sending, and the last few
+        // frames still arrive. The screen must stay as it is — the owner's
+        // phone went back to the voice call and then straight to the video
+        // screen with nobody's camera on (2026-10-05).
+        #expect(watch.reading(framesIn: 40, showing: false, announced: false) == nil)
+        #expect(watch.reading(framesIn: 44, showing: false, announced: false) == nil)
+        // Once they say they are sending again, it comes back.
+        #expect(watch.reading(framesIn: 48, showing: false, announced: true) == true)
     }
 
     @Test("their camera is asked about once in a call, however often it comes and goes")
@@ -122,14 +135,23 @@ struct SoundOnTheRoadTests {
     @Test("a relay that won't have this phone is said out loud")
     func theRelayRefused() async throws {
         let (phone, _, media, _) = try await inACall()
-        media.found(
-            CallDiagnostics(
-                found: ["this network"],
-                relayTrouble: [
-                    CallDiagnostics.RelayTrouble(url: "turns:turn.example.com:443", code: 401, said: "Unauthorized")
-                ]))
+        let refused = [
+            CallDiagnostics.RelayTrouble(url: "turns:turn.example.com:443", code: 401, said: "Unauthorized")
+        ]
+        // While the phone is still looking for routes, nothing is said: one
+        // address of two failing is ordinary and the one that fails usually
+        // fails first.
+        media.found(CallDiagnostics(found: ["this network"], relayTrouble: refused))
+        #expect(phone.problem == nil)
+        media.found(CallDiagnostics(found: ["this network"], relayTrouble: refused, settled: true))
         #expect(phone.problem?.contains("relay") == true)
         #expect(phone.diagnostics.foundTheRelay == false)
+        // And if a route through the relay turns up after all, the message
+        // comes off the screen.
+        media.found(
+            CallDiagnostics(
+                found: ["this network", CallDiagnostics.theRelay], relayTrouble: refused, settled: true))
+        #expect(phone.problem == nil)
     }
 
     @Test("a relay reached one way and not the other is nobody's business")
@@ -141,7 +163,7 @@ struct SoundOnTheRoadTests {
                 relayTrouble: [
                     CallDiagnostics.RelayTrouble(
                         url: "turn:turn.example.com:443?transport=udp", code: 701, said: "timed out")
-                ]))
+                ], settled: true))
         #expect(phone.problem == nil)
         #expect(phone.diagnostics.foundTheRelay)
     }

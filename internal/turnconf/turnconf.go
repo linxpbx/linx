@@ -39,9 +39,18 @@ const (
 	UserQuota = 10
 	// TotalQuota is how many allocations the server holds at once.
 	TotalQuota = 300
-	// MaxBPS is each allocation's bandwidth cap, bytes a second each way:
-	// ample for Opus audio (about 8 kB/s), stops bulk transfer.
-	MaxBPS = 64000
+	// MaxBPS is each allocation's bandwidth cap, bytes a second each way.
+	//
+	// It has to hold a 1:1 video call, not just the voice: 600 kbit/s of
+	// picture (ADR-079) and 24 kbit/s of Opus is 78 kB/s of payload, about
+	// 90 kB/s with RTP, SRTP, UDP and TURN's own headers, and more than that
+	// for a moment whenever a keyframe goes out or the link recovers. 64 kB/s
+	// was sized for audio alone in Phase 1C and silently throttled every
+	// relayed video call: the owner's picture froze within seconds of coming
+	// on, on a network where the relay was the only way through (2026-10-05).
+	// This is twice what a video call needs and still nowhere near enough to
+	// use the relay for moving data about, which is what the cap is for.
+	MaxBPS = 160000
 )
 
 // Config is linx-coturn's configuration.

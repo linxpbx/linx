@@ -239,6 +239,7 @@ import UIKit
         askAboutTheirVideo = nil
         askedAboutTheirVideo = false
         changingVideo = false
+        saidAboutTheRelay = false
         forgetWhatWasWoken(.missed)
         status = .starting
     }
@@ -533,12 +534,26 @@ import UIKit
 
     private func callDiagnostics(_ what: CallDiagnostics) {
         diagnostics = what
-        // Only when the relay was the way through and wouldn't have this
-        // phone: a phone that reaches it over TLS and not UDP is perfectly
-        // well and says nothing.
+        // Said only once the phone has finished looking for routes, and only
+        // when it found no way through the relay at all. A relay that answers
+        // over TLS and not over UDP is perfectly well — and the one that
+        // fails usually fails first, which is how the owner got "couldn't
+        // reach Linx's call relay" on a call they could hear (2026-10-05).
+        if what.foundTheRelay {
+            if saidAboutTheRelay {
+                saidAboutTheRelay = false
+                problem = nil
+            }
+            return
+        }
         guard let words = what.relayWords, problem == nil else { return }
         problem = words
+        saidAboutTheRelay = true
     }
+
+    /// Whether the message on the screen is this call's relay warning, so it
+    /// can be taken down again if a route turns up after all.
+    private var saidAboutTheRelay = false
 
     /// Nothing is being heard. A call that has been up for a few seconds with
     /// no sound coming in is broken however well the rest of the screen looks,
@@ -735,6 +750,7 @@ import UIKit
         askAboutTheirVideo = nil
         askedAboutTheirVideo = false
         changingVideo = false
+        saidAboutTheRelay = false
         calls.reportEnded(id: finished.id, Self.ending(why))
         if case .failed(let said) = why { problem = said }
         defer { closeIfNobodyIsLooking() }
