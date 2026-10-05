@@ -220,6 +220,8 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 		"--volume", filepath.Join(d, "voicemail")+":"+asteriskconf.VoicemailDir,
 		// The greetings people recorded, for Asterisk to play (step 14).
 		"--volume", filepath.Join(d, "greetings")+":"+asteriskconf.GreetingsDir+":ro",
+		// One message at a time, written out for *97 to play (step 9b).
+		"--volume", filepath.Join(d, "voicemail-play")+":"+asteriskconf.PlayDir+":ro",
 		"--init", // as compose.yaml
 		"--env", "LINX_CERT_CHECK_INTERVAL=1s",
 		"--volume", filepath.Join(d, "ca")+":/etc/linx/ca:ro",
@@ -526,7 +528,7 @@ func (w testWriter) Write(b []byte) (int, error) {
 // other users in their containers.
 func (e *env) writeFiles() {
 	t := e.t
-	for _, sub := range []string{"certs/v1", "sipws/v20", "ca", "secrets", "sipp", "trunks", "trunk-status", "voicemail", "greetings"} {
+	for _, sub := range []string{"certs/v1", "sipws/v20", "ca", "secrets", "sipp", "trunks", "trunk-status", "voicemail", "greetings", "voicemail-play"} {
 		if err := os.MkdirAll(filepath.Join(e.dir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}

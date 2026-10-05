@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!-- A desk phone asking for its message-waiting light: SUBSCRIBE to
+     message-summary, then the NOTIFY Asterisk sends with it and every
+     time the count changes (Phase 2 step 9b, ADR-083). This is the path
+     real desk phones use — they ask, rather than waiting to be told.
+     Variables: -set user <sip username>; -au/-ap for the login. -->
+<scenario name="message-waiting light">
+  <Global variables="user"/>
+  <send>
+    <![CDATA[
+      SUBSCRIBE sip:[$user]@linx SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: <sip:[$user]@linx>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[$user]@linx>
+      Call-ID: [call_id]
+      CSeq: 1 SUBSCRIBE
+      Contact: <sip:[$user]@[local_ip]:[local_port];transport=tls>
+      Event: message-summary
+      Accept: application/simple-message-summary
+      Max-Forwards: 70
+      Expires: 300
+      Content-Length: 0
+    ]]>
+  </send>
+  <recv response="401" auth="true"/>
+  <send>
+    <![CDATA[
+      SUBSCRIBE sip:[$user]@linx SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: <sip:[$user]@linx>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[$user]@linx>
+      Call-ID: [call_id]
+      CSeq: 2 SUBSCRIBE
+      Contact: <sip:[$user]@[local_ip]:[local_port];transport=tls>
+      [authentication]
+      Event: message-summary
+      Accept: application/simple-message-summary
+      Max-Forwards: 70
+      Expires: 300
+      Content-Length: 0
+    ]]>
+  </send>
+  <recv response="200"/>
+
+  <!-- The light itself. The NOTIFY has to say the light is on: check_it
+       fails this call if it doesn't, so SIPp's own result is the test. -->
+  <recv request="NOTIFY" crlf="true">
+    <action>
+      <ereg regexp="Messages-Waiting: *yes" search_in="msg" check_it="true" assign_to="light"/>
+      <log message="message-waiting light: '[$light]'"/>
+    </action>
+  </recv>
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:[$user]@[local_ip]:[local_port];transport=tls>
+      Content-Length: 0
+    ]]>
+  </send>
+
+  <!-- No unsubscribe: the subscription runs out on its own, and this
+       scenario is here to prove the light arrives, not to exercise
+       SIP's dialog handling. -->
+</scenario>

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,6 +52,9 @@ func TestCallsDocker(t *testing.T) {
 	defer cancel()
 	tracker := &pbx.CallTracker{Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	var voicemails *voicemail.Importer
+	var listening *voicemail.Listening
+	var light *voicemail.Light
+	var ariConn atomic.Pointer[ari.Conn]
 	var wakeMu sync.Mutex
 	var wakes []map[string]any
 	wokenSoFar := func() []map[string]any {
@@ -63,6 +67,23 @@ func TestCallsDocker(t *testing.T) {
 		tracker.Log = slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 		// As the control plane: the dialplan's event takes the message in.
 		voicemails = &voicemail.Importer{Dir: filepath.Join(e.dir, "voicemail"), Store: e.store, Now: time.Now, Log: tracker.Log}
+		// As the control plane: *97 is a call it answers and plays into,
+		// and the message-waiting light is a count it sets (step 9b).
+		light = &voicemail.Light{Store: e.store, Log: tracker.Log}
+		// The folder is this test's, mounted into Asterisk at the path
+		// Linx uses in production; messages are played by that name.
+		listening = &voicemail.Listening{Store: e.store, Dir: filepath.Join(e.dir, "voicemail-play"),
+			DirForAsterisk: asteriskconf.PlayDir,
+			Light:          light, AfterMessage: 300 * time.Millisecond, Now: time.Now, Log: tracker.Log}
+		tracker.Stasis = func(ctx context.Context, c *ari.Conn, ev ari.Event) { listening.Stasis(ctx, c, ev) }
+		tracker.Registered = func(c *ari.Conn) {
+			ariConn.Store(c)
+			if c == nil {
+				light.Disconnected()
+				return
+			}
+			light.Connected(c)
+		}
 		tracker.UserEvent = func(name string, fields map[string]any) {
 			switch name {
 			case voicemail.EventName:
@@ -188,7 +209,7 @@ func TestCallsDocker(t *testing.T) {
 	// modules). A missing one is silent — ${DEVICE_STATE(...)} and
 	// ${IF(...)} simply came out empty, and a sleeping iPhone never rang
 	// (row 2.4 of docs/TEST_MATRIX.md on a real phone, 2026-10-04).
-	t.Run("every dialplan function is in the image", func(t *testing.T) {
+	t.Run("every dialplan function and application is in the image", func(t *testing.T) {
 		conf := docker(t, ctx, "exec", astName, "sh", "-c",
 			"cat /etc/asterisk/extensions.conf /etc/asterisk/func_odbc.conf")
 		used := map[string]bool{}
@@ -204,6 +225,26 @@ func TestCallsDocker(t *testing.T) {
 				`grep -q "No function by that name" && echo "$f"; done; exit 0`)
 		if missing := strings.Fields(out); len(missing) > 0 {
 			t.Errorf("the dialplan uses %s, which this image hasn't got: enable their modules in deploy/docker/asterisk.Dockerfile",
+				strings.Join(missing, ", "))
+		}
+
+		// The same for the applications it calls. `Stasis` was missing
+		// when *97 was built (app_stasis is its own module, and the
+		// image enables apps one by one): the dialplan simply said "No
+		// application 'Stasis'" and the caller heard a decline.
+		apps := map[string]bool{}
+		for _, m := range regexp.MustCompile(`(?m)^\s*(?:same\s*=>\s*n(?:\([a-z-]+\))?|exten\s*=>\s*[^,]+,\s*[0-9]+)\s*,\s*([A-Z][A-Za-z0-9_]*)\(`).FindAllStringSubmatch(conf, -1) {
+			apps[m[1]] = true
+		}
+		if len(apps) < 10 {
+			t.Fatalf("read only %d applications out of the rendered dialplan: %v", len(apps), apps)
+		}
+		appNames := slices.Sorted(maps.Keys(apps))
+		out = docker(t, ctx, "exec", astName, "sh", "-c",
+			`for a in `+strings.Join(appNames, " ")+`; do asterisk -rx "core show application $a" | `+
+				`grep -q "Your application" && echo "$a"; done; exit 0`)
+		if missing := strings.Fields(out); len(missing) > 0 {
+			t.Errorf("the dialplan calls %s, which this image hasn't got: enable their modules in deploy/docker/asterisk.Dockerfile",
 				strings.Join(missing, ", "))
 		}
 	})
@@ -334,6 +375,136 @@ func TestCallsDocker(t *testing.T) {
 
 		// A message with audio being kept is the browser suite's
 		// (internal/browsertest): SIPp sends no audio.
+	})
+
+	// Listening to your own messages from a phone (*97) and the
+	// message-waiting light (Phase 2 step 9b). This is the one place the
+	// control plane answers a call and plays into it, so it proves the
+	// whole path on the real image: Stasis, ARI writing, a message
+	// written out of the database and played by name, and the mailbox
+	// count Asterisk turns into a NOTIFY.
+	t.Run("*97 and the message light", func(t *testing.T) {
+		e.voicemailOn(alice.ext.ID, true)
+		defer e.voicemailOn(alice.ext.ID, false)
+		heard := func(name string) int { return strings.Count(e.asteriskLogs(), "Playing 'linx/"+name+".g722'") }
+
+		// A missing module here is silent, the way DEVICE_STATE was: the
+		// count would be set into nothing, or held and never sent to the
+		// phone. Both halves have to be in the image.
+		for _, mod := range []string{"res_mwi_external.so", "res_ari_mailboxes.so", "res_stasis_mailbox.so",
+			"res_pjsip_mwi.so", "res_pjsip_mwi_body_generator.so", "res_pjsip_pubsub.so"} {
+			if out := e.asteriskCLI("module show like " + mod); !strings.Contains(out, "Running") {
+				t.Errorf("%s isn't running in this image: enable it in deploy/docker/asterisk.Dockerfile\n%s", mod, out)
+			}
+		}
+		// Asterisk knows which mailbox this phone's light belongs to
+		// (migration 0046): without it there is nobody to notify.
+		if out := e.asteriskCLI("pjsip show endpoint " + alice.dev.SIPUsername); !strings.Contains(out, alice.ext.ID.String()) {
+			t.Errorf("the phone's endpoint has no mailbox for its light:\n%s", out)
+		}
+		// One message of Alice's, from 0501: a second of silence is
+		// enough to play (the audio itself is what SIPp can't make).
+		msg := uuid.Must(uuid.NewV7())
+		if _, err := e.pool.Exec(ctx, `INSERT INTO voicemail_message
+				(id, tenant_id, box_id, source, caller_number, received_at, duration_ms, audio, created_at)
+			VALUES ($1, $2, $3, $4, '0501', now(), 1000, $5, now())`,
+			msg, e.tenant, alice.ext.ID, fmt.Sprintf("%d.97", time.Now().Unix()), make([]byte, 8000)); err != nil {
+			t.Fatal(err)
+		}
+		defer e.pool.Exec(ctx, `DELETE FROM voicemail_message WHERE id = $1`, msg)
+
+		// The light comes on: the count goes to Asterisk over ARI, and
+		// Asterisk holds it for the phone's own endpoint.
+		if err := light.Update(ctx); err != nil {
+			t.Fatal(err)
+		}
+		// What Asterisk itself now holds for that mailbox — the count it
+		// would tell the phone — read back over the same interface.
+		newMessages := func() int {
+			c := ariConn.Load()
+			if c == nil {
+				return -1
+			}
+			var box struct {
+				Name        string `json:"name"`
+				NewMessages int    `json:"new_messages"`
+				OldMessages int    `json:"old_messages"`
+			}
+			if err := c.Get(ctx, "mailboxes/"+alice.ext.ID.String(), &box); err != nil {
+				t.Logf("reading the mailbox back: %v", err)
+				return -1
+			}
+			return box.NewMessages
+		}
+		eventually(t, "Asterisk knows there is a new message", 10*time.Second, func() bool {
+			return newMessages() == 1
+		})
+
+		intro, from, end := heard("vm-intro"), heard("vm-from"), heard("vm-end")
+		e.run("star97", "call-message.xml", alice, "-s", "*97")
+		logs := e.asteriskLogs()
+		if heard("vm-intro") != intro+1 || heard("vm-from") != from+1 || heard("vm-end") != end+1 {
+			t.Fatalf("*97 didn't play the messages through:\n%s", logs)
+		}
+		// The caller's number is read out a digit at a time, and the
+		// message itself is played from the folder by its own name.
+		if !strings.Contains(logs, "Playing 'linx/digit-5.g722'") {
+			t.Errorf("the caller's number wasn't read out:\n%s", logs)
+		}
+		if !strings.Contains(logs, "Playing '"+asteriskconf.PlayDir+"/"+msg.String()) {
+			t.Errorf("the message itself wasn't played:\n%s", logs)
+		}
+		// Heard to the end: it stops being new, nothing of it is left in
+		// the folder, and the light goes out.
+		var heardAt *time.Time
+		if err := e.pool.QueryRow(ctx, `SELECT heard_at FROM voicemail_message WHERE id = $1`, msg).Scan(&heardAt); err != nil {
+			t.Fatal(err)
+		}
+		if heardAt == nil {
+			t.Error("a message played to the end is still new")
+		}
+		left, _ := os.ReadDir(filepath.Join(e.dir, "voicemail-play"))
+		if len(left) != 0 {
+			t.Errorf("%d messages left in the folder Asterisk plays from", len(left))
+		}
+		if err := light.Update(ctx); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "the message light goes out", 10*time.Second, func() bool {
+			return newMessages() == 0
+		})
+
+		// The light reaching a phone that asks for it (SUBSCRIBE for
+		// message-summary, which is what desk phones do). This is the
+		// half nothing else proves: that Asterisk turns the count into
+		// something a phone understands.
+		t.Run("a phone that asks for its light is told", func(t *testing.T) {
+			if _, err := e.pool.Exec(ctx, `INSERT INTO voicemail_message
+					(id, tenant_id, box_id, source, caller_number, received_at, duration_ms, audio, created_at)
+				VALUES ($1, $2, $3, $4, '0502', now(), 1000, $5, now())`,
+				uuid.Must(uuid.NewV7()), e.tenant, alice.ext.ID,
+				fmt.Sprintf("%d.98", time.Now().Unix()), make([]byte, 8000)); err != nil {
+				t.Fatal(err)
+			}
+			defer e.pool.Exec(ctx, `DELETE FROM voicemail_message WHERE box_id = $1`, alice.ext.ID)
+			if err := light.Update(ctx); err != nil {
+				t.Fatal(err)
+			}
+			// The scenario is the assertion: it subscribes the way a desk
+			// phone does and refuses the NOTIFY unless it says the light
+			// is on, so SIPp finishing is the light working.
+			e.run("mwi", "mwi-subscribe.xml", alice)
+		})
+
+		// A phone whose box is switched off is told so, and hears
+		// nobody else's messages.
+		e.voicemailOn(alice.ext.ID, false)
+		nobox := heard("vm-nobox")
+		e.run("star97-off", "call-message.xml", alice, "-s", "*97")
+		if heard("vm-nobox") != nobox+1 {
+			t.Errorf("a phone with voicemail off wasn't told:\n%s", e.asteriskLogs())
+		}
+		e.voicemailOn(alice.ext.ID, true)
 	})
 
 	t.Run("ring groups", func(t *testing.T) {
