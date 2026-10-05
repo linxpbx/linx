@@ -337,6 +337,30 @@ round (the other person big) as soon as a camera leaves the call, so the next
 video call never starts inside out. The two-panel layouts on an iPad and an
 opened-out Duo swap the same way.
 
+### The question that answered itself (2026-10-05)
+
+On both the iPhone and the iPad, the question Linx asks when the other side
+turns their camera on — "Turn mine on too / Not now" (ADR-079, the owner's own
+condition) — **appeared and vanished within a second**, with no chance to
+answer it, and the camera rightly stayed off.
+
+Two faults in how it was shown, both mine:
+
+- It was answered **"Not now" by any dismissal**. The alert's `isPresented`
+  binding treated SwiftUI setting it to false as the person choosing "Not now".
+  But a picture arriving brings several changes at once — the call screen
+  changes, the sound moves to the loudspeaker, the system's own call is updated
+  — and any one of them taking the alert down counted as an answer. Now only
+  the two buttons answer: they clear the question themselves, which is what
+  takes the alert away, and nothing else may.
+- The alert was attached to a view whose **identity changed** at exactly that
+  moment: `Group { if video.on { … } else { … } }` is two different views, so
+  switching from the voice screen to the video screen took the alert with it.
+  One `ZStack` now stays put while its child changes.
+
+Their camera going off again while the question is still up clears it too:
+there is nothing left to answer.
+
 ### Step 6, as built (2026-10-04)
 **A sleeping phone rings now.** Step 5 gave the server the push; this is the app's side of it, and the rule that shapes all of it is Apple's: a VoIP push must report a call to CallKit *at once, every time*, or iOS kills the app and stops delivering its pushes (§14 item 1).
 

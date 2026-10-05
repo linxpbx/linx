@@ -508,6 +508,9 @@ import UIKit
             askAboutTheirVideo = current.peer
         }
         if video.mine { askAboutTheirVideo = nil }
+        // Their camera went off again while the question was still on the
+        // screen: there is nothing left to answer.
+        if !video.theirs { askAboutTheirVideo = nil }
         // The system shows a call with a picture in it as a video call.
         if was.on != video.on { calls.reportVideo(id: current.id, on: video.on) }
         if was.theirs != video.theirs, video.theirs, !current.speaker {

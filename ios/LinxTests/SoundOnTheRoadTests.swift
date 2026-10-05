@@ -211,6 +211,31 @@ struct SoundOnTheRoadTests {
         #expect(phone.call?.phase == .active)
     }
 
+    @Test("the question about their camera waits for an answer")
+    func theQuestionWaits() async throws {
+        let (phone, _, media, _) = try await inACall()
+        media.pretendTheirVideo(true)
+        #expect(await eventually { phone.askAboutTheirVideo != nil })
+        // Everything else that happens when a picture arrives — the sound
+        // moving to the loudspeaker, the connection being read, the screen
+        // changing — leaves the question alone. Only an answer takes it away
+        // (owner, 2026-10-05: it "comes and disappears in less than a second").
+        media.soundComesOut(of: AudioRoute(name: "Speaker", speaker: true, builtIn: true))
+        media.found(CallDiagnostics(found: [CallDiagnostics.theRelay], settled: true))
+        #expect(phone.askAboutTheirVideo != nil)
+        phone.answeredAboutTheirVideo(turningMineOn: false)
+        #expect(phone.askAboutTheirVideo == nil)
+        // A one-way video call carries on exactly as it was.
+        #expect(phone.call?.video.theirs == true)
+        #expect(phone.call?.video.mine == false)
+        #expect(phone.call?.phase == .active)
+        // And their camera going off again takes the question with it: there
+        // is nothing left to answer.
+        media.pretendTheirVideo(true)
+        media.pretendTheirVideo(false)
+        #expect(phone.askAboutTheirVideo == nil)
+    }
+
     @Test("their camera is asked about once in a call, however often it comes and goes")
     func askedOnlyOnce() async throws {
         let (phone, _, media, _) = try await inACall()

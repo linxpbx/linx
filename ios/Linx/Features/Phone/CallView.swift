@@ -19,7 +19,13 @@ struct CallView: View {
     private static let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        Group {
+        // One container, whichever screen is inside it. The switch between the
+        // call's two screens used to change this view's identity, and anything
+        // attached here — the question below above all — went with it (owner,
+        // 2026-10-05: the question "comes and disappears in less than a
+        // second"). A ZStack that stays put while its child changes keeps them
+        // alive.
+        ZStack {
             if call.video.on {
                 VideoCallView(call: call, now: now)
             } else {
@@ -30,11 +36,17 @@ struct CallView: View {
         // They turned their camera on and this phone's is off: ask once
         // (ADR-079, owner 2026-10-04). "Not now" leaves a one-way video
         // call, which carries on exactly as it is.
+        //
+        // **Only the buttons answer it.** A binding that answered "Not now"
+        // whenever SwiftUI set it false answered the question for the person:
+        // a picture arriving brings several changes at once — the screen, the
+        // loudspeaker, the system's own call — and any one of them taking the
+        // alert down counted as "no" before anybody could read it. The two
+        // buttons clear the question themselves, which is what takes the alert
+        // away; nothing else may.
         .alert(
             theirVideoQuestion,
-            isPresented: Binding(
-                get: { phone.askAboutTheirVideo != nil },
-                set: { if !$0 { phone.answeredAboutTheirVideo(turningMineOn: false) } })
+            isPresented: Binding(get: { phone.askAboutTheirVideo != nil }, set: { _ in })
         ) {
             Button("Turn mine on too") { phone.answeredAboutTheirVideo(turningMineOn: true) }
             Button("Not now", role: .cancel) { phone.answeredAboutTheirVideo(turningMineOn: false) }
