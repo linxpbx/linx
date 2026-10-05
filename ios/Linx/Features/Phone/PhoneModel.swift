@@ -858,6 +858,8 @@ import UIKit
         func pretend(_ call: Call) { self.call = call }
 
         func pretend(_ status: Status) { self.status = status }
+
+        func pretendLastDialled(_ number: String) { lastDialled = number }
     #endif
 
     /// What the app needs out of the phone line Linx handed it: the SIP

@@ -53,6 +53,41 @@ struct ScreenTests {
         #expect(incoming.uiImage != nil)
     }
 
+    /// Step 8: the same screens on a 13-inch iPad, where every tab is a
+    /// list beside a detail and a call stands next to it rather than over
+    /// it (`docs/PHASE2.md` §12 step 8).
+    @MainActor
+    @Test("the two-column screens render on an iPad")
+    func rendersOnABigScreen() {
+        let model = AppModel()
+        model.identity = Screen.sampleIdentity
+        model.state = .signedIn
+        model.home.pretend(members: Screen.sampleTeam, missed: 2, voicemail: 1)
+
+        // iPad Pro 13-inch (M5), upright.
+        let home = ImageRenderer(
+            content: HomeView().environment(model).environment(model.phone)
+                .frame(width: 1032, height: 1376))
+        #expect(home.uiImage != nil)
+
+        let call = ImageRenderer(
+            content: CallDetailView(call: Screen.sampleCalls[0]).environment(model.phone)
+                .frame(width: 600, height: 800))
+        #expect(call.uiImage != nil)
+
+        let person = ImageRenderer(
+            content: PersonView(member: Screen.sampleTeam[1], isMe: false, favourites: Favourites())
+                .environment(model.phone)
+                .frame(width: 600, height: 800))
+        #expect(person.uiImage != nil)
+
+        let speedDial = ImageRenderer(
+            content: SpeedDial().environment(model.home).environment(model.phone)
+                .environment(Favourites())
+                .frame(width: 360, height: 800))
+        #expect(speedDial.uiImage != nil)
+    }
+
     @MainActor
     @Test("the set-it-up-again screen renders")
     func rendersSetUpAgain() {

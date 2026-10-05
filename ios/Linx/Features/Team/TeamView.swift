@@ -13,8 +13,14 @@ struct TeamView: View {
     @Environment(AppModel.self) private var model
     @Environment(HomeModel.self) private var home
     @Environment(PhoneModel.self) private var phone
+    @Environment(\.horizontalSizeClass) private var horizontal
     @State private var search = ""
-    @State private var favourites = Favourites()
+    /// Starred people, kept on this phone. The one list the app has
+    /// (`HomeView`), so the keypad's speed dial shows the same stars.
+    @Environment(Favourites.self) private var favourites
+    /// Whose card the right-hand side is showing (step 8). On a phone there
+    /// is no right-hand side and picking somebody pushes their card.
+    @State private var chosen: TeamMember.ID?
 
     private var mine: String { model.identity?.extensionNumber ?? "" }
 
@@ -30,7 +36,7 @@ struct TeamView: View {
     /// own list.
     @ViewBuilder private func row(_ member: TeamMember) -> some View {
         let starred = favourites.has(member.extensionNumber)
-        TeamRow(member: member, isMe: member.extensionNumber == mine)
+        TeamRow(member: member, isMe: member.extensionNumber == mine, selected: chosen == member.id)
             .swipeActions(edge: .leading) {
                 Button(starred ? "Unstar" : "Favourite", systemImage: starred ? "star.slash" : "star") {
                     favourites.toggle(member.extensionNumber)
@@ -40,12 +46,12 @@ struct TeamView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationSplitView {
             Group {
                 if home.members.isEmpty {
                     TeamEmpty(loaded: home.loaded, problem: home.problem)
                 } else {
-                    List {
+                    List(selection: $chosen) {
                         let parts = favourites.split(shown)
                         if !parts.favourites.isEmpty {
                             Section("Favourites") {
@@ -72,10 +78,111 @@ struct TeamView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { PresenceButton() }
             }
+        } detail: {
+            if let member = home.members.first(where: { $0.id == chosen }) {
+                PersonView(member: member, isMe: member.extensionNumber == mine, favourites: favourites)
+            } else {
+                NothingPicked(
+                    symbol: "person.2", title: "Nobody picked",
+                    words: "Pick somebody to see what they're doing and ring them.")
+            }
         }
+        // Never yourself: your own card has nothing to press on it, and it
+        // is not what somebody opening Team came to see.
+        .picksTheFirstRow(
+            $chosen,
+            first: {
+                shown.first(where: { $0.extensionNumber != mine })?.id
+            },
+            when: horizontal == .regular
+        )
         .task {
             home.noticeMyOwnStatus(extensionNumber: mine)
         }
+    }
+}
+
+/// One person on the right-hand side of the Team tab: who they are, what
+/// they are doing this moment, and the two ways to reach them. It is live,
+/// like the list beside it — "On a call" goes the moment they put the phone
+/// down.
+struct PersonView: View {
+    @Environment(PhoneModel.self) private var phone
+    let member: TeamMember
+    let isMe: Bool
+    let favourites: Favourites
+
+    private var callable: Bool { !isMe && phone.status == .ready && phone.call == nil }
+    private var starred: Bool { favourites.has(member.extensionNumber) }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: LinxSpace.s5) {
+                BigInitials(name: member.name)
+
+                VStack(spacing: LinxSpace.s2) {
+                    Text(isMe ? "\(member.name) (you)" : member.name)
+                        .font(.title.weight(.bold))
+                        .foregroundStyle(LinxColor.text)
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: LinxSpace.s2) {
+                        Circle()
+                            .fill(PresenceDot.colour(for: member.status))
+                            .frame(width: 10, height: 10)
+                            .accessibilityHidden(true)
+                        Text(what)
+                            .font(.body)
+                            .foregroundStyle(LinxColor.textMuted)
+                    }
+                }
+
+                LinxCard {
+                    VStack(spacing: LinxSpace.s3) {
+                        DetailLine(label: "Extension", value: member.extensionNumber)
+                        DetailLine(label: "Right now", value: what)
+                    }
+                }
+
+                if !isMe {
+                    VStack(spacing: LinxSpace.s3) {
+                        Button("Call \(member.name)") {
+                            phone.callNumber(member.extensionNumber, name: member.name)
+                        }
+                        .buttonStyle(.linxPrimary)
+                        .disabled(!callable)
+
+                        Button("Video call") {
+                            phone.callNumber(member.extensionNumber, name: member.name, withVideo: true)
+                        }
+                        .buttonStyle(.linxSecondary)
+                        .disabled(!callable)
+
+                        Button(starred ? "Remove from favourites" : "Add to favourites") {
+                            favourites.toggle(member.extensionNumber)
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(LinxColor.accent)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(LinxSpace.s6)
+            .frame(maxWidth: 520)
+            .frame(maxWidth: .infinity)
+        }
+        .navigationTitle(member.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .linxBackground()
+    }
+
+    /// "On a call · 04:12", the same words the row uses.
+    private var what: String {
+        var out = member.words
+        if let since = member.since, member.status == .onCall || member.status == .ringing {
+            out += " · " + CallView.length(since: since, to: Date())
+        }
+        return out
     }
 }
 
@@ -120,8 +227,14 @@ private struct TeamRow: View {
     @Environment(PhoneModel.self) private var phone
     let member: TeamMember
     let isMe: Bool
+    /// This row is the one open on the detail side, so iOS has filled it
+    /// with the app's own brand colour and the ink has to change with it
+    /// (step 8). On a phone nothing stays selected and this is always false.
+    var selected = false
 
     private var callable: Bool { !isMe && phone.status == .ready && phone.call == nil }
+    private var ink: Color { selected ? LinxColor.onBrand : LinxColor.text }
+    private var quietInk: Color { selected ? LinxColor.onBrand.opacity(0.8) : LinxColor.textMuted }
 
     var body: some View {
         HStack(spacing: LinxSpace.s3) {
@@ -129,10 +242,10 @@ private struct TeamRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(isMe ? "\(member.name) (you)" : member.name)
                     .font(.body.weight(.medium))
-                    .foregroundStyle(LinxColor.text)
+                    .foregroundStyle(ink)
                 Text(words)
                     .font(.subheadline)
-                    .foregroundStyle(LinxColor.textMuted)
+                    .foregroundStyle(quietInk)
             }
             Spacer(minLength: LinxSpace.s2)
             if !isMe {
@@ -141,7 +254,7 @@ private struct TeamRow: View {
                 } label: {
                     Image(systemName: "phone")
                         .font(.title3)
-                        .foregroundStyle(callable ? LinxColor.accent : LinxColor.textMuted)
+                        .foregroundStyle(callable ? (selected ? LinxColor.onBrand : LinxColor.accent) : quietInk)
                 }
                 .buttonStyle(.borderless)
                 .disabled(!callable)
@@ -152,7 +265,7 @@ private struct TeamRow: View {
                 } label: {
                     Image(systemName: "video")
                         .font(.title3)
-                        .foregroundStyle(callable ? LinxColor.accent : LinxColor.textMuted)
+                        .foregroundStyle(callable ? (selected ? LinxColor.onBrand : LinxColor.accent) : quietInk)
                 }
                 .buttonStyle(.borderless)
                 .disabled(!callable)
@@ -252,6 +365,7 @@ private struct TeamEmpty: View {
         return TeamView()
             .environment(model)
             .environment(model.home)
+            .environment(Favourites())
             .environment(PhoneModel(line: { nil }))
     }
 #endif

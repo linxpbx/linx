@@ -49,10 +49,23 @@ To take Linx off a phone you still have: **Sign out of this phone** in the app. 
 
 Four tabs along the bottom:
 
-- **Calls** — everything you've made, taken and missed, newest first, with a number on the tab for what you've missed since you last looked. Tap the phone beside a row to ring them back. **All** / **Missed** switches between them. Search by number and Linx looks through every call it still keeps, not just the ones on the screen; search by name and it looks through the ones shown. Opening the tab clears the number, on this phone and on everything else you're signed in on, because missed calls belong to you and not to one phone.
-- **Team** — everyone with an extension, and what they're doing this second: Available, Away, Do not disturb, Ringing, On a call (with how long), or Offline. It changes as it happens; nothing needs refreshing. Search by name or extension, tap the phone to call or the camera to start a call with video. Swipe a row to the right to **Favourite** someone: starred people sit in their own section at the top, on this phone only. The button at the top right is **your own** status — **Do not disturb** stops your extension ringing anywhere and sends callers to your voicemail.
+- **Calls** — everything you've made, taken and missed, newest first, with a number on the tab for what you've missed since you last looked. Tap the phone beside a row to ring them back, or tap the row itself for that call on its own: what happened, when, how long, which group rang and who answered. **All** / **Missed** switches between them. Search by number and Linx looks through every call it still keeps, not just the ones on the screen; search by name and it looks through the ones shown. Opening the tab clears the number, on this phone and on everything else you're signed in on, because missed calls belong to you and not to one phone.
+- **Team** — everyone with an extension, and what they're doing this second: Available, Away, Do not disturb, Ringing, On a call (with how long), or Offline. It changes as it happens; nothing needs refreshing. Search by name or extension, tap the phone to call or the camera to start a call with video, or tap the row for their card. Swipe a row to the right to **Favourite** someone: starred people sit in their own section at the top, on this phone only. The button at the top right is **your own** status — **Do not disturb** stops your extension ringing anywhere and sends callers to your voicemail.
 - **Keypad** — type a number or an extension and tap the green call button; **Test my sound** calls Linx's echo test, which plays your own voice back so you can hear whether the microphone and the speaker are working. Tap the green button with nothing typed and the last number you called comes back, ready to ring again.
 - **More** — **Voicemail** and **Settings**.
+
+## On an iPad, and on an iPhone that opens out
+
+The app is not the phone app stretched. On a big screen the four tabs move to a sidebar down the side, and each one becomes a *list with what you picked open beside it*, the way Mail does:
+
+- **Calls** — the list on the left, and the call you tap on the right: who it was, what happened, when, how long it lasted, which group rang and who answered, with a button to *ring them back*.
+- **Team** — the list of people, and the person you tap on the right: their extension, what they're doing this second, **Call**, **Video call**, and **Add to favourites**.
+- **Keypad** — your starred people stand beside the keypad under **Favourites**, with the last number you rang above them. Tapping one puts their extension on the keypad; the phone beside it rings them. (Star people in **Team**, by swiping a row to the right.)
+- **More** — **Voicemail** and **Settings** open beside the list instead of covering it.
+
+*A call doesn't take the whole screen either.* On an iPad, or an iPhone opened out, the call stands in its own column beside whatever you were doing, so the team list stays where it was. On a phone it covers the screen as it always has.
+
+*On a phone that folds*, the app asks the phone where its fold is and divides along it, so no button ever lands in the crease. Opened out, it is a small iPad; folded shut, it is a phone.
 
 ## Voicemail
 

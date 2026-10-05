@@ -42,11 +42,12 @@ struct RootView: View {
         }
         .environment(model.phone)
         .preferredColorScheme(Appearance(rawValue: appearance)?.scheme)
-        .fullScreenCover(isPresented: .constant(model.phone.showsCallScreen)) {
-            if let call = model.phone.call {
-                CallView(call: call).environment(model.phone)
-            }
-        }
+        // Where this phone folds, if it folds at all (iOS 27.1). Read once,
+        // at the top, and every layout below divides itself along it.
+        .readsTheCrease(isTheWholeScreen: true)
+        // A call covers a phone's screen and stands beside the app on an
+        // iPad or an opened-out Duo (step 8).
+        .callOnThisScreen(model.phone)
         .onChange(of: model.phone.call?.video.on ?? false, initial: true) { _, picture in
             // The app's pages stay upright, and so does a call with no
             // picture in it; only video turns (owner, 2026-10-04).
@@ -191,6 +192,10 @@ enum Screen: String {
             #if DEBUG
                 model.phone.pretend(.ready)
                 model.home.pretend(members: Screen.sampleTeam, missed: 2, voicemail: 1)
+                // Two people starred, so the keypad's speed dial shows what
+                // it is for rather than its empty line.
+                UserDefaults.standard.set(["1024", "1031"], forKey: Settings.favourites)
+                model.phone.pretendLastDialled("+971 4 000 0123")
             #endif
             if self == .keypad {
                 model.phone.typed = "+971 4 000 0123"
