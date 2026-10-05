@@ -198,6 +198,14 @@ LABEL org.opencontainers.image.source="https://github.com/linxpbx/linx" \
 # a library that Debian patches after that digest was built (libpcre2's
 # CVE-2026-103111, October 2026) would otherwise sit in the image until the
 # next base bump, and the image scan in CI fails on it — rightly.
+#
+# perl-base and perl-modules are then purged. They come from the base image
+# as Essential packages, nothing Linx installs depends on them, and Asterisk
+# and the Go entrypoint use no perl at runtime — but perl's own stream of
+# CVEs (seven HIGH in perl-base in October 2026, fixed in u4 before Debian's
+# mirror carried it) would fail the scan and sit in the image for no reason.
+# Removing an Essential package is deliberate: if a future dependency ever
+# needs perl, the build fails loudly here rather than shipping it quietly.
 RUN apt-get update -qq && apt-get upgrade -y -qq && apt-get install -y -qq --no-install-recommends \
       libxml2 libsqlite3-0 libssl3 libjansson4 libedit2 libodbc2 libsrtp2-1 libopus0 odbc-postgresql \
       # The public CAs trunks' certificates are checked against (ADR-045).
@@ -209,7 +217,10 @@ RUN apt-get update -qq && apt-get upgrade -y -qq && apt-get install -y -qq --no-
     # image's architecture.
     && ln -s "$(find /usr/lib -name psqlodbcw.so)" /usr/lib/psqlodbcw.so \
     && addgroup --system --gid 101 asterisk \
-    && adduser --system --uid 100 --gid 101 --home /var/lib/asterisk --no-create-home asterisk
+    && adduser --system --uid 100 --gid 101 --home /var/lib/asterisk --no-create-home asterisk \
+    # Last, because adduser/addgroup above are themselves perl scripts: once
+    # the image is built nothing uses perl, so it goes with its CVEs.
+    && dpkg --purge --force-remove-essential --force-depends perl-base perl-modules-5.36
 
 COPY --from=asterisk-build /usr/sbin/asterisk /usr/sbin/asterisk
 COPY --from=asterisk-build /usr/lib/asterisk /usr/lib/asterisk
