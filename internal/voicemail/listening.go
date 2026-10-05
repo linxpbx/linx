@@ -82,7 +82,9 @@ type ListenStore interface {
 	// first and without their audio.
 	UnheardVoicemail(ctx context.Context, box uuid.UUID) ([]Message, error)
 	VoicemailMessage(ctx context.Context, tenant, id uuid.UUID) (Message, error)
-	MarkVoicemail(ctx context.Context, tenant, id uuid.UUID, heardBy *uuid.UUID, at time.Time) error
+	// HeardVoicemail marks a message heard, by this person or by nobody
+	// in particular (an extension with no person).
+	HeardVoicemail(ctx context.Context, tenant, id uuid.UUID, by *uuid.UUID, at time.Time) error
 	DeleteVoicemail(ctx context.Context, tenant, id uuid.UUID, audit auth.AuditEntry) error
 }
 
@@ -318,7 +320,7 @@ func (s *session) act(ctx context.Context, box Box, owner *uuid.UUID, m Message,
 }
 
 func (s *session) heard(ctx context.Context, box Box, owner *uuid.UUID, m Message) {
-	if err := s.l.Store.MarkVoicemail(ctx, box.TenantID, m.ID, owner, s.l.now()); err != nil {
+	if err := s.l.Store.HeardVoicemail(ctx, box.TenantID, m.ID, owner, s.l.now()); err != nil {
 		s.l.log().Error("marking a voicemail heard from a phone failed", "message", m.ID, "err", err)
 		return
 	}

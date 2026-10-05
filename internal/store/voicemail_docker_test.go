@@ -362,6 +362,23 @@ func TestVoicemailListeningDocker(t *testing.T) {
 	if err := s.MarkVoicemail(ctx, tenant, uuid.New(), nil, now); !errors.Is(err, voicemail.ErrNotFound) {
 		t.Errorf("marking a message that isn't there: %v", err)
 	}
+	// *97 (step 9b) has its own verb, because its nil means the opposite
+	// of MarkVoicemail's: heard, by nobody in particular — an extension
+	// in a corridor has no person to name. Marking it new again with
+	// MarkVoicemail's nil is what that one is for.
+	if err := s.HeardVoicemail(ctx, tenant, forSales, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	list, _ = s.VoicemailList(ctx, tenant, []uuid.UUID{sales.ID}, saraUser, 10)
+	if list[0].HeardAt == nil || list[0].HeardBy != "" {
+		t.Errorf("heard by nobody in particular: %+v", list[0])
+	}
+	if err := s.HeardVoicemail(ctx, tenant, uuid.New(), nil, now); !errors.Is(err, voicemail.ErrNotFound) {
+		t.Errorf("hearing a message that isn't there: %v", err)
+	}
+	if err := s.MarkVoicemail(ctx, tenant, forSales, nil, now); err != nil {
+		t.Fatal(err)
+	}
 	if m, err := s.VoicemailInfo(ctx, tenant, forSara); err != nil || m.Audio != nil || m.BoxID != sara.ID {
 		t.Errorf("info: %v, %+v", err, m)
 	}

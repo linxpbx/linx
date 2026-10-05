@@ -339,6 +339,21 @@ func (s *Store) ExpireVoicemail(ctx context.Context, now time.Time) ([]uuid.UUID
 
 // Listening from a phone, and the message-waiting light (Phase 2 step 9b).
 
+// HeardVoicemail marks a message heard, by somebody or by nobody in
+// particular. *97 needs this rather than MarkVoicemail, whose nil means
+// the opposite — "make it new again", which is what the web app's **Mark
+// as new** does — and an extension in a corridor has no person to name.
+func (s *Store) HeardVoicemail(ctx context.Context, tenant, id uuid.UUID, by *uuid.UUID, at time.Time) error {
+	// Heard once is heard: the first person keeps the credit.
+	tag, err := s.pool.Exec(ctx, `UPDATE voicemail_message SET heard_at = coalesce(heard_at, $3),
+			heard_by = CASE WHEN heard_at IS NULL THEN $4 ELSE heard_by END
+		WHERE id = $1 AND tenant_id = $2`, id, tenant, at, by)
+	if err == nil && tag.RowsAffected() == 0 {
+		return voicemail.ErrNotFound
+	}
+	return err
+}
+
 // BoxForEndpoint is the voicemail box of the extension whose live device
 // has this SIP username, and the person it belongs to. *97 asks this
 // about the channel that dialled it, so a phone can only ever reach its

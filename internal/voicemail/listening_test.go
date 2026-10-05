@@ -130,7 +130,7 @@ func (s *fakeListenStore) VoicemailMessage(ctx context.Context, tenant, id uuid.
 	return Message{ID: id, TenantID: tenant, Audio: audio}, nil
 }
 
-func (s *fakeListenStore) MarkVoicemail(ctx context.Context, tenant, id uuid.UUID, by *uuid.UUID, at time.Time) error {
+func (s *fakeListenStore) HeardVoicemail(ctx context.Context, tenant, id uuid.UUID, by *uuid.UUID, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.heard = append(s.heard, id)
