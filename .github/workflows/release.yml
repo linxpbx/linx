@@ -141,8 +141,14 @@ jobs:
 
       - name: Sign the binaries (keyless)
         run: |
+          # cosign v3 makes the new bundle format the default for sign-blob, and
+          # it replaces the old --output-signature/--output-certificate pair with
+          # a single self-contained bundle. Verify with:
+          #   cosign verify-blob linx-linux-amd64 --bundle linx-linux-amd64.sigstore.json \
+          #     --certificate-identity-regexp 'https://github.com/.+/linx/.github/workflows/release.yml@refs/tags/v.+' \
+          #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
           for f in linx-linux-amd64 linx-linux-arm64 SHA256SUMS; do
-            cosign sign-blob --yes --output-signature "$f.sig" --output-certificate "$f.pem" "$f"
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
           done
 
       - name: Attach everything to the release
@@ -154,6 +160,6 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" \
             --generate-notes $prerelease \
             linx-linux-amd64 linx-linux-arm64 SHA256SUMS \
-            linx-linux-amd64.sig linx-linux-amd64.pem \
-            linx-linux-arm64.sig linx-linux-arm64.pem \
-            SHA256SUMS.sig SHA256SUMS.pem
+            linx-linux-amd64.sigstore.json \
+            linx-linux-arm64.sigstore.json \
+            SHA256SUMS.sigstore.json
