@@ -145,7 +145,8 @@ func writeEnrollError(w http.ResponseWriter, err error, log *slog.Logger) {
 }
 
 // newEnroll builds the phone setup service: the internal CA's linx-devices
-// provisioner (7-day certificates, ADR-077) and the CA root the app pins.
+// provisioner (six-month certificates, ADR-077) and the CA root the app is
+// given.
 // It returns an error when that provisioner's password or the root isn't
 // there, which is how a development run outside the container looks.
 func newEnroll(cfg ariConfig, st *store.Store, tokens *auth.Tokens, log *slog.Logger) (*enroll.Service, error) {

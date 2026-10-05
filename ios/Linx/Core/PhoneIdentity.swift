@@ -17,8 +17,17 @@ struct PhoneIdentity: Codable, Equatable, Sendable {
     let extensionNumber: String
     /// The phone's certificate and the CA's intermediate, PEM.
     var certificate: String
-    /// Linx's own certificate authority, PEM: the app notices if it is ever
-    /// replaced, because then this Linx is not the one it was set up for.
+    /// Linx's own certificate authority, PEM, as it was when this phone was
+    /// set up. Nothing is checked against it, on purpose: the phone's own
+    /// certificate is only ever *presented* to Linx, which knows it by the
+    /// fingerprint of the one it issued, and the connection itself is
+    /// already proved by the server's public certificate. Refusing a
+    /// renewal that came from a different internal CA would break every
+    /// phone on a server whose CA was legitimately replaced and stop
+    /// nothing, since an attacker able to answer for this server would have
+    /// its certificate anyway (docs/THREAT_MODEL.md, the phone lifetime
+    /// review). It is kept because it is Linx's own root, which a later
+    /// step may have to trust directly.
     let ca: String
     var certNotAfter: Date
     /// When the phone has to be set up again if it stops being in touch.

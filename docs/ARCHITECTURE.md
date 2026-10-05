@@ -152,7 +152,7 @@ Metrics: push send → CallKit report → register → ring latency, and deliver
 ### 4.4 QR enrollment (Phase 2)
 1. The portal shows a QR code containing `{https URL, enrollment JWT (10 min, single-use), CA root SPKI pin-set}`. It never contains a SIP secret.
 2. The app scans it, generates a Secure Enclave P-256 key, and sends `POST /v1/enroll` with the token and a CSR over TLS (pinned).
-3. The control plane validates the token (single-use `jti`), asks step-ca's device provisioner to sign the certificate (lifetime equals the 7-day inactivity window), and returns the account config (SIP identity, endpoints, codec prefs, push registration).
+3. The control plane validates the token (single-use `jti`), asks step-ca's device provisioner to sign the certificate (lifetime equals the six-month inactivity window, ADR-077), and returns the account config (SIP identity, endpoints, codec prefs, push registration).
 4. The device certificate authenticates the device on WSS/API. Renewal happens silently when the user interacts with the app. Revocation adds the device to a deny-list that is pushed to active sessions and kills them.
 
 ## 5. Certificates

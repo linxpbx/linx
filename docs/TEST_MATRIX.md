@@ -109,6 +109,11 @@ the app may look like a phone screen stretched to fill a 13-inch one.
 | 5.1 | Web app → My account → My phones → **I've lost it** | The app says to set the phone up again, within seconds; a call on it drops |
 | 5.2 | Set it up again with a new QR code | Works, and nothing else about the phone changed |
 | 5.3 | Change that person's password in the web app | Their phones ask to be set up again |
+| 5.4 | While a call is up, stop that phone from the web app (**I've lost it**) | The call drops mid-sentence, not when it ends: Linx closes the phone's line at once |
+| 5.5 | Disable the person (People → the person → **Disable**), then enable them again | The app can't call while they're disabled and says so; enabling them brings the phone back with no setup code and no new QR |
+| 5.6 | Stop a phone, then ring that person from another extension | Only their other phones ring, and the stopped one never rings even in a pocket: Linx forgets Apple's way to it (step 9) |
+| 5.7 | Settings → This phone's line | **Person**, **Linx server**, **Extension** and **Set up again by** all name the right thing (step 9) |
+| 5.8 | Sign out in the app (Settings → **Sign out of this phone**), then look at My phones in the web app | The phone is still listed there: signing out takes Linx off the phone, stopping it in Linx is **I've lost it**. Both are meant to exist |
 
 ## 6. Where it gets hard
 

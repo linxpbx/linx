@@ -1,6 +1,6 @@
 # Linx — Threat Model (STRIDE)
 
-Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phase 0b; API authentication rows updated in Phase 1 step 3 (2026-09-23); webhook, outbound, alert and `linx doctor` rows reviewed at the end of Phase 1A (2026-09-24, see "Phase 1A review" below); phone engine rows added at the end of Phase 1B (2026-09-24, see "Phase 1B review"); sign-in, browser phone line, relay, coturn and front door rows reviewed at the end of Phase 1C (2026-09-25, see "Phase 1C review"); trunk, numbering, outbound routing, WireGuard and firewall sync rows reviewed at the end of Phase 1D (2026-09-26, see "Phase 1D review"); front-door card, Check it, DNS and public port rows reviewed at the end of Phase 1F Part A (2026-10-01, see "Phase 1F Part A review"). This document is updated at the end of every phase.
+Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phase 0b; API authentication rows updated in Phase 1 step 3 (2026-09-23); webhook, outbound, alert and `linx doctor` rows reviewed at the end of Phase 1A (2026-09-24, see "Phase 1A review" below); phone engine rows added at the end of Phase 1B (2026-09-24, see "Phase 1B review"); sign-in, browser phone line, relay, coturn and front door rows reviewed at the end of Phase 1C (2026-09-25, see "Phase 1C review"); trunk, numbering, outbound routing, WireGuard and firewall sync rows reviewed at the end of Phase 1D (2026-09-26, see "Phase 1D review"); front-door card, Check it, DNS and public port rows reviewed at the end of Phase 1F Part A (2026-10-01, see "Phase 1F Part A review"). Phone enrollment, device certificate, device token, `/sip`, phone line and Keychain rows added during Phase 2 steps 2 and 4a, and reviewed with the video, relay-trust, lifetime and loss rows at the end of Phase 2 step 9 (2026-10-05, see "Phones: identity, lifetime and loss review"). This document is updated at the end of every phase.
 
 ## Assets
 - Call and meeting media and signalling
@@ -43,13 +43,18 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 | The app's `/sip` way in (2 step 4a) | **S** a web page or another phone using the relay | The device token arrives in an `Authorization` header, which a browser cannot set on a websocket, so the cookie path's `Origin` rule is untouched; after that the relay's own rules are identical for both (method allowlist, byte-for-byte `From`/`To`/`Authorization` username, 64 KB, 20 messages/s, three failed authentications); the phone is rechecked every 15 s and its line is tracked per phone; revoking a phone or its expiry closes the open connection, so a call on a lost phone drops | 2 |
 | The app's phone line (2 step 4a) | **I** a SIP password left on the phone | `POST /me/phone-line` needs a device token (nothing else), hands out a **new** password each time and nothing else, and the app keeps it in memory only — never in the Keychain, never in a file, never in a backup. The setup code carries no password either | 2 |
 | A phone's Keychain (2 step 4a) | **I** extracted or restored elsewhere | Everything the app stores is `ThisDeviceOnly`, so nothing follows an iCloud or iTunes restore onto another phone; the one thing that matters, the private key, is in the Secure Enclave and cannot be read, copied or backed up at all, so a copied Keychain cannot make a proof | 2 |
-| Pinning | **D** CA change bricks clients | Pin root SPKIs of primary + fallback CA; pin-set updates over the authenticated channel before any change | 2 |
+| A phone that stops being one (2 step 9) | **S**/**E** a lost or finished phone comes back | Five things stop a phone, and each of them is read on every call and every request: revoking it (for good), disabling its person, taking their extension away, changing their password, and six months with no contact (ADR-077, swept hourly). Revoking it and the six-month expiry also close the open `/sip` connection there and then, so a call on a lost phone drops mid-sentence; a password change closes it through the same path that ends that person's browser sessions; and the 15-second re-check catches anything else, so the longest a stopped phone can hold a line is 15 s. A phone stopped for good or expired also loses the Apple tokens Linx held for it (step 9), so nothing is kept for a phone nobody has. Being *disabled* is not being stopped: the phone works again the moment the person does, so its tokens stay | 2 |
+| A picture in a call (2 step 7, ADR-079) | **I** the picture goes somewhere the sound doesn't; **S** a camera switched on from outside | The picture travels exactly as the sound does and no further: DTLS-SRTP, direct between the two phones or through Linx's own relay, with Asterisk passing it between the two WebRTC endpoints without decoding it. A camera is only ever switched on by the person holding the phone — an offer that arrives with video in it is answered `recvonly`, so no signalling from the other side, from Asterisk, or from a server can open a camera — and the other side is asked once whether to turn theirs on too, by the alert's buttons only. Video exists only between two app phones; the browser still asks for sound alone. Turning it off takes the picture out of the call by re-INVITE rather than leaving a stream announced, so "nobody is sending" is a fact of the signalling, not a guess | 2 |
+| What the app trusts for the relay's TLS (2, ADR-080) | **S** a forged relay certificate; **I** sound sent to an impostor | WebRTC's own frozen root list is tried first; only when it refuses does the app ask **iOS's trust store**, and only for the relay hostname Linx itself named in the credentials it issued to this phone. Nothing is disabled and nothing is accepted unverified: a certificate iOS doesn't trust, or one for another name, is still refused and the call simply goes without a relay. The hostname comes from the server the app has just authenticated over HTTPS, so an attacker would already need that server's public certificate | 2 |
+| The Team list's websocket for a phone (2 step 7) | **S** something other than the app reading who is in | Takes a device token in the `Authorization` header, with the same rule as `/sip`: a header a browser cannot set on a websocket, so no `Origin` check is needed and the cookie path's is untouched. It is closed the moment the phone is stopped, and shows only what the web client already shows that person | 2 |
+| Voicemail on the phone (2 step 7) | **I** messages left on a phone someone finds | One message's audio is fetched at a time, with the phone's own token, played out of memory, and never written to the phone's storage, so there is nothing to find on a lost phone and nothing in its backups | 2 |
+| Pinning | **D** a CA change bricks every client | Settled in Phase 2 by not pinning what doesn't need pinning: the app reaches Linx over ordinary HTTPS with the server's public certificate, and its own device certificate is only ever *presented* to Linx, which knows it by the fingerprint of the one it issued. So replacing the internal CA — a re-install, a restore — leaves every phone working, and the app refuses no renewal for coming from a CA it hadn't seen: that would brick a server whose CA legitimately changed and stop nothing, since anyone able to answer for the server would hold its public certificate anyway. The app keeps Linx's root as it was given it, unused, for a later step that may have to trust it directly | 2 |
 | Admin console | **S**/**E** account takeover | LAN/VPN only by default; OIDC or local + TOTP/WebAuthn; RBAC; audit log; optional proxy SSO (Pangolin) | 1 |
 | REST API / webhooks | **T**/**R** forged webhooks, key leak | Hashed and scoped API keys; HMAC-signed outbound webhooks; replay-safe delivery log; audit | 1 |
 | Outbound requests (webhooks, CRM, storage) | **I** SSRF | Private ranges blocked by default with an explicit allowlist; timeouts and size limits | 1 |
 | Web app | **T**/**I** XSS/CSRF | Strict CSP (no inline scripts), HSTS, Secure/HttpOnly/SameSite cookies, CSRF tokens, output encoding; external content treated as untrusted | 1 |
 | step-ca | **E** CA key compromise | Offline root: generated inside a network-less bootstrap container, written only encrypted with a generated passphrase that is shown once and never saved; the CA volume never holds the root key (tested). Intermediate key encrypted, its password a group-restricted Docker secret; CA only on `linx-private`; non-root, read-only container; no remote admin API | 0 |
-| step-ca | **E** rogue certificate issuance | Separate provisioners: `linx-services` (24 h max) and `linx-devices` (7 d max), limits enforced by the CA (tested); the device provisioner's password is mounted only into the control plane; no SSH certificates | 0 |
+| step-ca | **E** rogue certificate issuance | Separate provisioners: `linx-services` (24 h max) and `linx-devices` (six months max, ADR-077; `linx setup` brings a CA made before 2026-10-03 up to it), limits enforced by the CA (tested); the device provisioner's password is mounted only into the control plane; no SSH certificates | 0 |
 | Root key backup | **I** encrypted backup left on the server | Owner told to copy `/etc/linx/ca-backup` off the server and delete it; folder root-only; `linx doctor` warns while it is still there | 0 |
 | linx-certd | **I** DNS token leak → domain hijack | Least-privilege token (Cloudflare: `Zone:Read` + `DNS:Edit` on the one zone), stored as a Docker secret, never logged (tested); CAA records restrict issuance. Setup reads it without echo, never writes it to `setup.yaml` or `.env` (tested), and saves it root-owned, group 65532, mode 0440 in a root-only folder | 0 |
 | Service images | **T** a re-pushed image tag runs different code | Setup pulls `sha-<commit>` tags matching the `linx` binary, from CI's cosign-signed builds. Open: tags aren't digest-pinned or signature-checked on the server yet; a release manifest with digests and a cosign check arrive with `linx upgrade` | 0 |
@@ -68,7 +73,7 @@ Version: Phase 0 (2026-09-23), installer, certd and step-ca rows updated in Phas
 | Backup file upload | **T**/**E**/**D** a crafted file breaks out when unpacked as root, or fills the disk | Upload only under the restore's own rules (system admin's session, confirmed, setup unfinished); 2 GB + headers cap, checked before and while reading; one upload kept, others and stale ones removed; unpacked only on the host (`backup.UnpackRepository`: plain files and folders under `linx-backup/`, clean relative names, no links/devices, no file twice, entry and size caps, must hold a repository `config`) into a private folder, then read only by restic with the given password; removed on both sides after the restore | 5 |
 | Logs | **I** secret or personal data leakage | Structured logging with redaction of tokens/secrets; retention limits | 0+ |
 | Presence/directory | **I** over-sharing | Server-side visibility filtering by RBAC scope; served only to authenticated devices | 1/4 |
-| Session inactivity | **S** abandoned devices | 7-day expiry via certificate lifetime + token revocation; pushes stop | 2 |
+| Session inactivity | **S** abandoned browsers and phones | A browser session lasts 30 days (an admin's 12 h) and 7 days of no requests, whichever comes first. A phone is different, and deliberately so (ADR-077, owner 2026-10-03): six months with no contact at all, with the device certificate lasting exactly as long and renewed on every contact, so a phone in use never notices and a phone in a drawer becomes useless by itself. An expired phone stops being a live phone for Asterisk at the same moment, loses its token and its Apple tokens, and has to be set up again from a new code | 2 |
 | Public API (`api.`) | **S** stolen/guessed API key or client secret | 256-bit random secrets, stored only as SHA-256 and compared in constant time (an unknown id costs the same hash); `linx_`/`linxcs_` prefixes with gitleaks rules in CI (`.gitleaks.toml`); expiry (default 1 year, max 2); optional IP allowlist; instant revocation; 20 failed attempts/min per IP (IPv6 per /64), then 429, every failure audited. Revoked/expired is only revealed to a caller who proved the secret (ADR-027, built) | 1 |
 | Public API | **E** key does more than intended | Each operation's scopes are declared in `api/openapi.yaml` and enforced by the validator before the handler (a test fails if a new operation forgets them); effective scopes = key scopes ∩ role ceiling, re-checked on every request; a new key/client can't exceed its creator's role or scopes (no minting a stronger key); sensitive scopes (recordings, transcripts, call control, key and client management) never granted by "all" | 1 |
 | Public API | **T**/**D** malformed or huge requests | Spec validation before handlers, unknown fields rejected, 1 MiB body limit, per-key rate limits, problem+json errors without internals | 1 |
@@ -372,3 +377,122 @@ Ringing a sleeping iPhone or iPad (ADR-074, ADR-078, `docs/PHASE2.md` §5, Phase
 - iOS shows every call the app reports in the Phone app's **Recents**, which is what makes a call answerable from a car or a watch. So who called a Linx extension, and when, is on the phone outside the app, like any other call. Turning that off (`includesCallsInRecents = false`) would cost the car and the watch; the owner can have it the other way if they prefer.
 - A caller's number from a push and the number on Asterisk's invitation are matched on their digits, and a withheld number matches nothing. With one line and one call at a time there is nothing a caller could gain by it: the call the system shows is whatever call the server actually delivered over the phone's own line.
 
+
+## Phones: identity, lifetime and loss review (2026-10-05)
+Phase 2 steps 2, 3, 4a, 4b, 7, 8 and 9 — setting up an iPhone or iPad, what
+a set-up phone may do, the picture in a call, and everything that stops a
+phone (ADR-073, ADR-076, ADR-077, ADR-079, ADR-080, ADR-082,
+`docs/PHASE2.md` §4, §7, §9, §10). The push gateway and ringing have their
+own review above, and are not repeated here.
+
+**Checked and sound:**
+- *Setting one up.* A ticket is good for 10 minutes, for one phone, for one
+  named person's extension, and is redeemed exactly once: the token's `jti`
+  must be the ticket's own (ADR-012), the typed 8 characters are compared
+  against a hash in constant time, and the redemption is a single database
+  transaction that a second attempt finds already used (tested on real
+  Postgres). Five wrong tries finish a ticket; at most 50 may be open at
+  once; `/v1/enroll` allows 10 tries a minute per address and
+  `/v1/device-token` 60, both with a small body cap, no-store and the same
+  vague answer for every kind of failure, so nothing can be learned by
+  trying. Making a ticket needs a session that has just confirmed it's you —
+  a stolen but still valid cookie is not enough — and a ticket for *someone
+  else* needs `devices:write`. **An app's own token can never make one**, so
+  a phone cannot set up a second phone.
+- *What a phone is.* The key is made inside the Secure Enclave and cannot be
+  read, copied or backed up, by the app or by anyone. Linx signs a
+  certificate for exactly one name, `linx-phone`, which belongs to no Linx
+  service, so a phone's certificate can never stand in for one; the
+  certificate request is refused if it asks for any other name, an email, an
+  IP or a URI. Renewal must present the **same public key** as the phone
+  enrolled with (compared in constant time), so a new key is a new phone and
+  always needs a new code.
+- *Proving it, every 15 minutes.* The proof is a compact ES256 JWS with the
+  algorithm pinned, `aud: linx-device`, `sub` the phone's own id, a lifetime
+  of at most one minute, and a `jti` recorded as used — a replay is refused
+  and logged as such. It is verified against the public key **in the
+  certificate the phone sent**, which Linx found by the fingerprint of the
+  one it issued, so the key checked is always the enrolled key. The 15-minute
+  token it buys holds a written-out read-only scope list (`extensions:read`,
+  `team:read`) rather than its person's role, so an admin's phone is still
+  only a client, and the account's own sign-in — password, email,
+  authenticator, passkeys — refuses a device token outright.
+- *Replacing the internal CA doesn't brick phones, and pinning it would.*
+  Linx knows a phone by the fingerprint of the certificate it issued, not by
+  validating a chain, and the app's connection is already proved by the
+  server's public certificate. So a re-install or a restore that gives this
+  Linx a new internal CA leaves every phone working, and the app
+  deliberately does not refuse a renewal for coming from a CA it hadn't seen
+  (see the Pinning row). `linx setup` brings an older CA's `linx-devices`
+  provisioner up to the six-month lifetime, so a CA made before 2026-10-03
+  can't hand out certificates shorter than the idle window.
+- *Everything that stops a phone, and how fast.* Revoking it, its person
+  being disabled, their extension being taken away, their password changing,
+  and six months with no contact — each is read on every request
+  (`DevicePrincipalFor`) and by Asterisk's own view on every registration
+  and call, so a stopped phone gets no token, no phone line and no call.
+  Revoking and the six-month expiry also **close the open `/sip`
+  connection at once**, so a call on a lost phone drops mid-sentence; a
+  password change closes it through the same path that ends that person's
+  browser sessions; and the relay re-checks every line every 15 seconds, so
+  nothing can hold a line longer than that. Revoking is for good: the API
+  and a database check both refuse to bring it back.
+- *A phone that has stopped keeps nothing it shouldn't.* Its SIP password
+  was only ever in the app's memory — a new one each run, never in the
+  Keychain, a file or a backup. Its Apple push tokens are now cleared when
+  it is revoked or expires (step 9), so Linx holds no way to reach a phone
+  nobody has; a *disabled* person's phones keep theirs, because they work
+  again the moment the person does. Its proofs are swept an hour later. What
+  stays on the phone is the certificate and the key reference, both useless
+  and both `ThisDeviceOnly`, until the person taps **Start again** — which is
+  on purpose, so a server having a bad minute can't wipe a working phone's
+  identity and force every person to find an admin.
+- *The picture (step 7, ADR-079).* It goes exactly where the sound goes and
+  no further — DTLS-SRTP, direct or through Linx's own relay, with Asterisk
+  passing it between the two WebRTC endpoints without looking inside it. A
+  camera is only ever switched on by the person holding the phone: an offer
+  that arrives with video is answered `recvonly`, so nothing in the
+  signalling, from the other side or from a server, can open a camera, and
+  the question put to the other person can only be answered by its two
+  buttons. Turning video off takes it out of the call by re-INVITE instead
+  of leaving a stream announced with nothing in it.
+- *What the app trusts for the relay's TLS (ADR-080).* Nothing was disabled
+  to fix the silent call: WebRTC's own root list is still tried first, and
+  only when it refuses is iOS's trust store asked, for the relay hostname
+  Linx itself named in the credentials it issued this phone. A certificate
+  iOS doesn't trust, or one for another name, is still refused and the call
+  goes without a relay. `tlsCertPolicy = .insecureNoCheck` was used once
+  locally to prove the cause and must never ship in any form.
+- *The screens (step 8).* The iPad and fold layouts add no endpoint, no
+  stored data and no new way in: the same screens, arranged by the shape of
+  the display and by where the phone says it folds.
+
+**Still open (accepted):**
+- *A setup code is a bearer secret for its 10 minutes.* Anyone who
+  photographs the QR code, or reads the email, and gets there first sets
+  **their** phone up as that person. The window is short, the code works
+  once, the person's own attempt then fails (which is the tell), the new
+  phone appears in the admin's list and in that person's **My phones**
+  within seconds, and stopping it is one tap. Shortening the window further
+  would cost more in failed setups than it buys.
+- *An admin with `devices:write` can set up a phone on anybody's
+  extension*, and so take their calls. That is what the scope means — they
+  can already add a desk phone to it — and every step is audited
+  (`device.enroll_ticket`, `device.enrolled`) and sent as a webhook. It is a
+  sensitive scope and never granted by "all".
+- *The app has no lock of its own.* Anyone holding the unlocked phone can
+  see the team, the call history and voicemail, and can ring anyone — as
+  they could with the phone's own Phone app. iOS's passcode and Face ID are
+  what protect it, and the person's voicemail audio is never written to the
+  phone. A Face ID lock on the app itself is a small, separate thing worth
+  offering later if the owner wants it.
+- *A phone in someone's hands, unlocked and under a debugger*, could read
+  the SIP password out of the app's memory and register from elsewhere until
+  the phone is stopped. The key itself cannot leave the Secure Enclave, the
+  password is new every run and bound to one username, and revoking the
+  phone ends both at once.
+- *A setup code sent by a stranger sets the phone up on the stranger's
+  Linx.* That is what a setup code is for, and the person scanning it is the
+  person asking for it; the app shows which server and whose extension it
+  has joined, and **Start again** leaves. Nothing of a previous Linx stays
+  behind.

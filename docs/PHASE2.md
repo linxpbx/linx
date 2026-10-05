@@ -119,9 +119,69 @@ The push gateway is built so the destination is one setting: Apple directly now,
 6. ~~**The app rings**~~ — **done 2026-10-04**: PushKit, CallKit, the lock screen, a killed app, a car, two calls, a caller who gives up, and China's in-app ringing. "Step 6, as built" below.
 7. ~~**The rest of the app**~~ — **done 2026-10-04**: the four tabs, 1:1 video with a layout that follows the screen, Calls, Team with presence, Voicemail and Settings. "Step 7, as built" below.
 8. ~~**iPad, adaptive and fold layouts**~~ — **done 2026-10-05**: every tab a list beside a detail, a call in its own column rather than over the top, and the fold's own geometry (`ReservedRegion`, iOS 27.1, ADR-082) in place of the near-square guess. "Step 8, as built" below.
-9. **Lifetime and loss**: renewal, the six-month idle expiry, revoke-everywhere, "set this phone up again", plus the security review and `THREAT_MODEL.md` rows.
+9. ~~**Lifetime and loss**~~ — **done 2026-10-05**: renewal, the six-month idle expiry, revoke-everywhere, "set this phone up again", and the security review with its `THREAT_MODEL.md` rows. "Step 9, as built" below.
 9b. **`*97` and the message-waiting light** (owner, 2026-10-04, folded into this phase): dialling `*97` from a desk phone reaches that phone's own voicemail, and the light comes on when there is a new message and goes out when there isn't. Both need Linx to control the call through ARI, which step 5 built.
 10. **Finish**: ~~`TEST_MATRIX.md`~~ (**written 2026-10-04 as `docs/TEST_MATRIX.md`**, when the first TestFlight build reached a real phone and the owner could start working down it), ~~`APPLE_SIGNING.md`~~ (**written 2026-10-04 as `docs/ops/APPLE_SIGNING.md`**, because the owner needed it before the signing session rather than after), `STORE_SUBMISSION.md`, resource and data-per-minute measurements in `docs/RESOURCES.md`, `docs/DEMO_PHASE2.md`, and the demo on the test VPS.
+
+### Step 9, as built (2026-10-05)
+
+**What stops a phone, how fast, and what it leaves behind.** Most of this
+step turned out to be already built — steps 2 and 4a put the rules in from
+the start, where they belong — so the work was to **prove** it end to end,
+close what was missing, and do the security review §10 reserves for this
+step. The review is in `docs/THREAT_MODEL.md` ("Phones: identity, lifetime
+and loss review"), with six new rows in the STRIDE table and three
+corrected.
+
+- **Five things stop a phone, and nothing else** (§9, ADR-077): revoking it,
+  disabling its person, taking their extension away, changing their
+  password, and six months with no contact. Each is read on **every**
+  request and by Asterisk's own view on every registration and call. Two of
+  them — revoking and the six-month expiry — also close the phone's open
+  `/sip` connection the moment they happen, so a call on a lost phone drops
+  mid-sentence; a password change closes it through the same path that ends
+  that person's browser sessions; and the relay re-checks every line every
+  15 seconds, so **the longest a stopped phone can hold a line is 15
+  seconds**. Being disabled is reversible and the phone comes back; revoking
+  is for good.
+- **A stopped phone leaves nothing behind.** Its SIP password was only ever
+  in the app's memory, its proofs are swept within the hour, and — new in
+  this step — **the Apple tokens Linx held for it are cleared** when it is
+  revoked or expires, so there is no way left to reach a phone nobody has. A
+  *disabled* person's phones keep theirs, because they work again the moment
+  the person does. Nothing was being sent to a stopped phone in any case
+  (`device_wakeable` names only phones that are still set up); this is about
+  not keeping it.
+- **The pinned CA question is settled, by not pinning it.** §4 said the app
+  "notices if Linx's own CA is ever replaced", and it never did. Looked at
+  properly, it shouldn't: Linx knows a phone by the **fingerprint of the
+  certificate it issued**, not by validating a chain, and the app's
+  connection is already proved by the server's public certificate. Refusing
+  a renewal from an unfamiliar internal CA would brick every phone on a
+  server whose CA was legitimately replaced (a re-install, a restore) and
+  stop nothing, since anyone able to answer for that server would hold its
+  public certificate anyway. So the root is kept as given, unused, and the
+  comment now says so. This also answers the open note left in §4 about a
+  replaced internal CA, and the moved-server checklist in
+  `docs/INSTALL.md` §8.
+- **The phone says what it joined.** Settings → This phone's line now shows
+  the **Person** it signs in as and the **Linx server** it was set up on,
+  beside the extension and the date it would have to be set up again. A
+  setup code decides both, so the phone should say them out loud.
+- **Two stale lifetimes corrected**: the `linx-devices` provisioner is
+  described as six months, not the 7 days of the first draft
+  (`services/control-plane/enroll.go`, `docs/ARCHITECTURE.md`), which is
+  what `linx setup` has actually been setting since 2026-10-03.
+- **Tests:** `internal/store` on real Postgres walks the whole life of a
+  phone in one test — set up, renewed, six months of silence, back again, a
+  password change, disabled, revoked — and now watches the Apple tokens
+  through all of it (gone on expiry, gone on a password change, **kept**
+  while merely disabled, gone on revoke). `internal/enroll` already covered
+  the rules themselves; nothing there needed changing.
+- **What this step did *not* need:** no migration, no new endpoint, no app
+  screen beyond the two lines in Settings, and no change to how a phone
+  signs in. Nothing on the server has to be updated for it except in the
+  ordinary way.
 
 ### Step 8, as built (2026-10-05)
 
@@ -550,7 +610,14 @@ Two rules were missing for that:
 - **The app is a client, nothing else** (owner, 2026-10-03). A phone's token holds one written-out list of read-only scopes (`auth.deviceScopes`: `extensions:read`, `team:read`), not a role's ceiling, so widening a role can never widen an app. Running Linx — people, phone lines, routing, settings, backups, setting up another phone — stays with the web app and the command line, even on an admin's phone. A test fails if that list ever gains a `:write` or sensitive scope.
 - **A phone can't change the account it signs in as.** A device token is a signed-in person for the things the app needs (its own calls, voicemail, team), but the account's own password, email, authenticator, passkeys and "confirm it's you" are a browser session's alone (`notASession` in `internal/auth/service.go`), and it can't make another setup code.
 - **Rate limits** on the two phone endpoints: 10 a minute per address for setting up, 60 a minute for tokens. Guessing the 8 characters is stopped by that limit (32^8 codes), not by a per-ticket counter — a wrong code matches no ticket at all.
-- **A restored server keeps its phones, a new internal CA does not.** A phone is found by the fingerprint of the certificate Linx issued, which is in the database, so a restore onto another server keeps every set-up phone working. If the internal CA itself is ever replaced, renewed certificates would come from a CA the app didn't pin — a row for step 9 (lifetime and loss) and the moved-server checklist.
+- **A restored server keeps its phones; a changed domain does not.** A phone is found by the
+  fingerprint of the certificate Linx issued, which is in the database, so a restore onto another
+  server keeps every set-up phone working — and so does replacing the internal CA, since nothing
+  validates a chain and the app deliberately refuses no renewal for coming from a CA it hadn't
+  seen (settled in step 9, 2026-10-05: "Step 9, as built" and `docs/THREAT_MODEL.md`). What a
+  restore *does* break is a **changed domain**: the app keeps asking for the old address and has
+  to be set up again. That is its own row in the moved-server checklist (`docs/INSTALL.md` §8),
+  apart from desk phones, because a desk phone can be given a new address and an app cannot.
 - **The certificate is the identity, not the name.** Every phone's certificate says `linx-phone`; Linx finds the phone by the fingerprint of the certificate it issued, and refuses a certificate request for any other name.
 
 ## 13. Demo exit (Phase 2)
