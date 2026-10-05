@@ -497,3 +497,29 @@ own review above, and are not repeated here.
   person asking for it; the app shows which server and whose extension it
   has joined, and **Start again** leaves. Nothing of a previous Linx stays
   behind.
+
+## Pre-production review (2026-10-05)
+The whole backend, read as "a business is about to run its phones on this" rather than "does this phase work" (owner's ask, 2026-10-05). The earlier pre-launch audit was 2026-09-27, before Phases 1E, 1F and 2; this one covers everything since and re-checks the shape of the thing as a whole. Each phase's own review above stands; this doesn't repeat them.
+
+**Checked afresh, and sound:**
+- *Every one of the 218 API operations, by scope.* No write operation is guarded by a read-only scope, and none has an empty scope list where it should have one. The 28 writes that carry **no** scope are all either `/me/…` — acting on yourself, which is right, because an ordinary person holds no scopes at all — or the two enrollment ones, where the rule ("your own phone, or `devices:write` for somebody else's", plus a fresh "confirm it's you") lives in the service because OpenAPI can't express it. The 33 public operations are sign-in, password reset, the setup link, the "Check it" phone link, the OpenAPI document and Help.
+- *Nobody acts on somebody else's thing by guessing an id.* The `/me/…` writes work by listing the caller's own objects first and matching inside that list (`signOutMySession`, `RevokeMyPhone`, voicemail's `Viewer`), so an id from a request never reaches a query on its own.
+- *CSRF.* Every unsafe method on a cookie session needs `X-CSRF-Token`, compared in constant time against the session's stored hash, with `__Host-` cookies and SameSite. A bearer credential doesn't need it and can't be sent cross-site by a browser. The one place that authenticates optionally (Help) takes **safe methods only**; Help's own POST goes through the full middleware.
+- *Help can't leak the admin's manual.* Two indexes are built apart and a caller who isn't signed in is served the public one whatever they ask, only the five sign-in guides may be `public` (an allowlist checked when a guide is parsed, so a front-matter edit alone can't open one up), and anonymous readers are rate-limited per address.
+- *Nothing secret reaches a log.* No log line carries a password, token, key or credential value; the only matches are field labels and error text.
+- *No `TODO`, `FIXME`, `XXX` or `HACK` anywhere in the Go or Swift.* Unusual, and worth keeping.
+- *What listens, listens narrowly.* Every published port names an address: the web port and TURN/TLS on the front door's (127.0.0.1 unless setup says otherwise), TURN's UDP separately, Linx's own 443 router likewise, and **5061 and the audio ports on the LAN address alone** — which is what makes "desk phones work on your network only" a fact of the deployment and not a promise. Nothing binds 0.0.0.0, and the nftables table drops 5060 for everyone before Docker's forwarding.
+- *Dependencies.* `govulncheck`, `npm audit` and the licence allowlist are all clean (301 npm packages, 56 Go modules).
+- *Written answers can't be used to spend the owner's money.* 10 a minute per person, a per-person daily limit and a server daily limit, a full session required, and nothing runs until an admin turns it on with a key.
+
+**Do these before the business depends on it** — the review's actual output:
+1. **Take the internal CA's root key off the server.** `linx doctor` has warned about this for weeks and it has been treated as a standing warning; in production it is the one finding here with real consequences. Anyone who gets into the server gets the key that signs every internal certificate. `docs/ops/INTERNAL_CA.md`, "After setup: take the root key off the server" — copy it somewhere safe, delete it, confirm doctor goes green.
+2. **Rehearse a restore again.** One was done properly on 2026-09-27 (`docs/DEMO_BACKUP.md`: a second server, everyone and everything back, a bad file refused without changing anything) — but that was **before Phases 1E, 1F and 2 added their tables**. A backup nobody has restored *from this schema* is not yet a backup. Doing it also proves the off-server copy of the backup password is the right one.
+3. **Decide about admin sign-in from anywhere.** "Admins only from my home network" is **off** by default, which suits an owner who administers while travelling, and the compensating controls are real: MFA required for admins, per-account backoff, per-address limits, an alert after 20 tries, and every step audited. It is still the widest door in the system — worth a conscious yes rather than a default.
+4. **No API key exists**, which doctor warns about. That is the *safer* state and needs nothing done; make one only when something needs it, and give it the narrowest scopes.
+
+**Known and accepted, carried forward:**
+- *Tenant isolation is a latent class, not a live hole.* Linx runs one tenant, and many internal queries address a row by its primary key — a v7 UUID nobody can guess, reached through a tenant-scoped read first — without repeating the tenant filter. That is safe today and is the **first thing to re-audit before multi-tenancy**, not after.
+- *Desk phones from outside* are recorded as a requirement (`docs/ROADMAP.md`) and not built. The precondition named in this document still holds: **registration lockout before any SIP port faces the internet.**
+- *IPv6-only (NAT64) is untested* end to end. It matters for App Review as well as for reachability (`docs/ops/STORE_SUBMISSION.md` §5).
+- The residual risks listed above this section are unchanged.
