@@ -2,7 +2,7 @@
 
 **What this file is for.** The first thing to read when a session starts (or after `/clear`), and the last thing to update before one ends. It carries only what a fresh session needs to pick the work up: where we are, what is in play, what has already been tried and failed, and what comes next. The long record lives in `docs/HISTORY.md`; the rules live in `CLAUDE.md`. If this file and those disagree, `CLAUDE.md` and `docs/HISTORY.md` win and this file should be corrected.
 
-Last updated: **2026-10-05**, after Phase 2 **step 8** (the iPad and fold layouts) was built, on top of the day's iPhone/iPad testing round (app build 13).
+Last updated: **2026-10-05**, after Phase 2 **step 9** (lifetime, loss and the security review), which followed step 8 (the iPad and fold layouts) and the day's iPhone/iPad testing round (app build 13).
 
 ---
 
@@ -18,9 +18,11 @@ The standing constraints that shape every change: smallest possible processor, m
 
 ## 2. Current state
 
-**Phase 2 steps 1–8 are built**, and 1–7 are on real devices. The owner is working down `docs/TEST_MATRIX.md` on an **iPhone 18 Pro Max** and an **iPad Pro 13-inch (M5)**.
+**Phase 2 steps 1–9 are built**, and 1–7 are on real devices. The owner is working down `docs/TEST_MATRIX.md` on an **iPhone 18 Pro Max** and an **iPad Pro 13-inch (M5)**.
 
 **The owner looked at the iPad screens on 2026-10-05 and said they look right**, with one rule to follow: **a swipe that deletes is red, and blue down the side of a row means "mark read or unread" and nothing else.** The Favourite swipe in Team was brand blue and is now amber (`color.star`, a new token); Delete in Voicemail now uses Linx's own red rather than whichever red the system picks. The rule is written into `docs/ui/DESIGN_TOKENS.md` so it isn't re-decided. They also asked about **the transition when a folding phone is opened out** — see §5 and `docs/PHASE2.md`.
+
+**Step 9 (lifetime, loss and the security review) was built on 2026-10-05** (`docs/PHASE2.md` "Step 9, as built"). Most of it was already there — steps 2 and 4a put the lifetime rules in at the start — so the work was proving it end to end, closing three gaps and doing the security review §10 reserves for this step (`docs/THREAT_MODEL.md`, "Phones: identity, lifetime and loss review": six new STRIDE rows, three corrected, and an open-and-accepted list). The gaps closed: a phone stopped for good or expired now **loses the Apple tokens** Linx held for it; the **moved-server checklist** no longer tells an admin to give app phones a new address (impossible — they are set up again, and only a changed *domain* does it to them), counting and listing them apart from desk phones; and Settings now shows the **Person** and **Linx server** this phone joined. The pinned-CA question is settled by **not** pinning: Linx knows a phone by the fingerprint of the certificate it issued, so replacing the internal CA breaks nothing and refusing a renewal from an unfamiliar CA would brick a legitimately re-installed server for no gain. **No migration, no new endpoint, nothing for the owner's server to be updated for.**
 
 **Step 8 (the iPad and fold layouts) was built on 2026-10-05 and is not yet in a TestFlight build.** Every tab is a list beside a detail, a call stands in its own column instead of covering the screen, the keypad has the starred people beside it, and a folding phone is asked where its fold is (ADR-082) instead of the near-square guess. All app tests pass, `make ios-build-device` is clean, and the fold code is proved to compile in under the 27.1 beta and out under Xcode 27.0. **The next TestFlight upload is build 14** and would be the first with these screens on it.
 
@@ -28,9 +30,9 @@ The standing constraints that shape every change: smallest possible processor, m
 - **Server `home.mym.ae` (192.168.1.213) is on `25587b4`**, schema 45. Updated twice today, each time after a backup (snapshots `482c4735`, `63e4dcd3`): the relay's per-call cap (64 → **160 kB/s**, so a relayed video call isn't throttled) and **`max_bitrate_bps`** in the relay credentials (so the app can keep a relayed video call inside what the relay carries). `linx doctor` green apart from two standing warnings (CA root-key backup still on the server; no API key).
 - **Confirmed working on both devices today:** calls with sound from outside the owner's network, adaptive video quality, Stop video, the picture swap, the camera question, the screen staying awake in a video call, and calling out through the UCM landline from any extension.
 - **Owner's own config fix today:** the UCM Landlines line's **Caller ID shown to others = `+97142340100`**. Without it, only the extension that owns that DID could call out (see §5).
-- **CI** on the last two commits (`975f00b`, `09f57ca`) was running when the session ended — check it first (`gh run list --limit 3`).
+- **CI** was green on `41199b5` (all 24 jobs, including the iOS app) at the start of the step 9 session. Check the step 9 commits the same way (`gh run list --limit 3`).
 
-Not started: step 9 (lifetime/loss + security review), 9b (`*97` and the message-waiting light), 10 (store submission docs, resource measurements, `docs/DEMO_PHASE2.md`, the demo on the 1-core VPS).
+Not started: **9b** (`*97` and the message-waiting light), **10** (store submission docs, resource measurements, `docs/DEMO_PHASE2.md`, the demo on the 1-core VPS).
 
 ---
 
@@ -47,6 +49,8 @@ The ones in play this round. `codegraph explore "<names>"` is faster than grep f
 **Tests** — `ios/LinxTests/SoundOnTheRoadTests.swift` (this round's rules), `VideoTests.swift`, `CallTests.swift` (holds `FakeMedia`), `RingingTests.swift`, `BigScreenTests.swift` (step 8's rules). 137 app tests.
 
 **Server side touched this round** — `internal/turnconf/turnconf.go` (`MaxBPS`), `internal/turn/turn.go` (`MaxBitrate` → `max_bitrate_bps`), `api/openapi.yaml` + `services/control-plane/api/webphone.go`, `internal/asteriskconf/config.go` (the dialplan, unchanged today but read often).
+
+**Step 9's files (2026-10-05)** — `internal/store/enroll.go` (`forgetPushTokensTx`, called from `ExpireIdentities`, `expirePhonesTx` and `RevokeDevice` in `internal/store/pbx.go`), `internal/moved/moved.go` + `internal/store/moved.go` (`AppPhones` apart from `DeskPhones`), `ios/Linx/Features/Settings/SettingsView.swift`, `ios/Linx/Core/PhoneIdentity.swift` (the unused CA root, and why). The lifetime rules themselves are in `internal/enroll/` (`device.go`, `enroll.go`), `services/control-plane/sip.go` (`checkPhoneLine`, the 15-second re-check) and `services/control-plane/main.go` (`stopPhoneLine`) — none of which needed changing.
 
 **Copy and docs that must keep up** — `web/src/screens/PhoneLines.tsx` (the Caller ID hint), `web/src/lib/gatewayHowTo.ts`, `docs/help/phone-system-or-gateway.md`, `docs/help/iphone-and-ipad.md`, `docs/TEST_MATRIX.md`, `docs/PHASE2.md`, `docs/DECISIONS.md`, `docs/TRUNKS.md`, `docs/RESOURCES.md`, `docs/HISTORY.md`, `CLAUDE.md`.
 
@@ -74,6 +78,7 @@ Phase by phase, each finished with a demo the owner approved. **Every step's det
 | 2, step 7 | The whole app: Calls, Team, Keypad, More; 1:1 video added to a call (ADR-079); the adaptive call screen | |
 | 2, on devices (2026-10-04/05) | Everything the owner found on real hardware, builds 4–13: see §5 and `docs/HISTORY.md` | |
 | 2, step 8 | The iPad and fold layouts: every tab a list beside a detail, a call beside the app, the keypad's speed dial, and the fold's own geometry (ADR-082) | `docs/PHASE2.md` "Step 8, as built" |
+| 2, step 9 | Lifetime and loss proved end to end; a stopped phone leaves no Apple token; the moved-server checklist tells the truth about app phones; the security review and its STRIDE rows | `docs/PHASE2.md` "Step 9, as built", `docs/THREAT_MODEL.md` |
 
 **Decisions of record:** `docs/DECISIONS.md`, ADR-001 … **ADR-082**. The newest matter most here — 078 (China/CallKit), 079 (a picture is added to a call), 080 (iOS's trust store for the relay's certificate), 081 (the adaptive picture).
 
@@ -113,6 +118,11 @@ The useful half of the record: **do not try these again.**
 - *Reading anything into the iPhone Duo simulator's **outer**-screen shots* — the app's own content comes out upright and correct, but iOS's status bar and the tab bar are drawn turned 90° in the capture. Nobody has a real Duo, so whether that is the simulator's presentation of that display or something the app should answer differently is **unknown**; it is not something step 8 changed, and the app is portrait-locked on a phone by the owner's own ask. Don't "fix" it blind.
 - *`#expect(x == 540.0 / 1080.0)` in swift-testing* — failed against a value that is exactly 0.5. Division of literals inside the macro's expansion doesn't compare as you'd expect; bind the value and compare with a plain literal.
 
+**Step 9's own dead ends (2026-10-05)**
+- *Making the app check the CA it was given* — the obvious reading of §4 ("the app notices if Linx's own CA is ever replaced"), and wrong. Linx finds a phone by the **fingerprint of the certificate it issued**, never by validating a chain, and the app's connection is already proved by the server's public certificate; so the check would only ever fire when the internal CA legitimately changed, bricking every phone on a re-installed or restored server, and would stop nothing, because anyone able to answer for that server would hold its public certificate. Don't add it. The root stays in `PhoneIdentity`, unused, with the reason written next to it.
+- *Treating a stopped phone's Apple token as harmless to keep* — nothing is sent to it (`device_wakeable` names only phones that are still set up), so it isn't a bug, but holding a way to reach a phone somebody has lost is not defensible. Cleared on revoke and on expiry; **kept** when the person is merely disabled, because their phones come back with them.
+- *Assuming a review of built code finds nothing* — it found that the moved-server checklist told admins to give app phones the new address, which cannot be done. The code was right about everything it enforced and wrong about what it told a person to do.
+
 **Environment traps**
 - SwiftPM's binary download of WebRTC **hangs on this Mac** (a per-program firewall, most likely): `make ios-deps` fetches it with `curl`, pinned and checksummed.
 - `TestProbePlain` fails locally whenever the dev stack's Asterisk is publishing `127.0.0.1:5061`. CI is fine. Not a regression.
@@ -126,9 +136,11 @@ The useful half of the record: **do not try these again.**
 
 ## 6. Next step
 
-1. **Check CI** for `975f00b` and `09f57ca` (`gh run list --limit 3`), and report it.
-2. **Let the owner test build 13** and work down `docs/TEST_MATRIX.md`. The rows that matter now: 2.x (ringing — locked, backgrounded, force-quit, Low Power Mode, overnight, mobile data), 3.8a/3.8b (adaptive quality: 540p relayed, up to 720p direct), 3.8c (the screen staying awake), 3.9a (tapping to swap the pictures), 3.10 (video in the sound test).
-3. ~~Step 8~~ — **done 2026-10-05**. What is left of it for the owner: **look at `ios/screenshots/iPhone-18-Pro-Max/`, `iPad-Pro-13-inch-M5/` and `iPhone-Duo/`** (the Duo's *inner* screen still has to be photographed by hand — open the simulated phone out in its window, then `xcrun simctl io booted screenshot --display 3 …`), and say whether the iPad finally looks like an iPad app.
-4. Then step 9 (lifetime and loss, security review, `THREAT_MODEL.md` rows), **9b** (`*97` and the message-waiting light), step 10 (the finish: `STORE_SUBMISSION.md`, resource and data-per-minute measurements, `docs/DEMO_PHASE2.md`, the demo on the 1-core VPS).
+1. **Check CI** for the step 9 commits (`gh run list --limit 3`), and report it.
+2. **Let the owner test build 13** and work down `docs/TEST_MATRIX.md`. The rows that matter now: 2.x (ringing — locked, backgrounded, force-quit, Low Power Mode, overnight, mobile data), 3.8a/3.8b (adaptive quality: 540p relayed, up to 720p direct), 3.8c (the screen staying awake), 3.9a (tapping to swap the pictures), 3.10 (video in the sound test), and section 5, which gained five rows in step 9 (a call dropping when a phone is stopped mid-call, disable-and-enable, a stopped phone never ringing again, what Settings names, and sign-out versus "I've lost it").
+3. **Still for the owner from step 8:** look at `ios/screenshots/iPhone-18-Pro-Max/`, `iPad-Pro-13-inch-M5/` and `iPhone-Duo/` (the Duo's *inner* screen has to be photographed by hand — open the simulated phone out in its window, then `xcrun simctl io booted screenshot --display 3 …`).
+4. **Then step 9b** (`*97` and the message-waiting light: dialling `*97` from a desk phone reaches that phone's own voicemail, and the light follows whether there is a new message; both go through ARI, which step 5 built), then **step 10** (the finish: `STORE_SUBMISSION.md`, resource and data-per-minute measurements, `docs/DEMO_PHASE2.md`, the demo on the 1-core VPS).
+
+**Worth putting to the owner** (from step 9's review, not blocking anything): the app has **no lock of its own** — anyone holding the unlocked phone can see the team, the call history and voicemail, and ring anyone, exactly as they could with the phone's own Phone app. iOS's passcode and Face ID are what protect it today. A Face ID lock on the app itself is small and separate; ask whether they want it.
 
 **Still waiting on the owner** (none of it blocks the build order): the §11 answers in `docs/PHASE2.md` (push for other self-hosters, TestFlight vs App Store), their look at `ios/screenshots/`, the two standing `doctor` warnings, and whether to forward UDP 443 to `192.168.1.213` for slightly smoother audio.
