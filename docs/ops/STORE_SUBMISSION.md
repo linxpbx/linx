@@ -102,6 +102,34 @@ Written down rather than claimed, so nobody is surprised by a rejection.
 
 ---
 
+## 5b. The compliance check, done 2026-10-05 (build 14)
+
+Checked against the **shipped binary**, not the source: `Payload/Linx.app` out of the signed 0.1.0 (14) archive.
+
+**One defect found and fixed.** A VoIP push whose payload the app could not read as a call — a payload a later Linx sends that this version doesn't understand, or a damaged one — called Apple's completion handler and **reported nothing to CallKit**. That is exactly what iOS terminates a VoIP app for, and after a few of them Apple stops delivering VoIP pushes to the app at all: the phone would simply go quiet, which is the worst failure this app has. It now reports a call and ends it in the same breath (`PhoneModel.wokenByNothing`), so nothing rings and the rule is kept. The same path now covers the case where nothing is listening yet. Two tests hold it, including one for exactly what counts as a call in a payload. *(The already-correct half: a second push while a call is up has always reported the call before ending it.)*
+
+**Everything else, verified:**
+
+| | |
+|---|---|
+| Bundle | `com.linxpbx.app`, shown as **Linx**, iPhone **and** iPad, minimum iOS 26.0 |
+| Architecture | **arm64 only** — no simulator slices in the shipped binary |
+| Size | 14 MB installed; one third-party framework (WebRTC), which carries its own privacy manifest |
+| Background modes | `voip` and `audio`, nothing else |
+| Purpose strings | camera, microphone **and local network** — the one people forget, which iOS prompts for because WebRTC looks for a short route — all in plain words |
+| Encryption | `ITSAppUsesNonExemptEncryption = false`, so TestFlight never stops to ask |
+| Privacy manifest | present at the bundle root; no data collected, no tracking, and the one required-reason API declared (`UserDefaults`, `CA92.1`) is **exactly** the one the code uses — checked by searching the app for every other reason category |
+| Tracking | none: no analytics, no crash reporter, no IDFA, no App Tracking Transparency, no third-party SDK but WebRTC |
+| Private API | none: no `valueForKey`, `performSelector`, `NSClassFromString` or `_UI…` anywhere |
+| Web views | none, so Guideline 4.2's "a website in a wrapper" doesn't arise |
+| Accounts | the app creates none — an administrator does, on the company's own server — so 5.1.1's in-app deletion rule doesn't apply. **It must still be said in the review notes**, because the automated pass reads a sign-in screen and asks |
+| Placeholders | none. No Chat tab until Phase 4 builds chat |
+| CallKit where Apple forbids it | ADR-078: a phone whose **Region** is China sends no VoIP token and rings on its own screen |
+
+**Still not checkable from here**, and carried in §5: IPv6-only (NAT64), an Instruments pass, screenshots at every required size, the privacy-policy and support URLs, and the demo server with a live setup code.
+
+---
+
 ## 6. If it comes back rejected
 
 Normal, and usually one line. The two likely ones here:

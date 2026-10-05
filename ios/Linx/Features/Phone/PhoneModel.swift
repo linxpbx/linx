@@ -370,6 +370,18 @@ import UIKit
         return true
     }
 
+    /// A VoIP push arrived that isn't a call this app can ring (a payload a
+    /// later Linx sent, or a damaged one). iOS requires **every** VoIP push
+    /// to report a call — an app that doesn't is killed, and after a few it
+    /// stops receiving them at all (docs/PHASE2.md §14 item 1) — so one is
+    /// reported and ended in the same breath. Nothing rings, nothing is
+    /// left on the screen, and the rule is kept.
+    func wokenByNothing() async {
+        let id = UUID()
+        guard await calls.reportIncoming(id: id, from: SIPPeer(name: "", number: "")) else { return }
+        calls.reportEnded(id: id, .failed)
+    }
+
     /// The call never came: the caller gave up while the phone was waking,
     /// or it was answered somewhere else. The phone stops ringing, and the
     /// line closes again unless someone is looking at the app.

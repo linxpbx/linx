@@ -405,6 +405,45 @@ struct RingingTests {
         #expect(PushEnvironment.value(of: "aps-environment", in: "<key>other</key>") == nil)
     }
 
+    /// The rule iOS enforces by killing the app: **every** VoIP push
+    /// reports a call to CallKit, including one this version can't read
+    /// (docs/PHASE2.md §14 item 1). A push that rings nothing costs the
+    /// app its right to receive VoIP pushes at all, which is the worst
+    /// failure this app has — a phone that silently stops ringing.
+    @Test("a VoIP push that isn't a call still reports one, and ends it")
+    func anUnreadablePushStillReports() async {
+        let calls = FakeSystemCalls()
+        let (phone, _, _) = await phone(calls: calls)
+        let before = calls.reported.count
+
+        await phone.wokenByNothing()
+
+        #expect(calls.reported.count == before + 1)
+        let id = calls.reported.last!.id
+        // Reported and ended in the same breath: nothing rings, nothing is
+        // left on the screen, and no call is left on the system's books.
+        #expect(calls.ended.contains { $0.id == id })
+        #expect(phone.call == nil)
+    }
+
+    /// The payload reader is what decides which of the two paths a push
+    /// takes, so it has to be exact about what counts as a call.
+    @Test("only a push with a call id counts as a call")
+    func whatCountsAsACall() {
+        #expect(PushService.call(in: ["linx": ["call": "c1", "from": "0501"]])?.call == "c1")
+        #expect(PushService.call(in: ["linx": ["call": "c1"]])?.from == "")
+        for notACall: [AnyHashable: Any] in [
+            [:],
+            ["linx": [:]],
+            ["linx": ["call": ""]],
+            ["linx": ["from": "0501"]],
+            ["linx": "not a dictionary"],
+            ["aps": ["alert": "hello"]],
+        ] {
+            #expect(PushService.call(in: notACall) == nil)
+        }
+    }
+
     @Test("where CallKit may not be used, the app rings for itself")
     func chinaRingsInTheApp() {
         #expect(CallStyle.noCallKit.contains("CN"))

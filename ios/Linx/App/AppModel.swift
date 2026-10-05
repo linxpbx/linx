@@ -72,6 +72,12 @@ import SwiftUI
                 done()
             }
         }
+        push.onNothingToRing = { [weak self] done in
+            Task { @MainActor in
+                await self?.phone.wokenByNothing()
+                done()
+            }
+        }
         push.onTokens = { [weak self] tokens in
             Task { @MainActor in await self?.tellLinxWhereToReachThisPhone(tokens) }
         }

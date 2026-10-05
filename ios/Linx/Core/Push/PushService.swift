@@ -44,6 +44,14 @@ struct PushTokens: Equatable, Sendable {
     /// all that was ever sent. The app has to ring before it does anything
     /// else, and `then` is Apple's own "I'm finished with this push".
     var onCall: ((_ call: String, _ from: String, _ then: @escaping () -> Void) -> Void)?
+    /// A VoIP push that isn't a call this app can ring: a payload a later
+    /// Linx sent that this version doesn't understand, or one that arrived
+    /// damaged. **iOS still requires a call to be reported** — an app that
+    /// takes a VoIP push and rings nothing is killed, and after a few of
+    /// them Apple stops delivering VoIP pushes to it at all (§14 item 1).
+    /// So a call is reported and ended in the same breath: the person sees
+    /// nothing, and the promise is kept.
+    var onNothingToRing: ((_ then: @escaping () -> Void) -> Void)?
     /// New tokens for Linx. The app sends them whenever they change and
     /// whenever it signs in, because Apple hands out new ones freely.
     var onTokens: ((PushTokens) -> Void)?
@@ -144,10 +152,22 @@ struct PushTokens: Equatable, Sendable {
 
     fileprivate func arrived(call: String, from: String, then done: @escaping () -> Void) {
         guard let onCall else {
-            done()
+            // Nobody is listening yet, which shouldn't happen — the app
+            // wires this up before PushKit is started. A call still has to
+            // be reported, so fall through to the one that reports and
+            // ends rather than reporting nothing at all.
+            nothingToRing(then: done)
             return
         }
         onCall(call, from, done)
+    }
+
+    fileprivate func nothingToRing(then done: @escaping () -> Void) {
+        guard let onNothingToRing else {
+            done()
+            return
+        }
+        onNothingToRing(done)
     }
 
     /// PushKit and notifications both promise nothing about which thread
@@ -182,7 +202,10 @@ struct PushTokens: Equatable, Sendable {
             let said = PushService.call(in: payload.dictionaryPayload)
             MainActor.assumeIsolated {
                 guard let said else {
-                    done()
+                    // Not a call this app can ring — but something has to
+                    // be reported to CallKit all the same, or iOS kills
+                    // the app (§14 item 1).
+                    owner?.nothingToRing(then: done)
                     return
                 }
                 owner?.arrived(call: said.call, from: said.from, then: done)
