@@ -11,12 +11,14 @@ import SwiftUI
 struct VideoCallView: View {
     @Environment(PhoneModel.self) private var phone
     @Environment(\.horizontalSizeClass) private var horizontal
+    /// Where this phone folds, when it folds and can say so (`Crease`).
+    @Environment(\.crease) private var crease
     let call: PhoneModel.Call
     let now: Date
 
     var body: some View {
         GeometryReader { geometry in
-            let shape = CallLayout.shape(size: geometry.size, horizontal: horizontal)
+            let shape = CallLayout.shape(size: geometry.size, horizontal: horizontal, crease: crease)
             Group {
                 switch shape {
                 case .tall, .wide:
@@ -130,15 +132,21 @@ struct VideoCallView: View {
         .padding(LinxSpace.s4)
         .onTapGesture(perform: swap)
 
+        // The picture's share of the screen. On a folding phone this is the
+        // fold itself, so the join between the two panels and the crease are
+        // one and the same line.
+        let share = CallLayout.pictureShare(
+            for: .split(sideBySide: sideBySide), size: size, crease: crease)
+
         return Group {
             if sideBySide {
                 HStack(spacing: 0) {
-                    picture.frame(width: size.width * 0.62)
+                    picture.frame(width: size.width * share)
                     panel
                 }
             } else {
                 VStack(spacing: 0) {
-                    picture.frame(height: size.height * 0.6)
+                    picture.frame(height: size.height * share)
                     panel
                 }
             }

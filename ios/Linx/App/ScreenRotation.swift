@@ -28,10 +28,22 @@ import UIKit
     /// How wide a screen's shorter side must be, in points, to count as a
     /// big one. The largest iPhone is 440 points across; an iPad is 744 at
     /// its narrowest, and the iPhone Duo's inner screen is wider still when
-    /// it is opened out. Build-order step 8 replaces this guess with the
-    /// fold's own geometry (`UIArrangementViewController`), which answers it
-    /// properly.
+    /// it is opened out.
+    ///
+    /// It is now only the fallback: where the phone itself says it has a
+    /// fold across the screen (`screenIsDivided`, iOS 27.1), that answer is
+    /// taken instead of this guess.
     nonisolated static let bigScreen: CGFloat = 700
+
+    /// The phone has told the app where its fold is, which it only does
+    /// when the screen is opened out — so this *is* a big screen, whatever
+    /// its width works out to be (`Crease`, step 8).
+    static var screenIsDivided = false {
+        didSet {
+            guard screenIsDivided != oldValue else { return }
+            lookAgain()
+        }
+    }
 
     /// Whether a picture is on this phone's screen right now. The app sets
     /// it as video comes and goes; nothing else turns the phone.
@@ -44,9 +56,9 @@ import UIKit
 
     /// The rule itself, with nothing of UIKit in it so it can be tested.
     nonisolated static func allowed(
-        idiom: UIUserInterfaceIdiom, shorterSide: CGFloat, videoIsUp: Bool
+        idiom: UIUserInterfaceIdiom, shorterSide: CGFloat, videoIsUp: Bool, divided: Bool = false
     ) -> UIInterfaceOrientationMask {
-        if idiom == .pad || shorterSide >= bigScreen { return .all }
+        if idiom == .pad || divided || shorterSide >= bigScreen { return .all }
         // Upside down is left out on a phone, as it is everywhere in iOS:
         // the earpiece belongs at the top.
         return videoIsUp ? [.portrait, .landscapeLeft, .landscapeRight] : .portrait
@@ -58,7 +70,7 @@ import UIKit
         let shorterSide = bounds.isEmpty ? bigScreen : min(bounds.width, bounds.height)
         return allowed(
             idiom: UIDevice.current.userInterfaceIdiom, shorterSide: shorterSide,
-            videoIsUp: videoIsUp)
+            videoIsUp: videoIsUp, divided: screenIsDivided)
     }
 
     private static var anyScene: UIWindowScene? {

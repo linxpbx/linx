@@ -17,10 +17,11 @@ import SwiftUI
 //          the middle of a screen that folds, and nobody has to reach
 //          across a tablet to hang up.
 //
-// Build-order step 8 replaces the near-square rule below with the fold's own
-// geometry (`ReservedRegion`, `ArrangementView`, iOS 27.1), which says where
-// the crease really is instead of inferring it from the shape. Until then
-// this keeps every button on one side of it.
+// A folding phone now says where its fold really is (`Crease`, iOS 27.1),
+// and when it does, that answer wins: the two panels divide along the fold
+// itself. Where there is no fold to ask — every iPad, every ordinary phone,
+// and any iOS older than 27.1 — the shape of the screen decides, as it
+// always has.
 
 enum CallLayout {
     enum Shape: Equatable {
@@ -40,13 +41,52 @@ enum CallLayout {
     /// and a column of buttons in half of it would be a column of nothing.
     static let depthForTwoPanels: CGFloat = 500
 
-    static func shape(size: CGSize, horizontal: UserInterfaceSizeClass?) -> Shape {
+    static func shape(size: CGSize, horizontal: UserInterfaceSizeClass?, crease: Crease? = nil) -> Shape {
+        // A fold across the screen is the one thing that must not be laid
+        // over, however small the screen is: the panels divide along it
+        // whatever the shape says.
+        if let crease, crease.share(of: size) != nil {
+            return .split(sideBySide: crease.runsDown)
+        }
         if horizontal == .regular, size.width >= roomForTwoPanels, size.height >= depthForTwoPanels {
-            // Near-square counts as side by side: that is the unfolded Duo,
-            // and its crease runs down the middle.
+            // Near-square counts as side by side: that is an unfolded Duo
+            // whose fold the phone hasn't told us about, and its crease
+            // runs down the middle.
             return .split(sideBySide: size.width >= size.height * 0.9)
         }
         return size.height > size.width ? .tall : .wide
+    }
+
+    /// How much of the screen the picture's panel takes. The fold decides it
+    /// when there is one, so the join and the crease are the same line;
+    /// otherwise the picture takes the larger share, because it is what
+    /// people are looking at.
+    static func pictureShare(for shape: Shape, size: CGSize, crease: Crease? = nil) -> CGFloat {
+        guard case .split(let sideBySide) = shape else { return 1 }
+        if let share = crease?.share(of: size), crease?.runsDown == sideBySide {
+            return share
+        }
+        return sideBySide ? 0.62 : 0.6
+    }
+
+    /// How wide a screen has to be before a call stands beside the app
+    /// instead of covering it. An iPad held upright (834 points) is wide
+    /// enough for a list and a call; an iPad mini upright, or an iPad in a
+    /// narrow window beside another app, is not, and there the call covers
+    /// the screen as it does on a phone.
+    static let roomForACallBeside: CGFloat = 820
+
+    static func callFitsBeside(size: CGSize, horizontal: UserInterfaceSizeClass?) -> Bool {
+        horizontal == .regular && size.width >= roomForACallBeside
+    }
+
+    /// How wide the call's own column is. A fold decides it when there is
+    /// one, so the call takes one leaf of the phone and the app the other.
+    static func callWidth(size: CGSize, crease: Crease? = nil) -> CGFloat {
+        if let crease, crease.runsDown, let share = crease.share(of: size) {
+            return size.width * (1 - share)
+        }
+        return max(380, min(size.width * 0.42, 560))
     }
 
     /// How big this phone's own picture is shown, as a share of the screen's
