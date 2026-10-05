@@ -29,7 +29,7 @@ export function gatewaySteps(product: GatewayProduct, l: GatewayLogin): string[]
         `Username and Auth ID: ${l.username}. Password: the one above. Keep original CID: on. Verify inbound request: off (Linx doesn't answer a password challenge).`,
         "Advanced settings: codecs PCMA then PCMU; SRTP: Enabled and forced; DTMF: RFC4733.",
         "Linx's calls out through your landline: Inbound Routes, trunk Linx → Add: pattern _X., Default Destination By DID, Strip 0, then Dial Trunk on with your analog trunk, privilege Local.",
-        "If the landline's outbound route has privilege Disable: add Linx's caller ID for this line (its number as Linx shows it, e.g. _+9714…) to its Source Caller ID Pattern.",
+        "What Linx shows as the caller is this line's Caller ID, and when that is empty, the extension's own number (201, 202…). So a landline outbound route with privilege Disable or a Source Caller ID Pattern lets some extensions out and tells others they aren't allowed — the UCM saying it, not Linx. The cure is on this page: set this line's Caller ID to the landline's own number, which is what the phone company shows for an analog line anyway. Otherwise add the extensions to that route's Source Caller ID Pattern (e.g. _2XX).",
         "Landline calls to Linx: Outbound Routes → Add To_Linx: pattern _*88X., privilege Internal, main trunk Linx, Strip 3. Then the analog trunk's inbound route: Default Destination External Number *88 followed by the landline number.",
       ];
     case "gxw":
