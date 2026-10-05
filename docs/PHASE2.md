@@ -121,7 +121,50 @@ The push gateway is built so the destination is one setting: Apple directly now,
 8. ~~**iPad, adaptive and fold layouts**~~ — **done 2026-10-05**: every tab a list beside a detail, a call in its own column rather than over the top, and the fold's own geometry (`ReservedRegion`, iOS 27.1, ADR-082) in place of the near-square guess. "Step 8, as built" below.
 9. ~~**Lifetime and loss**~~ — **done 2026-10-05**: renewal, the six-month idle expiry, revoke-everywhere, "set this phone up again", and the security review with its `THREAT_MODEL.md` rows. "Step 9, as built" below.
 9b. ~~**`*97` and the message-waiting light**~~ — **done 2026-10-05** (ADR-083): dialling `*97` from a phone plays that extension's own new messages, and the light comes on when there is a new message and goes out when there isn't. "Step 9b, as built" below.
-10. **Finish**: ~~`TEST_MATRIX.md`~~ (**written 2026-10-04 as `docs/TEST_MATRIX.md`**, when the first TestFlight build reached a real phone and the owner could start working down it), ~~`APPLE_SIGNING.md`~~ (**written 2026-10-04 as `docs/ops/APPLE_SIGNING.md`**, because the owner needed it before the signing session rather than after), `STORE_SUBMISSION.md`, resource and data-per-minute measurements in `docs/RESOURCES.md`, `docs/DEMO_PHASE2.md`, and the demo on the test VPS.
+10. **Finish** — the written half **done 2026-10-05**: ~~`TEST_MATRIX.md`~~ (2026-10-04), ~~`APPLE_SIGNING.md`~~ (2026-10-04), ~~`STORE_SUBMISSION.md`~~, ~~resource and data-per-minute measurements~~ (`docs/RESOURCES.md` §3b), ~~`docs/DEMO_PHASE2.md`~~. What is left is the demo itself, run with the owner, which includes the test VPS. "Step 10, as built" below.
+
+### Step 10, as built (2026-10-05)
+
+**The finish: everything written down, and one sitting's worth of checking
+left for the owner.**
+
+- **`docs/DEMO_PHASE2.md`** is the close-out demo, and it carries
+  **every** check that needs the owner's hands — the ringing cases a
+  simulator can never prove, the video steps, `*97` and the message light
+  on a desk phone, losing a phone, the iPad and fold screens, and the
+  1-core VPS. Nothing was asked of them piecemeal as the steps landed
+  (their own instruction, 2026-10-05): it is all here, in order, about
+  two and a half hours.
+- **`docs/ops/STORE_SUBMISSION.md`** is what App Review asks and what
+  Linx answers, written for somebody who has never submitted an app. The
+  part that matters most is first: **a reviewer cannot use a self-hosted
+  client without a server**, so a submission needs a reachable demo Linx,
+  two extensions, a voicemail already in the box, and a setup code that
+  is still alive when they look — which is the single most common
+  rejection for apps of this kind. It also carries the privacy answers,
+  the account-deletion answer (nobody signs up in the app), the age
+  rating and category, the rules that get VoIP apps killed *after*
+  review, a paste-ready review note, and an honest list of what is **not**
+  proved yet.
+- **`PrivacyInfo.xcprivacy` was missing and now exists** (`ios/Linx/`).
+  Apple refuses an upload without one for an app that touches a
+  required-reason API, and this app does: user defaults, for the few
+  choices a phone remembers for itself. It declares **no data collected
+  and no tracking**, which is the truth — the company's server holds
+  everything — and it ships at the bundle root (checked in the Release
+  build for a device). The answers in App Store Connect have to match it
+  word for word.
+- **What a call costs in data** is in `docs/RESOURCES.md` §3b, computed
+  from the ceilings Linx actually sets and the real packet overhead:
+  **0.33 MB a minute** each way for voice, **5.1 MB** at the picture's
+  starting step, **12.1 MB** at the top one. The phase's whole cost is
+  there too — the app 15.6 MB, the server **+1.0 MB** of program and
+  **+0.81 MB** of Asterisk image for all of Phase 2, no new container and
+  no new always-on timer — with the four services measured idle at
+  **218 MB** together. The real per-minute number gets read off a phone
+  at the demo, which no calculation replaces.
+- **Not done, and deliberately:** the demo itself, and the test VPS run
+  inside it. Both are the owner's sitting.
 
 ### Step 9b, as built (2026-10-05)
 

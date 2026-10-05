@@ -79,6 +79,31 @@ The server used 812 MB in all out of 3.9 GB. **An echo call (measured 2026-09-29
 3. **Trimming Ubuntu Server's own background programs** (fwupd, ModemManager, udisks2, upower, multipathd: 100–150 MB of memory, none of which a server needs). *Recommendation:* not by setup (it's the owner's operating system, not Linx's); a one-paragraph "make a small VPS smaller" note in the help guides instead.
 4. **Profiles that actually change something:** the "lite/standard/performance" size chosen in setup is saved but changes nothing yet. Once meetings (LiveKit) and recordings arrive, it should decide what runs and with how much memory. Nothing to gain from it today.
 
+## 3b. Phase 2 in one place: the app, and what a call costs on mobile data (2026-10-05)
+
+Step 10's summary. Each step's own cost is a row in §2 above; this is what the whole phase adds up to, and the answer to "what does this do to my data allowance".
+
+**The app** (Release, a real iPhone, unsigned, `du -sk`): **15.6 MB**, of which **11.9 MB is Google's WebRTC** and 3.7 MB is Linx's own program. No other dependency of any kind. Nothing of it runs in the background: the line is open only while the app is in front or a call is up, and a push is what wakes it (`docs/PHASE2.md` §7).
+
+**The server, for everything Phase 2 added:** the control-plane program **+1.0 MB** in all (enrollment, the push gateway, the Team websocket's additions, `*97` and the light); the Asterisk image **+0.81 MB** (step 9b's modules and recordings); **no new container and no new always-on timer** — the push gateway holds one guarded HTTP/2 connection to Apple only while there is something to send, the hourly sweeps are the ones Phase 1 already ran, and the message light waits on a change rather than polling. Two in-memory volumes, 64 MB and 16 MB, used only while a greeting or a message is being played.
+
+**Measured idle, the four services a call needs** (`docker stats`, this Mac's development stack at rest, 2026-10-05): Postgres 69 MB, Asterisk 68 MB, the control plane 37 MB, coturn 44 MB — **218 MB together**, under 4% of one core between them. The figures in §1, taken on the owner's own server, remain the ones to quote for a real installation.
+
+**What a minute of call costs in data.** One direction; a call uses about the same each way. These are **computed from the ceilings Linx actually sets** — Opus capped at 24 kbit/s with DTX and FEC (`web/src/phone/sdp.ts`, `SDPTweaks.swift`), the video ladder's five steps (ADR-081) — plus the real packet overhead (IP + UDP + RTP + SRTP: 50 bytes on every packet, which is 20 kbit/s on its own for audio at 50 packets a second, and about 5% for video). A real conversation costs **less** than the audio figure, because DTX sends almost nothing while nobody is speaking.
+
+| | Picture | Each way | A 10-minute call |
+|---|---|---|---|
+| Voice only | — | ~44 kbit/s, **0.33 MB a minute** | about 3 MB |
+| Video, step 1 | 240p | ~254 kbit/s, **1.9 MB a minute** | about 19 MB |
+| Video, step 2 | 360p | ~412 kbit/s, **3.1 MB a minute** | about 31 MB |
+| Video, step 3 (the start) | 480p | ~674 kbit/s, **5.1 MB a minute** | about 51 MB |
+| Video, step 4 (relayed ceiling) | 540p | ~989 kbit/s, **7.4 MB a minute** | about 74 MB |
+| Video, step 5 (direct only) | 720p | ~1619 kbit/s, **12.1 MB a minute** | about 121 MB |
+
+Through Linx's **relay** rather than directly, add roughly 10–15% for TURN and TLS framing, and the server carries **both** legs — which is why the relay is capped at 160 kB/s a session (§2) and why the ladder is held to 540p on a relayed call.
+
+**Where to check the real number:** the app's **Call details** screen (the "Encrypted · …" line during a call) shows the sound actually sent and received and which step the picture is on. `docs/DEMO_PHASE2.md` reads it off a real call on mobile data, which is the measurement no calculation replaces.
+
 ## 4. Minimum and recommended hardware (as built)
 
 | | Minimum (setup refuses less) | Recommended |

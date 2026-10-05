@@ -34,7 +34,7 @@ The standing constraints that shape every change: smallest possible processor, m
 - **Owner's own config fix today:** the UCM Landlines line's **Caller ID shown to others = `+97142340100`**. Without it, only the extension that owns that DID could call out (see §5).
 - **CI** was green on `41199b5` (all 24 jobs, including the iOS app) at the start of the step 9 session. Check the step 9 commits the same way (`gh run list --limit 3`).
 
-Not started: **step 10** (store submission docs, resource measurements, `docs/DEMO_PHASE2.md`, the demo on the 1-core VPS). That is the last step of Phase 2.
+**Step 10's written half is done (2026-10-05):** `docs/ops/STORE_SUBMISSION.md`, `docs/RESOURCES.md` §3b (Phase 2's whole cost, and what a minute of call costs in data), and **`docs/DEMO_PHASE2.md`** — the close-out demo, which carries every check that needs the owner's hands. A real gap closed on the way: the app had no `PrivacyInfo.xcprivacy`, which Apple refuses an upload without; it exists now and ships at the bundle root. **What is left of Phase 2 is the demo itself**, run with the owner, with the 1-core VPS inside it.
 
 ---
 
@@ -163,6 +163,8 @@ The useful half of the record: **do not try these again.**
 **Worth putting to the owner** (from step 9b): nobody dials a code they have never heard of. A line on the **Voicemail** page — "or dial `*97` from your desk phone" — would make it discoverable; it is a one-line web change plus `make screens`, and it was left out rather than slipped in. Also from 9b: a ring group's messages are deliberately **not** on `*97` (no phone to light up, no one person to mark them heard); say if that should change.
 
 **Worth putting to the owner** (from step 9's review, not blocking anything): the app has **no lock of its own** — anyone holding the unlocked phone can see the team, the call history and voicemail, and ring anyone, exactly as they could with the phone's own Phone app. iOS's passcode and Face ID are what protect it today. A Face ID lock on the app itself is small and separate; ask whether they want it.
+
+**Nothing is asked of the owner until the close-out demo (owner, 2026-10-05).** Every device check — the ringing rows, `*97` and the light on a desk phone, the iPad and fold screens — belongs in `docs/DEMO_PHASE2.md` and is done in one sitting. Don't send them off to run test-matrix rows as each step lands.
 
 **Recorded, not started (owner, 2026-10-05):** a desk phone must work **on the network and from outside it, with or without an SBC**. Today it is LAN-only by design. The requirement and what it has to answer — the port, registration lockout, where the audio goes, and both the SBC and no-SBC cases — are in `docs/ROADMAP.md` "Desk phones from outside the office". Auto-provisioning stays in Phase 4.
 
