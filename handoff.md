@@ -10,7 +10,7 @@ Last updated: **2026-10-05 (late)**, after Phase 2 was built out to **step 10**,
 
 **Linx** is a self-hosted, open-source (Apache-2.0) 3CX-style phone system: PBX, video meetings, guest links, presence. One owner, who is not a developer: explain in plain language and always recommend an answer. Full brief in `linx-build-prompt.md`, design in `docs/`.
 
-**The goal right now** is **getting Phase 2 — the iPhone/iPad app (`docs/PHASE2.md`) — closed out and going live at 1.0.0.** Phase 2 is built through step 10; what remains is the owner's close-out demo. The owner decided (2026-10-05) to **go live after Phase 2, then add each later phase gradually**. Phase 1 (server, web client, trunks, admin, email/voicemail/history) is finished and approved.
+**The goal right now** is **going live with the server at 1.0.0 first, then handling the app.** The owner decided (2026-10-05) to **cut `v1.0.0` and bring it up on a fresh server now, and handle the iPhone/iPad app (TestFlight → App Store) and its hands-on demo rows afterwards** — the server side of Phase 2 is tested by CI; the app-dependent close-out checks (ringing, video, fold) move to the app stage. Then add each later phase gradually. Phase 1 (server, web client, trunks, admin, email/voicemail/history) and Phase 2's build (steps 1–10) are done.
 
 The standing constraints that shape every change: smallest possible processor, memory, disk and bandwidth (measure, record in `docs/RESOURCES.md`); never weaken TLS or fall back to plaintext; plain-language copy; design tokens only.
 
@@ -164,12 +164,15 @@ The useful half of the record: **do not try these again.**
 
 ## 6. Next step
 
-**The path to going live (Linx 1.0.0), in order:**
+**Going live at 1.0.0 now (owner, 2026-10-05: server first, app after), in order:**
 
-1. **Check CI** on the last commits (`gh run list --limit 3`); report it. Head was `e500ad0`, running at session end.
-2. **Update `home.mym.ae`** to the current build (back up first, `docs/ops/UPDATING.md`). This is the gate: it brings `*97`, the message light, the perl-free Asterisk image and the 413 fix. The owner has been giving go-aheads but **ask + back up** each time — it's the live phone system.
-3. **Run the Phase 2 close-out demo** with the owner: `docs/DEMO_PHASE2.md`, one sitting, iPhone + iPad + a desk phone + the 1-core feel. That formally closes Phase 2.
-4. **Tag `v1.0.0`** (`docs/ops/RELEASES.md`) → live. Then later phases gradually: Phase 3 (meetings/guests), Phase 4 (3CX parity + **Linx Connector** + desk-phone auto-provisioning), 5, 6.
+1. **CI green on `HEAD`** (`gh run list --limit 1`). This is the one gate for the tag: the Release workflow refuses a tag whose commit CI hasn't published images for. Head at the go-live push is `f5bc985` (code-review fixes).
+2. **Tag `v1.0.0`** and push (`git tag -a v1.0.0 -m "Linx 1.0.0" && git push origin v1.0.0`). The Release workflow re-tags + cosign-signs this commit's images as `1.0.0`/`1.0`/`stable`, builds and signs the `linx` binaries, and opens the GitHub release (`docs/ops/RELEASES.md`). Nothing is rebuilt — what ships is what CI tested. First release, so no migration-vs-patch check applies.
+3. **Fresh install of 1.0.0 on a new server** (owner, 2026-10-05: *"start with a fresh server, no backup"* — not an in-place update of `home.mym.ae`, and no data carried over, so everything is reconfigured: people, extensions, trunks + the UCM landline, phones, front door, the Apple push key). Provision a clean Ubuntu 24.04 / Debian box, download the release's `linx` binary, check it against `SHA256SUMS`, `sudo install` it, then web-first install (`docs/INSTALL.md`): one link from the terminal → TLS-ALPN-01 → HTTPS. A fresh server gets a clean internal CA and clean schema (no migration history), which is the cleanest possible 1.0.0.
+4. **Harden the new server's CA when settled** (`docs/ops/INTERNAL_CA.md`): take the CA root key off the box — the task the owner said to do "when it's time". Not a go-live blocker; done *with* the owner once the server is up.
+5. **Then handle the app:** the owner signs in to Xcode (only interactive step left), archive + upload build 14 → TestFlight, then the App Store path (`docs/ops/STORE_SUBMISSION.md`: reachable demo server + live setup code is the thing that sinks self-hosted clients) and the hands-on Phase 2 demo rows (`docs/DEMO_PHASE2.md`: ringing incl. force-quit, video + data cost, iPad/fold, `*97` on a desk phone, the 1-core feel).
+
+Then later phases gradually: Phase 3 (meetings/guests), Phase 4 (3CX parity + **Linx Connector** + desk-phone auto-provisioning), 5, 6.
 
 **Done (owner's ask, 2026-10-05):** the interactive installer no longer offers a **test certificate** on a release build — `askCertificates` skips the "Use test certificates for now?" question and forces trusted when `installer.IsRelease(version)` is true; a dev build still asks. (The web install already forced trusted; the `cert.go:358` "(test certificate)" line is the automatic staging reachability probe, left as-is.) The `--config` path is explicit YAML, with the sample comment now saying staging is development-only.
 
