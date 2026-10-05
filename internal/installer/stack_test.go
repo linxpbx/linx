@@ -127,13 +127,40 @@ func TestExistingOrNewKeyBytes(t *testing.T) {
 
 func TestImageTag(t *testing.T) {
 	sha := "0123456789abcdef0123456789abcdef01234567"
-	if got, err := ImageTag(sha); err != nil || got != "sha-"+sha {
+	if got, err := ImageTag("dev", sha); err != nil || got != "sha-"+sha {
 		t.Errorf("ImageTag = %q, %v", got, err)
 	}
 	for _, bad := range []string{"unknown", "0123456", sha + "-dirty", strings.ToUpper(sha)} {
-		if _, err := ImageTag(bad); err == nil {
+		if _, err := ImageTag("dev", bad); err == nil {
 			t.Errorf("ImageTag(%q) succeeded", bad)
 		}
+	}
+
+	// A build from a release tag belongs with that release's images
+	// (ADR-084), whatever its commit.
+	for _, tc := range []struct{ version, want string }{
+		{"v1.0.0", "1.0.0"},
+		{"v1.2.3", "1.2.3"},
+		{"v1.3.0-beta.1", "1.3.0-beta.1"},
+		{"v2.0.0-rc.10", "2.0.0-rc.10"},
+		{" v1.0.0 ", "1.0.0"},
+	} {
+		if got, err := ImageTag(tc.version, sha); err != nil || got != tc.want {
+			t.Errorf("ImageTag(%q) = %q, %v; want %q", tc.version, got, err, tc.want)
+		}
+	}
+	// Anything that isn't exactly a release tag falls back to the commit:
+	// a build four commits past v1.2.0 is not v1.2.0, and must not set a
+	// server up on that release's images.
+	for _, notARelease := range []string{"dev", "v1.2.0-4-gabc1234", "v1.2.0-dirty", "1.2.0", "v1.2", "v1.2.0.1",
+		"v01.2.0", "v1.2.0-beta", "v1.2.0+build.5", "vx.y.z"} {
+		if got, err := ImageTag(notARelease, sha); err != nil || got != "sha-"+sha {
+			t.Errorf("ImageTag(%q) = %q, %v; want the commit", notARelease, got, err)
+		}
+	}
+	// With neither a release nor a commit there is nothing to go on.
+	if _, err := ImageTag("v1.2.0-4-gabc1234", "unknown"); err == nil {
+		t.Error("a build that is neither a release nor a known commit succeeded")
 	}
 }
 

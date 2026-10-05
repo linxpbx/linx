@@ -162,7 +162,7 @@ func runWebSetup(ctx context.Context, o webOptions, stdout, stderr io.Writer, en
 		}
 		dockerPlan = dp
 	}
-	imageTag, err := installer.ImageTag(env.commit)
+	imageTag, err := installer.ImageTag(env.version, env.commit)
 	if err != nil && !o.dryRun {
 		fmt.Fprintln(stderr, "\nCan't set up the Linx services:", err)
 		return 1
@@ -430,7 +430,7 @@ func runInstallService(ctx context.Context, args []string, stderr io.Writer, env
 	defer stop()
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 	lan := env.lan()
-	imageTag, err := installer.ImageTag(env.commit)
+	imageTag, err := installer.ImageTag(env.version, env.commit)
 	if err != nil {
 		log.Error("which Linx images to use", "err", err)
 		return 1

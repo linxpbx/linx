@@ -879,3 +879,28 @@ Every call starts at **480p/600 kbit/s** — what every Linx relay has always ca
 **Whose messages.** A person's own box only. A ring group's messages have no phone to light up and no single person to mark them heard, and they are in the web app and the iPhone app for every member; offering them here would mean a menu before the messages, which is the thing people hate about voicemail. Worth revisiting if the owner wants it.
 
 **As built.** `internal/voicemail/listening.go` (`*97`) and `light.go` (the light); migration 0046 (`mailboxes` on the endpoint and the AOR views, desk phones only — the web app and the iPhone app count their own); the image gains `res_mwi_external`, `res_ari_mailboxes`, `res_stasis_mailbox`, `res_pjsip_mwi`, `res_pjsip_mwi_body_generator` and `res_pjsip_pubsub` (+0.81 MB with the new recordings); `internal/ari`'s `Do` for writes; the compose volume `voicemail-play`, in memory, where one message at a time is written and removed again.
+
+## ADR-084 — One branch, tags for releases, and three channels (2026-10-05, `docs/ops/RELEASES.md`)
+**Decision.** Going live doesn't change how the work is done; it changes what a server is allowed to pick up. So: **`master` stays the only long-lived branch**, every change lands there with CI green as it does now, and a **git tag is what makes a release**. Three channels follow from the tags:
+
+| Channel | What it is | Who runs it |
+|---|---|---|
+| **stable** | A tag like `v1.2.0`. The version a business runs. | The owner's own system, and anyone else's |
+| **beta** | A tag like `v1.3.0-beta.1`. A release being tried before it is called stable. | The test VPS, and the owner when they want to be early |
+| **edge** | Every green commit on `master`, as today. | Development and nothing else |
+
+CI already publishes `edge` and `sha-<commit>` for every green master commit, signed. A tag adds `1.2.0`, `1.2`, `stable` (or `1.3.0-beta.1`, `beta`) to exactly the images that commit already produced — **no rebuild**, so what was tested is literally what ships.
+
+**Version numbers are plain semver, and the first live one is `1.0.0`.** Not `0.x`: the day a business runs its phones on Linx, calling it "nought point something" is false modesty that makes people hesitate. After that, **a phase is a minor** (1.1 meetings, 1.2 3CX parity) and a fix is a patch.
+
+**The rule that makes a release safe to undo: a patch never adds a database migration.** Migrations only go forward (`internal/db`), so going back a version is only safe when the schema didn't move. A minor may migrate; a patch may not. That makes "put yesterday's version back" always true for the releases most likely to need it.
+
+**A server pins an exact version, always.** `.env` keeps `LINX_VERSION=1.2.0` — a channel is how `linx update` *chooses* what to offer, never what the stack resolves at start. Nobody's phone system silently changes underneath them because a tag moved.
+
+**Branches only when a hotfix needs one.** If 1.2.0 is live, master has moved on to 1.3 work, and 1.2 needs a fix, *then* `release-1.2` is cut from the tag, the fix is cherry-picked, and `v1.2.1` is tagged from it. Not before: a long-lived release branch for a single maintainer is bookkeeping with no reader.
+
+**The app follows the server's number.** `CFBundleShortVersionString` is the Linx version the app belongs to (1.0.0); `CFBundleVersion` is the build number, which only ever goes up and is never reused. TestFlight is the **beta** channel and the App Store is **stable**, so the two halves of a release line up by name.
+
+**Rejected.** *Git-flow* (`develop` + `release/*` + `hotfix/*`): designed for teams shipping on a cadence; for one person it is four branches to keep honest instead of one. *Long-lived `beta` and `stable` branches*: the same thing by another name, and they drift — a fix lands on one and not the other. *Rebuilding images at tag time*: a tag would then ship bytes nobody tested; re-tagging the tested digest is both safer and faster. *Calendar versions* (2026.10): they say when, not what changed, and say nothing about whether it is safe to go back.
+
+**As built.** `installer.ImageTag` prefers a release version over the commit, so a `linx` built from a tag sets up a stack on `1.2.0` images; `.github/workflows/release.yml` re-tags and signs on a tag push; `docs/ops/RELEASES.md` is the how-to, including what to do when a release needs a migration and how to put the previous version back.

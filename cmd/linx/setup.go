@@ -35,7 +35,8 @@ type setupEnv struct {
 	readFile    func(string) ([]byte, error)
 	// readSecret reads a line from the terminal without echoing it.
 	readSecret func() (string, error)
-	commit     string // build commit; picks the service image tag
+	version    string // build version; a release tag picks the service image tag (ADR-084)
+	commit     string // build commit; picks it otherwise
 	// executable is this linx binary's path, which setup installs as
 	// /usr/local/bin/linx ("" if unknown).
 	executable string
@@ -60,6 +61,7 @@ func realSetupEnv() setupEnv {
 			b, err := term.ReadPassword(int(os.Stdin.Fd()))
 			return string(b), err
 		},
+		version:    version.Version,
 		commit:     version.Commit,
 		executable: executablePath(),
 		resolve:    filepath.EvalSymlinks,
@@ -295,7 +297,7 @@ func runSetup(ctx context.Context, args []string, stdout, stderr io.Writer, env 
 	if err != nil {
 		return inputError(stderr, err)
 	}
-	imageTag, err := installer.ImageTag(env.commit)
+	imageTag, err := installer.ImageTag(env.version, env.commit)
 	if err != nil && !*dryRun {
 		fmt.Fprintln(stderr, "\nCan't set up the Linx services:", err)
 		return 1
@@ -825,7 +827,7 @@ func printUpdateWaiting(w io.Writer, env setupEnv) {
 	if err != nil || !cfg.Installed() {
 		return
 	}
-	want, err := installer.ImageTag(env.commit)
+	want, err := installer.ImageTag(env.version, env.commit)
 	running := installer.RunningImageTag(env.readFile)
 	if err != nil || running == "" || running == want {
 		return

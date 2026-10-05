@@ -62,17 +62,43 @@ type StackSetup struct {
 	Names string
 }
 
-// ImageTag returns the Linx image tag CI publishes for this build
-// ("sha-<full commit>"), or an error if the binary wasn't built from a known
-// commit.
-func ImageTag(commit string) (string, error) {
+// ImageTag returns the Linx image tag this build of the program belongs
+// with (ADR-084): a release's own number when it was built from a tag
+// ("1.2.0", "1.3.0-beta.1"), else the commit CI published it under
+// ("sha-<full commit>"). Either way a server pins one exact version in its
+// .env and never resolves a moving tag at start.
+//
+// An error means the program can't say what it is, which would leave setup
+// guessing which images go with it.
+func ImageTag(version, commit string) (string, error) {
+	if v, ok := releaseVersion(version); ok {
+		return v, nil
+	}
 	if !commitRE.MatchString(commit) {
-		return "", fmt.Errorf("this linx build doesn't say which version it is (commit %q), so setup can't pick matching service images; build it with make build from a checkout of master", commit)
+		return "", fmt.Errorf("this linx build doesn't say which version it is (version %q, commit %q), so setup can't pick matching service images; build it with make build from a checkout of master, or from a release tag", version, commit)
 	}
 	return "sha-" + commit, nil
 }
 
-var commitRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+// releaseVersion reads a release out of what the Makefile stamped in. A
+// build from a tag is exactly "v1.2.0" or "v1.3.0-beta.1"; anything with a
+// commit count or "-dirty" after it is a build from somewhere past the tag
+// and is not that release (git describe: "v1.2.0-4-gabc1234").
+func releaseVersion(version string) (string, bool) {
+	v, ok := strings.CutPrefix(strings.TrimSpace(version), "v")
+	if !ok || !releaseRE.MatchString(v) {
+		return "", false
+	}
+	return v, true
+}
+
+var (
+	commitRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	// Plain semver, with an optional pre-release of the shape releases
+	// use (beta.1, rc.2). No build metadata: it has no place in an image
+	// tag and nothing produces it.
+	releaseRE = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$`)
+)
 
 // RunningImageTag returns the image tag the installed stack was last set up
 // with (LINX_VERSION in its .env), or "" if there's none to read. read is
