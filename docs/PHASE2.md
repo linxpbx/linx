@@ -192,7 +192,9 @@ ARI (ADR-069, ADR-083); the owner folded them into this phase on
   play is in the image. The **call suite** proves it on the real image
   end to end: a message inserted, the light going on, `*97` playing the
   intro, the caller's digits and the message itself from its own file,
-  the message no longer new, the folder empty, and the light going out.
+  the message no longer new, the folder empty, and the light going out —
+  and, with SIPp subscribing the way a desk phone does, **the NOTIFY that
+  says the light is on**, which is the half nothing else could prove.
 - **What it costs** (`docs/RESOURCES.md`): the Asterisk image **+0.81 MB**
   (six modules, 528 KB, and the new recordings, 300 KB), the control plane
   **+0.05 MB**, no new container and no new timer — the light waits on
