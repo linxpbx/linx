@@ -35,6 +35,11 @@ struct VideoCallView: View {
     /// camera *is* the big picture, and showing it twice is just smaller.
     private var showsMyTile: Bool { call.video.theirs }
 
+    /// Their camera is on but nothing is coming through — a stutter, or a
+    /// picture that has stopped without saying so. The screen stays where it
+    /// is and says so, rather than flipping back to the voice call.
+    private var waitingForTheirs: Bool { call.video.theirs && !call.video.theirPicture }
+
     // MARK: - A phone: the picture fills the screen
 
     /// Upright, the buttons lie along the bottom; on its side they stand in
@@ -139,7 +144,7 @@ private struct BigPicture: View {
     var body: some View {
         ZStack {
             LinxColor.surfaceDark
-            if call.video.theirs, let track = tracks.remote {
+            if call.video.theirs, call.video.theirPicture, let track = tracks.remote {
                 VideoPicture(track: track, fills: fills, mirrored: false)
             } else if call.video.mine, let track = tracks.local {
                 VideoPicture(track: track, fills: fills, mirrored: mirrored)
@@ -163,7 +168,7 @@ private struct BigPicture: View {
     }
 
     private var waitingWords: String {
-        if call.video.theirs { return "Waiting for their picture…" }
+        if call.video.theirs { return "Their picture has stopped. The call carries on." }
         if call.video.mine { return "Starting your camera…" }
         return "Their camera is off."
     }

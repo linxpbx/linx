@@ -7,16 +7,29 @@ import Foundation
 // camera is switched on by hand and switched off again with the button, with
 // the call, or when the network can't carry it.
 //
-// Small on purpose. 640×480 at 24 frames is a face on a phone screen, costs
-// a fraction of what a "high definition" call costs, and goes through a
-// one-core Linx server without trouble (CLAUDE.md, the low-bandwidth rule).
+// What it asks the camera for follows the link (`VideoQuality`, ADR-081): a
+// call starts at 640×480, climbs as far as 720p where there is room for it,
+// and comes down to a face on a thin one. The *scaling* is the video source's
+// own and costs nothing; the camera itself is only restarted when a step needs
+// more pixels than the format in use can give, which is why going up is the
+// slow direction (CLAUDE.md, the low-bandwidth rule).
 
 /// Whose camera is on, as the screen sees it.
+///
+/// `theirs` is what the other side **says** — their SDP, or a stream starting —
+/// and it is what decides whether this is a call with a picture in it at all.
+/// `theirPicture` is whether frames are really arriving, which decides only
+/// what is drawn inside that screen. Keeping them apart is what stops the app
+/// flipping between the video screen and the voice screen every few seconds
+/// when a picture stutters or when the last frames of a camera just switched
+/// off are still in the air (owner, 2026-10-05).
 struct CallVideo: Equatable, Sendable {
     /// This phone is sending a picture.
     var mine = false
-    /// The other side is sending one.
+    /// The other side says they are sending one.
     var theirs = false
+    /// And their frames are actually arriving.
+    var theirPicture = false
 
     var on: Bool { mine || theirs }
 }
@@ -53,16 +66,16 @@ enum CameraTrouble: Error {
     private var front =
         UserDefaults.standard.object(forKey: Settings.startVideoCallsWithTheFrontCamera) as? Bool ?? true
     private var running = false
+    /// What is being asked for now, and what the running capture format can
+    /// actually give.
+    private(set) var quality: VideoQuality
+    private var captured: VideoQuality?
 
-    /// What the camera is asked for. The far end sees whatever its own
-    /// screen can show; nothing here goes above it.
-    static let width = 640
-    static let height = 480
-    static let frameRate = 24
-
-    init(factory: RTCPeerConnectionFactory) {
+    init(factory: RTCPeerConnectionFactory, quality: VideoQuality = .standard) {
+        self.quality = quality
         source = factory.videoSource()
-        source.adaptOutputFormat(toWidth: Int32(Self.width), height: Int32(Self.height), fps: Int32(Self.frameRate))
+        source.adaptOutputFormat(
+            toWidth: Int32(quality.width), height: Int32(quality.height), fps: Int32(quality.frameRate))
         capturer = RTCCameraVideoCapturer(delegate: source)
         // The camera uses the **call's** audio session and is never allowed
         // to configure it.
@@ -86,12 +99,31 @@ enum CameraTrouble: Error {
     func start() async throws {
         guard !running else { return }
         guard await Self.allowed() else { throw CameraTrouble.notAllowed }
-        guard let device = Self.device(front: front), let format = Self.format(for: device) else {
+        guard let device = Self.device(front: front), let format = Self.format(for: device, at: quality) else {
             throw CameraTrouble.noCamera
         }
-        let fps = min(Self.frameRate, Int(format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30))
-        try await capturer.startCapture(with: device, format: format, fps: fps)
+        try await capturer.startCapture(with: device, format: format, fps: fps(format))
         running = true
+        captured = quality
+    }
+
+    /// Follow the link to a new step. Coming down, and going up to anything the
+    /// running format can still give, is the source's own scaling and the
+    /// picture doesn't blink; going up past it restarts the camera once.
+    func use(_ quality: VideoQuality) async {
+        self.quality = quality
+        source.adaptOutputFormat(
+            toWidth: Int32(quality.width), height: Int32(quality.height), fps: Int32(quality.frameRate))
+        guard running, let captured, quality > captured else { return }
+        guard let device = Self.device(front: front), let format = Self.format(for: device, at: quality) else {
+            return
+        }
+        try? await capturer.startCapture(with: device, format: format, fps: fps(format))
+        self.captured = quality
+    }
+
+    private func fps(_ format: AVCaptureDevice.Format) -> Int {
+        min(quality.frameRate, Int(format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30))
     }
 
     func stop() {
@@ -104,9 +136,10 @@ enum CameraTrouble: Error {
     /// at what they are looking at.
     func flip() {
         front.toggle()
-        guard running, let device = Self.device(front: front), let format = Self.format(for: device) else { return }
-        let fps = min(Self.frameRate, Int(format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30))
-        capturer.startCapture(with: device, format: format, fps: fps)
+        guard running, let device = Self.device(front: front), let format = Self.format(for: device, at: quality)
+        else { return }
+        capturer.startCapture(with: device, format: format, fps: fps(format))
+        captured = quality
     }
 
     /// Whether this phone's own picture should be shown mirrored, as a
@@ -137,15 +170,15 @@ enum CameraTrouble: Error {
         return cameras.first { $0.position == wanted } ?? cameras.first
     }
 
-    /// The smallest format that is still at least what Linx asks for, so the
-    /// camera itself does the shrinking rather than the processor.
-    private static func format(for device: AVCaptureDevice) -> AVCaptureDevice.Format? {
+    /// The smallest format that is still at least what this step asks for, so
+    /// the camera itself does the shrinking rather than the processor.
+    private static func format(for device: AVCaptureDevice, at quality: VideoQuality) -> AVCaptureDevice.Format? {
         let formats = RTCCameraVideoCapturer.supportedFormats(for: device)
         let sizes = formats.map { format -> (AVCaptureDevice.Format, Int32, Int32) in
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             return (format, dimensions.width, dimensions.height)
         }
-        let big = sizes.filter { $0.1 >= Int32(width) && $0.2 >= Int32(height) }
+        let big = sizes.filter { $0.1 >= Int32(quality.width) && $0.2 >= Int32(quality.height) }
         let pick = big.min { ($0.1 * $0.2) < ($1.1 * $1.2) } ?? sizes.max { ($0.1 * $0.2) < ($1.1 * $1.2) }
         return pick?.0
     }

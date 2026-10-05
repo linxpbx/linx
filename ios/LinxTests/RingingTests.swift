@@ -76,7 +76,8 @@ struct RingingTests {
                 password: "in-memory-only", sipURI: "sip:d_Ab12Cd34@pbx.example.com",
                 websocketPath: "/sip", displayName: "Sara Haddad", extensionNumber: "101",
                 turn: PhoneLine.Turn(
-                    urls: [], username: "u", credential: "c", expiresAt: Date(timeIntervalSinceNow: 3600))),
+                    urls: [], username: "u", credential: "c", expiresAt: Date(timeIntervalSinceNow: 3600),
+                    maxBitrateBps: 1_280_000)),
             server: URL(string: "https://pbx.example.com")!, token: "a-device-token")
     }
 

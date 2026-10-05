@@ -37,6 +37,7 @@ import (
 	"linxpbx.com/linx/internal/sso"
 	"linxpbx.com/linx/internal/trunk"
 	"linxpbx.com/linx/internal/turn"
+	"linxpbx.com/linx/internal/turnconf"
 	"linxpbx.com/linx/internal/webhook"
 	controlplaneapi "linxpbx.com/linx/services/control-plane/api"
 )
@@ -130,7 +131,10 @@ func newTestEnv(t *testing.T) *testEnv {
 	if accounts.WebAuthn, err = auth.NewWebAuthn("linx.example.com", 443); err != nil {
 		t.Fatal(err)
 	}
-	turnIssuer := &turn.Issuer{Secret: []byte("test-turn-secret"), URLs: turn.DefaultURLs("linx.example.com"), Now: time.Now}
+	turnIssuer := &turn.Issuer{
+		Secret: []byte("test-turn-secret"), URLs: turn.DefaultURLs("linx.example.com"),
+		MaxBitrate: turnconf.MaxBPS * 8, Now: time.Now,
+	}
 	teamStore := &fakeTeamStore{presence: map[uuid.UUID]string{}}
 	team := &pbx.Team{Store: teamStore, Calls: calls}
 	hub := newTeamHub(team, log)

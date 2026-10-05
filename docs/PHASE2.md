@@ -257,6 +257,40 @@ all three found:
   be there, the frames say whether it really is, and both have to agree before
   it goes back on the screen.
 
+### A picture that follows the link, and a screen that stops flickering (2026-10-05, ADR-081)
+
+The owner's video call worked once the relay's cap was raised, and they asked
+for the next thing: **"adaptive based on connection speed — HD on a fast link,
+less on a slow one, and when it is too low drop the video and switch to voice
+only."** They also found the screen **alternating** between the video call and
+the voice call after pressing Stop video.
+
+- **Five steps** — 240p, 360p, 480p, 540p, 720p at 200, 350, 600, 900 and
+  1500 kbit/s (`VideoQuality`). Every call starts at **480p/600 kbit/s**, which
+  is what every Linx relay has always carried and what the first seconds of a
+  mobile call can be trusted with, and climbs from there.
+- **Down at once, up slowly.** A step down on the first reading that says the
+  link can't hold the picture; a step up only after about ten seconds of room to
+  spare, a third more than the next step needs. Readings come every three
+  seconds while a picture is going out (five otherwise).
+- **Never more than the road allows.** A relayed call is held to what Linx's
+  relay will carry for one call: the server now hands the phone that number
+  (`max_bitrate_bps` in the relay credentials, from coturn's `max-bps`), less
+  the voice and the packets' own weight. With today's 160 kB/s that is 540p; a
+  call straight to the other side may go to 720p. An older server that doesn't
+  say stays at 480p, which is always safe.
+- **Sound still comes first**, unchanged: under 150 kbit/s for three readings
+  the camera goes off by itself and the call carries on as a phone call.
+- **Inside a step, WebRTC decides** (`degradationPreference = balanced`), which
+  is the fine work between our readings.
+- **The screen stops flickering.** `CallVideo` now keeps "they **say** they are
+  sending a picture" (their SDP) apart from "their frames are **arriving**". The
+  first decides whether this is a call with a picture in it; the second decides
+  only what is drawn inside that screen. Before, a stutter — or the last frames
+  of a camera just switched off — flipped the whole app between the video screen
+  and the voice screen every few seconds.
+- **Call details** shows the step in the words people use for it ("540p").
+
 ### Step 6, as built (2026-10-04)
 **A sleeping phone rings now.** Step 5 gave the server the push; this is the app's side of it, and the rule that shapes all of it is Apple's: a VoIP push must report a call to CallKit *at once, every time*, or iOS kills the app and stops delivering its pushes (§14 item 1).
 

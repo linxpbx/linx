@@ -32,6 +32,9 @@ struct CallDetailsView: View {
                         LabeledContent("Round trip", value: "\(rtt) ms")
                     }
                     LabeledContent("Connection", value: diagnostics.ice)
+                    if let picture = diagnostics.picture, call.video.mine {
+                        LabeledContent("Your picture", value: picture)
+                    }
                 } header: {
                     Text("The sound")
                 } footer: {
@@ -133,6 +136,7 @@ struct CallDetailsView: View {
         } else {
             lines.append("route: none agreed")
         }
+        if let picture = diagnostics.picture { lines.append("picture: \(picture)") }
         lines.append("found: \(diagnostics.found.isEmpty ? "none" : diagnostics.found.joined(separator: ", "))")
         lines.append("relay: \(diagnostics.relayURLs.joined(separator: " "))")
         if let expires = diagnostics.relayExpiresAt {

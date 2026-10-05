@@ -11,11 +11,13 @@ enum SDPTweaks {
     /// Opus's most, in bits per second: full-quality mono voice.
     static let opusMaxBitrate = 24000
 
-    /// A 1:1 video call's most, in bits per second (docs/PHASE2.md §7).
-    /// Small on purpose: the picture goes through Linx's own server, which
-    /// may be one core and a slow line, and sound comes first — a call that
-    /// looks worse is better than a call that sounds worse.
-    static let videoMaxBitrate = 600_000
+    /// The ceiling written into an SDP this phone sends, in bits per second:
+    /// the most a picture could ever use here (`VideoQuality.hd`). What it
+    /// *does* use is decided call by call from the link and the route
+    /// (ADR-081) and set on the sender itself, which is where a moving ceiling
+    /// belongs — an SDP is negotiated once and would otherwise hold a good
+    /// link down to what the first seconds of the call could manage.
+    static let videoMaxBitrate = VideoQuality.hd.bitrate
 
     /// preferOpusFecDtx writes the Opus settings into an SDP this phone is
     /// about to send. An SDP without Opus is left exactly as it was.

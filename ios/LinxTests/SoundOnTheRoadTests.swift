@@ -26,6 +26,65 @@ struct SoundOnTheRoadTests {
         #expect(camera.usesTheCallsAudioSession)
     }
 
+    // MARK: - A picture that follows the link (ADR-081)
+
+    @Test("the picture never asks for more than the route allows")
+    func theCeiling() {
+        // Straight to the other side: as good as the link can carry.
+        #expect(VideoQuality.ceiling(route: .direct, relay: nil) == .hd)
+        #expect(VideoQuality.ceiling(route: .direct, relay: 1_280_000) == .hd)
+        // Through Linx's relay: never more than the relay will carry for one
+        // call, because asking for more doesn't slow the picture down, it
+        // freezes it (owner, 2026-10-05).
+        #expect(VideoQuality.ceiling(route: .relayed, relay: 1_280_000) == .high)
+        #expect(VideoQuality.ceiling(route: .relayed, relay: 512_000) == .low)
+        #expect(VideoQuality.ceiling(route: .relayed, relay: 200_000) == .thin)
+        // A server too old to say stays where every Linx relay has always been.
+        #expect(VideoQuality.ceiling(route: .relayed, relay: nil) == .standard)
+    }
+
+    @Test("the picture comes down at once and goes up slowly")
+    func theLadder() {
+        var ladder = VideoLadder()
+        #expect(ladder.quality == .standard)
+        // A link with room to spare: nothing happens for a few readings, then
+        // it steps up once — not twice, and not every reading.
+        for _ in 0..<(VideoLadder.steadyReadings - 1) {
+            #expect(ladder.reading(spare: 4_000_000, ceiling: .hd) == nil)
+        }
+        #expect(ladder.reading(spare: 4_000_000, ceiling: .hd) == .high)
+        #expect(ladder.reading(spare: 4_000_000, ceiling: .hd) == nil)
+        // The link narrows: down on the very first reading that says so.
+        #expect(ladder.reading(spare: 300_000, ceiling: .hd) == .standard)
+        #expect(ladder.reading(spare: 300_000, ceiling: .hd) == .low)
+        #expect(ladder.reading(spare: 300_000, ceiling: .hd) == .thin)
+        // The bottom step is the bottom: the camera going off altogether is
+        // the other rule's job, not this one's.
+        #expect(ladder.reading(spare: 10_000, ceiling: .hd) == nil)
+        #expect(ladder.quality == .thin)
+        // A ceiling that drops — the call turned out to be relayed — takes the
+        // picture with it at once.
+        var relayed = VideoLadder(start: .hd)
+        #expect(relayed.reading(spare: 4_000_000, ceiling: .high) == .high)
+        #expect(relayed.reading(spare: 4_000_000, ceiling: .high) == nil)
+    }
+
+    @Test("every step is smaller than the one above it, and names itself")
+    func theSteps() {
+        let steps = VideoQuality.allCases
+        #expect(steps == steps.sorted())
+        for (lower, higher) in zip(steps, steps.dropFirst()) {
+            #expect(lower.bitrate < higher.bitrate)
+            #expect(lower.width <= higher.width)
+            #expect(lower.height < higher.height)
+            #expect(lower.needs > lower.bitrate)
+        }
+        #expect(VideoQuality.hd.words == "720p")
+        #expect(VideoQuality.standard.words == "480p")
+        // What a phone sends is never above the ceiling written into the SDP.
+        #expect(SDPTweaks.videoMaxBitrate == VideoQuality.hd.bitrate)
+    }
+
     // MARK: - Who says the relay's certificate is good
 
     @Test("the relay is trusted by iOS, for the hostname Linx named, or not at all")
@@ -46,7 +105,7 @@ struct SoundOnTheRoadTests {
         #expect(!RelayCertificates(relay: nil).verify(Data([1, 2, 3])))
         let relay = PhoneLine.Turn(
             urls: ["turns:turn.example.com:443?transport=tcp"], username: "u", credential: "c",
-            expiresAt: Date(timeIntervalSinceNow: 3600))
+            expiresAt: Date(timeIntervalSinceNow: 3600), maxBitrateBps: 1_280_000)
         #expect(!RelayCertificates(relay: relay).verify(Data()))
         #expect(!RelayCertificates(relay: relay).verify(Data(repeating: 0x30, count: 64)))
     }
@@ -246,7 +305,7 @@ struct SoundOnTheRoadTests {
                 websocketPath: "/sip", displayName: "Sara Haddad", extensionNumber: "101",
                 turn: PhoneLine.Turn(
                     urls: ["turns:turn.example.com:443?transport=tcp"], username: "u", credential: "c",
-                    expiresAt: Date(timeIntervalSinceNow: 3600))),
+                    expiresAt: Date(timeIntervalSinceNow: 3600), maxBitrateBps: 1_280_000)),
             server: URL(string: "https://pbx.example.com")!, token: "a-device-token")
     }
 

@@ -6059,6 +6059,8 @@ export interface components {
             credential: string;
             /** Format: date-time */
             expires_at: string;
+            /** @description All the relay will carry for one call, in bits a second (coturn's max-bps). A client that adapts its picture to the link keeps inside it on a relayed call: asking the relay for more than this doesn't slow the picture down, it loses packets and freezes it. It does not apply to a call that goes straight to the other side. */
+            max_bitrate_bps?: number;
         };
         MfaConfirmed: {
             /** @description 10 codes, shown once. Each works instead of an authenticator code, one time. */

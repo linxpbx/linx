@@ -44,7 +44,11 @@ func signedInPerson(ctx context.Context) (auth.Principal, uuid.UUID, *apihttp.Er
 }
 
 func turnCredentials(c turn.Credentials) TurnCredentials {
-	return TurnCredentials{Urls: c.URLs, Username: c.Username, Credential: c.Password, ExpiresAt: c.ExpiresAt}
+	out := TurnCredentials{Urls: c.URLs, Username: c.Username, Credential: c.Password, ExpiresAt: c.ExpiresAt}
+	if c.MaxBitrate > 0 {
+		out.MaxBitrateBps = &c.MaxBitrate
+	}
+	return out
 }
 
 func (s *Server) IssueMyWebPhone(ctx context.Context, _ IssueMyWebPhoneRequestObject) (IssueMyWebPhoneResponseObject, error) {

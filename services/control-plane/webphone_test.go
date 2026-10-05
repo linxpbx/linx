@@ -17,6 +17,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/siprelay"
+	"linxpbx.com/linx/internal/turnconf"
 )
 
 // signedInPerson creates a person (with extension ext, if not nil), signs
@@ -117,10 +118,18 @@ func TestWebPhoneIssued(t *testing.T) {
 		req.AddCookie(c)
 	}
 	r := env.send(req)
-	var tc struct{ Username, Credential string }
+	var tc struct {
+		Username, Credential string
+		MaxBitrateBps        int `json:"max_bitrate_bps"`
+	}
 	r.json(t, &tc)
 	if r.status != http.StatusOK || !strings.HasSuffix(tc.Username, ":"+uid.String()) || tc.Credential == "" {
 		t.Errorf("turn-credentials: %d %s", r.status, r.body)
+	}
+	// What the relay will carry for one call, so a phone can keep its picture
+	// inside it (ADR-081).
+	if tc.MaxBitrateBps != turnconf.MaxBPS*8 {
+		t.Errorf("max_bitrate_bps %d, want %d", tc.MaxBitrateBps, turnconf.MaxBPS*8)
 	}
 
 	// The password is never shown by the admin device API, and can't be

@@ -61,6 +61,8 @@ and something is wrong — tell me and the server's own numbers will say where.
 | 3.7 | Walk somewhere with poor signal while video is on | After about a quarter of a minute the camera turns itself off and says so; the call stays up |
 | 3.8 | Press **Video** with AirPods or a headset connected | The sound stays with them. The camera must never take the sound back to the phone (owner, 2026-10-05) |
 | 3.9 | **Stop video**, then press **Video** again straight away | The button shows it is working ("Starting…") and the picture comes back. On mobile data it takes a second or two: the picture needs a way through the relay of its own |
+| 3.8a | On a good Wi-Fi video call, wait half a minute, then open **Call details** | **Your picture** climbs to 540p or 720p. On mobile data through the relay it stops at 540p — that is the relay's own limit, not a fault |
+| 3.8b | While video is on, walk somewhere with poor signal | The picture gets smaller rather than freezing, and the sound stays. Come back and it climbs again after a few seconds |
 | 3.10 | **Video** in the **Test my sound** call | You see your own camera **on the big screen** (the echo test sends it back, and a call where only one camera is on is an ordinary call). **Stop video** returns to the call screen |
 
 ## 4. The rest of the app

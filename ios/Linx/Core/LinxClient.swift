@@ -114,10 +114,16 @@ struct PhoneLine: Decodable, Sendable {
         let username: String
         let credential: String
         let expiresAt: Date
+        /// All the relay will carry for one call, in bits a second. It is what
+        /// keeps a relayed video call inside what the relay allows (ADR-081);
+        /// a server too old to say it leaves this nil and the picture stays at
+        /// the size every Linx relay has always carried.
+        let maxBitrateBps: Int?
 
         enum CodingKeys: String, CodingKey {
             case urls, username, credential
             case expiresAt = "expires_at"
+            case maxBitrateBps = "max_bitrate_bps"
         }
     }
 

@@ -72,6 +72,12 @@ type Credentials struct {
 	Username  string
 	Password  string
 	ExpiresAt time.Time
+	// MaxBitrate is all the relay will carry for one call, in bits a second
+	// (coturn's max-bps). A client that adapts its picture to the link needs
+	// to know it: a relayed call that asks for more than the relay allows
+	// doesn't slow down, it loses packets, and the picture freezes while the
+	// voice carries on (2026-10-05). On a direct call it doesn't apply.
+	MaxBitrate int
 }
 
 // Issuer makes credentials.
@@ -81,14 +87,20 @@ type Issuer struct {
 	// "turn:turn.example.com:443?transport=udp" (docs/WEB.md §3: which
 	// ones depends on the front door).
 	URLs []string
-	Now  func() time.Time
+	// MaxBitrate is coturn's per-call cap in bits a second, handed to the
+	// clients so they can keep a picture inside it.
+	MaxBitrate int
+	Now        func() time.Time
 }
 
 // Issue returns credentials for person, valid for TTL.
 func (i *Issuer) Issue(person uuid.UUID) Credentials {
 	exp := i.Now().Add(TTL).Truncate(time.Second)
 	user := strconv.FormatInt(exp.Unix(), 10) + ":" + person.String()
-	return Credentials{URLs: i.URLs, Username: user, Password: Password(i.Secret, user), ExpiresAt: exp.UTC()}
+	return Credentials{
+		URLs: i.URLs, Username: user, Password: Password(i.Secret, user), ExpiresAt: exp.UTC(),
+		MaxBitrate: i.MaxBitrate,
+	}
 }
 
 // Password is coturn's REST API password for username.

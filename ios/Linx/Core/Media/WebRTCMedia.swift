@@ -66,6 +66,9 @@ struct CallDiagnostics: Equatable, Sendable {
     /// last an hour and are refreshed; expired ones mean no relay at all.
     var relayURLs: [String] = []
     var relayExpiresAt: Date?
+    /// What the picture is set to now, in the words people use for it ("540p"),
+    /// while this phone's camera is on (ADR-081).
+    var picture: String?
     /// Whether the phone has finished looking for routes. Until it has, a
     /// relay address that failed means nothing: a server may offer two and
     /// one of them answer, and the one that fails usually fails first — which
@@ -176,6 +179,8 @@ struct PictureWatch {
     private var videoSender: RTCRtpSender?
     /// How long the link has been too thin for a picture, in readings.
     private var tooThin = 0
+    /// Which step of picture quality this call is on (ADR-081).
+    private var ladder = VideoLadder()
     private var gathered: CheckedContinuation<Void, Never>?
     private var gatheringLimit: Task<Void, Never>?
     private var watch: Task<Void, Never>?
@@ -199,6 +204,10 @@ struct PictureWatch {
     private static let gatherLimit: Duration = .seconds(10)
     private static let afterRelayCandidate: Duration = .milliseconds(300)
     private static let readRouteEvery: Duration = .seconds(5)
+    /// While a picture is going out there is something to decide on every
+    /// reading (ADR-081), so they come a little faster. Still cheap: one
+    /// statistics read, no network of its own.
+    private static let readRouteEveryWithVideo: Duration = .seconds(3)
     /// Room enough for the voice, the overhead and a thin picture. Below it
     /// the picture is what gives way.
     private static let tooThinForVideo = 150_000
@@ -299,7 +308,7 @@ struct PictureWatch {
     func startVideo() async throws -> String {
         guard connection != nil else { throw MediaTrouble.noOffer }
         guard !video.mine else { return try await offer() }
-        let camera = self.camera ?? Camera(factory: Self.factory)
+        let camera = self.camera ?? Camera(factory: Self.factory, quality: ladder.quality)
         try await camera.start()
         self.camera = camera
         if let sender = videoSender {
@@ -314,7 +323,7 @@ struct PictureWatch {
             videoSender = connection?.add(camera.track, streamIds: ["linx"])
         }
         tracks.local = camera.track
-        said(CallVideo(mine: true, theirs: video.theirs))
+        said(CallVideo(mine: true, theirs: video.theirs, theirPicture: video.theirPicture))
         let offer = try await offer()
         capWhatThisPhoneSends()
         return offer
@@ -369,7 +378,7 @@ struct PictureWatch {
                 transceiver.setDirection(.inactive, error: nil)
             }
         }
-        said(CallVideo(mine: false, theirs: video.theirs))
+        said(CallVideo(mine: false, theirs: video.theirs, theirPicture: video.theirPicture))
     }
 
     /// "Show me yours, I'm not sending mine."
@@ -387,13 +396,6 @@ struct PictureWatch {
     /// camera on (owner, 2026-10-05); without the second, a picture that
     /// stopped sits frozen on the screen.
     private func theySaid(_ on: Bool) {
-        theyMeanToSendVideo = on
-        theirVideo(on)
-    }
-
-    private var theyMeanToSendVideo = false
-
-    private func theirVideo(_ on: Bool) {
         guard on != video.theirs else { return }
         // The track itself is kept either way. A picture that stopped has to
         // be able to come back — the same track starts carrying frames again
@@ -403,7 +405,17 @@ struct PictureWatch {
         // before the first frame had had time to arrive). It is let go of when
         // the other side really takes it away, and when the call ends.
         frames.forget()
-        said(CallVideo(mine: video.mine, theirs: on))
+        // Their word for it is enough to put the screen up; the frames decide
+        // what is drawn in it, and the first ones are usually a moment behind.
+        said(CallVideo(mine: video.mine, theirs: on, theirPicture: on && video.theirPicture))
+    }
+
+    /// Whether their frames are arriving. It never changes which screen the
+    /// call is on — only what the picture area shows — so a stutter can't flip
+    /// the app between the video screen and the voice screen.
+    private func theirPicture(_ arriving: Bool) {
+        guard arriving != video.theirPicture, video.theirs || !arriving else { return }
+        said(CallVideo(mine: video.mine, theirs: video.theirs, theirPicture: arriving))
     }
 
     private func said(_ now: CallVideo) {
@@ -444,7 +456,6 @@ struct PictureWatch {
         tracks.local = nil
         tracks.remote = nil
         video = CallVideo()
-        theyMeanToSendVideo = false
         audio = nil
         connection?.close()
         connection = nil
@@ -692,10 +703,10 @@ struct PictureWatch {
     private func checkTheirPicture(_ connection: MediaConnection) {
         guard
             let arriving = frames.reading(
-                framesIn: connection.framesIn, showing: video.theirs, announced: theyMeanToSendVideo)
+                framesIn: connection.framesIn, showing: video.theirPicture, announced: video.theirs)
         else { return }
         guard !arriving || tracks.remote != nil else { return }
-        theirVideo(arriving)
+        theirPicture(arriving)
     }
 
     private var frames = PictureWatch()
@@ -731,12 +742,36 @@ struct PictureWatch {
             guard kind == kRTCMediaStreamTrackKindAudio || kind == kRTCMediaStreamTrackKindVideo else { continue }
             let video = kind == kRTCMediaStreamTrackKindVideo
             let parameters = sender.parameters
+            if video {
+                // Within the step, WebRTC may trade size for smoothness as it
+                // sees fit — that is its own congestion control doing the fine
+                // work between our readings.
+                parameters.degradationPreference = NSNumber(value: RTCDegradationPreference.balanced.rawValue)
+            }
             for encoding in parameters.encodings {
-                encoding.maxBitrateBps = NSNumber(value: video ? SDPTweaks.videoMaxBitrate : SDPTweaks.opusMaxBitrate)
-                if video { encoding.maxFramerate = NSNumber(value: Camera.frameRate) }
+                encoding.maxBitrateBps = NSNumber(
+                    value: video ? ladder.quality.bitrate : SDPTweaks.opusMaxBitrate)
+                if video { encoding.maxFramerate = NSNumber(value: ladder.quality.frameRate) }
             }
             sender.parameters = parameters
         }
+    }
+
+    /// Follows the link while a picture is going out (ADR-081): better where
+    /// there is room to spare for a quarter of a minute, smaller at the first
+    /// reading that says there isn't, and never above what the route allows —
+    /// a relayed call can only have what Linx's relay will carry for one call.
+    private func adaptTheVideo(_ connection: MediaConnection) {
+        guard video.mine else {
+            if ladder.quality != .standard { ladder = VideoLadder() }
+            return
+        }
+        let ceiling = VideoQuality.ceiling(route: connection.route, relay: turn?.maxBitrateBps)
+        guard let step = ladder.reading(spare: connection.outgoingBitrate, ceiling: ceiling) else { return }
+        capWhatThisPhoneSends()
+        note { $0.picture = step.words }
+        let camera = camera
+        Task { await camera?.use(step) }
     }
 
     /// Reads how the sound is getting through, every few seconds — no more
@@ -748,10 +783,11 @@ struct PictureWatch {
                 guard let self else { return }
                 if let connection = await self.readConnection() {
                     self.onConnection?(connection)
+                    self.adaptTheVideo(connection)
                     self.checkTheLink(connection)
                     self.checkTheirPicture(connection)
                 }
-                try? await Task.sleep(for: Self.readRouteEvery)
+                try? await Task.sleep(for: self.video.mine ? Self.readRouteEveryWithVideo : Self.readRouteEvery)
             }
         }
     }

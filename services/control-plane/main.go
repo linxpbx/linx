@@ -57,6 +57,7 @@ import (
 	"linxpbx.com/linx/internal/trunkconf"
 	"linxpbx.com/linx/internal/trunkprobe"
 	"linxpbx.com/linx/internal/turn"
+	"linxpbx.com/linx/internal/turnconf"
 	"linxpbx.com/linx/internal/version"
 	"linxpbx.com/linx/internal/voicemail"
 	"linxpbx.com/linx/internal/webapp"
@@ -292,7 +293,11 @@ func main() {
 		log.Error("relay addresses", "err", err)
 		os.Exit(1)
 	}
-	turnIssuer := &turn.Issuer{Secret: turnSecret, URLs: turnURLs, Now: time.Now}
+	// The relay's own per-call cap, in bits a second, so a phone can keep its
+	// picture inside what the relay will carry (ADR-081).
+	turnIssuer := &turn.Issuer{
+		Secret: turnSecret, URLs: turnURLs, MaxBitrate: turnconf.MaxBPS * 8, Now: time.Now,
+	}
 	ariCfg := ariConfigFromEnv(os.Getenv)
 	relay, err := newSIPRelay(sipwsURLFromEnv(os.Getenv), ariCfg.CARootFile, st, log)
 	if err != nil {

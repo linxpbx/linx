@@ -145,7 +145,7 @@ struct CallTests {
         websocketPath: "/sip", displayName: "Sara Haddad", extensionNumber: "101",
         turn: PhoneLine.Turn(
             urls: ["turns:pbx.example.com:443?transport=tcp"], username: "u", credential: "c",
-            expiresAt: Date(timeIntervalSinceNow: 3600)))
+            expiresAt: Date(timeIntervalSinceNow: 3600), maxBitrateBps: 1_280_000))
 
     private static var account: SIPUserAgent.Account {
         SIPUserAgent.Account(
