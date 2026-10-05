@@ -223,8 +223,9 @@ domain:
   # Its key is kept in `+DNSTokenPath+`, not here.
   dns_provider: %s
 %scertificates:
-  # true: Let's Encrypt test certificates (browsers warn). Set to false once
-  # everything works to get trusted certificates.
+  # true: Let's Encrypt test certificates (browsers warn) — for trying Linx
+  # out during development, not a live install. Leave false for a real
+  # phone system; the interactive installer never offers it on a release.
   staging: %t
   # true: one certificate for *.<domain>, which keeps the host names private.
   wildcard: %t

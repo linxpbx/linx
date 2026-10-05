@@ -357,3 +357,50 @@ func TestAskFrontDoorPublicPort(t *testing.T) {
 		}
 	}
 }
+
+// A release build must not offer a test certificate (ADR-084): a live
+// phone system always wants a trusted one, so the question is skipped and
+// staging is forced off. A development build still asks.
+func TestAskCertificatesSkipsTestCertOnRelease(t *testing.T) {
+	// Release: no question, staging off, and it goes straight to asking
+	// for the (required) email — the "r" answer here is the email prompt's.
+	var out bytes.Buffer
+	p := &prompter{in: bufio.NewReader(strings.NewReader("admin@example.com\n")), out: &out}
+	cfg := installer.Config{Certificates: installer.CertificateConfig{Staging: true}}
+	if err := p.askCertificates(&cfg, true); err != nil {
+		t.Fatalf("release askCertificates: %v\n%s", err, out.String())
+	}
+	if cfg.Certificates.Staging {
+		t.Error("a release build left staging on")
+	}
+	if strings.Contains(out.String(), "test certificate") {
+		t.Errorf("a release build offered a test certificate:\n%s", out.String())
+	}
+
+	// Development: the question is asked, and answering yes keeps staging.
+	out.Reset()
+	p = &prompter{in: bufio.NewReader(strings.NewReader("y\n\n")), out: &out}
+	cfg = installer.Config{Certificates: installer.CertificateConfig{Staging: true}}
+	if err := p.askCertificates(&cfg, false); err != nil {
+		t.Fatalf("dev askCertificates: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "Use test certificates for now?") {
+		t.Errorf("a development build didn't ask about test certificates:\n%s", out.String())
+	}
+	if !cfg.Certificates.Staging {
+		t.Error("a development build that answered yes turned staging off")
+	}
+}
+
+func TestIsReleaseBuild(t *testing.T) {
+	for _, r := range []string{"v1.0.0", "v1.2.3", "v2.0.0-beta.1"} {
+		if !installer.IsRelease(r) {
+			t.Errorf("IsRelease(%q) = false", r)
+		}
+	}
+	for _, d := range []string{"dev", "v1.2.0-4-gabc1234", "1.0.0", ""} {
+		if installer.IsRelease(d) {
+			t.Errorf("IsRelease(%q) = true", d)
+		}
+	}
+}

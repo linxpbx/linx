@@ -539,7 +539,7 @@ func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (stri
 			return "", err
 		}
 		if keep {
-			return saved, p.askCertificates(cfg)
+			return saved, p.askCertificates(cfg, installer.IsRelease(env.version))
 		}
 	}
 	co, _ := dnsapi.Find(cfg.Domain.DNSProvider)
@@ -577,7 +577,7 @@ func askDomain(p *prompter, cfg *installer.Config, ask bool, env setupEnv) (stri
 			fmt.Fprintln(p.out, "  "+err.Error())
 			continue
 		}
-		return secret, p.askCertificates(cfg)
+		return secret, p.askCertificates(cfg, installer.IsRelease(env.version))
 	}
 }
 
@@ -600,13 +600,19 @@ func baseDomain(d string) string {
 	return strings.Join(labels[len(labels)-2:], ".")
 }
 
-// askCertificates asks whether to use test certificates and for a contact email.
-func (p *prompter) askCertificates(cfg *installer.Config) error {
+// askCertificates asks whether to use test certificates (development builds
+// only — ADR-084) and for a contact email. A real release never offers a
+// test certificate: a live phone system always wants a trusted one.
+func (p *prompter) askCertificates(cfg *installer.Config, release bool) error {
 	var err error
-	fmt.Fprint(p.out, "\nTest certificates come from Let's Encrypt's test service. Browsers warn about them, but they\n"+
-		"let you check everything works without hitting Let's Encrypt's limits. Switch to trusted ones later.\n")
-	if cfg.Certificates.Staging, err = p.confirm("Use test certificates for now?", cfg.Certificates.Staging); err != nil {
-		return err
+	if release {
+		cfg.Certificates.Staging = false
+	} else {
+		fmt.Fprint(p.out, "\nTest certificates come from Let's Encrypt's test service. Browsers warn about them, but they\n"+
+			"let you check everything works without hitting Let's Encrypt's limits. Switch to trusted ones later.\n")
+		if cfg.Certificates.Staging, err = p.confirm("Use test certificates for now?", cfg.Certificates.Staging); err != nil {
+			return err
+		}
 	}
 	q := "Email for certificate expiry notices (optional while testing, Enter to skip)"
 	if !cfg.Certificates.Staging {
@@ -694,7 +700,11 @@ func loadSetupConfig(path string, env setupEnv) (installer.Config, error) {
 		}
 	} else if b, err = env.savedConfig(); err != nil {
 		// No saved answers yet (or not readable without sudo): start fresh.
-		return installer.DefaultConfig(), nil
+		def := installer.DefaultConfig()
+		if installer.IsRelease(env.version) {
+			def.Certificates.Staging = false // a real install wants a trusted certificate
+		}
+		return def, nil
 	}
 	return installer.ParseConfig(strings.NewReader(string(b)))
 }

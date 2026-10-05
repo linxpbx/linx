@@ -80,6 +80,15 @@ func ImageTag(version, commit string) (string, error) {
 	return "sha-" + commit, nil
 }
 
+// IsRelease reports whether this build of the program is a tagged release
+// (ADR-084): a real version like v1.2.0, not a dev or commit build. The
+// installer uses it to keep development-only choices — above all the test
+// (staging) certificate — out of a real install.
+func IsRelease(version string) bool {
+	_, ok := releaseVersion(version)
+	return ok
+}
+
 // releaseVersion reads a release out of what the Makefile stamped in. A
 // build from a tag is exactly "v1.2.0" or "v1.3.0-beta.1"; anything with a
 // commit count or "-dirty" after it is a build from somewhere past the tag
