@@ -21,6 +21,9 @@ Detail lives in `docs/`: read only the part you need.
 - `docs/INSTALL.md` web-first install: one link from the terminal, HTTP 6464 → TLS-ALPN-01 → HTTPS, moved-server checklist
 - `docs/ui/DESIGN_TOKENS.md` colours/type/status; mockup PNGs in `docs/ui/`
 
+## Session start and end (owner, 2026-10-05)
+**`handoff.md` in the repo root is the first thing to read in a new session or after `/clear`, and the last thing to update before one ends.** Six sections: Goal, Current state, Active files, Changes made (the whole project), Failed attempts (the whole project), Next step. Keep it current whenever something in it stops being true — above all §5, which is there so no session repeats a dead end. The long record stays in `docs/HISTORY.md`; `handoff.md` is the map a fresh session starts from.
+
 ## Current state
 Step-by-step history of every phase (what was built, fixes, demo results): `docs/HISTORY.md`. Read it only when you need the detail.
 
