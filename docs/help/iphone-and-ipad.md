@@ -123,11 +123,11 @@ Then the list says **Set it up again**: make a new code and set it up as above. 
 
 My account → **My phones** → **I've lost it**. It stops at once and for good, and any call on it drops. An admin can do the same from People → the person → **Stop it**.
 
-Even if someone has the phone, they can't use it to be you: the key is inside the phone and can't be copied, and the phone stops by itself after 6 months with no contact.
+Even if someone has the phone, they can't use it to be you: the key is inside the phone and can't be copied, and the phone stops by itself after 6 months with no contact. Stopping it also makes Linx forget how to ring it, so nothing more is sent to that phone at all.
 
 ## Settings on the phone
 
-**More** → **Settings**: your status, how this phone's line is doing, which extension it answers, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**. Two more:
+**More** → **Settings**: your status, how this phone's line is doing, which extension it answers, which **Person** it signs in as and which **Linx server** it was set up on, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**. Two more:
 
 - **Appearance** — Light, Dark, or **Match this device**, the same choice the web app has. It is kept on this phone.
 - **Show Linx calls in the Phone app** — on, a Linx call sits in the iPhone's own Recents beside your ordinary calls and you can ring back from there; off, Linx keeps its calls to itself and only the **Calls** tab has them. Calls already made stay where they are.

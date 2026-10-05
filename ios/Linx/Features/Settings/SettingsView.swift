@@ -46,6 +46,12 @@ struct SettingsView: View {
                 LabeledContent("Extension", value: model.identity?.extensionNumber ?? "—")
                 LabeledContent("Name", value: model.identity?.deviceName ?? "—")
                 if let identity = model.identity {
+                    // Which Linx this phone was set up on, and who it signs
+                    // in as. A setup code decides both, so the phone says
+                    // plainly what it joined (docs/THREAT_MODEL.md, the
+                    // phone lifetime review).
+                    LabeledContent("Person", value: identity.personName)
+                    LabeledContent("Linx server", value: identity.server.host ?? identity.server.absoluteString)
                     LabeledContent(
                         "Set up again by",
                         value: identity.setUpAgain.formatted(.dateTime.day().month().year()))
