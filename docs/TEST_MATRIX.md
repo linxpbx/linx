@@ -84,6 +84,23 @@ and something is wrong — tell me and the server's own numbers will say where.
 | 4.9a | Settings → turn **Show Linx calls in the Phone app** off, make a call, then open the Phone app's **Recents** | The new call is **not** there (calls made before you turned it off stay) |
 | 4.10 | Keypad, press the green button with nothing typed | The last number you rang comes back, ready to ring |
 
+## 4b. On the iPad (step 8, 2026-10-05)
+
+These are new, and they are what ADR-076's condition is about: nothing in
+the app may look like a phone screen stretched to fill a 13-inch one.
+
+| | What to do | What should happen |
+|---|---|---|
+| 4b.1 | Open the app on the iPad | The four tabs are along the top (tap the button at the left to turn them into a sidebar), and each tab shows a **list on the left with what you picked open on the right** |
+| 4b.2 | **Calls** → tap a row | That call's own page opens beside the list: what happened, when, how long, which group rang, who answered, and the button to ring them back. The list stays where it was |
+| 4b.3 | **Team** → tap somebody | Their card opens beside the list, with **Call**, **Video call** and **Add to favourites**. It is live: ring them from another phone and the card changes while you watch |
+| 4b.4 | **Keypad** | The people you have starred stand beside the keypad under **Favourites**, with the last number you rang above them. Tapping one *puts their extension on the keypad* (it doesn't ring); the phone beside it rings |
+| 4b.5 | **More** | Voicemail and Settings open beside the list, not over it |
+| 4b.6 | Take or make a call on the iPad | The call stands in its **own column beside the app** — the list you were looking at stays on screen. Hang up and it goes away again |
+| 4b.7 | Turn the iPad on its side during a video call | The picture takes one panel and the buttons the other, both ways round, and nothing jumps |
+| 4b.8 | Put the app in a narrow Split View beside another app, then take a call | It becomes a phone again: one column, and the call covers it |
+| 4b.9 | Same on the iPhone | Everything is exactly as it was: one column, and a call covers the screen |
+
 ## 5. Losing a phone, and the six-month rule
 
 | | What to do | What should happen |

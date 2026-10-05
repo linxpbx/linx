@@ -176,6 +176,10 @@ ios-test: ios-deps ## Run the app's unit tests on a simulator
 ios-screens: ios-deps ## Screenshots of every app screen, light and dark, into ios/screenshots
 	@ios/tools/screens.sh
 
+.PHONY: ios-screens-all
+ios-screens-all: ios-deps ## The same screenshots on all three test devices (iPhone, iPad, iPhone Duo folded)
+	@ios/tools/screens-all.sh
+
 GOVULNCHECK_VERSION := v1.8.0
 
 .PHONY: security

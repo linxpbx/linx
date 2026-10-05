@@ -1,6 +1,6 @@
 # Linx for iOS / iPadOS
 
-Linx's phone, for iPhone and iPad (`docs/PHASE2.md` §12; build-order steps 1 to 7 are built).
+Linx's phone, for iPhone and iPad (`docs/PHASE2.md` §12; build-order steps 1 to 8 are built).
 Swift 6, SwiftUI, one app for both, minimum **iOS 26.0**, bundle ID `com.linxpbx.app`.
 
 ```
@@ -159,10 +159,27 @@ Two rules worth keeping in mind when changing any of this:
   three readings running the camera goes off by itself and the person is told the call carries on.
 
 The layout is decided by the **size of the screen**, never by the device (`CallLayout`): a phone
-upright, a phone on its side, and two panels on an iPad or an iPhone Duo opened out — side by
-side when the screen is square-ish, so that nothing anyone presses sits on the crease. Build-order
-step 8 replaces that near-square rule with the fold's own geometry (`ReservedRegion`,
-`ArrangementView`, iOS 27.1) and leaves everything else alone.
+upright, a phone on its side, and two panels on an iPad or an iPhone Duo opened out. Where the
+phone can say where it folds, that answer decides instead of the shape — `Crease` reads iOS
+27.1's `UIView.reservedRegions(kind: .division)` and the two panels meet on the fold itself, so
+nothing anyone presses sits in the crease (step 8, ADR-082). On a big screen the call doesn't
+cover anything: it stands in its own column beside the app (`CallAlongside`), and on a folding
+phone that column is one leaf of it.
+
+## Two columns on a big screen (step 8, ADR-076's condition)
+
+Every tab is a `NavigationSplitView` — a list with what you picked open beside it, which iOS
+collapses back into one pushed column on a phone. So there is one set of screens and not a line
+of "which device is this" in them: `CallsView` + `CallDetailView`, `TeamView` + `PersonView`,
+`KeypadScreen` + `SpeedDial` (the starred people beside the keypad), and `MoreView` with
+Voicemail and Settings beside its list. The shared pieces are in `Features/Home/BigScreen.swift`
+(`NothingPicked`, `DetailLine`, `BigInitials`, `picksTheFirstRow`).
+
+**The fold code compiles only on an SDK that has it.** `LINX_FOLD_SDK` is a build setting keyed
+to the SDK (`SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphone*26*]` and `[sdk=iphone*27.0*]` drop
+it; anything newer keeps it), and the code is behind `#available(iOS 27.1, *)` as well. CI's
+Xcode 26 and this Mac's 27.0 build the app without it; the 27.1 beta builds it in. To check which
+you got: `nm ios/build/*/Build/Intermediates.noindex/Linx.build/*/Linx.build/Objects-normal/arm64/Crease.o | grep -c CreaseProbe`.
 
 ## Google's WebRTC
 
@@ -189,7 +206,8 @@ slice a phone needs.
 | `make ios-build` | builds for the simulator, no signing and no Apple account |
 | `make ios-deps` | fetches Google's WebRTC (pinned version, checked against its SHA-256) |
 | `make ios-test` | the unit tests on a simulator (`IOS_SIM_DEVICE="iPad Pro 11-inch (M5)"` to choose one) |
-| `make ios-screens` | every screen, light and dark, into `ios/screenshots/` — compare them with the mockups in `docs/ui/`. The call screens are shot on their side as well (the app is asked to turn, `-LinxOrientation landscape`). `LINX_IOS_DEVICE="iPad Pro 11-inch (M5)"` for the iPad, and `LINX_IOS_DEVICE="iPhone Duo" DEVELOPER_DIR=/Applications/Xcode-27.1-beta.app` for the foldable |
+| `make ios-screens` | every screen, light and dark, into `ios/screenshots/` — compare them with the mockups in `docs/ui/`. The call screens are shot on their side as well (the app is asked to turn, `-LinxOrientation landscape`). `LINX_IOS_DEVICE="iPad Pro 13-inch (M5)"` for the iPad, and `LINX_IOS_DEVICE="iPhone Duo" DEVELOPER_DIR=/Applications/Xcode-27.1-beta.app` for the foldable |
+| `make ios-screens-all` | the same, on all three devices Phase 2 is held to: iPhone 18 Pro Max, iPad Pro 13-inch (M5), and the iPhone Duo folded shut. Its **inner** screen can't be shot from the command line — the 27.1 beta has no fold verb in `simctl`, and Xcode 27 has no Simulator.app left to drive with AppleScript — so that one is taken by hand from the device's window (`xcrun simctl io booted screenshot --display 3 …`) |
 
 `ios/tools/sim.sh "iPhone 17"` prints a booted simulator's id, creating one if needed; on a
 machine with an older Xcode it falls back to the newest iPhone that Xcode has.
@@ -217,8 +235,9 @@ every push and pull request: formatting, the simulator build, the unit tests, an
 build for a real iPhone** with no signing — that last one catches the mistakes that otherwise
 only appear when the app is archived for TestFlight. WebRTC's zip is cached by its pinned
 version, so only the first run of a version downloads it. No Apple account, no signing, no
-secrets. The runner's newest Xcode is 26.x (the iOS 26 SDK, which is the app's minimum); the
-fold layouts of build-order step 8 need the iOS 27.1 SDK, which only this Mac has so far.
+secrets. The runner's newest Xcode is 26.x (the iOS 26 SDK, which is the app's minimum), so the fold
+code of step 8 is compiled out there and everything else — including every one of its tests — is
+built and run as usual.
 
 ## Tools on this Mac (set up 2026-10-03)
 

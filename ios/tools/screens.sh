@@ -3,16 +3,19 @@
 # Compare them with the mockups in docs/ui/ after changing a screen.
 #
 #   ios/tools/screens.sh                 # the default device
-#   LINX_IOS_DEVICE="iPad Pro 11-inch (M5)" ios/tools/screens.sh
-#   LINX_IOS_DEVICE="iPhone Duo" DEVELOPER_DIR=/Applications/Xcode-27.1-beta.app \
-#     LINX_IOS_DISPLAY=1 ios/tools/screens.sh     # the Duo's outer screen
+#   LINX_IOS_DEVICE="iPad Pro 13-inch (M5)" ios/tools/screens.sh
+#   make ios-screens-all                 # all three devices in one go
 #
 # A foldable has two screens, and `simctl io ... enumerate` lists them:
-# LINX_IOS_DISPLAY picks one. The Duo's outer screen is 1 and its inner one
-# is 3, and the inner one is dark until the simulated phone is opened out —
-# which is Simulator's own Device menu, with no command to do it. So the
-# unfolded shots are taken by hand for now; build-order step 8 (the fold
-# APIs, iOS 27.1) is where that gets done properly.
+# LINX_IOS_DISPLAY picks one, and LINX_IOS_OUT says where the shots go so a
+# second display doesn't write over the first. The Duo's outer screen is 1
+# and its inner one is 3, and the inner one stays dark until the simulated
+# phone is opened out — there is **no command for that** in `simctl` on the
+# 27.1 beta (checked 2026-10-05: no fold verb, nothing in `simctl ui`, and
+# no Simulator.app left to drive with AppleScript — Xcode 27 shows
+# simulators in DeviceHub). So the inner-screen shots are taken by hand,
+# from the device's own window, and `ios/LinxTests/BigScreenTests.swift`
+# is what holds the unfolded layout to its rules meanwhile.
 #
 # The call screens are also shot with the phone on its side (the app asks the
 # system to turn, `-LinxOrientation landscape`), because the layout a call
@@ -23,7 +26,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 device=${LINX_IOS_DEVICE:-iPhone 17}
-out=screenshots/$(echo "$device" | tr ' ' '-' | tr -d '()')
+out=${LINX_IOS_OUT:-screenshots/$(echo "$device" | tr ' ' '-' | tr -d '()')}
 dd=${LINX_IOS_DERIVED_DATA:-build/screens}
 bundle=com.linxpbx.app
 

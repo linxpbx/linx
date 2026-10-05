@@ -2,7 +2,7 @@
 
 **What this file is for.** The first thing to read when a session starts (or after `/clear`), and the last thing to update before one ends. It carries only what a fresh session needs to pick the work up: where we are, what is in play, what has already been tried and failed, and what comes next. The long record lives in `docs/HISTORY.md`; the rules live in `CLAUDE.md`. If this file and those disagree, `CLAUDE.md` and `docs/HISTORY.md` win and this file should be corrected.
 
-Last updated: **2026-10-05**, after the day's iPhone/iPad testing round (app build 13).
+Last updated: **2026-10-05**, after Phase 2 **step 8** (the iPad and fold layouts) was built, on top of the day's iPhone/iPad testing round (app build 13).
 
 ---
 
@@ -18,7 +18,9 @@ The standing constraints that shape every change: smallest possible processor, m
 
 ## 2. Current state
 
-**Phase 2 steps 1–7 are built and on real devices.** The owner is working down `docs/TEST_MATRIX.md` on an **iPhone 18 Pro Max** and an **iPad Pro 13-inch (M5)**.
+**Phase 2 steps 1–8 are built**, and 1–7 are on real devices. The owner is working down `docs/TEST_MATRIX.md` on an **iPhone 18 Pro Max** and an **iPad Pro 13-inch (M5)**.
+
+**Step 8 (the iPad and fold layouts) was built on 2026-10-05 and is not yet in a TestFlight build.** Every tab is a list beside a detail, a call stands in its own column instead of covering the screen, the keypad has the starred people beside it, and a folding phone is asked where its fold is (ADR-082) instead of the near-square guess. All app tests pass, `make ios-build-device` is clean, and the fold code is proved to compile in under the 27.1 beta and out under Xcode 27.0. **The next TestFlight upload is build 14** and would be the first with these screens on it.
 
 - **App: TestFlight build 13** is uploaded (0.1.0). Builds 4→13 all shipped today, each fixing what the owner found on the real devices. The owner has standing permission to upload builds in this round of testing ("don't wait for my order"); the App Store listing and Submit for Review stay theirs.
 - **Server `home.mym.ae` (192.168.1.213) is on `25587b4`**, schema 45. Updated twice today, each time after a backup (snapshots `482c4735`, `63e4dcd3`): the relay's per-call cap (64 → **160 kB/s**, so a relayed video call isn't throttled) and **`max_bitrate_bps`** in the relay credentials (so the app can keep a relayed video call inside what the relay carries). `linx doctor` green apart from two standing warnings (CA root-key backup still on the server; no API key).
@@ -26,7 +28,7 @@ The standing constraints that shape every change: smallest possible processor, m
 - **Owner's own config fix today:** the UCM Landlines line's **Caller ID shown to others = `+97142340100`**. Without it, only the extension that owns that DID could call out (see §5).
 - **CI** on the last two commits (`975f00b`, `09f57ca`) was running when the session ended — check it first (`gh run list --limit 3`).
 
-Not started: **step 8** (iPad and fold layouts), step 9 (lifetime/loss + security review), 9b (`*97` and the message-waiting light), 10 (store submission docs, resource measurements, `docs/DEMO_PHASE2.md`, the demo on the 1-core VPS).
+Not started: step 9 (lifetime/loss + security review), 9b (`*97` and the message-waiting light), 10 (store submission docs, resource measurements, `docs/DEMO_PHASE2.md`, the demo on the 1-core VPS).
 
 ---
 
@@ -38,7 +40,9 @@ The ones in play this round. `codegraph explore "<names>"` is faster than grep f
 
 **The app's screens** — `ios/Linx/Features/Phone/PhoneModel.swift` (the one place a call's state and the screen rules live), `CallView.swift`, `VideoCallView.swift`, `CallDetailsView.swift`, `AudioRouteButton.swift`, `CallLayout.swift`.
 
-**Tests** — `ios/LinxTests/SoundOnTheRoadTests.swift` (this round's rules), `VideoTests.swift`, `CallTests.swift` (holds `FakeMedia`), `RingingTests.swift`. 125 app tests.
+**Step 8's screens (new, 2026-10-05)** — `ios/Linx/App/Crease.swift` (the fold, and the only file with iOS 27.1 in it), `Features/Home/BigScreen.swift` (the shared two-column pieces), `Features/Phone/CallAlongside.swift` (a call beside the app), and the split views inside `CallsView.swift` (`CallDetailView`), `TeamView.swift` (`PersonView`), `HomeView.swift` (`SpeedDial`, `MoreView`).
+
+**Tests** — `ios/LinxTests/SoundOnTheRoadTests.swift` (this round's rules), `VideoTests.swift`, `CallTests.swift` (holds `FakeMedia`), `RingingTests.swift`, `BigScreenTests.swift` (step 8's rules). 137 app tests.
 
 **Server side touched this round** — `internal/turnconf/turnconf.go` (`MaxBPS`), `internal/turn/turn.go` (`MaxBitrate` → `max_bitrate_bps`), `api/openapi.yaml` + `services/control-plane/api/webphone.go`, `internal/asteriskconf/config.go` (the dialplan, unchanged today but read often).
 
@@ -67,8 +71,9 @@ Phase by phase, each finished with a demo the owner approved. **Every step's det
 | 2, step 6 | A sleeping phone rings: PushKit → CallKit first, manual audio, ADR-078 for China | |
 | 2, step 7 | The whole app: Calls, Team, Keypad, More; 1:1 video added to a call (ADR-079); the adaptive call screen | |
 | 2, on devices (2026-10-04/05) | Everything the owner found on real hardware, builds 4–13: see §5 and `docs/HISTORY.md` | |
+| 2, step 8 | The iPad and fold layouts: every tab a list beside a detail, a call beside the app, the keypad's speed dial, and the fold's own geometry (ADR-082) | `docs/PHASE2.md` "Step 8, as built" |
 
-**Decisions of record:** `docs/DECISIONS.md`, ADR-001 … **ADR-081**. The newest matter most here — 078 (China/CallKit), 079 (a picture is added to a call), 080 (iOS's trust store for the relay's certificate), 081 (the adaptive picture).
+**Decisions of record:** `docs/DECISIONS.md`, ADR-001 … **ADR-082**. The newest matter most here — 078 (China/CallKit), 079 (a picture is added to a call), 080 (iOS's trust store for the relay's certificate), 081 (the adaptive picture).
 
 ---
 
@@ -98,6 +103,12 @@ The useful half of the record: **do not try these again.**
 - *The relay froze video* — coturn's `max-bps` was sized for Opus in Phase 1C and never revisited. 64 → 160 kB/s.
 - *UDP 443 answering from the wrong machine* — the owner's router forwarded it to an older Linx; TLS 443 was always fine. They have since switched that forward off.
 
+**Step 8's own dead ends (2026-10-05)**
+- *`$(inherited)` inside a conditional build setting* — `SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=…] = "DEBUG $(inherited)"` does **not** inherit from the parent level: it expands to the **unconditional value at the same level**, so the flag it was meant to drop came straight back. The conditional variants spell out what they want and use no `$(inherited)`. Check it with `xcodebuild -showBuildSettings`, never by eye.
+- *Looking for a way to unfold the simulator from the command line* — there isn't one on the 27.1 beta: no fold verb in `simctl`, nothing in `simctl ui`, no fold strings in CoreSimulator or SimulatorKit, and **Xcode 27 has no Simulator.app at all** (simulators live in DeviceHub now), so there is nothing to drive with AppleScript either. The Duo's inner screen is photographed by hand; `BigScreenTests` is what holds that layout to its rules.
+- *Reading anything into the iPhone Duo simulator's **outer**-screen shots* — the app's own content comes out upright and correct, but iOS's status bar and the tab bar are drawn turned 90° in the capture. Nobody has a real Duo, so whether that is the simulator's presentation of that display or something the app should answer differently is **unknown**; it is not something step 8 changed, and the app is portrait-locked on a phone by the owner's own ask. Don't "fix" it blind.
+- *`#expect(x == 540.0 / 1080.0)` in swift-testing* — failed against a value that is exactly 0.5. Division of literals inside the macro's expansion doesn't compare as you'd expect; bind the value and compare with a plain literal.
+
 **Environment traps**
 - SwiftPM's binary download of WebRTC **hangs on this Mac** (a per-program firewall, most likely): `make ios-deps` fetches it with `curl`, pinned and checksummed.
 - `TestProbePlain` fails locally whenever the dev stack's Asterisk is publishing `127.0.0.1:5061`. CI is fine. Not a regression.
@@ -113,7 +124,7 @@ The useful half of the record: **do not try these again.**
 
 1. **Check CI** for `975f00b` and `09f57ca` (`gh run list --limit 3`), and report it.
 2. **Let the owner test build 13** and work down `docs/TEST_MATRIX.md`. The rows that matter now: 2.x (ringing — locked, backgrounded, force-quit, Low Power Mode, overnight, mobile data), 3.8a/3.8b (adaptive quality: 540p relayed, up to 720p direct), 3.8c (the screen staying awake), 3.9a (tapping to swap the pictures), 3.10 (video in the sound test).
-3. **Then Phase 2 step 8 — the iPad and fold layouts** (`docs/PHASE2.md` §12 step 8): every tab a list beside a detail, Mail-style, not a phone column floated in the middle of a 13-inch screen (**the owner's explicit condition**, ADR-076); a call beside the list rather than covering it; `ArrangementView` / `ReservedRegion` behind an iOS 27.1 check; and the iPhone Duo screenshots, folded and unfolded (the inner screen needs Xcode 27.1 beta and Simulator's Device menu by hand).
+3. ~~Step 8~~ — **done 2026-10-05**. What is left of it for the owner: **look at `ios/screenshots/iPhone-18-Pro-Max/`, `iPad-Pro-13-inch-M5/` and `iPhone-Duo/`** (the Duo's *inner* screen still has to be photographed by hand — open the simulated phone out in its window, then `xcrun simctl io booted screenshot --display 3 …`), and say whether the iPad finally looks like an iPad app.
 4. Then step 9 (lifetime and loss, security review, `THREAT_MODEL.md` rows), **9b** (`*97` and the message-waiting light), step 10 (the finish: `STORE_SUBMISSION.md`, resource and data-per-minute measurements, `docs/DEMO_PHASE2.md`, the demo on the 1-core VPS).
 
 **Still waiting on the owner** (none of it blocks the build order): the §11 answers in `docs/PHASE2.md` (push for other self-hosters, TestFlight vs App Store), their look at `ios/screenshots/`, the two standing `doctor` warnings, and whether to forward UDP 443 to `192.168.1.213` for slightly smoother audio.

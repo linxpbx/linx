@@ -118,10 +118,64 @@ The push gateway is built so the destination is one setting: Apple directly now,
 5. ~~**Server: push gateway + hold the call**~~ — **done 2026-10-04**: the Apple client, the sealed key, per-phone rate limits, the dialplan's hold, the metrics, the quiet notifications, and the admin card. "Step 5, as built" below.
 6. ~~**The app rings**~~ — **done 2026-10-04**: PushKit, CallKit, the lock screen, a killed app, a car, two calls, a caller who gives up, and China's in-app ringing. "Step 6, as built" below.
 7. ~~**The rest of the app**~~ — **done 2026-10-04**: the four tabs, 1:1 video with a layout that follows the screen, Calls, Team with presence, Voicemail and Settings. "Step 7, as built" below.
-8. **iPad, adaptive and fold layouts**: `ArrangementView` / `ReservedRegion` behind an iOS 27.1 check, screenshots of every screen on iPhone, iPad and the **iPhone Duo simulator folded and unfolded**, compared with `docs/ui/`.
+8. ~~**iPad, adaptive and fold layouts**~~ — **done 2026-10-05**: every tab a list beside a detail, a call in its own column rather than over the top, and the fold's own geometry (`ReservedRegion`, iOS 27.1, ADR-082) in place of the near-square guess. "Step 8, as built" below.
 9. **Lifetime and loss**: renewal, the six-month idle expiry, revoke-everywhere, "set this phone up again", plus the security review and `THREAT_MODEL.md` rows.
 9b. **`*97` and the message-waiting light** (owner, 2026-10-04, folded into this phase): dialling `*97` from a desk phone reaches that phone's own voicemail, and the light comes on when there is a new message and goes out when there isn't. Both need Linx to control the call through ARI, which step 5 built.
 10. **Finish**: ~~`TEST_MATRIX.md`~~ (**written 2026-10-04 as `docs/TEST_MATRIX.md`**, when the first TestFlight build reached a real phone and the owner could start working down it), ~~`APPLE_SIGNING.md`~~ (**written 2026-10-04 as `docs/ops/APPLE_SIGNING.md`**, because the owner needed it before the signing session rather than after), `STORE_SUBMISSION.md`, resource and data-per-minute measurements in `docs/RESOURCES.md`, `docs/DEMO_PHASE2.md`, and the demo on the test VPS.
+
+### Step 8, as built (2026-10-05)
+
+**The iPad is an iPad app now, and a folding phone is asked where it folds.**
+The owner's condition on ADR-076 — "the iPad must look like an iPad app, not
+a stretched iPhone one" — is what this step is held to.
+
+- **Every tab is a list beside a detail** (`NavigationSplitView` in each of
+  the four), so an iPad shows the tab sidebar, the list and what you picked,
+  the way Mail does. iOS collapses exactly the same screens back into one
+  pushed column on a phone, so there is one set of screens and not a line of
+  "which device is this" in any of them. **Calls** gained a call's own page —
+  what happened, when, how long, which group rang, who answered, and **Call
+  back** — which a phone now pushes when a row is tapped and an iPad shows
+  beside the list. **Team** gained a person's card (extension, what they are
+  doing this second, **Call**, **Video call**, **Add to favourites**).
+  **More** opens Voicemail and Settings beside its list instead of over it.
+- **The keypad is laid out for a tablet**, not floated in the middle of one:
+  on a screen with room for it, the starred people stand beside it under
+  **Favourites**, with the last number rung above them — the buttons down the
+  side of a desk phone, which is what a tablet on a desk is. Tapping one
+  *puts the number on the keypad* rather than ringing it, for the same reason
+  redial does; the phone beside it rings. Starring moved to one list for the
+  whole app (`HomeView` owns the `Favourites` and hands it to Team and the
+  keypad), so the two can't drift apart.
+- **A call stands beside the app rather than covering it** on a screen with
+  the room (820 points across and a regular width: an iPad either way up, an
+  opened-out Duo; an iPad mini upright or a narrow window is a phone again
+  and the call covers it). The app itself never moves between containers as a
+  call comes and goes — doing that would rebuild every open screen and take
+  the Team websocket with it — so the list stays exactly where it was.
+- **The fold, from the phone instead of from a guess (ADR-082).** iOS 27.1's
+  `UIView.reservedRegions(kind: .division)` says where the crease really is;
+  `Crease` turns that into a plain value (where the band is, which way it
+  runs), and the two-panel layouts divide along it: the video call's picture
+  and its buttons meet on the fold, and a call beside the app takes one leaf
+  while the app keeps the other. `ScreenRotation` no longer guesses that a
+  700-point screen is a tablet, either — a phone that reports a fold turns
+  like one. With no fold to ask, every rule falls back to the shape of the
+  screen exactly as step 7 left it.
+- **It still builds on Xcode 26 and 27.0.** The fold code is compiled only
+  when the SDK knows about it (`LINX_FOLD_SDK`, a build setting keyed to the
+  SDK and written as "not these old ones", so a future Xcode needs no
+  change) and sits behind `#available(iOS 27.1, *)` as well. Checked both
+  ways on 2026-10-05 by reading the symbols out of `Crease.o`: 107 under the
+  beta, none under 27.0. CI is untouched.
+- **Tests:** `ios/LinxTests/BigScreenTests.swift` — what counts as a fold and
+  what doesn't (a band across the view, one in a corner, one so near the edge
+  that two panels would be pointless), a call dividing along the fold even on
+  a screen the old rule called tall, the panels meeting on the crease, where
+  a call goes on an iPhone 18 Pro Max and an iPad Pro 13-inch either way up,
+  the call's column taking one leaf of a Duo, and a folded-out phone turning
+  like a tablet. Plus the two-column screens rendering at iPad size in
+  `ScreenTests`. None of them needs the 27.1 SDK, so CI runs the lot.
 
 ### Step 7, as built (2026-10-04)
 **The app is the whole app now**: four tabs — **Calls**, **Team**, **Keypad**, **More** (Voicemail, Settings) — and 1:1 video. Four and no more: Meetings arrive with Phase 3 and Chat with Phase 4, and App Review refuses a tab that does nothing (§14 item 2).
