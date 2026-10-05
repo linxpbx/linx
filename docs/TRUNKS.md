@@ -3,6 +3,22 @@
 Status: **approved by the owner 2026-09-26** (ADR-043 to ADR-048), with two changes to the drafted defaults recorded in §11: the demo uses the UCM6304's own phone lines, and 901 joins the UAE's always-allowed numbers. Steps 1 (numbering), 2 (data and API), 3 (Asterisk trunks), 4 (probe, CLI, doctor, alerts), 5 (WireGuard) and 6 (firewall and NAT) are built (§4, §5, §7, §8, §9, §10 "As built"); step 7 (security review and demo checklist) is done: `docs/THREAT_MODEL.md` "Phase 1D review", `docs/DEMO_PHASE1D.md`.
 Fourth slice of Phase 1 (`docs/ROADMAP.md`). Until now Linx only calls itself: extensions, desk phones and browsers. This slice connects it to real phone numbers, so people can call mobiles and landlines, and outside callers can reach them. The admin portal screens for all of this come in 1E; this slice gives the engine, the API, a guided `linx trunk add` command and `linx doctor` checks.
 
+## Caller ID on a line, and the trap it sets (2026-10-05, from the owner's own system)
+
+What Linx presents as the caller on an outgoing call through a line, in this order:
+
+1. **the caller's own number on that line** — a person who owns one of the line's numbers (a DID that rings them) calls out as that number;
+2. otherwise the line's **`caller_id_number`** ("Caller ID shown to others");
+3. otherwise **the extension's own number** (201, 202…).
+
+A phone system or gateway in front of the PSTN usually decides what a call may do from exactly that caller ID. So on the owner's UCM, whose landline outbound route accepts Source Caller ID `_+97142340100` only, **extension 200 could call out and 201 could not** — 200 owns that DID and so presented it, while 201 presented `201`. Setting the line's Caller ID to `042340100` did *not* fix it: the gateway's pattern wanted `+97142340100`, and the two are the same number to a person and two different patterns to a gateway. With `+97142340100` every extension got out.
+
+Worth knowing when a line is set up:
+
+- **The refusal sounds like Linx's and isn't.** Linx's own check is the call permission level: it plays *"This phone isn't allowed to call that number"* and records the call as **not permitted**. A gateway's refusal arrives as early media and a `603`, and is recorded as **no answer** — which is how to tell them apart in one look at Calls.
+- Linx dials in the line's **dial format** (`local` here, so `0554551699`) and sets the caller ID with `CONNECTEDLINE(num,i)` in `linx-trunk-out`; PJSIP puts it in `From` and `P-Asserted-Identity`. The call suite holds that to `INVITE for 999 from +97142000100`.
+- The gateway how-to (`web/src/lib/gatewayHowTo.ts`), the Caller ID field's hint and the `phone-system-or-gateway` guide all say this now.
+
 ## 1. In plain words
 - **A trunk is a phone line from a provider** (a company that sells phone numbers and calls over the internet), or a link to **another phone system** you already own, like the Grandstream UCM6304 with the landlines plugged into it. One trunk can carry many calls at once.
 - **Encrypted first, always tried first.** Linx connects to the provider over TLS with encrypted audio (SRTP). Only if the provider can't do that does Linx offer an unencrypted connection, and only after you confirm a plain warning ("Calls to and from this provider can be listened to on the way"), ADR-023. Trunks through a WireGuard tunnel are encrypted by the tunnel and get no warning (ADR-024).

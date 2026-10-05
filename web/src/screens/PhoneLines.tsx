@@ -864,7 +864,7 @@ function LineSheet({ me, trunk: initial, dids, extensions, readOnly, onClose, on
                   </>
                 )}
                 <Field label="Calls at once" htmlFor="edit-line-max"><Input id="edit-line-max" className="w-24" inputMode="numeric" value={maxCalls} onChange={(e) => setMaxCalls(e.target.value)} /></Field>
-                <Field label="Caller ID shown to others" htmlFor="edit-line-cid" hint="Empty: the phone company's default. Each number's own is used when a person has one.">
+                <Field label="Caller ID shown to others" htmlFor="edit-line-cid" hint="Empty: the phone company's default. Each number's own is used when a person has one, so not everyone calls out as this. A phone system or gateway that filters by caller ID must accept all of them — and written its way (+97142340100 and 042340100 are two different patterns to it).">
                   <Input id="edit-line-cid" className="w-52 font-mono" value={callerId} onChange={(e) => setCallerId(e.target.value)} />
                 </Field>
                 <div className="flex gap-2">
