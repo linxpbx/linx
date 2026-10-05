@@ -361,6 +361,19 @@ Two faults in how it was shown, both mine:
 Their camera going off again while the question is still up clears it too:
 there is nothing left to answer.
 
+### A video call keeps the screen awake (owner's ask, 2026-10-05)
+
+"The screen should not time out if I am on a video call/meeting, unless I press
+the power button." So `PhoneModel` holds the idle timer off
+(`UIApplication.isIdleTimerDisabled`) while a call is **active and has a
+picture in it**, and lets it go the moment the picture or the call ends — a
+phone left on a table after a video call sleeps as it should. A call with no
+picture is left to iOS exactly as before: holding a phone to an ear is what the
+proximity rule is for, and a call in a pocket has no business keeping a screen
+alight. The two rules about the screen during a call now live side by side in
+`theScreenDuringTheCall()`. **Meetings (Phase 3) must do the same** when they
+arrive.
+
 ### Step 6, as built (2026-10-04)
 **A sleeping phone rings now.** Step 5 gave the server the push; this is the app's side of it, and the rule that shapes all of it is Apple's: a VoIP push must report a call to CallKit *at once, every time*, or iOS kills the app and stops delivering its pushes (§14 item 1).
 

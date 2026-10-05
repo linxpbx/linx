@@ -63,6 +63,7 @@ and something is wrong — tell me and the server's own numbers will say where.
 | 3.9 | **Stop video**, then press **Video** again straight away | The button shows it is working ("Starting…") and the picture comes back. On mobile data it takes a second or two: the picture needs a way through the relay of its own |
 | 3.8a | On a good Wi-Fi video call, wait half a minute, then open **Call details** | **Your picture** climbs to 540p or 720p. On mobile data through the relay it stops at 540p — that is the relay's own limit, not a fault |
 | 3.8b | While video is on, walk somewhere with poor signal | The picture gets smaller rather than freezing, and the sound stays. Come back and it climbs again after a few seconds |
+| 3.8c | On a video call, put the phone down and leave it for a minute | The screen **stays on** the whole time. Press the power button and it goes off as usual; a call with no picture in it dims and locks as iOS normally would |
 | 3.9a | In a call with **both** cameras on, tap your own small picture | It takes the big screen and theirs moves to the corner; tap either again to swap back. With only one camera on there is nothing to swap and a tap does nothing |
 | 3.10 | **Video** in the **Test my sound** call | You see your own camera **on the big screen** (the echo test sends it back, and a call where only one camera is on is an ordinary call). **Stop video** returns to the call screen |
 

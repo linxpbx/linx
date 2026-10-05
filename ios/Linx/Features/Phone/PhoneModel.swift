@@ -237,6 +237,8 @@ import UIKit
         relayRefresh?.cancel()
         relayRefresh = nil
         ringer.stop()
+        UIDevice.current.isProximityMonitoringEnabled = false
+        UIApplication.shared.isIdleTimerDisabled = false
         agent?.stop()
         agent = nil
         if let call { calls.reportEnded(id: call.id, .failed) }
@@ -489,7 +491,7 @@ import UIKit
     }
 
     private func videoChanged(_ video: CallVideo) {
-        defer { watchForAnEar() }
+        defer { theScreenDuringTheCall() }
         guard var current = call else { return }
         let was = current.video
         current.video = video
@@ -556,7 +558,7 @@ import UIKit
 
     private func soundIsComingOut(_ route: AudioRoute) {
         audioRoute = route
-        watchForAnEar()
+        theScreenDuringTheCall()
         guard call?.speaker != route.speaker else { return }
         call?.speaker = route.speaker
     }
@@ -600,6 +602,13 @@ import UIKit
     /// for the first reading of the connection to have happened.
     private static let silenceIsWrong: TimeInterval = 7
 
+    /// The two rules about the screen while a call is up: dark at an ear, and
+    /// awake while there is a picture in the call.
+    private func theScreenDuringTheCall() {
+        watchForAnEar()
+        keepTheScreenAwake()
+    }
+
     /// The screen goes dark and stops taking taps while the phone is held
     /// to an ear, as every phone has done since phones had screens — and
     /// only then: not on the loudspeaker, not with a headset, and never
@@ -613,6 +622,24 @@ import UIKit
         guard UIDevice.current.isProximityMonitoringEnabled != atAnEar else { return }
         UIDevice.current.isProximityMonitoringEnabled = atAnEar
     }
+
+    /// A call with a picture in it **keeps the screen awake**: a video call
+    /// that dims and locks itself halfway through is no video call at all, and
+    /// the only thing that should turn the screen off during one is the power
+    /// button (owner, 2026-10-05). A call with no picture leaves the screen to
+    /// iOS exactly as before — holding a phone to an ear is what the rule
+    /// above is for, and a call in a pocket has no business keeping a screen
+    /// alight. It is let go of the moment the picture or the call ends, so a
+    /// phone left on a table after a video call sleeps as it should.
+    private func keepTheScreenAwake() {
+        let awake = call?.phase == .active && call?.video.on == true
+        guard UIApplication.shared.isIdleTimerDisabled != awake else { return }
+        UIApplication.shared.isIdleTimerDisabled = awake
+    }
+
+    /// Whether a video call is holding the screen awake, for the tests and the
+    /// screenshot harness to read.
+    var screenIsHeldAwake: Bool { UIApplication.shared.isIdleTimerDisabled }
 
     // MARK: - What the system tells the app to do
 
@@ -757,7 +784,7 @@ import UIKit
 
     private func answered() {
         ringer.stop()
-        defer { watchForAnEar() }
+        defer { theScreenDuringTheCall() }
         guard var current = call else { return }
         current.phase = .active
         current.answeredAt = Date()
@@ -776,6 +803,7 @@ import UIKit
     private func ended(_ why: SIPEnded) {
         ringer.stop()
         UIDevice.current.isProximityMonitoringEnabled = false
+        UIApplication.shared.isIdleTimerDisabled = false
         guard let finished = call else { return }
         call = nil
         askAboutTheirVideo = nil

@@ -26,6 +26,29 @@ struct SoundOnTheRoadTests {
         #expect(camera.usesTheCallsAudioSession)
     }
 
+    // MARK: - The screen during a call
+
+    @Test("a video call keeps the screen awake, and lets it go again")
+    func theScreenStaysAwake() async throws {
+        let (phone, _, _, _) = try await inACall()
+        // A call with no picture in it leaves the screen to iOS: a phone at an
+        // ear or in a pocket has no business keeping a screen alight.
+        #expect(!phone.screenIsHeldAwake)
+        phone.toggleVideo()
+        #expect(await eventually { phone.call?.video.mine == true })
+        // With a picture, the screen stays on until the power button says
+        // otherwise (owner, 2026-10-05).
+        #expect(phone.screenIsHeldAwake)
+        phone.toggleVideo()
+        #expect(await eventually { phone.call?.video.on == false })
+        #expect(!phone.screenIsHeldAwake)
+        // And the call ending always lets it go, however it ended.
+        phone.toggleVideo()
+        #expect(await eventually { phone.screenIsHeldAwake })
+        phone.stop()
+        #expect(!phone.screenIsHeldAwake)
+    }
+
     // MARK: - Which picture has the big screen (owner, 2026-10-05)
 
     @Test("a tap swaps the two pictures over, and only when there are two")
