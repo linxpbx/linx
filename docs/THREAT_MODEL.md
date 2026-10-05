@@ -512,6 +512,11 @@ The whole backend, read as "a business is about to run its phones on this" rathe
 - *Dependencies.* `govulncheck`, `npm audit` and the licence allowlist are all clean (301 npm packages, 56 Go modules).
 - *Written answers can't be used to spend the owner's money.* 10 a minute per person, a per-person daily limit and a server daily limit, a full session required, and nothing runs until an admin turns it on with a key.
 
+**The owner's answers (2026-10-05), which settle three of the four below:**
+- **The root key comes off the server "when it's time"** — kept as a go-live task, done with them rather than now.
+- **No second restore rehearsal.** Accepted: one was proved on 2026-09-27, and the risk being taken is that it was proved against an older schema.
+- **Admin sign-in from anywhere stays**, on the strength of 2FA or passkeys being enabled. Worth knowing what that rests on: an admin **can** end up with a password only, by removing their last passkey or second step and accepting a warning that says in as many words that anyone who guesses the password controls the phone system (ADR-036, owner 2026-09-27). It is audited, and a reset on such an account raises an alert. If the owner wants their own condition to be a rule rather than a habit, the small change is a setting — "admins must have a second step" — that refuses the escape hatch. Not built; recommended.
+
 **Do these before the business depends on it** — the review's actual output:
 1. **Take the internal CA's root key off the server.** `linx doctor` has warned about this for weeks and it has been treated as a standing warning; in production it is the one finding here with real consequences. Anyone who gets into the server gets the key that signs every internal certificate. `docs/ops/INTERNAL_CA.md`, "After setup: take the root key off the server" — copy it somewhere safe, delete it, confirm doctor goes green.
 2. **Rehearse a restore again.** One was done properly on 2026-09-27 (`docs/DEMO_BACKUP.md`: a second server, everyone and everything back, a bad file refused without changing anything) — but that was **before Phases 1E, 1F and 2 added their tables**. A backup nobody has restored *from this schema* is not yet a backup. Doing it also proves the off-server copy of the backup password is the right one.
