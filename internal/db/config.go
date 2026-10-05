@@ -78,13 +78,33 @@ func (c Config) DSN() (string, error) {
 	return u.String(), nil
 }
 
+// How many database connections the control plane keeps (CLAUDE.md's
+// low-resource rule: a pool sized for a small office, not for whatever
+// machine it lands on). Left to itself, pgx opens one per processor core,
+// which says nothing about what Linx needs: almost every query here is a
+// few rows answered in a millisecond, and the work that matters — a call
+// arriving, a page loading — is bounded by how many people there are, not
+// by the server's size. Eight is comfortably more than a small office
+// uses at once and keeps a big server from holding connections it will
+// never need; two stay open so the first call after a quiet night doesn't
+// pay for a handshake.
+const (
+	maxConns = 8
+	minConns = 2
+)
+
 // Connect opens the pool and checks it can reach the database.
 func Connect(ctx context.Context, c Config) (*pgxpool.Pool, error) {
 	dsn, err := c.DSN()
 	if err != nil {
 		return nil, err
 	}
-	pool, err := pgxpool.New(ctx, dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to the database: %w", err)
+	}
+	cfg.MaxConns, cfg.MinConns = maxConns, minConns
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to the database: %w", err)
 	}

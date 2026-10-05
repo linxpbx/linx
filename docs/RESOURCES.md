@@ -104,6 +104,38 @@ Through Linx's **relay** rather than directly, add roughly 10–15% for TURN and
 
 **Where to check the real number:** the app's **Call details** screen (the "Encrypted · …" line during a call) shows the sound actually sent and received and which step the picture is on. `docs/DEMO_PHASE2.md` reads it off a real call on mobile data, which is the measurement no calculation replaces.
 
+## 3c. The leanness review (2026-10-05, before going live)
+
+The owner asked for a full look for anything to make leaner or faster. Everything below is **measured**, and the honest headline is that **Linx is already lean where it matters** — memory and processor — and what fat remains is in upstream base images, where taking it out costs more than it saves.
+
+**Measured, in one place:**
+
+| | |
+|---|---|
+| Four services idle, together | **218 MB** (Postgres 69, Asterisk 68, the control plane 37, coturn 44), under 4% of one core |
+| Programs (linux/amd64, stripped) | control plane **30.0 MB**, `linx` 19.7 MB, certd 9.7 MB, wireguard 4.5 MB |
+| Images | Asterisk **263 MB**, coturn 110 MB, control plane 56 MB, certd 19.5 MB, wireguard 12.5 MB |
+| Web, what a browser downloads | **85.6 KB** compressed to sign in, another **86.3 KB** for the signed-in app; every other screen is its own chunk, fetched when opened |
+| The app | 15.6 MB, 11.9 of it Google's WebRTC |
+
+**Changed:** the database pool is now **sized** (8 connections, 2 kept open) rather than left to pgx's default of one per processor core. On the owner's 2-core server that is the same number it was already using; on a bigger machine it stops Linx holding connections it will never need. It also closes a standing rule that was quietly unmet — "connection pools sized for a small office".
+
+**Looked at and deliberately left alone**, each with what it would cost:
+
+- **35 MB of Unicode data in the Asterisk image.** `libicudata` and friends come in behind `libxml2`, which Debian builds with ICU and Asterisk links. Taking it out means either building Asterisk on musl (a different libc under a phone system, for 13% of an image) or building libxml2 from source in the image (a C library to track for CVEs for ever). **Not worth it:** it is disk, not memory, and disk is not the constraint.
+- **~50 MB of tools in the coturn image.** The official `coturn/coturn:4.18.0-alpine` carries `turnadmin`, the `turnutils_*` family, sqlite and gnutls; Linx uses `turnserver` with HMAC credentials and none of the rest. Rebuilding it would trade an official, pinned, maintained image for a hand-rolled one. **Not worth it** for disk on a 5 GB floor.
+- **The control plane's 30 MB.** No single dependency dominates: the largest named ones are pgx (1.2 MB), the OpenAPI validator (0.5 MB) and WebAuthn (0.3 MB); the rest is Go's runtime and the generated API server. Dropping the request validator would be the only real cut, and it is a security control, not a luxury. **Keep it.**
+- **`lego` in the control-plane binary** looked like a mistake — the ACME client has no business outside certd — but it contributes **7.4 KB**: the linker already removed it. Worth writing down so nobody else "fixes" it.
+- **A 32 MB symbol in the binary** (`crypto/internal/fips140/drbg.memory`) looks alarming in a symbol dump. It is zeroed BSS: no file space, and no memory until something writes to it. Not a leak and not a cost.
+- **Polling.** Every recurring timer was inventoried. The only frequent ones are the Team list (15 s) and the relay's line check (15 s), and the Team one does **nothing at all when nobody has the page open** — it wakes, finds no watchers, and sleeps. The rest are 30 s to an hour, and the work that matters (a call, a voicemail, a registration) is event-driven.
+- **The growing tables** — call history and voicemail — carry the indexes their queries actually use, and both audio columns are `STORAGE EXTERNAL`, so Postgres doesn't spend processor time trying to compress audio that won't compress.
+- **The web bundle** is already split by screen; 85.6 KB compressed to sign in is small for a React app and not where any time goes.
+
+**What would actually make Linx faster or smaller next**, in order of value — none of it urgent:
+1. **Measure a real call on a real phone** rather than computing from ceilings (§3b): the demo does this, and it is the only number here that is arithmetic rather than observation.
+2. **An Instruments pass on the app** (`docs/PHASE2.md` §14): nothing suggests a problem, but no one has looked.
+3. **Postgres is untuned** — it runs on its defaults in a 512 MB container, which is sane (128 MB of shared buffers, measured at 69 MB resident) and has never been the bottleneck. Worth revisiting only if a real installation shows it.
+
 ## 4. Minimum and recommended hardware (as built)
 
 | | Minimum (setup refuses less) | Recommended |
