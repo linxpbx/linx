@@ -16,6 +16,13 @@ The mockups used a placeholder teal. **Linx Cobalt replaces it everywhere** that
 | `color.border` | `#E3E1DA` | `#343842` | dividers, outlines |
 | `color.call` | `#1E8E4E` | `#1E8E4E` | answer button, "available" |
 | `color.end` | `#C53030` | `#C53030` | hang-up, destructive, alerts |
+| `color.star` | `#9C6A06` | `#9C6A06` | favourite: the star swipe |
+
+**What a swipe down the side of a row may be coloured** (owner, 2026-10-05).
+**Red** (`color.end`) means it deletes something, and anything that deletes
+is red. **Blue** is reserved: on a phone, blue down the side of a row means
+"mark read or unread" and must not be used for anything else. A favourite
+is **amber** (`color.star`), the colour of the star itself.
 
 All text/background pairs must meet WCAG 2.2 AA. This is verified by a contrast test in CI (Phase 0b).
 

@@ -164,9 +164,15 @@ struct VoicemailView: View {
                     ForEach(voicemail.messages) { message in
                         VoicemailRow(message: message, voicemail: voicemail)
                             .swipeActions {
-                                Button("Delete", role: .destructive) {
+                                // Red, always, and Linx's own red rather
+                                // than whichever one the system reaches for:
+                                // a swipe that deletes something is the one
+                                // colour nobody may have to think about
+                                // (owner, 2026-10-05).
+                                Button("Delete", systemImage: "trash", role: .destructive) {
                                     Task { await voicemail.delete(message) }
                                 }
+                                .tint(LinxColor.end)
                             }
                     }
                 }

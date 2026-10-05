@@ -24,8 +24,12 @@ public enum LinxColor {
     public static let onCall = Color("OnCall", bundle: .main)
     /// text/icon on end
     public static let onEnd = Color("OnEnd", bundle: .main)
+    /// text/icon on star
+    public static let onStar = Color("OnStar", bundle: .main)
     /// text on surface-dark
     public static let onSurfaceDark = Color("OnSurfaceDark", bundle: .main)
+    /// favourite: the star swipe
+    public static let star = Color("Star", bundle: .main)
     /// cards, tables, panels
     public static let surface = Color("Surface", bundle: .main)
     /// sidebar, in-call screen, meeting stage
@@ -83,7 +87,9 @@ public enum LinxRadius {
             "OnBrand": ("#FFFFFF", "#FFFFFF"),
             "OnCall": ("#FFFFFF", "#FFFFFF"),
             "OnEnd": ("#FFFFFF", "#FFFFFF"),
+            "OnStar": ("#FFFFFF", "#FFFFFF"),
             "OnSurfaceDark": ("#F4F3EF", "#F4F3EF"),
+            "Star": ("#9C6A06", "#9C6A06"),
             "Surface": ("#FFFFFF", "#22252C"),
             "SurfaceDark": ("#17191E", "#17191E"),
             "Text": ("#17191E", "#F4F3EF"),

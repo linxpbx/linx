@@ -41,7 +41,10 @@ struct TeamView: View {
                 Button(starred ? "Unstar" : "Favourite", systemImage: starred ? "star.slash" : "star") {
                     favourites.toggle(member.extensionNumber)
                 }
-                .tint(LinxColor.brandFill)
+                // Amber, the colour of the star itself. Not the brand blue:
+                // on a phone, blue down the side of a row means "mark read
+                // or unread" and nothing else (owner, 2026-10-05).
+                .tint(LinxColor.star)
             }
     }
 

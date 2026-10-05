@@ -12,7 +12,9 @@
   --linx-color-on-brand: #FFFFFF;
   --linx-color-on-call: #FFFFFF;
   --linx-color-on-end: #FFFFFF;
+  --linx-color-on-star: #FFFFFF;
   --linx-color-on-surface-dark: #F4F3EF;
+  --linx-color-star: #9C6A06;
   --linx-color-surface: #FFFFFF;
   --linx-color-surface-dark: #17191E;
   --linx-color-text: #17191E;
@@ -55,7 +57,9 @@
     --linx-color-on-brand: #FFFFFF;
     --linx-color-on-call: #FFFFFF;
     --linx-color-on-end: #FFFFFF;
+    --linx-color-on-star: #FFFFFF;
     --linx-color-on-surface-dark: #F4F3EF;
+    --linx-color-star: #9C6A06;
     --linx-color-surface: #22252C;
     --linx-color-surface-dark: #17191E;
     --linx-color-text: #F4F3EF;
@@ -83,7 +87,9 @@
   --linx-color-on-brand: #FFFFFF;
   --linx-color-on-call: #FFFFFF;
   --linx-color-on-end: #FFFFFF;
+  --linx-color-on-star: #FFFFFF;
   --linx-color-on-surface-dark: #F4F3EF;
+  --linx-color-star: #9C6A06;
   --linx-color-surface: #22252C;
   --linx-color-surface-dark: #17191E;
   --linx-color-text: #F4F3EF;
