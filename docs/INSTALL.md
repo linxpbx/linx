@@ -94,6 +94,7 @@ A restore already follows the new server for everything setup owns: domain, cert
 
 - Phone lines tied to the old network or address: LAN peers (e.g. the UCM), IP-authenticated providers (tell them the new address), WireGuard tunnels.
 - Desk phones set up on the old LAN.
+- **iPhones and iPads** when the domain changed: the app was set up on the old address and can't be given a new one, so each has to be set up again from a new QR code or emailed link. A new *internal CA* is not a reason to set any of them up again: Linx knows a phone by the fingerprint of the certificate it issued, which is in the backup (`docs/PHASE2.md` §9).
 - "Admins only from my home network" still lists the old network.
 - A **different domain**: passkeys stop working (they belong to the old domain, so sign in with password + authenticator and add new ones), and desk phones need the new `sip.` address.
 - Backup places to add again (their keys stay on the old host, `docs/BACKUP.md` §7).

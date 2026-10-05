@@ -78,8 +78,13 @@ type Facts struct {
 	ByAddress []Named
 	// Tunnels are WireGuard tunnels.
 	Tunnels []Named
-	// DeskPhones counts desk phones and phone apps (not browsers).
+	// DeskPhones counts desk phones (not browsers, not app phones).
 	DeskPhones int
+	// AppPhones counts set-up iPhones and iPads. They are counted apart
+	// from desk phones because nothing can be done to them from this end:
+	// an app was set up on the old address and can only be set up again
+	// (docs/PHASE2.md §9).
+	AppPhones int
 	// AdminNetworks: "admins only from my home network" is on, and these
 	// are the networks it lists.
 	AdminRestricted bool
@@ -131,6 +136,7 @@ const (
 	ItemProvider      = "provider"
 	ItemTunnel        = "tunnel"
 	ItemDeskPhones    = "desk_phones"
+	ItemAppPhones     = "app_phones"
 	ItemSignsIn       = "signs_in"
 	ItemAdminNetworks = "admin_networks"
 	ItemPasskeys      = "passkeys"
@@ -216,12 +222,26 @@ func Items(m Move, f Facts) []Item {
 		if domainChanged && !lanChanged {
 			what = "use the old sip." + b.Domain
 		}
-		phones := fmt.Sprintf("%d desk phones and phone apps %s", f.DeskPhones, what)
+		phones := fmt.Sprintf("%d desk phones %s", f.DeskPhones, what)
 		if f.DeskPhones == 1 {
-			phones = "1 desk phone or phone app " + strings.Replace(what, "were", "was", 1)
+			phones = "1 desk phone " + strings.Replace(what, "were", "was", 1)
 		}
 		why := "Give each one this server's address, " + sipName(a.Domain) + ", and check it connects."
 		items = append(items, Item{ID: ItemDeskPhones, Link: LinkExtensions, Title: phones, Why: why})
+	}
+	// An iPhone or iPad can't be re-pointed the way a desk phone can: the
+	// app was set up on the old address and keeps asking for it, so it has
+	// to be set up again from a new code. Only a new domain does this — a
+	// phone reaches Linx over the internet, so the home network changing
+	// underneath it means nothing (docs/PHASE2.md §9).
+	if f.AppPhones > 0 && domainChanged {
+		phones := fmt.Sprintf("%d iPhones and iPads still look for %s", f.AppPhones, b.Domain)
+		if f.AppPhones == 1 {
+			phones = "1 iPhone or iPad still looks for " + b.Domain
+		}
+		items = append(items, Item{ID: ItemAppPhones, Link: LinkExtensions, Title: phones,
+			Why: "The app can't be given a new address: set each one up again from a new QR code or emailed link " +
+				"(People → the person → Phones). The phones themselves keep working until then, on nothing."})
 	}
 	if lanChanged || domainChanged {
 		for _, t := range f.SignsIn {

@@ -132,8 +132,15 @@ func (s *Store) Facts(ctx context.Context, tenant uuid.UUID) (moved.Facts, error
 	if err := rows.Err(); err != nil {
 		return f, err
 	}
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM device
-		WHERE tenant_id = $1 AND kind <> 'web' AND enabled AND revoked_at IS NULL`, tenant).Scan(&f.DeskPhones); err != nil {
+	// Desk phones and app phones are counted apart: a desk phone is given
+	// the new address, an iPhone or iPad has to be set up again
+	// (docs/PHASE2.md §9).
+	if err := s.pool.QueryRow(ctx, `SELECT
+			count(*) FILTER (WHERE kind NOT IN ('web', 'ios')),
+			count(*) FILTER (WHERE kind = 'ios')
+		FROM device
+		WHERE tenant_id = $1 AND enabled AND revoked_at IS NULL`, tenant).
+		Scan(&f.DeskPhones, &f.AppPhones); err != nil {
 		return f, err
 	}
 	var admin []netip.Prefix

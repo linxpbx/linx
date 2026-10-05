@@ -56,12 +56,13 @@ func TestItems(t *testing.T) {
 	f := Facts{
 		LANPeers: []Named{{ucm, "UCM landlines"}}, ByAddress: []Named{{telnyx, "Telnyx"}}, Tunnels: []Named{{wg, "Office"}},
 		SignsIn:    []Named{{gxw, "Branch GXW"}},
-		DeskPhones: 3, AdminRestricted: true, AdminNetworks: []string{"192.168.1.0/24"},
+		DeskPhones: 3, AppPhones: 2, AdminRestricted: true, AdminNetworks: []string{"192.168.1.0/24"},
 		BackedUpSince: func(time.Time) bool { return false },
 	}
 	m := Move{DetectedAt: time.Now(), Before: home, After: rented}
 	got := Items(m, f)
-	want := []string{ItemOldServer, ItemLANPeer, ItemProvider, ItemTunnel, ItemDeskPhones, ItemSignsIn, ItemAdminNetworks, ItemPasskeys, ItemBackups}
+	want := []string{ItemOldServer, ItemLANPeer, ItemProvider, ItemTunnel, ItemDeskPhones, ItemAppPhones, ItemSignsIn,
+		ItemAdminNetworks, ItemPasskeys, ItemBackups}
 	if !slices.Equal(ids(got), want) {
 		t.Fatalf("items %v", ids(got))
 	}
@@ -71,8 +72,19 @@ func TestItems(t *testing.T) {
 		}
 	}
 	if !strings.Contains(got[2].Title, "Telnyx") || !strings.Contains(got[2].Title, "203.0.113.5") ||
-		!strings.Contains(got[4].Title, "3 desk phones") || !strings.Contains(got[5].Title, "Branch GXW") || !strings.Contains(got[7].Why, "pbx.old.com") {
-		t.Errorf("words: %q / %q / %q / %q", got[2].Title, got[4].Title, got[5].Title, got[7].Why)
+		!strings.Contains(got[4].Title, "3 desk phones") || !strings.Contains(got[6].Title, "Branch GXW") ||
+		!strings.Contains(got[8].Why, "pbx.old.com") {
+		t.Errorf("words: %q / %q / %q / %q", got[2].Title, got[4].Title, got[6].Title, got[8].Why)
+	}
+	// An iPhone can't be given the new address: it is set up again, and it
+	// is only ever the domain that does this to one (docs/PHASE2.md §9).
+	if !strings.Contains(got[5].Title, "2 iPhones and iPads") || !strings.Contains(got[5].Why, "set each one up again") {
+		t.Errorf("app phones: %q / %q", got[5].Title, got[5].Why)
+	}
+	sameDomain := rented
+	sameDomain.Domain = home.Domain
+	if got := ids(Items(Move{Before: home, After: sameDomain}, f)); slices.Contains(got, ItemAppPhones) {
+		t.Errorf("app phones asked to be set up again for a home network they never used: %v", got)
 	}
 
 	// The same home network and domain on a new server: only what always applies.
