@@ -8,3 +8,21 @@ limit	This phone is already on as many outside calls as it's allowed. Please end
 closed	Thank you for calling. We're closed right now. Please call again during our opening hours.
 vm-greeting	The person you called isn't available. Please leave a message after the tone. When you're done, just hang up.
 vm-closed	Thank you for calling. We're closed right now. Please leave a message after the tone, and we'll get back to you.
+vm-nobox	There's no voicemail set up for this phone. Ask your admin if you need one.
+vm-none	You have no new messages. Goodbye.
+vm-intro	Here are your new messages. Press 1 to hear one again, 2 for the next, or 3 to delete it.
+vm-from	Message from
+vm-unknown	Message from a number that didn't show.
+vm-deleted	Deleted.
+vm-end	That's all your messages. Goodbye.
+digit-0	zero
+digit-1	one
+digit-2	two
+digit-3	three
+digit-4	four
+digit-5	five
+digit-6	six
+digit-7	seven
+digit-8	eight
+digit-9	nine
+digit-plus	plus
