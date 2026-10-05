@@ -120,8 +120,84 @@ The push gateway is built so the destination is one setting: Apple directly now,
 7. ~~**The rest of the app**~~ — **done 2026-10-04**: the four tabs, 1:1 video with a layout that follows the screen, Calls, Team with presence, Voicemail and Settings. "Step 7, as built" below.
 8. ~~**iPad, adaptive and fold layouts**~~ — **done 2026-10-05**: every tab a list beside a detail, a call in its own column rather than over the top, and the fold's own geometry (`ReservedRegion`, iOS 27.1, ADR-082) in place of the near-square guess. "Step 8, as built" below.
 9. ~~**Lifetime and loss**~~ — **done 2026-10-05**: renewal, the six-month idle expiry, revoke-everywhere, "set this phone up again", and the security review with its `THREAT_MODEL.md` rows. "Step 9, as built" below.
-9b. **`*97` and the message-waiting light** (owner, 2026-10-04, folded into this phase): dialling `*97` from a desk phone reaches that phone's own voicemail, and the light comes on when there is a new message and goes out when there isn't. Both need Linx to control the call through ARI, which step 5 built.
+9b. ~~**`*97` and the message-waiting light**~~ — **done 2026-10-05** (ADR-083): dialling `*97` from a phone plays that extension's own new messages, and the light comes on when there is a new message and goes out when there isn't. "Step 9b, as built" below.
 10. **Finish**: ~~`TEST_MATRIX.md`~~ (**written 2026-10-04 as `docs/TEST_MATRIX.md`**, when the first TestFlight build reached a real phone and the owner could start working down it), ~~`APPLE_SIGNING.md`~~ (**written 2026-10-04 as `docs/ops/APPLE_SIGNING.md`**, because the owner needed it before the signing session rather than after), `STORE_SUBMISSION.md`, resource and data-per-minute measurements in `docs/RESOURCES.md`, `docs/DEMO_PHASE2.md`, and the demo on the test VPS.
+
+### Step 9b, as built (2026-10-05)
+
+**A desk phone can hear its messages, and its light tells the truth.**
+Both are things Phase 1F parked until Linx could control a call through
+ARI (ADR-069, ADR-083); the owner folded them into this phase on
+2026-10-04.
+
+- **`*97` plays your own new messages.** The dialplan hands the call to
+  the control plane (`Stasis(linx,voicemail)`), which answers it and
+  plays. **Whose messages is decided in the control plane, from the
+  endpoint the channel belongs to** — not from an argument the dialplan
+  passes and not from anything the phone sent — so a phone can only ever
+  reach its own extension's box. Each message is read out of the database
+  into a folder only Asterisk reads (in memory, one message at a time,
+  removed the moment it has played), announced as "Message from" and the
+  caller's number read out a digit at a time, and played. **1** hears it
+  again, **2** moves on, **3** deletes it, and with no key pressed the
+  next follows in three seconds. A message heard to the end stops being
+  new — the same rule the web app follows, so hearing it here clears the
+  badge there — and one skipped stays new. A box that is off, or an
+  extension that has none, hears so. With the control plane away the
+  caller hears "nobody can take your call right now" rather than silence.
+- **The light is a count Linx gives Asterisk, not one Asterisk works
+  out.** The image now carries `res_mwi_external` (so `app_voicemail` is
+  still not built and there is still one message store, ADR-069), and the
+  control plane sets each box's new and old counts over ARI: at every
+  change to anybody's messages, and again whenever Asterisk reconnects,
+  because a phone engine that has just restarted knows nothing. Only what
+  changed is sent, so a quiet system sends nothing at all, and a Linx that
+  drifted puts itself right at the next change. Migration 0046 puts the
+  box's name on that person's **desk phones and softphones** only: the web
+  app and the iPhone app count their own messages and show a badge, and an
+  unsolicited NOTIFY on a browser's line would be noise. The path that is
+  proved end to end is the one real desk phones use — the phone
+  **subscribes** when it signs in and Asterisk notifies it on every
+  change (the call suite drives it with SIPp and reads the light out of
+  the NOTIFY). A phone that never asks would need the unsolicited kind,
+  which is configured but may not reach it, because Asterisk cannot
+  enumerate endpoints that live in a database. Row 5b.1 of the test
+  matrix is what settles it on the owner's own phones.
+- **ARI is read-write now** (ADR-083). It is the one thing in this step
+  that widens anything: a control plane someone had broken into could also
+  hang up or redirect a call. It already holds the database, every secret
+  and Asterisk's own password, so this widens what an attacker *does*
+  rather than what they can reach — and Asterisk gains nothing: still four
+  views and one `INSERT`. `docs/THREAT_MODEL.md` carries the row.
+- **Eleven new recordings and no speech at call time**: `digit-0` …
+  `digit-9` and `plus`, in Linx's own voice (ADR-065), so a caller's
+  number can be read out; plus the seven sentences `*97` says. `make
+  prompts` no longer re-records a message that already has a file — the
+  voice is not bit-for-bit repeatable, and regenerating everything
+  quietly re-recorded eight messages the owner had already heard.
+- **In call history** a `*97` call reads "Listened to voicemail" and
+  counts as **answered** — Linx answered it and played the messages, the
+  same shape as the echo test. No new outcome was needed, so nothing
+  changes for the API, the web app or the phone app.
+- **A person's own box only.** A ring group's messages have no phone to
+  light up and no one person to mark them heard; they stay in the web app
+  and the phone app for every member. Offering them here would mean a menu
+  before the messages. Worth revisiting if the owner wants it.
+- **Tests:** `internal/voicemail` drives a whole call against a stand-in
+  phone engine (no messages, no box, a box switched off, two messages
+  played through, 3 deleting, 1 repeating, a caller hanging up mid-way, a
+  call that isn't `*97` left alone, and the digits a number turns into),
+  the light (what is sent, what is not sent twice, a box that went away,
+  a reconnect, a refusal tried again), and that every sound `*97` can
+  play is in the image. The **call suite** proves it on the real image
+  end to end: a message inserted, the light going on, `*97` playing the
+  intro, the caller's digits and the message itself from its own file,
+  the message no longer new, the folder empty, and the light going out.
+- **What it costs** (`docs/RESOURCES.md`): the Asterisk image **+0.81 MB**
+  (six modules, 528 KB, and the new recordings, 300 KB), the control plane
+  **+0.05 MB**, no new container and no new timer — the light waits on
+  changes, it doesn't poll. One more in-memory volume, 16 MB, holding one
+  message only while it plays.
 
 ### Step 9, as built (2026-10-05)
 

@@ -115,6 +115,25 @@ the app may look like a phone screen stretched to fill a 13-inch one.
 | 5.7 | Settings → This phone's line | **Person**, **Linx server**, **Extension** and **Set up again by** all name the right thing (step 9) |
 | 5.8 | Sign out in the app (Settings → **Sign out of this phone**), then look at My phones in the web app | The phone is still listed there: signing out takes Linx off the phone, stopping it in Linx is **I've lost it**. Both are meant to exist |
 
+## 5b. `*97` and the message light (step 9b, on a desk phone)
+
+These need a **desk phone** — the UCM's extensions, or any SIP phone on
+the office network. The app and the web client have their own badge and
+don't use either of these.
+
+| | What to do | What should happen |
+|---|---|---|
+| 5b.1 | Leave yourself a voicemail, then look at the desk phone | Its message lamp (or envelope) comes on within a second or two. *If it doesn't:* the phone may not be asking Linx for it — look for **voicemail subscribe** or **MWI** in the phone's own settings. Linx proves the asking path in its tests; a phone that never asks is the one case nothing here can settle |
+| 5b.2 | Dial `*97` from that phone | Linx answers, says "Here are your new messages…", reads the caller's number out digit by digit, then plays the message |
+| 5b.3 | Let it play to the end and hang up | The light goes out; the message has moved to **Heard** on the website too |
+| 5b.4 | Leave two messages, dial `*97`, press `2` in the middle of the first | It skips to the second — and the first is **still new** afterwards (and the light stays on) |
+| 5b.5 | Dial `*97`, press `3` while a message plays | It says "Deleted", moves on, and the message is gone from the website |
+| 5b.6 | Dial `*97`, press `1` while a message plays | The same message starts again |
+| 5b.7 | Hear a message on the website instead, and watch the desk phone | The light goes out there too, within a second or two |
+| 5b.8 | Dial `*97` with no new messages | "You have no new messages. Goodbye." |
+| 5b.9 | Turn that person's voicemail off (People → Voicemail → Turn off), dial `*97` | "There's no voicemail set up for this phone." — and no messages of anyone's are played |
+| 5b.10 | Restart the phone engine (System → Status → Restart on the phone system), then look at the lights | They come back on by themselves within a few seconds, without anyone dialling anything |
+
 ## 6. Where it gets hard
 
 Worth trying if you can, not blockers:

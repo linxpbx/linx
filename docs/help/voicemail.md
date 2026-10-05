@@ -2,7 +2,7 @@
 title: Voicemail
 audience: everyone
 section: everyday
-keywords: [voicemail, voice mail, message, messages, left a message, greeting, record greeting, mailbox, inbox, missed call, listen, call back, delete voicemail, email voicemail, voicemail off]
+keywords: [voicemail, voice mail, message, messages, left a message, greeting, record greeting, mailbox, inbox, missed call, listen, call back, delete voicemail, email voicemail, voicemail off, *97, star 97, desk phone voicemail, message waiting light, envelope light, lamp]
 screens: [/voicemail]
 ---
 # Voicemail
@@ -20,6 +20,26 @@ When nobody answers, callers can leave a message. **Voicemail** in the sidebar s
 - The box at the top (**Mine**) lets you look at one group's messages only. Admins also get **All boxes**; when an admin listens to someone else's message, it's written in the activity log (System → Activity).
 
 Messages are kept for 60 days and then deleted (an admin can change that, below). Each message can be up to 3 minutes long.
+
+## From a desk phone: dial *97
+
+You don't need a computer to hear your messages. On any phone that belongs to your extension, dial `*97`. Linx answers and plays the ones you haven't heard yet, oldest first, each one introduced by the caller's number read out.
+
+While a message plays, or in the few seconds after it:
+
+- `1` plays it again.
+- `2` moves on to the next one.
+- `3` deletes it.
+
+Press nothing and the next one follows by itself. A message you hear right through stops being new — so the light goes out, and it has moved to **Heard** on the website too. One you skip past stays new.
+
+`*97` plays your own messages only. A ring group's are in Voicemail on the website and in the iPhone app, where everyone in the group can see them.
+
+## The light on your desk phone
+
+Most desk phones have a lamp, or an envelope on their screen, for "you have a message". Linx turns it on when you have a new one and off when you don't — including when you hear the message somewhere else, on the website or in the app. Nothing has to be set up in Linx: the phone asks for it when it signs in, and is told from then on. (If a phone's light never comes on, look in its own settings for something like *voicemail subscribe* or *MWI* and make sure it's on.)
+
+If your phone has no light, nothing is lost: dial `*97`, or look at Voicemail on the website.
 
 ## Your greeting
 
