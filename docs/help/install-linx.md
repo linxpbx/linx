@@ -17,13 +17,15 @@ You need:
 
 ## 1. Start it on the server
 
-On the server, run:
+On the server, run this one line. It downloads Linx for your server — picking the right build for an Intel/AMD or an ARM machine by itself — checks it, installs it, and starts the setup:
 
 ```
-sudo linx setup
+curl -fsSL https://raw.githubusercontent.com/linxpbx/linx/master/install.sh | sudo sh
 ```
 
-Choose the browser when it asks how you want to finish. Setup checks the server, installs what Linx needs and prints *one link*, like `https://203.0.113.5:6464/install/…`, and a **fingerprint** (a long code).
+(Already have the `linx` program on this server? Just run `sudo linx setup`.)
+
+Setup checks the server, installs what Linx needs and prints *one link*, like `https://203.0.113.5:6464/install/…`, and a **fingerprint** (a long code).
 
 On a rented server, your provider's firewall must let in TCP port 443, UDP port 443 and, for now, TCP port 6464.
 
