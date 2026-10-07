@@ -1,0 +1,88 @@
+---
+import Base from '../layouts/Base.astro';
+// Testing the iPhone and iPad app before it's on the App Store. The form
+// posts to worker/index.ts, which emails the owner; nothing is stored. The
+// Turnstile check (Cloudflare's privacy-friendly "are you a person") is
+// loaded on this page only, and only once requests are open.
+---
+
+<Base title="Test the iPhone app" description="Ask to test the Linx app for iPhone and iPad through TestFlight, before it's on the App Store.">
+  <section class="container head">
+    <p class="eyebrow">TestFlight</p>
+    <h1>Test the iPhone and iPad app</h1>
+    <p class="lede">The Linx app is coming to the App Store. Until then, you can try it through Apple's <strong>TestFlight</strong>: ask below, and if you're approved, TestFlight emails you an invitation.</p>
+  </section>
+
+  <section class="container">
+    <div class="card">
+      <p id="closed" class="note" hidden>Requests aren't open yet. Please check back soon.</p>
+      <form id="beta" hidden>
+        <div class="row">
+          <label>First name<input name="first_name" required maxlength="60" autocomplete="given-name"></label>
+          <label>Last name<input name="last_name" maxlength="60" autocomplete="family-name"></label>
+        </div>
+        <label>Email of your Apple ID<input name="email" type="email" required maxlength="120" autocomplete="email">
+          <span class="hint">The invitation goes here. Use the email you sign in to the App Store with.</span></label>
+        <label><span>Anything you'd like to tell us <span class="optional">(optional)</span></span>
+          <textarea name="note" maxlength="300" rows="3" placeholder="For example: I run Linx for a small office."></textarea></label>
+        <div id="turnstile"></div>
+        <button type="submit" class="btn btn-primary">Ask to test</button>
+        <p id="result" role="status" class="note"></p>
+      </form>
+      <p class="small">You'll need a Linx server to sign in to: the app is the phone for a server you run (<a href="/download">get one</a>). We use your name and email only to decide and, if approved, to send it to Apple for the invitation; nothing is kept here. See <a href="/privacy">Privacy</a>.</p>
+    </div>
+  </section>
+
+  <script>
+    const form = document.getElementById('beta') as HTMLFormElement;
+    const closed = document.getElementById('closed')!;
+    const result = document.getElementById('result')!;
+    let token = '';
+    fetch('/api/beta')
+      .then((r) => (r.ok ? r.json() : { open: false }))
+      .catch(() => ({ open: false }))
+      .then((s: { open: boolean; turnstile_site_key?: string }) => {
+        if (!s.open || !s.turnstile_site_key) { closed.hidden = false; return; }
+        form.hidden = false;
+        const w = window as unknown as { onTurnstile?: () => void; turnstile?: { render(el: string, o: object): void; reset(): void } };
+        w.onTurnstile = () => w.turnstile!.render('#turnstile', { sitekey: s.turnstile_site_key, callback: (t: string) => { token = t; } });
+        const tag = document.createElement('script');
+        tag.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstile&render=explicit';
+        tag.async = true;
+        document.head.appendChild(tag);
+      });
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form)) as Record<string, string>;
+      const button = form.querySelector('button')!;
+      button.disabled = true;
+      result.textContent = 'Sending…';
+      const r = await fetch('/api/beta', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...data, turnstile: token }) })
+        .then((x) => x.json())
+        .catch(() => ({ ok: false, message: "That didn't send. Please try again." }));
+      result.textContent = r.message;
+      if (r.ok) { form.reset(); for (const el of form.querySelectorAll('input, textarea, button')) (el as HTMLInputElement).disabled = true; }
+      else { button.disabled = false; (window as unknown as { turnstile?: { reset(): void } }).turnstile?.reset(); token = ''; }
+    });
+  </script>
+
+  <style>
+    .head { padding-top: clamp(2.5rem, 6vw, 4rem); }
+    .lede { font-size: 1.15rem; max-width: 60ch; }
+    .card { max-width: 640px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 1.6rem; margin-top: 1rem; }
+    form { display: grid; gap: 1rem; }
+    .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+    label { display: grid; gap: 0.35rem; font-family: var(--font-display); font-weight: 600; font-size: 0.95rem; }
+    input, textarea {
+      font: inherit; font-family: var(--font-body); font-weight: 400; color: var(--fg); background: var(--bg);
+      border: 1px solid var(--border); border-radius: var(--r-sm); padding: 0.6em 0.75em; width: 100%;
+    }
+    input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .hint, .optional { font-family: var(--font-body); font-weight: 400; font-size: 0.85rem; color: var(--fg-faint); }
+    button { justify-self: start; }
+    button:disabled { opacity: 0.6; cursor: default; }
+    .note { margin: 0; color: var(--fg-muted); }
+    .small { font-size: 0.88rem; color: var(--fg-faint); margin: 1.2rem 0 0; }
+    @media (max-width: 560px) { .row { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+</Base>

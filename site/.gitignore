@@ -8,3 +8,5 @@ node_modules/
 .env.production
 public/help/
 .help-guides/
+.dev.vars
+.wrangler/

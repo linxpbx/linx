@@ -1,12 +1,22 @@
-// Cloudflare Workers static-assets config for linxpbx.com. Cloudflare runs
-// `npm run build` (Astro -> dist/) and then `npx wrangler deploy`, which
-// uploads dist/ as static files. No server code runs: it is a static site.
+// Cloudflare config for linxpbx.com. Cloudflare runs `npm run build`
+// (Astro -> dist/) and then `npx wrangler deploy`: dist/ is served as static
+// files, and worker/index.ts answers only the TestFlight request paths
+// (run_worker_first). Its settings (OWNER_EMAIL, MAIL_FROM, the Turnstile
+// keys, REVIEW_SECRET and the App Store Connect key) are set in the
+// Cloudflare dashboard, never here: see site/README.md.
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "linx",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "404-page"
-  }
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*", "/beta/review"]
+  },
+  // Mail to the owner only: Email Routing must be on for linxpbx.com, and
+  // OWNER_EMAIL a verified destination address there.
+  "send_email": [{ "name": "MAIL" }],
+  "observability": { "enabled": true }
 }
