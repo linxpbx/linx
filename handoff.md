@@ -65,6 +65,10 @@ The ones in play this round. `codegraph explore "<names>"` is faster than grep f
 
 ## 4. Changes made (the whole project)
 
+- **Every country (ADR-085), 2026-10-07.** Any of libphonenumber's 245 regions as the home country. All 245 were proved on 2026-10-07: about 7.5 M numbers, with the database and the library agreeing on every one. The Docker test now checks every country (about 3 min). `GET /api/v1/countries`. `call_permission_level.abroad_countries` (migration 0047, schema **47**) means calls abroad go everywhere or only to the listed countries; widening needs "confirm it's you", including in an undo. The wizard's country step saves country-suited ranges (200–699 in North America). Outgoing calls can change the country in place and offers "Every country" / "Only the countries I choose". 38 busy tones (37 from Asterisk 22.11). Country names take "the" in sentences.
+- **Website: help guides, changelog, TestFlight requests, privacy — 2026-10-07.** `docs/help` is the single source; `site/scripts/sync-help.mjs` publishes it at /docs/<guide>. The /changelog page is written by the Release workflow. /beta and /privacy. The site is on **Astro 7.3.6**, and `make security` now audits `site/` too.
+- **Security, 2026-10-07:** source-map-js 1.2.2 in `web/` (GHSA-68fv-2mgg-jv7q had turned CI's security job red); the site's Astro/esbuild/sharp advisories fixed (sharp held at 0.35.5 by an npm override).
+
 - **Product website (`site/`, Astro) for linxpbx.com — 2026-10-07.** Landing + Download + a docs/help section (Markdown under `site/src/content/docs/`). Brand from `design/tokens.json`; static, near-zero JS; no sideways scroll checked at 390px; deps pinned; telemetry off. Deploys on **Cloudflare Pages** (root `site`, build `npm run build`, output `dist`) via git-push auto-deploy — updating content = a commit. `site/README.md` has the one-time Cloudflare connect + DNS steps. **Pending (owner, one-time):** connect the repo in Cloudflare Pages and add `linxpbx.com` + `www`. `npm run dev` / `npm run build` in `site/`.
 
 Phase by phase, each finished with a demo the owner approved. **Every step's detail is in `docs/HISTORY.md`** — this is the map, not the territory.
@@ -95,6 +99,11 @@ Phase by phase, each finished with a demo the owner approved. **Every step's det
 ---
 
 ## 5. Failed attempts (the whole project)
+
+- **A long batch of commits can hide a red CI (2026-10-07).** A new npm advisory turned the security job red on a docs/website commit, and later pushes cancelled that run before anyone looked. Check `gh run list` for *failure*, not just the newest run's status. Also: `make security` didn't cover `site/` until that day.
+- **Astro 7 doesn't run remark plugins by default** (its new Markdown engine). It needs `@astrojs/markdown-remark` installed, or the build stops at config time.
+- **A context7 version can lag.** It gave Astro 6.3.1 when 7.3.6 was current. Check `npm view <pkg> version` before pinning.
+- **YAML reads guide front matter differently from the server.** `*43` is an alias and `999` a number. The website rewrites front matter to strict YAML in `sync-help.mjs` rather than changing the guides.
 
 - **cosign v3 `sign-blob` broke the first `v1.0.0` release run (2026-10-05).** The `program` job failed: *"must specify --bundle with --new-bundle-format"*. cosign v3 makes `--new-bundle-format` the default for `sign-blob` and drops the old `--output-signature`/`--output-certificate` pair. Fixed in `.github/workflows/release.yml` to emit one `<file>.sigstore.json` bundle per binary (verify-blob example in the step comment). The image-signing step uses `cosign sign` (OCI) and was fine. Lesson for any future cosign bump: `sign-blob` and `sign` have different flag surfaces.
 
@@ -167,6 +176,13 @@ The useful half of the record: **do not try these again.**
 ---
 
 ## 6. Next step
+
+**▶ Where 2026-10-07 left off (read first).** The owner asked that **all of this goes out as 1.0**: every country (ADR-085), the help guides on linxpbx.com, and "coming soon" labels. All three are built, tested and pushed. **Decided (owner, 2026-10-07): replace the published `v1.0.0` if it's still unused, otherwise release as `1.1.0`.** "Unused" is read from the release assets' download counts. On 2026-10-07 every asset showed 1, which were Claude's own test downloads (install.sh, both binaries, SHA256SUMS). **To do, once CI is green on master:**
+   1. `gh api repos/linxpbx/linx/releases/tags/v1.0.0 --jq '.assets[]|"\(.name) \(.download_count)"'`: any binary above 1 means someone installed it, so **release 1.1.0 instead** (it has migration 0047, so it can't be a patch) and say so to the owner.
+   2. If still unused: `gh release delete v1.0.0 --yes --cleanup-tag`, then tag the green HEAD `v1.0.0` and push. The Release workflow re-tags/signs the images, builds the binaries, uses `docs/release-notes/v1.0.0.md` for the GitHub notes, and **commits the website changelog entry** to master (new `changelog` job: watch that it succeeds, since it's its first real run).
+   3. Check linxpbx.com/changelog shows 1.0.0.
+
+**Also built 2026-10-07 (website, not tied to a release):** the changelog page and its automation (`tools/changelog/entry.sh`, Release job `changelog`, notes in `docs/release-notes/`); the TestFlight request page **/beta** (`site/worker/index.ts`: signed review link emailed to the owner, Approve adds the tester via the App Store Connect API) and **/privacy**. **/beta is closed until the owner does the setup in `site/README.md` "TestFlight requests"**: an *external* TestFlight group submitted for Beta App Review (needs a demo server + sign-in details for Apple), an App Store Connect API key with the App Manager role, Cloudflare Email Routing with their address as a verified destination, a Turnstile widget, and the variables/secrets in the Worker's settings. App Store Connect today has only the "Internal Testing" group (app id 6818948775, "Linx UC").
 
 **Going live at 1.0.0 now (owner, 2026-10-05: server first, app after), in order:**
 
