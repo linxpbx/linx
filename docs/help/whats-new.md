@@ -9,6 +9,12 @@ screens: []
 
 The newest changes come first. Each Linx update brings its own help pages, so these guides always match the version your server runs.
 
+## Any country, and calls abroad to the countries you choose
+
+- The setup wizard's **Country** offers every country. Linx recognises local, mobile, free and emergency numbers the way they're dialled there, and suggests extension numbers that suit it.
+- **Outgoing calls** → **Country** → **Change** sets it after setup.
+- With **Abroad** on, **Only the countries I choose** limits calls abroad to the countries you list. See [What phones can call](calling-permissions).
+
 ## Undo for call routing
 
 - After every change to where calls go, **Saved.** and **Undo** show for 10 seconds. See [Undo and routing changes](routing-changes).

@@ -116,6 +116,28 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/countries:
+    get:
+      operationId: listCountries
+      summary: Countries Linx can be set up in
+      description: >-
+        Every country Linx can be set up in (ADR-085), sorted by name, with
+        what the setup wizard and Outgoing calls show about it: the prefix
+        people dial before a national number (extensions can't start with
+        it) and the emergency numbers that always work there.
+      tags: [settings]
+      security:
+        - bearer: [settings:read]
+      responses:
+        "200":
+          description: The countries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountryList"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/numbering/next:
     get:
       operationId: nextExtensionNumber
@@ -6319,7 +6341,7 @@ components:
           format: uuid
         number:
           type: string
-          description: 2 to 6 digits, unique. Refused (422 number_reserved) if it starts like an outside number in the country Linx is set up in (0 in the UAE) or is an emergency or short service number there (999, 112, 901, ...).
+          description: 2 to 6 digits, unique. Refused (422 number_reserved) if it starts like an outside number in the country Linx is set up in (0 in most countries, 1 in North America) or is an emergency or short service number there (112, 911, 999, ...).
         display_name:
           type: string
         email:
@@ -7387,7 +7409,7 @@ components:
     CallPermissionLevel:
       description: Who a group of extensions may call out to (docs/TRUNKS.md §5).
       type: object
-      required: [id, name, allowed_categories, withhold_caller_id, created_at, updated_at, etag]
+      required: [id, name, allowed_categories, abroad_countries, withhold_caller_id, created_at, updated_at, etag]
       properties:
         id:
           type: string
@@ -7398,6 +7420,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NumberCategory"
+        abroad_countries:
+          $ref: "#/components/schemas/AbroadCountries"
         withhold_caller_id:
           type: boolean
           description: Send "withheld" instead of a caller ID, if the trunk's provider supports it.
@@ -7411,6 +7435,53 @@ components:
           type: string
           description: Send as If-Match when changing it.
 
+    AbroadCountries:
+      description: >-
+        Where calls abroad may go when the level allows `international`
+        (ADR-085): the ISO 3166 codes of the only countries it may call, or
+        an empty list for everywhere. A premium-rate number abroad must be
+        in a listed country too. Numbers sharing the home country's calling
+        code (Canada from the United States) aren't abroad.
+      type: array
+      maxItems: 300
+      items:
+        type: string
+        pattern: "^[A-Z]{2}$"
+
+    Country:
+      type: object
+      required: [code, name, national_prefix, emergency_numbers]
+      properties:
+        code:
+          type: string
+          description: ISO 3166 code ("AE").
+        name:
+          type: string
+          description: The country's name in English.
+        national_prefix:
+          type: string
+          description: What people dial before a national number ("0", or "1" in North America); "" if nothing.
+        emergency_numbers:
+          type: array
+          items:
+            type: object
+            required: [number, label]
+            properties:
+              number:
+                type: string
+              label:
+                type: string
+                description: '"police", "ambulance", or "emergency".'
+
+    CountryList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Country"
+
     CallPermissionLevelCreate:
       type: object
       additionalProperties: false
@@ -7423,6 +7494,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NumberCategory"
+        abroad_countries:
+          $ref: "#/components/schemas/AbroadCountries"
         withhold_caller_id:
           type: boolean
           description: Defaults to false.
@@ -7439,6 +7512,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NumberCategory"
+        abroad_countries:
+          $ref: "#/components/schemas/AbroadCountries"
         withhold_caller_id:
           type: boolean
 

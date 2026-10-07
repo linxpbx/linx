@@ -44,7 +44,8 @@ const routingSnapshot = `SELECT jsonb_build_object(
 			'rings_ring_group_id', t.rings_ring_group_id, 'outbound_priority', t.outbound_priority) ORDER BY t.id)
 		FROM trunk t WHERE t.tenant_id = $1), '[]'),
 	'call_permission_level', coalesce((SELECT jsonb_agg(jsonb_build_object('id', l.id, 'name', l.name,
-			'allowed_categories', l.allowed_categories, 'withhold_caller_id', l.withhold_caller_id) ORDER BY l.id)
+			'allowed_categories', l.allowed_categories, 'abroad_countries', l.abroad_countries,
+			'withhold_caller_id', l.withhold_caller_id) ORDER BY l.id)
 		FROM call_permission_level l WHERE l.tenant_id = $1), '[]'))`
 
 func lockRouting(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) error {
@@ -363,6 +364,7 @@ func restoreRouting(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, snap []byt
 		`UPDATE call_permission_level SET name = id::text WHERE tenant_id = $1
 			AND id IN (SELECT s.id FROM jsonb_populate_recordset(NULL::call_permission_level, $2::jsonb->'call_permission_level') s)`,
 		`UPDATE call_permission_level l SET name = s.name, allowed_categories = s.allowed_categories,
+				abroad_countries = s.abroad_countries,
 				withhold_caller_id = s.withhold_caller_id, version = l.version + 1, updated_at = now()
 			FROM jsonb_populate_recordset(NULL::call_permission_level, $2::jsonb->'call_permission_level') s WHERE l.id = s.id AND l.tenant_id = $1`,
 	)
@@ -439,7 +441,7 @@ func (s *Store) OutgoingRouting(ctx context.Context, tenant uuid.UUID) (routing.
 	if out.Lines, err = pgx.CollectRows(rows, pgx.RowTo[string]); err != nil {
 		return out, err
 	}
-	rows, err = s.pool.Query(ctx, `SELECT id, name, allowed_categories, withhold_caller_id FROM call_permission_level
+	rows, err = s.pool.Query(ctx, `SELECT id, name, allowed_categories, coalesce(abroad_countries, '{}'), withhold_caller_id FROM call_permission_level
 		WHERE tenant_id = $1 ORDER BY name`, tenant)
 	if err != nil {
 		return out, err
@@ -447,7 +449,7 @@ func (s *Store) OutgoingRouting(ctx context.Context, tenant uuid.UUID) (routing.
 	defer rows.Close()
 	for rows.Next() {
 		var l routing.Level
-		if err := rows.Scan(&l.ID, &l.Name, &l.Categories, &l.WithholdCallerID); err != nil {
+		if err := rows.Scan(&l.ID, &l.Name, &l.Categories, &l.AbroadCountries, &l.WithholdCallerID); err != nil {
 			return out, err
 		}
 		out.Levels = append(out.Levels, l)

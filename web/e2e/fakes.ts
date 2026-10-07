@@ -39,7 +39,22 @@ export const TEAM = [
 
 type Json = Record<string, unknown>;
 
+// A few of the ~245 countries GET /api/v1/countries lists (ADR-085).
+const FAKE_COUNTRIES: Json[] = [
+  { code: "AU", name: "Australia", national_prefix: "0", emergency_numbers: [{ number: "112", label: "emergency" }, { number: "000", label: "emergency" }] },
+  { code: "DE", name: "Germany", national_prefix: "0", emergency_numbers: [{ number: "110", label: "emergency" }, { number: "112", label: "emergency" }] },
+  { code: "IN", name: "India", national_prefix: "0", emergency_numbers: [{ number: "100", label: "emergency" }, { number: "112", label: "emergency" }] },
+  { code: "SA", name: "Saudi Arabia", national_prefix: "0", emergency_numbers: [{ number: "112", label: "emergency" }, { number: "911", label: "emergency" }, { number: "997", label: "emergency" }, { number: "999", label: "emergency" }] },
+  { code: "AE", name: "United Arab Emirates", national_prefix: "0", emergency_numbers: [
+    { number: "999", label: "police" }, { number: "998", label: "ambulance" }, { number: "997", label: "fire" },
+    { number: "112", label: "emergency" }, { number: "901", label: "police (non-emergency)" }] },
+  { code: "GB", name: "United Kingdom", national_prefix: "0", emergency_numbers: [{ number: "112", label: "emergency" }, { number: "999", label: "emergency" }] },
+  { code: "US", name: "United States", national_prefix: "1", emergency_numbers: [{ number: "112", label: "emergency" }, { number: "911", label: "emergency" }] },
+];
+
 export interface FakeOptions {
+  /** The Everyone level allows calls abroad, only to these countries (ADR-085). */
+  abroadOnly?: string[];
   signedIn?: boolean;
   // code: an authenticator app and a passkey; passkey: a passkey only;
   // enroll: an admin with no second step yet.
@@ -120,7 +135,7 @@ function seedLines(none: boolean) {
     { id: "0199f4", trunk_id: "0199e3", number: "+97142000103", label: "", extension_id: "e1024", created_at: at, updated_at: at, etag: '"1"' },
   ];
   const level: Json = { id: "0199f1", name: "Everyone", allowed_categories: ["landline", "service", "mobile", "national", "toll_free"],
-    withhold_caller_id: false, created_at: at, updated_at: at, etag: '"1"' };
+    abroad_countries: [], withhold_caller_id: false, created_at: at, updated_at: at, etag: '"1"' };
   const profiles: Json[] = [];
   return { trunks, dids, level, profiles, alert: { minutes: 60, calls: 10 } };
 }
@@ -354,6 +369,10 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
   ];
   const seed = seedPeople();
   const lines = seedLines(!!opts.noLines);
+  if (opts.abroadOnly) {
+    (lines.level.allowed_categories as string[]).push("international");
+    lines.level.abroad_countries = opts.abroadOnly;
+  }
   const settings: Json = {
     country: "AE", extension_digits: 3,
     extension_ranges: [{ kind: "people", from: 100, to: 599 }, { kind: "groups", from: 600, to: 699 }, { kind: "reserved", from: 700, to: 899 }],
@@ -910,6 +929,7 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       const body = route.request().postDataJSON() as { step: number; complete?: boolean };
       return route.fulfill(json({ step: body.step, completed: !!body.complete }));
     }
+    if (p === "/api/v1/countries" && method === "GET") return route.fulfill(json({ items: FAKE_COUNTRIES }));
     if (p === "/api/v1/settings" && method === "GET") return route.fulfill(json(settings));
     if (p === "/api/v1/settings" && method === "PATCH") {
       const body = route.request().postDataJSON() as Json;

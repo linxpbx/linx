@@ -55,6 +55,10 @@ func TestLevelAndScheduleWords(t *testing.T) {
 		{Level{}, "Can call emergency numbers only."},
 		{Level{Categories: []string{"international", "mobile", "landline", "service"}}, "Can call local numbers, service numbers, mobiles and abroad."},
 		{Level{Categories: []string{"mobile"}, WithholdCallerID: true}, "Can call mobiles. The number is hidden."},
+		{Level{Categories: []string{"international", "mobile"}, AbroadCountries: []string{"GB", "SA"}},
+			"Can call mobiles and abroad (only the United Kingdom and Saudi Arabia)."},
+		// A list on a level that can't call abroad says nothing.
+		{Level{Categories: []string{"mobile"}, AbroadCountries: []string{"SA"}}, "Can call mobiles."},
 	} {
 		if got := levelWords(c.level); got != c.want {
 			t.Errorf("levelWords(%+v) = %q, want %q", c.level, got, c.want)

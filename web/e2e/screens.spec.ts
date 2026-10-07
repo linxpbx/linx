@@ -840,6 +840,16 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-outgoing-abroad-confirm`);
       await page.keyboard.press("Escape");
 
+      // Calls abroad to only the countries chosen (ADR-085).
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true, abroadOnly: ["SA", "GB"] });
+      await page.goto("/admin/outgoing");
+      await expect(page.getByRole("radio", { name: /Only the countries I choose/ })).toBeChecked();
+      await expect(page.getByRole("list", { name: "Countries calls abroad can go to" })).toContainText("Saudi Arabia");
+      await page.getByLabel("Add a country").fill("ger");
+      await expect(page.getByRole("button", { name: "Germany" })).toBeVisible();
+      await shot(page, `${scheme}-outgoing-abroad-only`);
+      await page.getByLabel("Add a country").fill("");
+
       await page.goto("/admin/simulator");
       await expect(page.getByRole("heading", { name: "Call simulator" })).toBeVisible();
       await page.getByLabel("Number", { exact: true }).fill("050 123 4567");
@@ -1212,6 +1222,24 @@ test.describe("setup wizard", () => {
     await shot(page, "setup-wizard-restore-file");
     await page.getByRole("button", { name: "Restore", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Starting the restore" })).toBeVisible();
+  });
+
+  // Any country (ADR-085): the United States moves the recommended
+  // extension numbers past 1, which starts an outside call there.
+  test("country", async ({ page }) => {
+    await fakeServer(page, { signedIn: true, admin: true, setupStep: 2 });
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "Which country are your phone lines in?" })).toBeVisible();
+    await expect(page.getByText("999, 998, 997, 112 and 901", { exact: false })).toBeVisible();
+    await shot(page, "setup-wizard-country");
+    await page.getByLabel("Country").click();
+    await page.getByRole("option", { name: "United States" }).click();
+    await expect(page.getByText("112 and 911", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByRole("heading", { name: "How should extension numbers look?" })).toBeVisible();
+    await expect(page.getByText("200–699")).toBeVisible();
+    await expect(page.getByText("100–199")).toBeVisible();
+    await shot(page, "setup-wizard-numbers-us");
   });
 
   test("numbers", async ({ page }) => {

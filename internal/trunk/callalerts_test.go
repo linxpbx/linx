@@ -96,7 +96,7 @@ func TestCallAlerts(t *testing.T) {
 	// The first call to the UK is announced; the second isn't.
 	ca.OutsideCallEnded(ctx, call("00442079460000", 60, true))
 	ca.OutsideCallEnded(ctx, call("+442079460001", 60, true))
-	if len(an.announced) != 2 || !strings.Contains(an.announced[1], "First call to United Kingdom") {
+	if len(an.announced) != 2 || !strings.Contains(an.announced[1], "First call to the United Kingdom") {
 		t.Fatalf("announced %v", an.announced)
 	}
 

@@ -118,7 +118,7 @@ func (a *CallAlerts) OutsideCallEnded(ctx context.Context, c pbx.OutsideCall) {
 	if err != nil {
 		a.Log.Error("recording a country called", "err", err)
 	} else if first {
-		country := numbering.CountryName(c.Result.Region, numbering.Countries[c.Result.Region])
+		country := numbering.InSentence(c.Result.Region)
 		msg := fmt.Sprintf("Extension %s called %s, the first call from Linx to %s. If nobody expected that, check who can call abroad.",
 			c.Extension, c.Result.Pretty(), country)
 		if err := a.Alerts.Announce(ctx, c.Tenant, firstRegionPrefix+c.ID.String(), "warning",

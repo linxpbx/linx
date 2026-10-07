@@ -532,11 +532,19 @@ func (s *Store) DeleteWireGuardProfile(ctx context.Context, tenant, id uuid.UUID
 	})
 }
 
-const callPermissionLevelColumns = `id, tenant_id, name, allowed_categories, withhold_caller_id, version, created_at, updated_at`
+// abroadColumn is a level's countries as stored: NULL for everywhere.
+func abroadColumn(countries []string) []string {
+	if len(countries) == 0 {
+		return nil
+	}
+	return countries
+}
+
+const callPermissionLevelColumns = `id, tenant_id, name, allowed_categories, coalesce(abroad_countries, '{}'), withhold_caller_id, version, created_at, updated_at`
 
 func scanCallPermissionLevel(row pgx.Row) (trunk.CallPermissionLevel, error) {
 	var l trunk.CallPermissionLevel
-	err := row.Scan(&l.ID, &l.TenantID, &l.Name, &l.AllowedCategories, &l.WithholdCallerID, &l.Version, &l.CreatedAt, &l.UpdatedAt)
+	err := row.Scan(&l.ID, &l.TenantID, &l.Name, &l.AllowedCategories, &l.AbroadCountries, &l.WithholdCallerID, &l.Version, &l.CreatedAt, &l.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return l, trunk.ErrNotFound
 	}
@@ -545,9 +553,9 @@ func scanCallPermissionLevel(row pgx.Row) (trunk.CallPermissionLevel, error) {
 
 func (s *Store) CreateCallPermissionLevel(ctx context.Context, l trunk.CallPermissionLevel, audit auth.AuditEntry) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO call_permission_level (id, tenant_id, name, allowed_categories, withhold_caller_id, version, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			l.ID, l.TenantID, l.Name, l.AllowedCategories, l.WithholdCallerID, l.Version, l.CreatedAt, l.UpdatedAt)
+		_, err := tx.Exec(ctx, `INSERT INTO call_permission_level (id, tenant_id, name, allowed_categories, abroad_countries, withhold_caller_id, version, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $9, $5, $6, $7, $8)`,
+			l.ID, l.TenantID, l.Name, l.AllowedCategories, l.WithholdCallerID, l.Version, l.CreatedAt, l.UpdatedAt, abroadColumn(l.AbroadCountries))
 		if err != nil {
 			if IsUniqueViolation(err) {
 				return trunk.ErrDuplicate
@@ -585,9 +593,9 @@ func (s *Store) UpdateCallPermissionLevel(ctx context.Context, l trunk.CallPermi
 	err := s.routingTx(ctx, l.TenantID, audit, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanCallPermissionLevel(tx.QueryRow(ctx, `UPDATE call_permission_level SET
-				name = $4, allowed_categories = $5, withhold_caller_id = $6, version = version + 1, updated_at = $7
+				name = $4, allowed_categories = $5, withhold_caller_id = $6, version = version + 1, updated_at = $7, abroad_countries = $8
 			WHERE id = $1 AND tenant_id = $2 AND version = $3 RETURNING `+callPermissionLevelColumns,
-			l.ID, l.TenantID, l.Version, l.Name, l.AllowedCategories, l.WithholdCallerID, l.UpdatedAt))
+			l.ID, l.TenantID, l.Version, l.Name, l.AllowedCategories, l.WithholdCallerID, l.UpdatedAt, abroadColumn(l.AbroadCountries)))
 		if errors.Is(err, trunk.ErrNotFound) {
 			var exists bool
 			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM call_permission_level WHERE id = $1 AND tenant_id = $2)`,

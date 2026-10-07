@@ -136,6 +136,13 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 2. **An Instruments pass on the app** (`docs/PHASE2.md` §14): nothing suggests a problem, but no one has looked.
 3. **Postgres is untuned** — it runs on its defaults in a 512 MB container, which is sane (128 MB of shared buffers, measured at 69 MB resident) and has never been the bottleneck. Worth revisiting only if a real installation shows it.
 
+## 3d. Every country (2026-10-07, ADR-085)
+
+- **No new process, table or timer.** The numbering tables already held every region's rules; offering them all costs nothing at rest. The country list the screens use is built once on first request (`sync.OnceValue`) and is **44 KB of JSON, about 4 KB compressed**, fetched only by the setup wizard and Outgoing calls, once per page load.
+- **Asterisk's dialplan** gains 37 one-line busy-tone globals (a few hundred bytes).
+- **Calls:** one more comparison in `numbering_route` (an array check, plus a prefix match only for calls abroad on a level with a list): nothing measurable.
+- **CI:** the numbering Docker test now checks every country, full corpus for 15 and a smaller one for the rest: about 3 minutes, against 3 seconds for the UAE alone.
+
 ## 4. Minimum and recommended hardware (as built)
 
 | | Minimum (setup refuses less) | Recommended |

@@ -19,6 +19,7 @@ import (
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/dbsecret"
+	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/pbx"
 	"linxpbx.com/linx/internal/trunkprobe"
 	"linxpbx.com/linx/internal/trunkstatus"
@@ -1202,10 +1203,45 @@ func checkAllowedCategories(categories []string) ([]string, error) {
 	return out, nil
 }
 
+// checkAbroadCountries checks a level's list of countries calls abroad may
+// go to: each one a country Linx knows, each once, sorted. Empty means
+// everywhere.
+func checkAbroadCountries(countries []string) ([]string, error) {
+	out := make([]string, 0, len(countries))
+	for _, c := range countries {
+		if !numbering.Supported(c) {
+			return nil, invalid("country_unknown", fmt.Sprintf("%q isn't a country code Linx knows (use ISO 3166 codes such as GB or SA).", c))
+		}
+		if !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+// widensAbroad says whether going from before to after lets calls abroad
+// reach a country they couldn't (an empty list is everywhere).
+func widensAbroad(before, after []string) bool {
+	if len(after) == 0 {
+		return len(before) > 0
+	}
+	if len(before) == 0 {
+		return false
+	}
+	for _, c := range after {
+		if !slices.Contains(before, c) {
+			return true
+		}
+	}
+	return false
+}
+
 // CallPermissionLevelInput is a new permission level.
 type CallPermissionLevelInput struct {
 	Name              string
 	AllowedCategories []string
+	AbroadCountries   []string // empty: everywhere
 	WithholdCallerID  *bool
 }
 
@@ -1225,18 +1261,22 @@ func (s *Service) CreateCallPermissionLevel(ctx context.Context, in CallPermissi
 	if err := s.requireConfirmedForCostly(ctx, nil, categories); err != nil {
 		return CallPermissionLevel{}, err
 	}
+	countries, err := checkAbroadCountries(in.AbroadCountries)
+	if err != nil {
+		return CallPermissionLevel{}, err
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return CallPermissionLevel{}, err
 	}
 	now := s.Now().UTC()
-	l := CallPermissionLevel{ID: id, TenantID: p.TenantID, Name: in.Name, AllowedCategories: categories,
+	l := CallPermissionLevel{ID: id, TenantID: p.TenantID, Name: in.Name, AllowedCategories: categories, AbroadCountries: countries,
 		WithholdCallerID: in.WithholdCallerID != nil && *in.WithholdCallerID, Version: 1, CreatedAt: now, UpdatedAt: now}
 	_, a, err := audit(ctx, "call_permission_level.create", "call_permission_level:"+id.String())
 	if err != nil {
 		return CallPermissionLevel{}, err
 	}
-	a.Detail = map[string]any{"name": l.Name, "allowed_categories": l.AllowedCategories}
+	a.Detail = map[string]any{"name": l.Name, "allowed_categories": l.AllowedCategories, "abroad_countries": l.AbroadCountries}
 	if err := s.Store.CreateCallPermissionLevel(ctx, l, a); err != nil {
 		if errors.Is(err, ErrDuplicate) {
 			return CallPermissionLevel{}, &apihttp.Error{Status: http.StatusConflict, Code: "name_duplicate",
@@ -1274,6 +1314,7 @@ func (s *Service) ListCallPermissionLevels(ctx context.Context, before *uuid.UUI
 type CallPermissionLevelPatch struct {
 	Name              *string
 	AllowedCategories []string
+	AbroadCountries   *[]string // an empty list: everywhere
 	WithholdCallerID  *bool
 }
 
@@ -1305,6 +1346,21 @@ func (s *Service) UpdateCallPermissionLevel(ctx context.Context, id uuid.UUID, p
 		}
 		l.AllowedCategories = categories
 		changes["allowed_categories"] = l.AllowedCategories
+	}
+	if patch.AbroadCountries != nil {
+		countries, err := checkAbroadCountries(*patch.AbroadCountries)
+		if err != nil {
+			return CallPermissionLevel{}, err
+		}
+		// Calls abroad reaching more countries costs the same confirmation
+		// as allowing calls abroad at all.
+		if slices.Contains(l.AllowedCategories, "international") && widensAbroad(l.AbroadCountries, countries) {
+			if err := auth.RequireConfirmed(ctx, s.Now()); err != nil {
+				return CallPermissionLevel{}, err
+			}
+		}
+		l.AbroadCountries = countries
+		changes["abroad_countries"] = l.AbroadCountries
 	}
 	if patch.WithholdCallerID != nil {
 		l.WithholdCallerID = *patch.WithholdCallerID

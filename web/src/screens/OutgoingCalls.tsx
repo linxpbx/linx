@@ -12,7 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { navigate } from "@/hooks/useRoute";
-import { CATEGORY_SWITCHES, EXPERT_CATEGORY_SWITCHES, type NumberCategory } from "@/lib/categories";
+import { AbroadChoice } from "@/components/AbroadChoice";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useCountries } from "@/hooks/useCountries";
+import { categorySwitches, EXPERT_CATEGORY_SWITCHES, type NumberCategory } from "@/lib/categories";
+import { countryName, emergencyWords, withArticle } from "@/lib/countries";
 import { trunkDot, trunkWords } from "@/lib/lines";
 import { hasScope, isReadOnlyAdmin } from "@/lib/roles";
 import { useRoutingPutBack } from "@/lib/routingUndo";
@@ -20,14 +24,6 @@ import { useRoutingPutBack } from "@/lib/routingUndo";
 type Trunk = components["schemas"]["Trunk"];
 type Level = components["schemas"]["CallPermissionLevel"];
 type Settings = components["schemas"]["Settings"];
-
-function countryName(code: string): string {
-  try {
-    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
-  } catch {
-    return code;
-  }
-}
 
 function Section({ title, children, aside }: { title: string; children: React.ReactNode; aside?: React.ReactNode }) {
   return (
@@ -43,6 +39,9 @@ function Section({ title, children, aside }: { title: string; children: React.Re
 
 export function OutgoingCallsScreen({ me, simpleMode }: { me: Me; simpleMode: boolean }) {
   const [country, setCountry] = useState("");
+  const countries = useCountries();
+  // Changing the country here (ADR-085): the picked one, while choosing.
+  const [newCountry, setNewCountry] = useState<string | null>(null);
   const [order, setOrder] = useState<Trunk[] | null>(null);
   const [all, setAll] = useState<Trunk[]>([]);
   const [alertLimits, setAlertLimits] = useState({ minutes: "", calls: "" });
@@ -122,6 +121,33 @@ export function OutgoingCallsScreen({ me, simpleMode }: { me: Me; simpleMode: bo
     say("Saved");
   };
 
+  const saveCountry = async () => {
+    if (!newCountry) return;
+    setBusy(true);
+    setError("");
+    const { data, error: err } = await api.PATCH("/api/v1/settings", { body: { country: newCountry } });
+    setBusy(false);
+    if (!data) { setError(problemMessage(err)); return; }
+    setCountry(data.country);
+    setSettings(data);
+    setNewCountry(null);
+    say("Saved: the country");
+  };
+  // Where calls abroad may go. Reaching more countries asks "confirm it's
+  // you", like allowing calls abroad at all.
+  const setAbroad = (codes: string[]) => confirm.run(async () => {
+    if (!level) return { confirm: false };
+    setError("");
+    const { data, error: err } = await api.PATCH("/api/v1/call-permission-levels/{id}", {
+      params: { path: { id: level.id }, header: { "If-Match": level.etag } }, body: { abroad_countries: codes },
+    });
+    if (needsConfirm(err)) return { confirm: true };
+    if (!data) { setError(problemMessage(err)); return { confirm: false }; }
+    setLevel(data);
+    say("Saved");
+    return { confirm: false };
+  });
+
   const saveAlert = async () => {
     if (!order) return;
     const minutes = Number(alertLimits.minutes);
@@ -146,9 +172,30 @@ export function OutgoingCallsScreen({ me, simpleMode }: { me: Me; simpleMode: bo
       <p className="mt-2 min-h-5 text-sm text-status-available" role="status">{saved}</p>
 
       <div className="flex flex-col gap-6">
-        <Section title="Country" aside={canWrite && <Button size="sm" variant="outline" onClick={() => navigate("/setup")}>Change</Button>}>
-          <p className="text-sm">{countryName(country)}</p>
-          <p className="mt-1 text-sm text-muted-foreground">Numbers are read the way people dial them there (050…, 04…, 00…).</p>
+        <Section title="Country" aside={canWrite && newCountry === null && <Button size="sm" variant="outline" disabled={!countries} onClick={() => setNewCountry(country)}>Change</Button>}>
+          {newCountry === null ? (
+            <>
+              <p className="text-sm">{countryName(country, countries)}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Numbers are read the way people dial them there: local numbers, mobiles and emergency numbers are recognised for {withArticle(countryName(country, countries))}.</p>
+            </>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <Label htmlFor="country">Which country are your phone lines in?</Label>
+              <Select value={newCountry} onValueChange={setNewCountry}>
+                <SelectTrigger id="country" className="w-full sm:w-80"><SelectValue /></SelectTrigger>
+                <SelectContent className="max-h-80">
+                  {(countries ?? []).map((c) => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Extension numbers that look like the new country's outside or emergency numbers are listed on Extensions to renumber.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" disabled={busy || newCountry === country} onClick={() => void saveCountry()}>Save</Button>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => setNewCountry(null)}>Cancel</Button>
+              </div>
+            </div>
+          )}
         </Section>
 
         <Section title="Which line first">
@@ -204,11 +251,12 @@ export function OutgoingCallsScreen({ me, simpleMode }: { me: Me; simpleMode: bo
             </p>
           ) : (
             <div className="flex flex-col gap-4">
-              {[...CATEGORY_SWITCHES, ...(simpleMode ? [] : EXPERT_CATEGORY_SWITCHES)].map((sw) => {
+              {[...categorySwitches(countryName(country, countries)), ...(simpleMode ? [] : EXPERT_CATEGORY_SWITCHES)].map((sw) => {
                 const on = sw.key.every((k) => level.allowed_categories.includes(k));
                 const id = `cat-${sw.key.join("-")}`;
                 return (
-                  <div key={sw.label} className="flex items-center justify-between gap-4">
+                  <div key={sw.label} className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-4">
                     <Label htmlFor={id} className="flex flex-col items-start gap-0.5 font-normal">
                       <span className="text-sm font-medium">{sw.label}</span>
                       {sw.hint && <span className="text-sm text-muted-foreground">{sw.hint}</span>}
@@ -218,12 +266,17 @@ export function OutgoingCallsScreen({ me, simpleMode }: { me: Me; simpleMode: bo
                     </Label>
                     <Switch id={id} checked={on} disabled={!canWrite} onCheckedChange={(v) => void setCategories(sw.key, v)} />
                   </div>
+                  {sw.key.includes("international") && on && (
+                    <AbroadChoice countries={countries} value={level.abroad_countries} onChange={(c) => void setAbroad(c)}
+                      disabled={!canWrite} home={country} />
+                  )}
+                  </div>
                 );
               })}
               <div className="flex items-center justify-between gap-4">
                 <span className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium">Emergency</span>
-                  <span className="text-sm text-muted-foreground">Always: 999, 998, 997, 112 and 901, from every phone.</span>
+                  <span className="text-sm text-muted-foreground">Always: {emergencyWords(countries?.find((c) => c.code === country))}, from every phone.</span>
                 </span>
                 <span className="flex items-center gap-2">
                   <Lock aria-label="Always on" className="size-4 text-muted-foreground" />

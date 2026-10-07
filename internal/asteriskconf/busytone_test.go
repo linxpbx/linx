@@ -8,18 +8,23 @@ import (
 	"linxpbx.com/linx/internal/numbering"
 )
 
-// Every country Linx can be set up in has a busy tone to listen for, and
-// nothing else does.
-func TestBusyTonesCoverTheCountries(t *testing.T) {
-	for c := range numbering.Countries {
-		if tone, ok := BusyTones[c]; !ok || tone.Hz < 300 || tone.Hz > 3400 || tone.OnMs < 100 || tone.OffMs < 100 {
-			t.Errorf("%s: busy tone %+v", c, tone)
-		}
-	}
-	for c := range BusyTones {
+// Every busy tone is a country Linx can be set up in, and one Asterisk's
+// detector can hear. Countries without one aren't listened for.
+func TestBusyTonesAreSane(t *testing.T) {
+	for c, tone := range BusyTones {
 		if !numbering.Supported(c) {
 			t.Errorf("busy tone for %s, a country Linx isn't set up in", c)
 		}
+		if tone.Hz < 300 || tone.Hz > 3400 || tone.OnMs < 100 || tone.OffMs < 100 {
+			t.Errorf("%s: busy tone %+v", c, tone)
+		}
+	}
+	// North America's busy signal is two tones at once: not listened for.
+	if _, ok := BusyTones["US"]; ok {
+		t.Error("US has a single-frequency busy tone")
+	}
+	if len(BusyTones) < 30 {
+		t.Errorf("only %d busy tones", len(BusyTones))
 	}
 }
 

@@ -130,7 +130,7 @@ func TestExplain(t *testing.T) {
 		t.Errorf("Explain = %q", got)
 	}
 	r = Route{Result: Classify("AE", "+44 20 7946 0958"), Reason: ReasonNoLines}
-	if got := r.Explain("", "101", "AE"); !strings.Contains(got, "International number in United Kingdom") {
+	if got := r.Explain("", "101", "AE"); !strings.Contains(got, "International number in the United Kingdom") {
 		t.Errorf("Explain = %q", got)
 	}
 	r = Route{Result: Classify("AE", "999"), Allowed: true, Reason: ReasonEmergency}

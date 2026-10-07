@@ -59,15 +59,14 @@ const (
 // ClashText explains in plain words why number can't be an extension in
 // country.
 func ClashText(number, reason string, country string) string {
-	c := Countries[country]
 	switch reason {
 	case ClashNationalPrefix, ClashInternationalPrefix:
 		return fmt.Sprintf("Extension numbers can't start with %s: in %s that's how people start dialling outside numbers.",
-			firstDigit(number), CountryName(country, c))
+			firstDigit(number), InSentence(country))
 	case ClashEmergency:
-		return fmt.Sprintf("%s is an emergency number in %s, so it can't be an extension.", number, CountryName(country, c))
+		return fmt.Sprintf("%s is an emergency number in %s, so it can't be an extension.", number, InSentence(country))
 	case ClashService:
-		return fmt.Sprintf("%s is a short service number in %s, so it can't be an extension.", number, CountryName(country, c))
+		return fmt.Sprintf("%s is a short service number in %s, so it can't be an extension.", number, InSentence(country))
 	}
 	return fmt.Sprintf("%s can't be an extension number.", number)
 }
@@ -97,6 +96,21 @@ func CountryName(region string, c Country) string {
 	return region
 }
 
+// InSentence is region's name as it goes in a sentence: "the United Arab
+// Emirates", "Germany" (web/src/lib/countries.ts withArticle).
+func InSentence(region string) string {
+	name := CountryName(region, Countries[region])
+	switch {
+	case strings.HasPrefix(name, "United "), strings.HasSuffix(name, "Republic"), strings.HasSuffix(name, "Islands"):
+		return "the " + name
+	}
+	switch name {
+	case "Netherlands", "Philippines", "Bahamas", "Gambia", "Maldives", "Seychelles", "Comoros", "Vatican City":
+		return "the " + name
+	}
+	return name
+}
+
 // Kind names what the number is, in plain words.
 func (r Result) Kind() string {
 	switch r.Category {
@@ -107,10 +121,10 @@ func (r Result) Kind() string {
 	case Invalid:
 		return "Not a phone number"
 	case International:
-		return "International number in " + CountryName(r.Region, Countries[r.Region])
+		return "International number in " + InSentence(r.Region)
 	case Premium:
 		if r.Region != "" && !Supported(r.Region) {
-			return "Premium-rate number (expensive to call) in " + CountryName(r.Region, Countries[r.Region])
+			return "Premium-rate number (expensive to call) in " + InSentence(r.Region)
 		}
 		return "Premium-rate number (expensive to call)"
 	}
@@ -160,7 +174,7 @@ func (r Route) Explain(dialled, from, country string) string {
 		fmt.Fprintf(&b, "Extension %s doesn't exist or is turned off, so it can't call out.\n", from)
 		return b.String()
 	case r.Category == Invalid:
-		fmt.Fprintf(&b, "%q isn't a number that can be called from %s.\n", dialled, CountryName(country, Countries[country]))
+		fmt.Fprintf(&b, "%q isn't a number that can be called from %s.\n", dialled, InSentence(country))
 		return b.String()
 	}
 	fmt.Fprintf(&b, "%s: %s.\n", r.Kind(), r.Pretty())
@@ -168,6 +182,11 @@ func (r Route) Explain(dialled, from, country string) string {
 	case ReasonEmergency:
 		b.WriteString("Always allowed, for everyone, and never limited.\n")
 	case ReasonNotPermitted:
+		if r.Category == International || (r.Category == Premium && r.Region != "" && r.Region != country) {
+			fmt.Fprintf(&b, "Extension %s isn't allowed to call this number: its call permission level doesn't allow calls abroad, doesn't include %s, or it has no level.\n",
+				from, InSentence(r.Region))
+			return b.String()
+		}
 		fmt.Fprintf(&b, "Extension %s isn't allowed to call this kind of number (its call permission level doesn't include it, or it has none).\n", from)
 		return b.String() // refused: no lines are looked up
 	case ReasonNoLines:

@@ -448,6 +448,51 @@ func TestTrunksDocker(t *testing.T) {
 			}
 		}
 
+		// Calls abroad only to the countries a level lists (migration 0047,
+		// ADR-085): anywhere else is refused, a premium-rate number abroad
+		// included; numbers at home don't care.
+		gulf := newLevel("Saudi only", []string{"mobile", "international", "premium"})
+		gulf.AbroadCountries = []string{"SA"}
+		if _, err := s.UpdateCallPermissionLevel(ctx, gulf, audit("call_permission_level.update")); err != nil {
+			t.Fatal(err)
+		}
+		gulf, err = s.CallPermissionLevel(ctx, tenant, gulf.ID)
+		if err != nil || len(gulf.AbroadCountries) != 1 || gulf.AbroadCountries[0] != "SA" {
+			t.Fatalf("level read back: %+v, %v", gulf, err)
+		}
+		saudiOnly := newExtension("404")
+		saudiOnly.CallPermissionLevelID = &gulf.ID
+		if _, err := s.UpdateExtension(ctx, saudiOnly, audit("extension.update")); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct{ dialled, reason string }{
+			{"+966 50 123 4567", "allowed"},       // a Saudi mobile
+			{"+44 20 7946 0958", "not_permitted"}, // the UK isn't listed
+			{"+44 909 876 5432", "not_permitted"}, // nor is a UK premium-rate number
+			{mobile, "allowed"},                   // at home, the list doesn't apply
+		} {
+			if r, err := s.Route(ctx, saudiOnly.ID, c.dialled); err != nil || r.Reason != c.reason {
+				t.Errorf("Saudi-only level: Route(%s) = %s (%s), %v; want %s", c.dialled, r.Reason, r.Category, err, c.reason)
+			}
+		}
+		gulf.AbroadCountries = nil // everywhere
+		if _, err := s.UpdateCallPermissionLevel(ctx, gulf, audit("call_permission_level.update")); err != nil {
+			t.Fatal(err)
+		}
+		if r, err := s.Route(ctx, saudiOnly.ID, "+44 20 7946 0958"); err != nil || r.Reason != "allowed" {
+			t.Errorf("level for everywhere: Route(UK) = %s, %v", r.Reason, err)
+		}
+		// Canada shares North America's calling code: from the US it's home.
+		for _, c := range []struct {
+			home, e164 string
+			same       bool
+		}{{"US", "+15145550100", true}, {"US", "+442079460958", false}, {"AE", "+971501234567", true}, {"GB", "+441481256789", true}} {
+			var same bool
+			if err := pool.QueryRow(ctx, `SELECT numbering_same_calling_code($1, $2)`, c.home, c.e164).Scan(&same); err != nil || same != c.same {
+				t.Errorf("numbering_same_calling_code(%s, %s) = %v, %v", c.home, c.e164, same, err)
+			}
+		}
+
 		// What Asterisk gets: the same, packed for the dialplan.
 		var got string
 		if err := pool.QueryRow(ctx, `SELECT concat_ws(',', reason, category, withhold, lines) FROM asterisk.linx_outbound($1, $2)`,

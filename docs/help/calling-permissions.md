@@ -2,7 +2,7 @@
 title: What phones can call
 audience: admin
 section: admin
-keywords: [outgoing, outbound, calling permissions, abroad, international, premium rate, emergency, 999, 112, toll fraud, hide number, caller id, which line first, simulator, test call]
+keywords: [outgoing, outbound, calling permissions, abroad, international, countries, only these countries, country, premium rate, emergency, 999, 911, 112, toll fraud, hide number, caller id, which line first, simulator, test call]
 screens: [/admin/outgoing, /admin/simulator]
 ---
 # What phones can call
@@ -11,11 +11,22 @@ screens: [/admin/outgoing, /admin/simulator]
 
 ![Outgoing calls](screen:outgoing)
 
+## Your country
+
+**Country** is where your phone lines are. Linx reads numbers the way people dial them there: local numbers, mobiles, free numbers and the country's emergency numbers. **Change** picks another; Linx can be set up in any country. Extension numbers that look like the new country's outside or emergency numbers (in North America, anything starting with 1) are listed under Extensions to renumber.
+
 ## What your phones can call
 
-Each kind of number can be on or off: **Local numbers**, **Mobiles**, **Other cities in the UAE**, **Free numbers (800)**, **Abroad** and **Premium-rate**. **Abroad** and **Premium-rate** start off, because they're what a thief would call with a stolen password. Turning them on asks you to confirm it's you.
+Each kind of number can be on or off: **Local numbers**, **Mobiles**, *other numbers in your country* (company and internet numbers), **Free numbers**, **Abroad** and **Premium-rate**. **Abroad** and **Premium-rate** start off, because they're what a thief would call with a stolen password. Turning them on asks you to confirm it's you.
 
-**Emergency** numbers (in the UAE: 999, 998, 997, 112 and 901) always work, from every phone.
+With **Abroad** on, choose where those calls can go:
+
+- **Every country**.
+- **Only the countries I choose**: type a country's name to add it; anywhere else is refused, premium-rate numbers there included. The safest way to allow calls abroad. Adding a country asks you to confirm it's you, like turning calls abroad on.
+
+A number that shares your country's calling code isn't abroad: from the United States, Canada counts as home.
+
+**Emergency** numbers always work, from every phone: the screen lists your country's (in the UAE 999, 998, 997, 112 and 901; in the United States 911 and 112).
 
 Different rules for different people come later.
 

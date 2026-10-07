@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"sync"
 
 	"github.com/google/uuid"
 
+	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/trunk"
 )
 
@@ -30,6 +32,7 @@ func fromNumberCategories(categories *[]NumberCategory) []string {
 func toCallPermissionLevel(l trunk.CallPermissionLevel) CallPermissionLevel {
 	return CallPermissionLevel{
 		Id: l.ID, Name: l.Name, AllowedCategories: toNumberCategories(l.AllowedCategories),
+		AbroadCountries:  append(AbroadCountries{}, l.AbroadCountries...),
 		WithholdCallerId: l.WithholdCallerID, CreatedAt: l.CreatedAt, UpdatedAt: l.UpdatedAt, Etag: trunk.ETag(l.Version),
 	}
 }
@@ -56,6 +59,7 @@ func (s *Server) ListCallPermissionLevels(ctx context.Context, req ListCallPermi
 func (s *Server) CreateCallPermissionLevel(ctx context.Context, req CreateCallPermissionLevelRequestObject) (CreateCallPermissionLevelResponseObject, error) {
 	l, err := s.trunks.CreateCallPermissionLevel(ctx, trunk.CallPermissionLevelInput{
 		Name: req.Body.Name, AllowedCategories: fromNumberCategories(req.Body.AllowedCategories), WithholdCallerID: req.Body.WithholdCallerId,
+		AbroadCountries: deref(req.Body.AbroadCountries),
 	})
 	if err != nil {
 		e, err := apiError(err)
@@ -83,6 +87,7 @@ func (s *Server) GetCallPermissionLevel(ctx context.Context, req GetCallPermissi
 func (s *Server) UpdateCallPermissionLevel(ctx context.Context, req UpdateCallPermissionLevelRequestObject) (UpdateCallPermissionLevelResponseObject, error) {
 	l, err := s.trunks.UpdateCallPermissionLevel(ctx, req.Id, trunk.CallPermissionLevelPatch{
 		Name: req.Body.Name, AllowedCategories: fromNumberCategories(req.Body.AllowedCategories), WithholdCallerID: req.Body.WithholdCallerId,
+		AbroadCountries: req.Body.AbroadCountries,
 	}, deref(req.Params.IfMatch))
 	if err != nil {
 		e, err := apiError(err)
@@ -105,3 +110,30 @@ func (s *Server) DeleteCallPermissionLevel(ctx context.Context, req DeleteCallPe
 	}
 	return DeleteCallPermissionLevel204Response{}, nil
 }
+
+// ListCountries is every country Linx can be set up in (ADR-085). The list
+// never changes while the server runs, so it is built once.
+func (s *Server) ListCountries(ctx context.Context, req ListCountriesRequestObject) (ListCountriesResponseObject, error) {
+	return ListCountries200JSONResponse(countryList()), nil
+}
+
+var countryList = sync.OnceValue(func() CountryList {
+	list := CountryList{Items: []Country{}}
+	for _, c := range numbering.CountryList() {
+		info, _ := numbering.CountryInfo(c.Region)
+		out := Country{Code: c.Region, Name: c.Name, NationalPrefix: info.NationalPrefix}
+		// Never null in the JSON, even for a country with no emergency number in the data.
+		out.EmergencyNumbers = make([]struct {
+			Label  string `json:"label"`
+			Number string `json:"number"`
+		}, 0, len(info.Emergency))
+		for _, e := range info.Emergency {
+			out.EmergencyNumbers = append(out.EmergencyNumbers, struct {
+				Label  string `json:"label"`
+				Number string `json:"number"`
+			}{Label: e.Label, Number: e.Number})
+		}
+		list.Items = append(list.Items, out)
+	}
+	return list
+})

@@ -383,7 +383,7 @@ func (s *Server) TestRoute(ctx context.Context, req TestRouteRequestObject) (Tes
 		}
 		words := fmt.Sprintf("%s: %s.", r.Kind(), r.Pretty())
 		if r.Category == numbering.Invalid {
-			words = fmt.Sprintf("%q isn't a number that can be called from %s.", req.Body.Number, numbering.CountryName(country, numbering.Countries[country]))
+			words = fmt.Sprintf("%q isn't a number that can be called from %s.", req.Body.Number, numbering.InSentence(country))
 		}
 		return TestRoute200JSONResponse(routeTest(numbering.Route{Result: r}, false, words)), nil
 	}

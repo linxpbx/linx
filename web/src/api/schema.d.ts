@@ -88,6 +88,26 @@ export interface paths {
         patch: operations["updateSettings"];
         trace?: never;
     };
+    "/api/v1/countries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Countries Linx can be set up in
+         * @description Every country Linx can be set up in (ADR-085), sorted by name, with what the setup wizard and Outgoing calls show about it: the prefix people dial before a national number (extensions can't start with it) and the emergency numbers that always work there.
+         */
+        get: operations["listCountries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/numbering/next": {
         parameters: {
             query?: never;
@@ -3962,7 +3982,7 @@ export interface components {
         Extension: {
             /** Format: uuid */
             id: string;
-            /** @description 2 to 6 digits, unique. Refused (422 number_reserved) if it starts like an outside number in the country Linx is set up in (0 in the UAE) or is an emergency or short service number there (999, 112, 901, ...). */
+            /** @description 2 to 6 digits, unique. Refused (422 number_reserved) if it starts like an outside number in the country Linx is set up in (0 in most countries, 1 in North America) or is an emergency or short service number there (112, 911, 999, ...). */
             number: string;
             display_name: string;
             email?: string;
@@ -4571,6 +4591,7 @@ export interface components {
             id: string;
             name: string;
             allowed_categories: components["schemas"]["NumberCategory"][];
+            abroad_countries: components["schemas"]["AbroadCountries"];
             /** @description Send "withheld" instead of a caller ID, if the trunk's provider supports it. */
             withhold_caller_id: boolean;
             /** Format: date-time */
@@ -4580,9 +4601,28 @@ export interface components {
             /** @description Send as If-Match when changing it. */
             etag: string;
         };
+        /** @description Where calls abroad may go when the level allows `international` (ADR-085): the ISO 3166 codes of the only countries it may call, or an empty list for everywhere. A premium-rate number abroad must be in a listed country too. Numbers sharing the home country's calling code (Canada from the United States) aren't abroad. */
+        AbroadCountries: string[];
+        Country: {
+            /** @description ISO 3166 code ("AE"). */
+            code: string;
+            /** @description The country's name in English. */
+            name: string;
+            /** @description What people dial before a national number ("0", or "1" in North America); "" if nothing. */
+            national_prefix: string;
+            emergency_numbers: {
+                number: string;
+                /** @description "police", "ambulance", or "emergency". */
+                label: string;
+            }[];
+        };
+        CountryList: {
+            items: components["schemas"]["Country"][];
+        };
         CallPermissionLevelCreate: {
             name: string;
             allowed_categories?: components["schemas"]["NumberCategory"][];
+            abroad_countries?: components["schemas"]["AbroadCountries"];
             /** @description Defaults to false. */
             withhold_caller_id?: boolean;
         };
@@ -4590,6 +4630,7 @@ export interface components {
         CallPermissionLevelPatch: {
             name?: string;
             allowed_categories?: components["schemas"]["NumberCategory"][];
+            abroad_countries?: components["schemas"]["AbroadCountries"];
             withhold_caller_id?: boolean;
         };
         CallPermissionLevelList: {
@@ -6212,6 +6253,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Settings"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listCountries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The countries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountryList"];
                 };
             };
             default: components["responses"]["Problem"];

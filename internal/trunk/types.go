@@ -196,9 +196,12 @@ func wgPresharedSealID(id uuid.UUID) string { return "wireguard_profile_psk:" + 
 // CallPermissionLevel is what a group of extensions may dial out
 // (docs/TRUNKS.md §5).
 type CallPermissionLevel struct {
-	ID, TenantID         uuid.UUID
-	Name                 string
-	AllowedCategories    []string
+	ID, TenantID      uuid.UUID
+	Name              string
+	AllowedCategories []string
+	// AbroadCountries limits calls abroad (when "international" is allowed)
+	// to these countries (ISO 3166); empty means everywhere (ADR-085).
+	AbroadCountries      []string
 	WithholdCallerID     bool
 	Version              int
 	CreatedAt, UpdatedAt time.Time

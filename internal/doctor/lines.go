@@ -101,7 +101,7 @@ func Lines(ctx context.Context, env Env) []Result {
 			"The API service sets the database up when it starts: sudo docker logs --tail 50 "+controlPlaneContainer)
 		return rs
 	}
-	rs.ok(fmt.Sprintf("Phone numbers are read as dialled in %s.", numbering.CountryName(st.Country, numbering.Countries[st.Country])))
+	rs.ok(fmt.Sprintf("Phone numbers are read as dialled in %s.", numbering.InSentence(st.Country)))
 
 	// What Asterisk says now; the database's copy if it can't be asked.
 	live := map[string]trunkstatus.Trunk{}

@@ -92,7 +92,7 @@ func routeCommand(ctx context.Context, st routeAdmin, args []string, stdout, std
 			return 1
 		}
 		if r.Category == numbering.Invalid {
-			fmt.Fprintf(stdout, "%q isn't a number that can be called from %s.\n", number[0], numbering.CountryName(country, numbering.Countries[country]))
+			fmt.Fprintf(stdout, "%q isn't a number that can be called from %s.\n", number[0], numbering.InSentence(country))
 			return 0
 		}
 		fmt.Fprintf(stdout, "%s: %s.\nAdd --from EXTENSION to see whether that extension may call it.\n", r.Kind(), r.Pretty())

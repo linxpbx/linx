@@ -13,6 +13,7 @@ import (
 
 	"linxpbx.com/linx/internal/apihttp"
 	"linxpbx.com/linx/internal/auth"
+	"linxpbx.com/linx/internal/numbering"
 )
 
 // Undo for call routing (ADR-071, docs/PHASE1F.md §9): every routing
@@ -65,6 +66,7 @@ type Level struct {
 	ID               uuid.UUID
 	Name             string
 	Categories       []string
+	AbroadCountries  []string // empty: everywhere
 	WithholdCallerID bool
 }
 
@@ -245,16 +247,25 @@ func scheduleWords(sc Schedule) string {
 // them (web/src/lib/categories.ts), in its order.
 var categoryWords = []struct{ key, words string }{
 	{"landline", "local numbers"}, {"service", "service numbers"}, {"mobile", "mobiles"},
-	{"national", "other cities"}, {"toll_free", "free numbers"}, {"shared_cost", "shared-cost numbers"},
+	{"national", "other national numbers"}, {"toll_free", "free numbers"}, {"shared_cost", "shared-cost numbers"},
 	{"international", "abroad"}, {"premium", "premium-rate numbers"},
 }
 
 func levelWords(l Level) string {
 	var can []string
 	for _, c := range categoryWords {
-		if slices.Contains(l.Categories, c.key) {
-			can = append(can, c.words)
+		if !slices.Contains(l.Categories, c.key) {
+			continue
 		}
+		words := c.words
+		if c.key == "international" && len(l.AbroadCountries) > 0 {
+			names := make([]string, len(l.AbroadCountries))
+			for i, r := range l.AbroadCountries {
+				names[i] = numbering.InSentence(r)
+			}
+			words += " (only " + listNames(names, "") + ")"
+		}
+		can = append(can, words)
 	}
 	w := "Can call emergency numbers only."
 	if len(can) > 0 {
@@ -264,6 +275,23 @@ func levelWords(l Level) string {
 		return w + " The number is hidden."
 	}
 	return w
+}
+
+// abroadWider says whether after lets calls abroad reach a country before
+// doesn't (an empty list is everywhere).
+func abroadWider(before, after []string) bool {
+	if len(after) == 0 {
+		return len(before) > 0
+	}
+	if len(before) == 0 {
+		return false
+	}
+	for _, c := range after {
+		if !slices.Contains(before, c) {
+			return true
+		}
+	}
+	return false
 }
 
 // ItemChange is one item's words before and after ("" where it isn't).
@@ -415,15 +443,20 @@ func (s *Service) preview(ctx context.Context, tenant, id uuid.UUID) (PutBackPre
 			pv.Outgoing = true
 		}
 	}
-	allowed := map[uuid.UUID][]string{}
+	allowed := map[uuid.UUID]Level{}
 	for _, l := range nowOut.Levels {
-		allowed[l.ID] = l.Categories
+		allowed[l.ID] = l
 	}
 	for _, l := range thenOut.Levels {
 		for _, c := range costly {
-			if slices.Contains(l.Categories, c) && !slices.Contains(allowed[l.ID], c) {
+			if slices.Contains(l.Categories, c) && !slices.Contains(allowed[l.ID].Categories, c) {
 				pv.NeedConfirm = true
 			}
+		}
+		// Calls abroad reaching countries they can't now.
+		if now, ok := allowed[l.ID]; ok && slices.Contains(l.Categories, "international") &&
+			slices.Contains(now.Categories, "international") && abroadWider(now.AbroadCountries, l.AbroadCountries) {
+			pv.NeedConfirm = true
 		}
 	}
 	return pv, nil

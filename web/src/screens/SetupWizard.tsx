@@ -17,10 +17,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { TimeSelect } from "@/components/TimeSelect";
-import { avoidedRange, defaultRanges, pad, type Range } from "@/lib/numbering";
+import { avoidedRanges, defaultRanges, pad, type Range } from "@/lib/numbering";
 import { cn } from "@/lib/utils";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
-import { CATEGORY_SWITCHES } from "@/lib/categories";
+import { categorySwitches } from "@/lib/categories";
+import { AbroadChoice } from "@/components/AbroadChoice";
+import { useCountries, type Country } from "@/hooks/useCountries";
+import { countryName, emergencyWords } from "@/lib/countries";
 import { ECHO_TEST } from "@/phone/line";
 import { CallPanel } from "./CallPanel";
 import { RestoreFromBackup, StartChoice, type RestoreStatus } from "./SetupRestore";
@@ -182,43 +185,55 @@ function PlaceStep(props: { value: "" | "home" | "business"; onChange: (v: "home
 
 // --- Step 2: Country ---
 
-function CountryStep(props: StepProps) {
+function CountryStep(props: { country: string; onCountry: (c: string) => void; countries: Country[] | null } & StepProps) {
+  const { country, onCountry, countries, ...shell } = props;
+  const here = countries?.find((c) => c.code === country);
   return (
-    <StepShell {...props} title="Which country are your phone lines in?">
+    <StepShell {...shell} title="Which country are your phone lines in?" nextDisabled={!countries}>
       <Label htmlFor="country">Country</Label>
-      <Select value="AE" disabled>
-        <SelectTrigger id="country" className="mt-2 w-full"><SelectValue /></SelectTrigger>
-        <SelectContent><SelectItem value="AE">United Arab Emirates</SelectItem></SelectContent>
+      <Select value={country} onValueChange={onCountry} disabled={!countries}>
+        <SelectTrigger id="country" className="mt-2 w-full"><SelectValue placeholder="Loading…" /></SelectTrigger>
+        <SelectContent className="max-h-80">
+          {(countries ?? []).map((c) => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
+        </SelectContent>
       </Select>
-      <p className="mt-2 text-sm text-muted-foreground">More countries coming.</p>
+      <p className="mt-2 text-sm text-muted-foreground">Type a country's name to jump to it.</p>
       <p className="mt-4 text-sm text-muted-foreground">Linx uses this to recognise mobile, local and emergency numbers.</p>
-      <p className="mt-2 text-sm text-muted-foreground">Emergency numbers 999, 998, 997, 112 and 901 always work, from every phone.</p>
+      {here && (
+        <p className="mt-2 text-sm text-muted-foreground">
+          Emergency numbers {emergencyWords(here)} always work, from every phone.
+        </p>
+      )}
     </StepShell>
   );
 }
 
 // --- Step 3: Numbers ---
 
-function NumberBar({ digits, ranges }: { digits: number; ranges: ReturnType<typeof defaultRanges> }) {
+function NumberBar({ digits, ranges, prefix }: { digits: number; ranges: ReturnType<typeof defaultRanges>; prefix: string }) {
   const base = 10 ** (digits - 1);
   const total = 9 * base;
-  const avoided = avoidedRange(digits)!;
+  const avoided = avoidedRanges(digits, prefix);
   const seg = (r: { from: number; to: number } | null, label: string, className: string) => {
     if (!r) return null;
     const width = ((r.to - r.from + 1) / total) * 100;
     return (
-      <div key={label} style={{ width: `${width}%` }} className={`flex flex-col items-center justify-center border-e p-1.5 text-center last:border-e-0 ${className}`}>
+      <div key={`${label}-${r.from}`} style={{ width: `${width}%` }} className={`flex flex-col items-center justify-center border-e p-1.5 text-center last:border-e-0 ${className}`}>
         <span className="text-xs font-medium">{r.from}–{r.to}</span>
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
     );
   };
+  // In number order: in North America the avoided 100s come first.
+  const parts: [Range, string, string][] = [
+    [ranges.people, "People", "bg-primary/10"],
+    [ranges.groups, "Groups (later)", "bg-muted"],
+    [ranges.reserved, "Kept free", "bg-muted/60"],
+    ...avoided.map((r): [Range, string, string] => [r, "Avoided", "bg-destructive/10"]),
+  ];
   return (
     <div className="flex overflow-hidden rounded-md border text-foreground">
-      {seg(ranges.people, "People", "bg-primary/10")}
-      {seg(ranges.groups, "Groups (later)", "bg-muted")}
-      {seg(ranges.reserved, "Kept free", "bg-muted/60")}
-      {seg(avoided, "Avoided", "bg-destructive/10")}
+      {parts.filter(([r]) => r).sort(([a], [b]) => a!.from - b!.from).map(([r, label, cls]) => seg(r, label, cls))}
     </div>
   );
 }
@@ -258,8 +273,10 @@ function NumbersStep(props: {
   digits: number; onDigits: (d: number) => void;
   ranges: ReturnType<typeof defaultRanges>; onRanges: (r: ReturnType<typeof defaultRanges>) => void;
   siteKind: "" | "home" | "business";
+  /** The country's national prefix: extensions can't start with it. */
+  prefix: string;
 } & StepProps) {
-  const { digits, onDigits, ranges, onRanges, siteKind, ...shell } = props;
+  const { digits, onDigits, ranges, onRanges, siteKind, prefix, ...shell } = props;
   const [expanded, setExpanded] = useState(false);
   const example = siteKind === "home" ? "Mum → " : "Sara → ";
   return (
@@ -267,13 +284,13 @@ function NumbersStep(props: {
       <div className="flex flex-wrap gap-4" role="radiogroup" aria-label="Digits">
         {[2, 3, 4, 5, 6].map((d) => (
           <label key={d} className="flex cursor-pointer items-center gap-2 text-sm">
-            <input type="radio" name="digits" checked={digits === d} onChange={() => { onDigits(d); onRanges(defaultRanges(d)); }} />
+            <input type="radio" name="digits" checked={digits === d} onChange={() => { onDigits(d); onRanges(defaultRanges(d, prefix)); }} />
             {d}{d === 3 && <Recommended>Recommended</Recommended>}
           </label>
         ))}
       </div>
       <div className="mt-5">
-        <NumberBar digits={digits} ranges={ranges} />
+        <NumberBar digits={digits} ranges={ranges} prefix={prefix} />
         <p className="mt-2 text-sm text-muted-foreground">Example: {example}{ranges.people?.from ?? ""}</p>
       </div>
       <button type="button" className="mt-4 text-sm text-link underline-offset-4 hover:underline" onClick={() => setExpanded(!expanded)}>
@@ -284,7 +301,7 @@ function NumbersStep(props: {
           <RangeFields label="People" range={ranges.people} onChange={(r) => onRanges({ ...ranges, people: r })} />
           <RangeFields label="Groups" range={ranges.groups} onChange={(r) => onRanges({ ...ranges, groups: r })} />
           <RangeFields label="Kept free" range={ranges.reserved} onChange={(r) => onRanges({ ...ranges, reserved: r })} />
-          <Button type="button" variant="outline" className="self-start" onClick={() => onRanges(defaultRanges(digits))}>
+          <Button type="button" variant="outline" className="self-start" onClick={() => onRanges(defaultRanges(digits, prefix))}>
             Use the recommended ranges
           </Button>
         </div>
@@ -503,8 +520,13 @@ function LineStep(props: StepProps) {
 // --- Step 6: Calls ---
 
 
-function CallsStep(props: { categories: Set<NumberCategory>; onChange: (c: Set<NumberCategory>) => void } & StepProps) {
-  const { categories, onChange, ...shell } = props;
+function CallsStep(props: {
+  categories: Set<NumberCategory>; onChange: (c: Set<NumberCategory>) => void;
+  abroad: string[]; onAbroad: (c: string[]) => void;
+  country: string; countries: Country[] | null;
+} & StepProps) {
+  const { categories, onChange, abroad, onAbroad, country, countries, ...shell } = props;
+  const here = countries?.find((c) => c.code === country);
   const toggle = (keys: NumberCategory[], on: boolean) => {
     const next = new Set(categories);
     for (const k of keys) { if (on) next.add(k); else next.delete(k); }
@@ -513,20 +535,28 @@ function CallsStep(props: { categories: Set<NumberCategory>; onChange: (c: Set<N
   return (
     <StepShell {...shell} title="What can your phones call?">
       <div className="flex flex-col gap-4">
-        {CATEGORY_SWITCHES.map((sw) => {
+        {categorySwitches(countryName(country, countries)).map((sw) => {
           const on = sw.key.every((k) => categories.has(k));
           return (
-            <label key={sw.label} className="flex items-center justify-between gap-4">
-              <span>
-                <span className="text-sm font-medium">{sw.label}</span>
-                {sw.hint && <span className="block text-sm text-muted-foreground">{sw.hint}</span>}
-              </span>
-              <Switch checked={on} onCheckedChange={(v) => toggle(sw.key, v)} />
-            </label>
+            <div key={sw.label} className="flex flex-col gap-3">
+              <label className="flex items-center justify-between gap-4">
+                <span>
+                  <span className="text-sm font-medium">{sw.label}</span>
+                  {sw.hint && <span className="block text-sm text-muted-foreground">{sw.hint}</span>}
+                </span>
+                <Switch checked={on} onCheckedChange={(v) => toggle(sw.key, v)} />
+              </label>
+              {sw.key.includes("international") && on && (
+                <AbroadChoice countries={countries} value={abroad} onChange={onAbroad} home={country} />
+              )}
+            </div>
           );
         })}
         <label className="flex items-center justify-between gap-4 opacity-70">
-          <span className="text-sm font-medium">Emergency numbers — always on</span>
+          <span className="text-sm font-medium">
+            Emergency numbers — always on
+            {here && <span className="block font-normal text-muted-foreground">{emergencyWords(here)}</span>}
+          </span>
           <Switch checked disabled />
         </label>
       </div>
@@ -650,6 +680,13 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [categories, setCategories] = useState<Set<NumberCategory>>(new Set(["landline", "service", "mobile", "national", "toll_free"]));
+  // Where calls abroad may go if allowed: empty is everywhere (ADR-085).
+  const [abroad, setAbroad] = useState<string[]>([]);
+  const countries = useCountries();
+  // The country as saved, and as picked on the Country step.
+  const [savedCountry, setSavedCountry] = useState("AE");
+  const [country, setCountry] = useState("AE");
+  const prefix = countries?.find((c) => c.code === country)?.national_prefix ?? "0";
 
   const nextNumber = useRef<number | null>(null);
   // Extension numbers already in use, and yours when you don't have one yet
@@ -682,6 +719,8 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
         }
       }
       if (settings) {
+        setSavedCountry(settings.country);
+        setCountry(settings.country);
         setSiteKind(settings.site_kind);
         setDigits(settings.extension_digits);
         const find = (k: string) => settings.extension_ranges.find((r) => r.kind === k);
@@ -744,12 +783,14 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
       const { data: levels } = await api.GET("/api/v1/call-permission-levels");
       const everyone = levels?.items.find((l) => l.name === "Everyone");
       const chosen = [...categories].sort();
-      if (everyone && JSON.stringify([...everyone.allowed_categories].sort()) !== JSON.stringify(chosen)) {
+      const where = chosen.includes("international") ? [...abroad].sort() : [];
+      if (everyone && (JSON.stringify([...everyone.allowed_categories].sort()) !== JSON.stringify(chosen)
+        || JSON.stringify([...everyone.abroad_countries].sort()) !== JSON.stringify(where))) {
         // Allowing calls abroad or premium numbers asks "confirm it's you"
         // (fraud costs money there); the wizard finishes either way.
         await confirmRun(async () => {
           const { error: perr } = await api.PATCH("/api/v1/call-permission-levels/{id}", {
-            params: { path: { id: everyone.id } }, headers: { "If-Match": everyone.etag }, body: { allowed_categories: chosen },
+            params: { path: { id: everyone.id } }, headers: { "If-Match": everyone.etag }, body: { allowed_categories: chosen, abroad_countries: where },
           });
           return { confirm: needsConfirm(perr) };
         });
@@ -761,7 +802,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
       setStep(toStep);
     }
     return true;
-  }, [categories, confirmRun]);
+  }, [categories, abroad, confirmRun]);
 
   // A business's week: saving "business" makes its Office hours (Monday to
   // Friday 08:00-17:00), which then get the days and times chosen here.
@@ -782,6 +823,23 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
   const saveSettingsPatch = async (patch: components["schemas"]["SettingsPatch"]) => {
     const { error: err } = await api.PATCH("/api/v1/settings", { body: patch });
     if (err) { setError(problemMessage(err)); return false; }
+    return true;
+  };
+
+  // A new country is saved with number ranges that suit it: in North
+  // America extensions can't start with 1, so the recommended ranges move
+  // to 200–699 (the server checks the ranges against the country too).
+  const saveCountry = async () => {
+    if (country === savedCountry) return true;
+    const p = countries?.find((c) => c.code === country)?.national_prefix ?? "0";
+    const next = defaultRanges(digits, p);
+    const body: components["schemas"]["SettingsPatch"] = { country, extension_ranges: [] };
+    if (next.people) body.extension_ranges!.push({ kind: "people", ...next.people });
+    if (next.groups) body.extension_ranges!.push({ kind: "groups", ...next.groups });
+    if (next.reserved) body.extension_ranges!.push({ kind: "reserved", ...next.reserved });
+    if (!(await saveSettingsPatch(body))) return false;
+    setRanges(next);
+    setSavedCountry(country);
     return true;
   };
 
@@ -897,10 +955,11 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
           {...shellProps(true, async () => { if (await savePlace()) void advance(2); }, () => void advance(2))} />
       )}
       {step === 2 && (
-        <CountryStep {...shellProps(true, () => void advance(3), () => void advance(3))} />
+        <CountryStep country={country} onCountry={setCountry} countries={countries}
+          {...shellProps(true, async () => { if (await saveCountry()) void advance(3); }, () => { setCountry(savedCountry); void advance(3); })} />
       )}
       {step === 3 && (
-        <NumbersStep digits={digits} onDigits={setDigits} ranges={ranges} onRanges={setRanges} siteKind={siteKind}
+        <NumbersStep digits={digits} onDigits={setDigits} ranges={ranges} onRanges={setRanges} siteKind={siteKind} prefix={prefix}
           {...shellProps(false, async () => {
             if (await saveSettingsPatch({ extension_digits: digits, extension_ranges: rangesForApi() })) void advance(4);
           })} />
@@ -916,7 +975,7 @@ export function SetupWizardScreen({ me, onExit }: { me: Me; onExit: () => void }
         <LineStep {...shellProps(true, () => void advance(6), () => void advance(6))} />
       )}
       {step === 6 && (
-        <CallsStep categories={categories} onChange={setCategories}
+        <CallsStep categories={categories} onChange={setCategories} abroad={abroad} onAbroad={setAbroad} country={country} countries={countries}
           {...shellProps(true, () => void advance(7), () => void advance(7))} />
       )}
       {step === 7 && (
