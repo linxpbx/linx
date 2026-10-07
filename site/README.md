@@ -45,21 +45,23 @@ Your content…
 
 It appears at `/docs/<name>` and in the sidebar automatically.
 
-## Deploy — Cloudflare Pages (git-driven)
+## Deploy — Cloudflare (Workers static assets, git-driven)
 
 The site deploys from this repo on every push, so updating content is just a
-commit. One-time setup in the Cloudflare dashboard:
+commit. `wrangler.jsonc` tells Cloudflare to serve the built `dist/` folder;
+no server code runs. One-time setup in the Cloudflare dashboard:
 
-1. **Workers & Pages → Create → Pages → Connect to Git**, pick `linxpbx/linx`.
-2. Build settings:
-   - **Production branch:** `master`
-   - **Framework preset:** Astro
+1. **Workers & Pages → Create → Import a repository**, pick `linxpbx/linx`.
+2. Fill in:
+   - **Project name:** `linx`
    - **Build command:** `npm run build`
-   - **Build output directory:** `dist`
-   - **Root directory:** `site`
-3. Deploy. Then **Custom domains** → add `linxpbx.com` and `www.linxpbx.com`
-   (Cloudflare adds the DNS records if the domain is on Cloudflare).
+   - **Deploy command:** `npx wrangler deploy`
+   - **Preview command:** `npx wrangler versions upload`
+   - **Advanced settings → Path:** `/site`  ← the site lives in this folder
+   - **API token:** leave "Create new token" (Cloudflare makes it); no variables needed.
+3. **Deploy.** Then the project's **Settings → Domains & Routes → Add →
+   Custom domain**: `linxpbx.com`, then again for `www.linxpbx.com`.
 
-After that, every `git push` to `master` that touches `site/` rebuilds and
-redeploys automatically — no tokens on any developer machine. A one-off manual
-deploy is possible with `npx wrangler pages deploy dist` if ever needed.
+After that, every `git push` to `master` rebuilds and redeploys automatically —
+no tokens on any developer machine. Check locally with
+`npm run build && npx wrangler deploy --dry-run`.

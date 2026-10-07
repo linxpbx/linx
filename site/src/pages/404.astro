@@ -1,0 +1,14 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Page not found" description="This page doesn't exist.">
+  <section class="container nf">
+    <p class="eyebrow">404</p>
+    <h1>This page doesn't exist</h1>
+    <p>It may have moved. Try the <a href="/">home page</a> or the <a href="/docs">docs</a>.</p>
+  </section>
+  <style>
+    .nf { padding-block: clamp(3rem, 10vw, 7rem); }
+  </style>
+</Base>

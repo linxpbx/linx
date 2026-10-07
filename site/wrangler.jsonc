@@ -1,0 +1,12 @@
+// Cloudflare Workers static-assets config for linxpbx.com. Cloudflare runs
+// `npm run build` (Astro -> dist/) and then `npx wrangler deploy`, which
+// uploads dist/ as static files. No server code runs: it is a static site.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "linx",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page"
+  }
+}
