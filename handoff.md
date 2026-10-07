@@ -65,6 +65,8 @@ The ones in play this round. `codegraph explore "<names>"` is faster than grep f
 
 ## 4. Changes made (the whole project)
 
+- **Product website (`site/`, Astro) for linxpbx.com — 2026-10-07.** Landing + Download + a docs/help section (Markdown under `site/src/content/docs/`). Brand from `design/tokens.json`; static, near-zero JS; no sideways scroll checked at 390px; deps pinned; telemetry off. Deploys on **Cloudflare Pages** (root `site`, build `npm run build`, output `dist`) via git-push auto-deploy — updating content = a commit. `site/README.md` has the one-time Cloudflare connect + DNS steps. **Pending (owner, one-time):** connect the repo in Cloudflare Pages and add `linxpbx.com` + `www`. `npm run dev` / `npm run build` in `site/`.
+
 Phase by phase, each finished with a demo the owner approved. **Every step's detail is in `docs/HISTORY.md`** — this is the map, not the territory.
 
 | | What was built | Where |
