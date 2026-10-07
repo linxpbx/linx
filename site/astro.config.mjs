@@ -7,4 +7,7 @@ import { defineConfig } from 'astro/config';
 // files under src/content/docs — add or edit one and push to update the site.
 export default defineConfig({
   site: 'https://linxpbx.com',
+  // download.html rather than download/index.html, so /download is served
+  // directly instead of being redirected to /download/ on every click.
+  build: { format: 'file' },
 });
