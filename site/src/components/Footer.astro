@@ -1,0 +1,82 @@
+---
+import Logo from './Logo.astro';
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="cols">
+      <div class="about">
+        <Logo size={26} />
+        <p>Your calls. Your server. A self-hosted phone system you run yourself — no subscription.</p>
+      </div>
+      <nav aria-label="Product">
+        <h4>Product</h4>
+        <a href="/#features">Features</a>
+        <a href="/download">Download</a>
+        <a href="/docs">Docs &amp; help</a>
+      </nav>
+      <nav aria-label="Project">
+        <h4>Project</h4>
+        <a href="https://github.com/linxpbx/linx" rel="noopener">GitHub</a>
+        <a href="https://github.com/linxpbx/linx/releases" rel="noopener">Releases</a>
+        <a href="https://github.com/linxpbx/linx/blob/master/LICENSE" rel="noopener">Licence (Apache-2.0)</a>
+      </nav>
+    </div>
+
+    <div class="notices">
+      <p><strong>Emergency calls</strong> work only if your connected phone-line provider supports them. Linx can't guarantee emergency calling.</p>
+      <p><strong>VoIP is regulated in some countries</strong> (for example the United Arab Emirates). Check your local rules before using Linx with external phone lines or over the internet.</p>
+    </div>
+
+    <div class="legal">
+      <span>© {year} Linx · Open source, Apache-2.0</span>
+      <span>Linx is self-hosted software. You run it; your data stays on your server.</span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-top: 5rem;
+    background: var(--bg-raised);
+    border-top: 1px solid var(--border);
+    padding: 3rem 0 2.5rem;
+  }
+  .cols {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 2rem;
+  }
+  .about p { max-width: 34ch; margin-top: 0.8rem; color: var(--fg-faint); font-size: 0.95rem; }
+  .site-footer h4 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-faint);
+    margin-bottom: 0.8rem;
+  }
+  .site-footer nav { display: flex; flex-direction: column; gap: 0.5rem; }
+  .site-footer nav a { color: var(--fg-muted); font-size: 0.95rem; }
+  .notices {
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    display: grid;
+    gap: 0.4rem;
+  }
+  .notices p { font-size: 0.85rem; color: var(--fg-faint); margin: 0; max-width: 80ch; }
+  .legal {
+    margin-top: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    font-size: 0.85rem;
+    color: var(--fg-faint);
+  }
+  @media (max-width: 720px) {
+    .cols { grid-template-columns: 1fr 1fr; }
+    .about { grid-column: 1 / -1; }
+  }
+</style>

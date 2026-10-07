@@ -1,0 +1,243 @@
+---
+import Base from '../layouts/Base.astro';
+import Logo from '../components/Logo.astro';
+import InstallCommand from '../components/InstallCommand.astro';
+
+const features = [
+  {
+    title: 'Extensions & ring groups',
+    body: 'Give everyone an extension. Ring a whole team at once, set office hours, and route calls the way your business works.',
+  },
+  {
+    title: 'Voicemail & call history',
+    body: 'Voicemail that reaches people wherever they are, a shared call history, and a message-waiting light on desk phones.',
+  },
+  {
+    title: 'Video meetings & guest links',
+    body: 'One-to-one video and meetings with a link anyone can join from a browser — no account, no app to install.',
+  },
+  {
+    title: 'Presence & team',
+    body: 'See who is available, on a call, away or in a meeting, across the web app and the iPhone and iPad apps.',
+  },
+  {
+    title: 'iPhone, iPad & web',
+    body: 'A native iPhone and iPad app that rings even when asleep, plus a web client that works in any modern browser.',
+  },
+  {
+    title: 'Phone lines & numbers',
+    body: 'Bring your own phone-line provider, number your extensions your way, and keep toll fraud out by design.',
+  },
+];
+---
+
+<Base title="Linx">
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow">Self-hosted phone system</p>
+        <h1>Your calls.<br />Your server.</h1>
+        <p class="lede">
+          Linx is an open-source phone system for homes and small businesses — extensions,
+          voicemail, video meetings and apps, running on a server you own. No subscription,
+          no one else holding your calls.
+        </p>
+        <div class="cta-row">
+          <a href="/download" class="btn btn-primary">Get started</a>
+          <a href="https://github.com/linxpbx/linx" class="btn btn-ghost" rel="noopener">View on GitHub</a>
+        </div>
+        <div class="install-wrap">
+          <InstallCommand />
+          <p class="install-note">One command on a Linux server. It picks the right build for your machine, checks it, and starts the setup.</p>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="glow"></div>
+        <Logo size={168} wordmark={false} color="var(--cobalt)" />
+      </div>
+    </div>
+    <div class="trustbar">
+      <div class="container trust-items">
+        <span>Open source · Apache-2.0</span>
+        <span>Self-hosted</span>
+        <span>No subscription</span>
+        <span>Runs on 1 core, 1–2&nbsp;GB</span>
+        <span>iPhone, iPad &amp; web</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features" class="section">
+    <div class="container">
+      <p class="eyebrow">Everything a small office needs</p>
+      <h2>A complete phone system, without the cloud bill</h2>
+      <div class="feature-grid">
+        {features.map((f) => (
+          <article class="card">
+            <span class="dot" aria-hidden="true"></span>
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Lean / anywhere -->
+  <section class="section alt">
+    <div class="container two-col">
+      <div>
+        <p class="eyebrow">Built to be small</p>
+        <h2>Runs on a tiny server, works on poor links</h2>
+        <p>
+          Linx is measured to stay lean — processor, memory, disk and bandwidth kept to a
+          minimum, idle and under load. It works behind home routers and strict networks,
+          over a single port, with encrypted audio and video that scales down to survive
+          slow connections.
+        </p>
+        <ul class="ticks">
+          <li>1 core and 1–2&nbsp;GB of memory is enough</li>
+          <li>Works behind NAT, and on networks that only allow 443</li>
+          <li>Encrypted calls and video; nothing sent in the clear</li>
+          <li>You hold the keys — your data stays on your server</li>
+        </ul>
+      </div>
+      <div class="install-panel">
+        <h3>Install in one line</h3>
+        <InstallCommand tone="light" />
+        <p>Then open the one link it prints and finish in your browser. Full walkthrough in the <a href="/docs/installing-linx">install guide</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA band -->
+  <section class="cta-band">
+    <div class="container cta-inner">
+      <div>
+        <h2>Ready to run your own phone system?</h2>
+        <p>Free and open source. Set it up in about ten minutes.</p>
+      </div>
+      <div class="cta-actions">
+        <a href="/download" class="btn btn-on-cobalt">Download Linx</a>
+        <a href="/docs" class="btn btn-ghost-on-cobalt">Read the docs</a>
+      </div>
+    </div>
+  </section>
+
+  <style>
+    .hero {
+      position: relative;
+      padding-top: clamp(2.5rem, 6vw, 5rem);
+      background:
+        radial-gradient(1200px 500px at 80% -10%, color-mix(in srgb, var(--cobalt) 16%, transparent), transparent 60%);
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      gap: 2rem;
+      align-items: center;
+      padding-bottom: 3rem;
+    }
+    .hero h1 { margin-bottom: 0.3em; }
+    .lede { font-size: clamp(1.05rem, 2.2vw, 1.3rem); max-width: 46ch; color: var(--fg-muted); }
+    .cta-row { display: flex; gap: 0.8rem; flex-wrap: wrap; margin: 1.6rem 0; }
+    .install-wrap { max-width: 640px; }
+    .install-note { font-size: 0.88rem; color: var(--fg-faint); margin-top: 0.6rem; }
+
+    .hero-art {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 280px;
+    }
+    .hero-art :global(svg) { position: relative; filter: drop-shadow(0 20px 40px color-mix(in srgb, var(--cobalt) 35%, transparent)); }
+    .glow {
+      position: absolute;
+      width: 320px; height: 320px;
+      border-radius: 50%;
+      background: radial-gradient(circle, color-mix(in srgb, var(--cobalt) 22%, transparent), transparent 70%);
+    }
+
+    .trustbar { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--bg-raised); }
+    .trust-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem 2rem;
+      padding-block: 0.9rem;
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: 0.9rem;
+      color: var(--fg-muted);
+    }
+    .trust-items span { position: relative; }
+    .trust-items span + span::before {
+      content: '';
+      position: absolute; left: -1rem; top: 50%;
+      width: 4px; height: 4px; border-radius: 50%;
+      background: var(--accent); transform: translateY(-50%);
+    }
+
+    .section { padding: clamp(3rem, 7vw, 5.5rem) 0; }
+    .section.alt { background: var(--bg-raised); border-block: 1px solid var(--border); }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1.1rem;
+      margin-top: 2rem;
+    }
+    .card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 1.5rem;
+    }
+    .section.alt .card { background: var(--bg); }
+    .card h3 { margin-bottom: 0.4rem; }
+    .card p { margin: 0; font-size: 0.96rem; }
+    .dot {
+      display: block; width: 26px; height: 26px; border-radius: 8px;
+      background: color-mix(in srgb, var(--cobalt) 18%, transparent);
+      border: 1.5px solid var(--accent);
+      margin-bottom: 1rem;
+    }
+
+    .two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2.5rem; align-items: center; }
+    .ticks { list-style: none; padding: 0; margin: 1.2rem 0 0; display: grid; gap: 0.6rem; }
+    .ticks li { position: relative; padding-left: 1.8rem; color: var(--fg-muted); }
+    .ticks li::before {
+      content: '✓'; position: absolute; left: 0; top: 0;
+      color: var(--answer); font-weight: 700;
+    }
+    .install-panel {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--r-xl);
+      padding: 1.8rem;
+    }
+    .install-panel h3 { margin-bottom: 1rem; }
+    .install-panel p { font-size: 0.9rem; margin: 1rem 0 0; }
+
+    .cta-band { background: var(--cobalt); color: #fff; padding: clamp(2.5rem, 6vw, 4rem) 0; }
+    .cta-inner { display: flex; align-items: center; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
+    .cta-band h2 { color: #fff; margin-bottom: 0.3rem; }
+    .cta-band p { color: rgba(255, 255, 255, 0.85); margin: 0; }
+    .cta-actions { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+    .btn-on-cobalt { background: #fff; color: var(--cobalt); }
+    .btn-on-cobalt:hover { background: #eef2fb; }
+    .btn-ghost-on-cobalt { background: transparent; color: #fff; border-color: rgba(255, 255, 255, 0.6); }
+    .btn-ghost-on-cobalt:hover { border-color: #fff; }
+
+    @media (max-width: 900px) {
+      .hero-grid { grid-template-columns: minmax(0, 1fr); }
+      .hero-art { display: none; }
+      .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .two-col { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 560px) {
+      .feature-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+</Base>

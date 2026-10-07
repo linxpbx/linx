@@ -1,0 +1,45 @@
+---
+// The Linx mark: two crossing strokes forming the "x" (design/tokens.json
+// logo.markPaths, viewBox 19.5 5.5 61 89, stroke 17, round cap). Same mark
+// as web/src/components/brand.tsx and the app icon.
+interface Props {
+  size?: number;
+  color?: string;
+  wordmark?: boolean;
+  class?: string;
+}
+const { size = 30, color = 'currentColor', wordmark = true, class: cls = '' } = Astro.props;
+const w = Math.round((size * 61) / 89);
+---
+
+<span class={`logo ${cls}`} style={`--mark-color:${color}`}>
+  <svg
+    width={w}
+    height={size}
+    viewBox="19.5 5.5 61 89"
+    role="img"
+    aria-label="Linx"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <g fill="none" stroke={color} stroke-width="17" stroke-linecap="round">
+      <path d="M28 14 Q72 50 28 86"></path>
+      <path d="M72 14 Q28 50 72 86"></path>
+    </g>
+  </svg>
+  {wordmark && <span class="wordmark">Linx</span>}
+</span>
+
+<style>
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+  }
+  .wordmark {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.35rem;
+    letter-spacing: -0.03em;
+    color: var(--fg);
+  }
+</style>

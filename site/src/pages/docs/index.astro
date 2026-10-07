@@ -1,0 +1,41 @@
+---
+import { getCollection } from 'astro:content';
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const docs = (await getCollection('docs')).sort(
+  (a, b) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title),
+);
+---
+
+<DocsLayout title="Docs & help" description="Guides and help for setting up and running Linx.">
+  <h1>Docs &amp; help</h1>
+  <p class="lede">Guides for setting up and running Linx. Start with installing, then add people, phone lines and apps.</p>
+
+  <div class="doc-cards">
+    {
+      docs.map((d) => (
+        <a class="doc-card" href={`/docs/${d.id}`}>
+          <h3>{d.data.title}</h3>
+          {d.data.description && <p>{d.data.description}</p>}
+        </a>
+      ))
+    }
+  </div>
+
+  <style>
+    .lede { font-size: 1.15rem; color: var(--fg-faint); margin-bottom: 1.8rem; }
+    .doc-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .doc-card {
+      display: block;
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 1.3rem;
+      background: var(--bg-raised);
+      text-decoration: none;
+    }
+    .doc-card:hover { border-color: var(--accent); text-decoration: none; }
+    .doc-card h3 { margin-bottom: 0.3rem; color: var(--fg); }
+    .doc-card p { margin: 0; font-size: 0.93rem; color: var(--fg-muted); }
+    @media (max-width: 640px) { .doc-cards { grid-template-columns: 1fr; } }
+  </style>
+</DocsLayout>

@@ -1,0 +1,60 @@
+---
+import Logo from './Logo.astro';
+const { pathname } = Astro.url;
+const isDocs = pathname.startsWith('/docs');
+---
+
+<header class="site-header">
+  <div class="container bar">
+    <a href="/" class="brand" aria-label="Linx home">
+      <Logo size={28} />
+    </a>
+    <nav aria-label="Primary">
+      <a href="/#features">Features</a>
+      <a href="/download">Download</a>
+      <a href="/docs" aria-current={isDocs ? 'page' : undefined}>Docs</a>
+      <a href="https://github.com/linxpbx/linx" rel="noopener">GitHub</a>
+      <a href="/download" class="btn btn-primary btn-sm">Get started</a>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 62px;
+  }
+  .brand { display: inline-flex; }
+  nav {
+    display: flex;
+    align-items: center;
+    gap: clamp(0.6rem, 2vw, 1.4rem);
+    font-family: var(--font-display);
+    font-weight: 500;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  nav a {
+    color: var(--fg-muted);
+    font-size: 0.98rem;
+  }
+  nav a:hover { color: var(--accent); text-decoration: none; }
+  nav a[aria-current='page'] { color: var(--accent); }
+  .btn-sm { padding: 0.45em 1em; font-size: 0.95rem; }
+  .btn-sm:hover { color: var(--accent-ink); }
+  @media (max-width: 560px) {
+    nav a:not(.btn) { display: none; }
+    nav a[href='/docs'], nav a[href='https://github.com/linxpbx/linx'] { display: inline; }
+  }
+</style>

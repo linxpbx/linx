@@ -1,0 +1,17 @@
+{
+  "name": "linx-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "@fontsource/instrument-sans": "5.3.0",
+    "astro": "6.3.1"
+  }
+}

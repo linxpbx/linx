@@ -1,0 +1,88 @@
+---
+// The one-line installer, with a copy button. The only client-side JS on the
+// marketing pages. Keep the command in step with docs/help/install-linx.md.
+// The command scrolls inside its own box so it never widens the page.
+interface Props {
+  command?: string;
+  tone?: 'light' | 'dark';
+}
+const {
+  command = 'curl -fsSL https://raw.githubusercontent.com/linxpbx/linx/master/install.sh | sudo sh',
+  tone = 'light',
+} = Astro.props;
+---
+
+<div class={`install install--${tone}`}>
+  <div class="cmd-scroll">
+    <span class="prompt" aria-hidden="true">$</span><code>{command}</code>
+  </div>
+  <button class="copy" type="button" data-copy={command}>Copy</button>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('button.copy').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy ?? '');
+        const prev = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('ok');
+        setTimeout(() => {
+          btn.textContent = prev;
+          btn.classList.remove('ok');
+        }, 1500);
+      } catch {
+        /* clipboard blocked; the user can still select the text */
+      }
+    });
+  });
+</script>
+
+<style>
+  .install {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0.7rem 0.7rem 0.7rem 1rem;
+    border-radius: var(--r-md);
+    font-size: 0.95rem;
+  }
+  .install--light {
+    background: var(--dark);
+    border: 1px solid #2a2f37;
+  }
+  .install--dark {
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+  .cmd-scroll {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: thin;
+    padding-bottom: 2px;
+  }
+  .prompt {
+    color: var(--cobalt-on-dark);
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    margin-right: 0.5rem;
+  }
+  code { color: #eef1f5; }
+  .copy {
+    flex: none;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: var(--r-pill);
+    padding: 0.35em 0.9em;
+    cursor: pointer;
+  }
+  .copy:hover { background: rgba(255, 255, 255, 0.2); }
+  .copy.ok { color: #86efac; border-color: #86efac; }
+</style>

@@ -1,0 +1,81 @@
+---
+import Base from '../layouts/Base.astro';
+import InstallCommand from '../components/InstallCommand.astro';
+---
+
+<Base title="Download" description="Install Linx on your own Linux server with one command. Free and open source.">
+  <section class="head">
+    <div class="container">
+      <p class="eyebrow">Get Linx</p>
+      <h1>Install Linx on your server</h1>
+      <p class="lede">One command downloads Linx, checks it, installs it, and starts the setup. It picks the right build for an Intel/AMD or an ARM server by itself.</p>
+      <div class="cmd"><InstallCommand /></div>
+      <p class="sub">Then open the one link it prints and finish in your browser. Prefer the step-by-step? Read the <a href="/docs/installing-linx">install guide</a>.</p>
+    </div>
+  </section>
+
+  <section class="container panels">
+    <article class="panel">
+      <h2>What you need</h2>
+      <ul>
+        <li>A Linux server — a rented VPS or a machine at home or the office</li>
+        <li>At least 1&nbsp;GB of memory and 5&nbsp;GB of free disk (2&nbsp;GB and 20&nbsp;GB are better)</li>
+        <li>A domain you own, like <code>example.com</code>, and access to its DNS settings</li>
+        <li>Your phone, for a passkey or an authenticator app</li>
+      </ul>
+    </article>
+
+    <article class="panel">
+      <h2>Architecture</h2>
+      <p>Linx ships for both common server CPUs, and the installer chooses automatically:</p>
+      <ul>
+        <li><strong>amd64</strong> — Intel and AMD servers (most VPSs)</li>
+        <li><strong>arm64</strong> — ARM servers (Ampere, AWS Graviton, a Raspberry Pi 4/5)</li>
+      </ul>
+      <p class="muted">The download is verified against the release's checksums before it installs.</p>
+    </article>
+
+    <article class="panel">
+      <h2>Apps</h2>
+      <p>Once your server is up, add phones to it:</p>
+      <ul>
+        <li><strong>iPhone &amp; iPad</strong> — the Linx app (rings even when asleep). Coming to the App Store; TestFlight meanwhile.</li>
+        <li><strong>Web</strong> — the built-in web client, in any modern browser. Nothing to install.</li>
+      </ul>
+    </article>
+
+    <article class="panel">
+      <h2>Prefer to do it by hand?</h2>
+      <p>Every release has the signed <code>linx</code> binaries and checksums attached. Download, verify and install yourself:</p>
+      <p>
+        <a href="https://github.com/linxpbx/linx/releases/latest" rel="noopener">Latest release on GitHub →</a>
+      </p>
+      <p class="muted">The <a href="/docs/installing-linx">install guide</a> shows how to check the download and run setup manually.</p>
+    </article>
+  </section>
+
+  <style>
+    .head { padding: clamp(2.5rem, 6vw, 4rem) 0 1rem; }
+    .lede { font-size: 1.2rem; max-width: 52ch; }
+    .cmd { max-width: 680px; margin: 1.5rem 0 0.8rem; }
+    .sub { font-size: 0.95rem; color: var(--fg-faint); }
+    .panels {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1.2rem;
+      padding-block: 2.5rem 1rem;
+    }
+    .panel {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 1.6rem;
+    }
+    .panel h2 { font-size: 1.3rem; }
+    .panel ul { margin: 0.6rem 0 0; padding-left: 1.2rem; }
+    .panel li { color: var(--fg-muted); margin-bottom: 0.4rem; }
+    .panel code { background: color-mix(in srgb, var(--accent) 12%, transparent); padding: 0.1em 0.4em; border-radius: 6px; font-size: 0.9em; }
+    .muted { color: var(--fg-faint); font-size: 0.9rem; }
+    @media (max-width: 720px) { .panels { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+</Base>
