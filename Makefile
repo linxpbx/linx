@@ -188,6 +188,8 @@ security: ## Known-vulnerability scan (Go + npm) and licence allowlist
 	else echo "$$out" | tail -50; exit 1; fi
 	@cd web && npm audit --audit-level=high >/dev/null 2>&1 && echo "npm audit: ok" \
 		|| (npm audit --audit-level=high | tail -50; exit 1)
+	@cd site && npm audit --audit-level=high >/dev/null 2>&1 && echo "npm audit (site): ok" \
+		|| (npm audit --audit-level=high | tail -50; exit 1)
 	@go run ./tools/licensecheck
 	@go run ./tools/licensecheck -lock tools/openapi-ts/package-lock.json
 
