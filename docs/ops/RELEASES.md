@@ -37,16 +37,21 @@ If a fix genuinely needs a schema change, it is a minor, not a patch. Say so in 
 
 1. **Be on a green commit.** `gh run list --limit 1` says success, and the images for that commit are published. The release workflow refuses a tag whose images aren't there.
 2. **Decide the number** by the rules above. Check whether anything since the last release added a migration: `git diff --name-only v1.1.0..HEAD -- internal/db/migrations/`. Anything listed means it cannot be a patch.
-3. **Tag and push.**
+3. **Write what it means for people** in `docs/release-notes/vX.Y.Z.md` — a few plain sentences or bullets (new, better, fixed), committed before the tag. This is what linxpbx.com's changelog shows. Without it, the changelog lists the release's commit subjects as *Improvements* and *Fixes*, which is accurate but reads like a developer's notes.
+4. **Tag and push.**
    ```
    git tag -a v1.2.0 -m "Linx 1.2.0"
    git push origin v1.2.0
    ```
-4. **Watch it** (`gh run list --limit 1`). The Release workflow re-tags and signs every image, builds `linx` for amd64 and arm64 from the tag, signs those too, and opens a GitHub release with them attached and the notes generated from the commits.
-5. **Try it on the test VPS before your own system**, even for a patch. That is what the VPS is for.
-6. **Then update your own** (`docs/ops/UPDATING.md`), after a backup.
+5. **Watch it** (`gh run list --limit 1`). The Release workflow re-tags and signs every image, builds `linx` for amd64 and arm64 from the tag, signs those too, opens a GitHub release with them attached, and then **posts the release to linxpbx.com/changelog** by itself (below).
+6. **Try it on the test VPS before your own system**, even for a patch. That is what the VPS is for.
+7. **Then update your own** (`docs/ops/UPDATING.md`), after a backup.
 
 A beta is the same with `v1.3.0-beta.1`, and it is marked as a pre-release on GitHub so nobody installs it by accident.
+
+## The changelog on linxpbx.com
+
+Every release, stable or beta, appears at **linxpbx.com/changelog** without anyone doing anything. Once the release is published, the Release workflow's last job runs `tools/changelog/entry.sh`, which writes `site/src/content/changelog/<version>.md` from `docs/release-notes/<tag>.md` (or, if there isn't one, from the commits since the previous release: fixes and improvements, leaving out repository housekeeping), and commits it to `master`. That commit is what makes Cloudflare rebuild the site, so the entry is live a minute or two after the release. A beta is marked **Beta**. To correct an entry later, edit its file and push.
 
 ## What a server actually runs
 

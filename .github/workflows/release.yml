@@ -157,10 +157,73 @@ jobs:
         run: |
           prerelease=""
           case "${GITHUB_REF_NAME}" in *-*) prerelease="--prerelease" ;; esac
+          # The same plain words as linxpbx.com/changelog when the release
+          # has them (docs/release-notes), GitHub's list of commits if not.
+          notes="--generate-notes"
+          if [ -f "docs/release-notes/${GITHUB_REF_NAME}.md" ]; then
+            notes="--notes-file docs/release-notes/${GITHUB_REF_NAME}.md"
+          fi
           gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" \
-            --generate-notes $prerelease \
+            $notes $prerelease \
             install.sh \
             linx-linux-amd64 linx-linux-arm64 SHA256SUMS \
             linx-linux-amd64.sigstore.json \
             linx-linux-arm64.sigstore.json \
             SHA256SUMS.sigstore.json
+
+  # The website's changelog (owner, 2026-10-07): once the release is out,
+  # its entry is written (tools/changelog/entry.sh: the release's own notes
+  # from docs/release-notes, or its changes since the last release) and
+  # committed to master, which makes Cloudflare rebuild linxpbx.com, so
+  # /changelog shows it within minutes. A push made with this token starts
+  # no other workflow, so CI doesn't run again for a page of text.
+  changelog:
+    needs: [images, program]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # commit the entry to master
+    concurrency:
+      group: changelog
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          fetch-depth: 0 # the tags, for the previous release
+
+      - name: Write the entry
+        id: entry
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git fetch --force --tags origin
+          # The release's own notes are read from the tagged commit, which
+          # master may have moved past.
+          if git cat-file -e "$TAG:docs/release-notes/$TAG.md" 2>/dev/null; then
+            mkdir -p docs/release-notes
+            git show "$TAG:docs/release-notes/$TAG.md" > "docs/release-notes/$TAG.md"
+          fi
+          file=$(tools/changelog/entry.sh "$TAG")
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          cat "$file"
+
+      - name: Commit it to master
+        env:
+          FILE: ${{ steps.entry.outputs.file }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          if git diff --cached --quiet; then
+            echo "The changelog already has $TAG."
+            exit 0
+          fi
+          git commit -m "Changelog: Linx ${TAG#v}"
+          # master can move while this runs: rebase onto it and try again.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:master; then exit 0; fi
+            git pull --rebase origin master
+          done
+          exit 1

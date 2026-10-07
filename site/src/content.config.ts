@@ -17,6 +17,17 @@ export const collections = {
       screens: z.array(z.coerce.string()).default([]),
     }),
   }),
+  // One file per release, written by tools/changelog/entry.sh when the
+  // Release workflow publishes it (ADR-084).
+  changelog: defineCollection({
+    loader: glob({ pattern: '*.md', base: './src/content/changelog' }),
+    schema: z.object({
+      version: z.string(),
+      date: z.string(),
+      channel: z.enum(['stable', 'beta']),
+      previous: z.string().default(''),
+    }),
+  }),
   docs: defineCollection({
     loader: glob({ pattern: '**/*.md', base: './src/content/docs' }),
     schema: z.object({

@@ -13,6 +13,7 @@ const isDocs = pathname.startsWith('/docs');
       <a href="/#features">Features</a>
       <a href="/download">Download</a>
       <a href="/docs" aria-current={isDocs ? 'page' : undefined}>Docs</a>
+      <a href="/changelog" aria-current={pathname.startsWith('/changelog') ? 'page' : undefined}>Changelog</a>
       <a href="https://github.com/linxpbx/linx" rel="noopener">GitHub</a>
       <a href="/download" class="btn btn-primary btn-sm">Get started</a>
     </nav>
