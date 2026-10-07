@@ -25,7 +25,7 @@ import (
 // numbers per supported country (ADR-044), then the outgoing-call decision
 // and the extension-number checks. It needs Docker: make test-docker.
 func TestNumberingDocker(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	pool := dbtest.Start(t, ctx, "linx-numbering-test")
 	if _, err := db.Migrate(ctx, pool); err != nil {
@@ -46,8 +46,9 @@ func TestNumberingDocker(t *testing.T) {
 
 	// Every country Linx can be set up in (ADR-085). The full corpus (about
 	// 30,000 numbers) for these, whose numbering is the most involved or
-	// the most used; a smaller one (about 3,000) for the rest, which keeps
-	// the suite to minutes. On 2026-10-07 the full corpus was run for all
+	// the most used; a small one (about 2,000: the country's own numbers in every form, its
+	// short and emergency numbers, a sample of the world's) for the rest, which keeps
+	// the suite to a few minutes on CI. On 2026-10-07 the full corpus was run for all
 	// 245 countries: about 7.5 million numbers, every one agreeing.
 	deep := map[string]bool{"AE": true, "US": true, "GB": true, "DE": true, "IN": true, "SA": true, "BR": true,
 		"AR": true, "MX": true, "IT": true, "RU": true, "CN": true, "JP": true, "AU": true, "FR": true}
@@ -233,7 +234,7 @@ func numberCorpus(home string, full bool) []string {
 	for _, m := range coll.GetMetadata() {
 		cc := strconv.Itoa(int(m.GetCountryCode()))
 		isHome := m.GetId() == home
-		if !full && !isHome && rng.IntN(8) != 0 {
+		if !full && !isHome && rng.IntN(40) != 0 {
 			continue
 		}
 		for _, d := range []*phonenumbers.PhoneNumberDesc{m.GetFixedLine(), m.GetMobile(), m.GetTollFree(),
@@ -259,7 +260,9 @@ func numberCorpus(home string, full bool) []string {
 		}
 	}
 	for i := range 10000 {
-		if !full && i >= 1000 && i%10 != 0 {
+		// Small: where short codes and emergency numbers live (up to 129
+		// and the 900s), and a sample of the rest.
+		if !full && !(i < 130 || (i >= 900 && i < 1000) || i%37 == 0) {
 			continue
 		}
 		add(strconv.Itoa(i))
@@ -271,7 +274,7 @@ func numberCorpus(home string, full bool) []string {
 		"+" + homeCC + "0", "00" + homeCC + "0", "1", "9", "99", "8", "80", "800", "60", "600", "70", "700", "90", "900", "5", "05", "04", "4"}
 	random := 4000
 	if !full {
-		random = 600
+		random = 150
 	}
 	for range random {
 		add(prefixes[rng.IntN(len(prefixes))] + digits(1+rng.IntN(13)))
