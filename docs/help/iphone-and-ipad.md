@@ -9,6 +9,8 @@ screens: [/set-up-phone]
 
 The Linx app turns your iPhone or iPad into your extension: it rings for your number, and calls you make from it show your number, not the phone's.
 
+The Linx app is coming soon to the App Store. Until it's there, only phones invited to test it can install it; everything below works the same for them.
+
 Setting one up takes a code that works **once** and lasts 10 minutes. No password is in it: the phone makes its own security key as it finishes, and that key never leaves the phone.
 
 ## Setting up your own phone

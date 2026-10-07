@@ -6,3 +6,5 @@ node_modules/
 # environment
 .env
 .env.production
+public/help/
+.help-guides/

@@ -1,7 +1,6 @@
 ---
 title: Getting started
 description: What Linx is, what you need, and the quickest path to a working phone system.
-section: Start here
 order: 1
 ---
 
@@ -10,7 +9,7 @@ Linx is a phone system you run on your own server. It gives everyone in a home o
 ## The short path
 
 1. Get a Linux server — a rented VPS or a machine at home or the office.
-2. Install Linx with one command (see [Installing Linx](/docs/installing-linx)).
+2. Install Linx with one command (see [Installing Linx](/docs/install-linx)).
 3. Open the single link it prints and finish setup in your browser.
 4. Add people and their extensions, connect a phone line if you want outside calls, and make calls from the web app or a desk phone.
 
@@ -30,4 +29,4 @@ Linx is a phone system you run on your own server. It gives everyone in a home o
 
 > Linx can't guarantee emergency calling, and VoIP is regulated in some countries. Check your local rules before connecting external phone lines.
 
-Next: [Installing Linx](/docs/installing-linx).
+Next: [Installing Linx](/docs/install-linx).

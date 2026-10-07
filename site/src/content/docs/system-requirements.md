@@ -1,7 +1,6 @@
 ---
 title: System requirements
 description: What Linx needs to run — server, network and domain.
-section: Start here
 order: 3
 ---
 

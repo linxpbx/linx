@@ -1,17 +1,27 @@
 import { defineCollection, z } from 'astro:content';
 import { glob } from 'astro/loaders';
 
-// Support/help and documentation pages: one Markdown file each under
-// src/content/docs. Adding or editing a file here (and pushing) is all it
-// takes to change the live site — this is the content Claude Code keeps up to
-// date. `order` sorts a section; `section` groups pages in the sidebar.
+// Two kinds of page under /docs:
+//  - help: the server's own help guides, read straight from docs/help. One
+//    file serves both the Help screen inside Linx and this website, so they
+//    never drift apart; editing a guide and pushing updates both.
+//  - docs: a few website-only pages (getting started, requirements).
 export const collections = {
+  help: defineCollection({
+    loader: glob({ pattern: '*.md', base: './.help-guides' }), // from docs/help by scripts/sync-help.mjs
+    schema: z.object({
+      title: z.string(),
+      audience: z.enum(['public', 'everyone', 'admin', 'system_admin']),
+      section: z.enum(['whats-new', 'install', 'everyday', 'admin', 'running']),
+      keywords: z.array(z.coerce.string()).default([]), // "999" reads as a number in YAML
+      screens: z.array(z.coerce.string()).default([]),
+    }),
+  }),
   docs: defineCollection({
     loader: glob({ pattern: '**/*.md', base: './src/content/docs' }),
     schema: z.object({
       title: z.string(),
       description: z.string().optional(),
-      section: z.string().default('Guides'),
       order: z.number().default(100),
     }),
   }),
