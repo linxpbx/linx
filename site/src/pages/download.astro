@@ -39,7 +39,7 @@ import InstallCommand from '../components/InstallCommand.astro';
       <h2>Apps</h2>
       <p>Once your server is up, add phones to it:</p>
       <ul>
-        <li><strong>iPhone &amp; iPad</strong> — the Linx app (rings even when asleep). Coming to the App Store; TestFlight meanwhile.</li>
+        <li><strong>iPhone &amp; iPad</strong> — the Linx app (rings even when asleep). <span class="soon">Coming soon</span> to the App Store.</li>
         <li><strong>Web</strong> — the built-in web client, in any modern browser. Nothing to install.</li>
       </ul>
     </article>
@@ -76,6 +76,7 @@ import InstallCommand from '../components/InstallCommand.astro';
     .panel li { color: var(--fg-muted); margin-bottom: 0.4rem; }
     .panel code { background: color-mix(in srgb, var(--accent) 12%, transparent); padding: 0.1em 0.4em; border-radius: 6px; font-size: 0.9em; }
     .muted { color: var(--fg-faint); font-size: 0.9rem; }
+    .soon { font-family: var(--font-display); font-weight: 600; font-size: 0.78rem; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: var(--r-pill); padding: 0.1em 0.6em; }
     @media (max-width: 720px) { .panels { grid-template-columns: minmax(0, 1fr); } }
   </style>
 </Base>

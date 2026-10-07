@@ -27,7 +27,7 @@ A rented VPS, a mini PC at the office, or a Raspberry Pi 4/5 all work. The insta
 
 ## Apps
 
-- **iPhone & iPad** — the Linx app (coming to the App Store; TestFlight meanwhile).
+- **iPhone & iPad** — the Linx app, *coming soon* to the App Store.
 - **Web** — any modern browser; nothing to install.
 
 ## Good to know

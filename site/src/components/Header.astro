@@ -51,8 +51,9 @@ const isDocs = pathname.startsWith('/docs');
   }
   nav a:hover { color: var(--accent); text-decoration: none; }
   nav a[aria-current='page'] { color: var(--accent); }
+  /* nav a's muted colour must not reach the button: white on Cobalt */
+  nav a.btn-sm, nav a.btn-sm:hover { color: var(--accent-ink); }
   .btn-sm { padding: 0.45em 1em; font-size: 0.95rem; }
-  .btn-sm:hover { color: var(--accent-ink); }
   @media (max-width: 560px) {
     nav a:not(.btn) { display: none; }
     nav a[href='/docs'], nav a[href='https://github.com/linxpbx/linx'] { display: inline; }

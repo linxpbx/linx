@@ -14,15 +14,17 @@ const features = [
   },
   {
     title: 'Video meetings & guest links',
-    body: 'One-to-one video and meetings with a link anyone can join from a browser — no account, no app to install.',
+    body: 'Meetings with a link anyone can join from a browser — no account, no app to install. One-to-one video calls between the iPhone and iPad apps work today.',
+    soon: true,
   },
   {
     title: 'Presence & team',
-    body: 'See who is available, on a call, away or in a meeting, across the web app and the iPhone and iPad apps.',
+    body: 'See who is available, on a call, away or on do-not-disturb, live in the web app.',
   },
   {
-    title: 'iPhone, iPad & web',
-    body: 'A native iPhone and iPad app that rings even when asleep, plus a web client that works in any modern browser.',
+    title: 'Web, iPhone & iPad',
+    body: 'A web client that works in any modern browser today. The native iPhone and iPad app, which rings even when asleep, is coming to the App Store.',
+    soon: 'App Store soon',
   },
   {
     title: 'Phone lines & numbers',
@@ -40,7 +42,7 @@ const features = [
         <h1>Your calls.<br />Your server.</h1>
         <p class="lede">
           Linx is an open-source phone system for homes and small businesses — extensions,
-          voicemail, video meetings and apps, running on a server you own. No subscription,
+          voicemail, presence and a web phone, running on a server you own. No subscription,
           no one else holding your calls.
         </p>
         <div class="cta-row">
@@ -63,7 +65,7 @@ const features = [
         <span>Self-hosted</span>
         <span>No subscription</span>
         <span>Runs on 1 core, 1–2&nbsp;GB</span>
-        <span>iPhone, iPad &amp; web</span>
+        <span>Web app · iPhone &amp; iPad soon</span>
       </div>
     </div>
   </section>
@@ -77,6 +79,7 @@ const features = [
         {features.map((f) => (
           <article class="card">
             <span class="dot" aria-hidden="true"></span>
+            {f.soon && <span class="soon">{f.soon === true ? 'Coming soon' : f.soon}</span>}
             <h3>{f.title}</h3>
             <p>{f.body}</p>
           </article>
@@ -195,7 +198,16 @@ const features = [
       padding: 1.5rem;
     }
     .section.alt .card { background: var(--bg); }
+    .card { position: relative; }
     .card h3 { margin-bottom: 0.4rem; }
+    .soon {
+      position: absolute; top: 1.4rem; right: 1.4rem;
+      font-family: var(--font-display); font-weight: 600; font-size: 0.75rem;
+      letter-spacing: 0.02em; color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      border-radius: var(--r-pill); padding: 0.2em 0.7em;
+    }
     .card p { margin: 0; font-size: 0.96rem; }
     .dot {
       display: block; width: 26px; height: 26px; border-radius: 8px;

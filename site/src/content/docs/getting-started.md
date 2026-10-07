@@ -5,22 +5,22 @@ section: Start here
 order: 1
 ---
 
-Linx is a phone system you run on your own server. It gives everyone in a home or small office an extension, voicemail, video meetings, presence, and apps for the iPhone, iPad and the web — with no monthly subscription and no third party holding your calls.
+Linx is a phone system you run on your own server. It gives everyone in a home or small office an extension, voicemail, presence and a phone in the web browser — with no monthly subscription and no third party holding your calls.
 
 ## The short path
 
 1. Get a Linux server — a rented VPS or a machine at home or the office.
 2. Install Linx with one command (see [Installing Linx](/docs/installing-linx)).
 3. Open the single link it prints and finish setup in your browser.
-4. Add people and their extensions, connect a phone line if you want outside calls, and set up the apps.
+4. Add people and their extensions, connect a phone line if you want outside calls, and make calls from the web app or a desk phone.
 
 ## What Linx includes
 
 - **Extensions and ring groups** — ring one person or a whole team, with office hours and call routing.
 - **Voicemail and call history** — shared history, and a message-waiting light on desk phones.
-- **Video meetings** — one-to-one video and meetings with a guest link anyone can join from a browser.
-- **Presence** — see who is available, on a call, away or in a meeting.
-- **Apps** — a native iPhone and iPad app that rings even when asleep, plus a web client.
+- **Video meetings** *(coming soon)* — meetings with a guest link anyone can join from a browser. One-to-one video calls between the iPhone and iPad apps work today.
+- **Presence** — see who is available, on a call, away or on do-not-disturb.
+- **Apps** — a web client in any modern browser. The native iPhone and iPad app, which rings even when asleep, is *coming soon* to the App Store.
 
 ## What you'll need
 

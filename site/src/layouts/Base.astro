@@ -15,7 +15,7 @@ interface Props {
 }
 const {
   title,
-  description = 'Linx is a self-hosted, open-source phone system for homes and small businesses — extensions, voicemail, video meetings and apps. No subscription.',
+  description = 'Linx is a self-hosted, open-source phone system for homes and small businesses — extensions, voicemail, presence and a web phone. No subscription.',
 } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site);
 const fullTitle = title === 'Linx' ? title : `${title} · Linx`;

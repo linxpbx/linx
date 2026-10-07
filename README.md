@@ -1,6 +1,6 @@
 # Linx
 
-**Your calls. Your server.** Linx is a self-hosted, open-source phone system for homes and small businesses. It covers extensions, ring groups, voicemail, video meetings with guest links, and presence, with web and iPhone/iPad apps. There's no subscription.
+**Your calls. Your server.** Linx is a self-hosted, open-source phone system for homes and small businesses. It covers extensions, ring groups, voicemail, presence and a web phone; video meetings with guest links and the iPhone/iPad app on the App Store are coming soon. There's no subscription.
 
 > **Status: 1.0.0 released.** The server, web client and iPhone/iPad app are built; see [`docs/ROADMAP.md`](docs/ROADMAP.md) for what each later phase adds.
 
