@@ -127,9 +127,10 @@ ios-build-device: ios-deps ## Build the app for a real iPhone, Release, no signi
 
 .PHONY: ios-archive
 ios-archive: ios-deps ## Archive and export the app for TestFlight (needs the owner's Apple ID in Xcode; docs/ops/APPLE_SIGNING.md)
-	@# The setting exists (empty) once Xcode has ever run, so look for an
-	@# Apple ID in it rather than for the setting.
-	@defaults read com.apple.dt.Xcode DVTDeveloperAccountManagerAppleIDLists 2>/dev/null | grep -q "@" \
+	@# Only a hint: Xcode 27 keeps signed-in accounts elsewhere, and this
+	@# setting can look empty while signing works. xcodebuild's own "No
+	@# Accounts" below is the real answer (sign in, then run this again).
+	@defaults read com.apple.dt.Xcode DVTDeveloperAccountManagerAppleIDLists >/dev/null 2>&1 \
 		|| { echo "ios archive: no Apple ID in Xcode on this Mac."; \
 		     echo "  Xcode → Settings → Accounts → + and sign in (once), then run this again."; \
 		     echo "  docs/ops/APPLE_SIGNING.md has the rest."; exit 1; }
