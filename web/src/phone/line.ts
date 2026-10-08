@@ -398,7 +398,19 @@ export class PhoneLine {
   private restartIce() {
     const s = this.session;
     if (!s || !s.isEstablished()) return;
-    s.renegotiate({ rtcOfferConstraints: { iceRestart: true } });
+    s.renegotiate({ rtcOfferConstraints: { iceRestart: true } }, () => {
+      // The browser may have kept its route the whole time the new one was
+      // being looked for (a network change that didn't break anything), so
+      // nothing says "connected" again: the agreed restart is the sign the
+      // call is back. Without this the call sat on "Reconnecting…" while
+      // working (found by the browser suite's move to the relay, 2026-10-08).
+      const ice = s.connection?.iceConnectionState;
+      if (this.state.call?.phase === "reconnecting" && (ice === "connected" || ice === "completed")) {
+        window.clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = undefined;
+        this.setCall({ phase: "active" });
+      }
+    });
   }
 
   private onUnload() {

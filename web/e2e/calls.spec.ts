@@ -219,6 +219,42 @@ test("browsers call each other, one with UDP blocked", async () => {
   await hearsAudio(omar);
   await omar.getByRole("button", { name: "End call" }).click();
 
+  // Moving a live call onto the relay (2026-10-08): what the iPhone app does
+  // when no sound is getting through the route a call started on — the
+  // owner's phone on Tailscale chose a route through the Synology that never
+  // carried the sound. Relay only, and the route search restarted mid-call
+  // with a re-INVITE (here through the web phone's own restart, which a
+  // network change triggers). Asterisk must take it, the call must end up
+  // relayed, and the echo must keep coming back: the encryption carries
+  // straight over (Asterisk resets it only for a=connection:new, which
+  // WebRTC never sends).
+  await aisha.goto("/settings");
+  await expect(aisha.getByTestId("account-menu")).toContainText("Available", { timeout: 30_000 });
+  await aisha.getByRole("button", { name: "Test sound" }).click();
+  await expect(aisha.getByTestId("call-panel")).toHaveAttribute("data-phase", "active");
+  await hearsAudio(aisha);
+  const ufrag = () => aisha.evaluate(() => {
+    const pcs = (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs;
+    return /a=ice-ufrag:(\S+)/.exec(pcs[pcs.length - 1]?.currentLocalDescription?.sdp ?? "")?.[1] ?? "";
+  });
+  const before = await ufrag();
+  await aisha.evaluate(() => {
+    const pcs = (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs;
+    const pc = pcs[pcs.length - 1]!;
+    pc.setConfiguration({ ...pc.getConfiguration(), iceTransportPolicy: "relay" });
+    window.dispatchEvent(new Event("online"));
+  });
+  try {
+    await expect.poll(ufrag, { timeout: 20_000 }).not.toBe(before);
+    await expect(aisha.getByTestId("connection")).toHaveAttribute("data-mode", "relayed", { timeout: 20_000 });
+    await hearsAudio(aisha);
+    await expect(aisha.getByTestId("call-panel")).toHaveAttribute("data-phase", "active", { timeout: 20_000 });
+  } catch (e) {
+    throw new Error(`moving the call to the relay failed: ${String(e)}\nICE after the move:\n${await iceReport(aisha)}`);
+  }
+  await aisha.getByRole("button", { name: "End call" }).click();
+  await expect(aisha.getByTestId("call-panel")).toHaveCount(0);
+
   // Signing out drops Omar's line at once: Aisha sees him offline.
   await aisha.goto("/team");
   await expect(aisha.getByTestId("team-102")).toHaveAttribute("data-status", "available");
