@@ -336,12 +336,17 @@ struct PictureWatch {
     /// Synology that carried connectivity checks but not the encrypted sound,
     /// and nothing moved it (2026-10-08). The relay is the route that works
     /// from anywhere.
+    ///
+    /// A second move gives every route another go instead (an ordinary ICE
+    /// restart): a move onto the relay that brought no sound must not be
+    /// where the call is left — at home, the relay may not reach the server
+    /// at all (2026-10-08).
     func moveToRelay() async throws -> String {
         guard let connection else { throw MediaTrouble.noOffer }
-        relayOnly = true
+        relayOnly = !diagnostics.movedToRelay
         movingToRelay = true
+        mark(relayOnly ? "Moving to the relay" : "Trying every route again")
         note { $0.movedToRelay = true }
-        mark("Moving to the relay")
         connection.setConfiguration(configuration())
         connection.restartIce()
         return try await offer()
@@ -378,7 +383,7 @@ struct PictureWatch {
         try await setRemote(RTCSessionDescription(type: .answer, sdp: answer))
         if movingToRelay {
             movingToRelay = false
-            mark("On the relay")
+            mark(relayOnly ? "On the relay" : "Every route allowed again")
         }
         capWhatThisPhoneSends()
         startWatching()
@@ -639,6 +644,7 @@ struct PictureWatch {
     /// Whether it worked is read back from the route itself rather than
     /// assumed, and that is what the button and the words beside it show.
     func setSpeaker(_ on: Bool) {
+        Self.wantsSpeaker = on
         let session = RTCAudioSession.sharedInstance()
         session.lockForConfiguration()
         do {
@@ -697,10 +703,60 @@ struct PictureWatch {
     /// does and moves the sound to what was just connected.
     private static func newDeviceArrived() {
         guard onTheSpeaker, somewhereElseToSend else { return }
+        wantsSpeaker = false
         let session = RTCAudioSession.sharedInstance()
         session.lockForConfiguration()
         try? session.overrideOutputAudioPort(.none)
         session.unlockForConfiguration()
+    }
+
+    /// The person put the call on the loudspeaker, and nothing they did has
+    /// taken it off: a headset arriving clears it (`newDeviceArrived`), and
+    /// so does the call ending.
+    private static var wantsSpeaker = false
+
+    /// The loudspeaker was switched off by the audio session being set up
+    /// again underneath the call, not by the person: put it back. The owner
+    /// turned the speaker on while a call rang and it went off by itself the
+    /// moment the call was answered (2026-10-08) — which is when WebRTC
+    /// starts the sound and, if its settings differ from the app's, sets the
+    /// session's category again, and a category change drops the override.
+    /// The settings now agree (`prepareAudioSession`), so this is the
+    /// belt to those braces. Only those two reasons: a headset, the system's
+    /// own picker or the person are never overruled.
+    private static func keepTheSpeaker(after reason: AVAudioSession.RouteChangeReason?) {
+        guard wantsSpeaker, reason == .categoryChange || reason == .routeConfigurationChange, !onTheSpeaker,
+            AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .builtInReceiver })
+        else { return }
+        let session = RTCAudioSession.sharedInstance()
+        session.lockForConfiguration()
+        try? session.overrideOutputAudioPort(.speaker)
+        session.unlockForConfiguration()
+        live?.mark("Speaker put back")
+    }
+
+    /// Where the sound is coming out, in words for the call's timeline.
+    private static var outputWords: String {
+        guard let output = AVAudioSession.sharedInstance().currentRoute.outputs.first else { return "nowhere" }
+        switch output.portType {
+        case .builtInSpeaker: return "loudspeaker"
+        case .builtInReceiver: return "earpiece"
+        default: return output.portName
+        }
+    }
+
+    /// Why the sound moved, in words for the call's timeline.
+    private static func words(for reason: AVAudioSession.RouteChangeReason?) -> String {
+        switch reason {
+        case .newDeviceAvailable: return "something connected"
+        case .oldDeviceUnavailable: return "something disconnected"
+        case .categoryChange: return "sound set up again"
+        case .override: return "switched"
+        case .wakeFromSleep: return "woke"
+        case .noSuitableRouteForCategory: return "nowhere to send it"
+        case .routeConfigurationChange: return "route set up again"
+        default: return "the system"
+        }
     }
 
     /// Whether the sound is coming out of the loudspeaker right now, which
@@ -722,6 +778,8 @@ struct PictureWatch {
                 .flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
             MainActor.assumeIsolated {
                 if reason == .newDeviceAvailable { Self.newDeviceArrived() }
+                Self.keepTheSpeaker(after: reason)
+                Self.live?.mark("Sound to \(Self.outputWords) (\(Self.words(for: reason)))")
                 Self.tellTheRoute()
             }
         }
@@ -1048,6 +1106,17 @@ struct PictureWatch {
     /// path"). Where CallKit may not be used (ADR-078) the app turns it on
     /// itself, as it did before step 6.
     private static func prepareAudioSession() {
+        // WebRTC sets the session up again itself when the call's sound
+        // starts (at the answer, for a line that sends nothing before it).
+        // Told the same settings as these, it finds nothing to change; left
+        // with its own, it set the category again with different options,
+        // and a category change takes the call off the loudspeaker
+        // (2026-10-08).
+        let shared = RTCAudioSessionConfiguration.webRTC()
+        shared.category = AVAudioSession.Category.playAndRecord.rawValue
+        shared.mode = AVAudioSession.Mode.voiceChat.rawValue
+        shared.categoryOptions = callOptions
+        RTCAudioSessionConfiguration.setWebRTC(shared)
         let session = RTCAudioSession.sharedInstance()
         let system = CallStyle.usesCallKit
         session.useManualAudio = system
@@ -1055,9 +1124,7 @@ struct PictureWatch {
         session.lockForConfiguration()
         defer { session.unlockForConfiguration() }
         do {
-            try session.setCategory(
-                .playAndRecord, mode: .voiceChat,
-                options: [.allowBluetoothHFP, .allowBluetoothA2DP, .duckOthers])
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: callOptions)
             if !system { try session.setActive(true) }
         } catch {
             // Nothing to do about it here: the call goes on without sound and
@@ -1065,7 +1132,12 @@ struct PictureWatch {
         }
     }
 
+    private static let callOptions: AVAudioSession.CategoryOptions = [
+        .allowBluetoothHFP, .allowBluetoothA2DP, .duckOthers,
+    ]
+
     private static func releaseAudioSession() {
+        wantsSpeaker = false
         let session = RTCAudioSession.sharedInstance()
         if CallStyle.usesCallKit {
             // The system owns the session, and deactivating it from here is

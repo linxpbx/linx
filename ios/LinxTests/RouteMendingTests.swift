@@ -11,8 +11,8 @@ import Testing
 //
 // - the relay is looked up by iOS and given to WebRTC by address, its
 //   certificate still held to its name (`RelayAddresses`);
-// - a call with no sound two seconds after the answer, or whose sound stops
-//   for three, is moved onto the relay without hanging up
+// - a call with no sound four seconds after a route was found, or whose
+//   sound stops for three, is moved onto the relay without hanging up
 //   (`PhoneModel.mendIfSilent`, `SIPUserAgent.moveToRelay`);
 // - the call keeps a timeline of how long setting it up took (Call details).
 //
@@ -73,24 +73,42 @@ struct RouteMendingTests {
 
     // MARK: - When a call is moved onto the relay
 
-    @Test("silence after the answer, silence mid-call, and never too often")
+    @Test("silence once a route is found, silence mid-call, and never too often")
     func theRule() {
-        let answered = Date(timeIntervalSinceReferenceDate: 1000)
-        func should(_ after: TimeInterval, sound: TimeInterval? = nil, moves: Int = 0, lastMove: TimeInterval? = nil)
-            -> Bool
-        {
+        let found = Date(timeIntervalSinceReferenceDate: 1000)
+        func should(
+            _ after: TimeInterval, route: Bool = true, sound: TimeInterval? = nil, relayed: Bool = false,
+            moves: Int = 0, lastMove: TimeInterval? = nil
+        ) -> Bool {
             PhoneModel.shouldMoveToRelay(
-                now: answered.addingTimeInterval(after), answeredAt: answered,
-                soundLastArrived: sound.map { answered.addingTimeInterval($0) }, moves: moves,
-                lastMove: lastMove.map { answered.addingTimeInterval($0) })
+                now: found.addingTimeInterval(after), routeFoundAt: route ? found : nil,
+                soundLastArrived: sound.map { found.addingTimeInterval($0) }, relayed: relayed, moves: moves,
+                lastMove: lastMove.map { found.addingTimeInterval($0) })
         }
-        #expect(!should(1.5))  // the first reading may not be in yet
-        #expect(should(2.0))  // nothing at all two seconds after the answer
+        #expect(!should(3.5))  // the encryption and the first sound may not be through yet
+        #expect(should(4.0))  // nothing at all four seconds after a route was found
+        #expect(!should(30, route: false))  // no route yet: nothing to judge
+        #expect(!should(30, relayed: true))  // already on the relay: a relay-only restart gains nothing
+        #expect(should(30, relayed: true, moves: 1, lastMove: 15))  // but a second go allows every route
         #expect(!should(10, sound: 8))  // sound two seconds ago is fine
         #expect(should(10, sound: 7))  // three seconds without it is not
+        #expect(should(10, sound: 7, relayed: true))  // also on the relay: the network changed under it
         #expect(!should(30, moves: 2))  // twice a call at most
         #expect(!should(30, moves: 1, lastMove: 25))  // and ten seconds apart
         #expect(should(30, moves: 1, lastMove: 19))
+    }
+
+    @Test("a working call at home is not moved while its sound is still on the way (2026-10-08)")
+    func notTooSoon() async throws {
+        let (phone, _, media) = try await inACall()
+        let answeredAt = try #require(phone.call?.answeredAt)
+        // The route arrives with the answer; the sound a moment later.
+        media.onConnection?(MediaConnection(route: .direct, roundTripMs: 4, relayProtocol: nil, audioBytesIn: 0))
+        let found = try #require(phone.call?.routeFoundAt)
+        phone.mendIfSilent(at: answeredAt.addingTimeInterval(2.5))
+        phone.mendIfSilent(at: found.addingTimeInterval(3))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(media.relayMoves == 0)
     }
 
     /// Waits for something the app does in a Task of its own.
@@ -141,22 +159,22 @@ struct RouteMendingTests {
     @Test("no sound after the answer moves the call onto the relay, once, without hanging up")
     func silentCallIsMoved() async throws {
         let (phone, transport, media) = try await inACall()
-        let answeredAt = try #require(phone.call?.answeredAt)
         let invites = transport.count("INVITE")
 
         // A reading with nothing arriving, right after the answer: too soon.
         media.onConnection?(MediaConnection(route: .direct, roundTripMs: 28, relayProtocol: nil, audioBytesIn: 0))
         #expect(media.relayMoves == 0)
 
-        // Still nothing two and a half seconds later: moved.
-        phone.mendIfSilent(at: answeredAt.addingTimeInterval(2.5))
+        // Still nothing four and a half seconds after the route: moved.
+        let found = try #require(phone.call?.routeFoundAt)
+        phone.mendIfSilent(at: found.addingTimeInterval(4.5))
         #expect(await eventually { transport.count("INVITE") == invites + 1 })
         #expect(media.relayMoves == 1)
         #expect(transport.last("INVITE")?.body == FakeMedia.relayOffer)
         #expect(phone.call?.phase == .active)
 
         // Asked again at once: not twice in ten seconds.
-        phone.mendIfSilent(at: answeredAt.addingTimeInterval(3.5))
+        phone.mendIfSilent(at: found.addingTimeInterval(5.5))
         try await Task.sleep(for: .milliseconds(100))
         #expect(media.relayMoves == 1)
     }
@@ -164,9 +182,9 @@ struct RouteMendingTests {
     @Test("a move Asterisk turns down leaves the call as it was, and says nothing about video")
     func refusedMoveIsQuiet() async throws {
         let (phone, transport, media) = try await inACall()
-        let answeredAt = try #require(phone.call?.answeredAt)
         media.onConnection?(MediaConnection(route: .direct, roundTripMs: 28, relayProtocol: nil, audioBytesIn: 0))
-        phone.mendIfSilent(at: answeredAt.addingTimeInterval(2.5))
+        let found = try #require(phone.call?.routeFoundAt)
+        phone.mendIfSilent(at: found.addingTimeInterval(4.5))
         #expect(await eventually { media.relayMoves == 1 })
         let asked = try #require(transport.last("INVITE"))
         transport.asterisk(SIPMessage.response(488, "Not Acceptable Here", to: asked).withTag("theirs"))

@@ -685,6 +685,40 @@ changed between that and 1.0.0, so updating it would not have helped.
   while the app is in front (worth it only if the timeline shows routes are still
   the slow step once the lookup is cached).
 
+### Build 15 at home: a working call moved onto a relay that couldn't reach it, and the speaker that switched itself off (2026-10-08)
+
+The owner's first two calls on build 15, on home Wi-Fi to the UCM landline,
+**had no sound at all** (and no ringing, because the line answered in about
+three seconds). Asterisk's log shows both calls answered and bridged. coturn's
+log shows each phone opening a **second** relay session about 2.4 s after the
+answer, which was the move onto the relay, then being refused permission to
+reach `192.168.1.213` (the server's own LAN address, rightly denied as a private
+peer). The rule counted **two seconds from the answer**. On a line that sends
+nothing before it answers, the phone only starts trying routes at the answer,
+and the encryption is agreed after that. So a working direct call had no sound
+*yet*, was judged silent, and was moved relay-only onto a relay that couldn't
+reach the server from inside the house. The second move did the same.
+
+- The silence clock now starts **when a route is found** (the first connection
+  reading), and waits **four seconds** for the first sound. Sound that stops
+  mid-call still moves the call after three seconds.
+- A call that has **never had sound** is moved only off a **direct** route. A
+  relay-only restart does nothing for a call already on the relay.
+- The **second move allows every route again** (an ordinary ICE restart), so a
+  move that made things worse is never the last word.
+
+**The speaker went off by itself at the answer.** That is the moment WebRTC
+starts the call's sound and sets the audio session up its own way. Its default
+category options lacked the app's `duckOthers`, so it set the category again,
+and a category change drops the loudspeaker override. Now WebRTC is told the
+app's own settings (`RTCAudioSessionConfiguration.setWebRTC`), so it finds
+nothing to change. As a fallback, if the sound lands on the earpiece through
+`categoryChange` or `routeConfigurationChange` while the person had chosen the
+speaker, the speaker is put back. A headset, the system's picker or the person
+are never overruled. **Every route change is now a step on Call details' timeline**
+("Sound to earpiece (sound set up again)", "Speaker put back"), so if this is
+still wrong on the phone, the next report says exactly what moved the sound.
+
 ### A picture nobody is sending, on a call to the outside world (2026-10-05)
 
 On the iPad, video on and then off again on a call to an **outside number** left

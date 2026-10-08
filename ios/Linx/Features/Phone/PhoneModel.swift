@@ -57,6 +57,9 @@ import UIKit
         var lastRelayMove: Date?
         var soundLastArrived: Date?
         var bytesInLastSeen = 0
+        /// When a route for the sound was first found: the silence clock
+        /// starts here, not at the answer (`mendIfSilent`).
+        var routeFoundAt: Date?
     }
 
     struct Recent: Identifiable, Equatable {
@@ -641,18 +644,34 @@ import UIKit
     private static let silenceIsWrong: TimeInterval = 7
 
     /// A call that is up but whose sound isn't getting through is moved onto
-    /// Linx's relay, without hanging up: no sound at all two seconds after
-    /// the answer, or sound that stopped for three seconds (the phone
+    /// Linx's relay, without hanging up: no sound at all four seconds after a
+    /// route was found, or sound that stopped for three seconds (the phone
     /// changed networks, a VPN came on or went off). At most twice a call
     /// and ten seconds apart, so a network that is simply bad can't make the
     /// call hop back and forth. The owner's iPhone on Tailscale chose a
     /// direct route through the Synology that never carried the sound, and
     /// sat on it (2026-10-08): the relay is the route that works from
     /// anywhere, so that is where a stuck call goes.
+    ///
+    /// The clock starts when a route is found, not at the answer. Build 15
+    /// counted two seconds from the answer, and on the owner's home Wi-Fi a
+    /// call to a line that answers at once had no sound *yet* — the routes
+    /// are only tried from the answer, and the encryption is agreed after
+    /// that — so a working call was moved, onto a relay that couldn't reach
+    /// the server from there, and was silent for good (2026-10-08, both
+    /// calls in Asterisk's and coturn's logs). And a call that has never had
+    /// sound is only moved off a *direct* route: one already on the relay
+    /// gains nothing from a relay-only restart. A second move gives every
+    /// route another go (`WebRTCMedia.moveToRelay`), so a move that made
+    /// things worse can't be the last word.
     func mendIfSilent(at now: Date = Date()) {
-        guard var current = call, current.phase == .active, let answeredAt = current.answeredAt,
+        guard var current = call, current.phase == .active, current.answeredAt != nil,
             let connection = current.connection
         else { return }
+        if current.routeFoundAt == nil {
+            current.routeFoundAt = now
+            call = current
+        }
         if connection.audioBytesIn > current.bytesInLastSeen {
             current.bytesInLastSeen = connection.audioBytesIn
             current.soundLastArrived = now
@@ -661,8 +680,8 @@ import UIKit
         }
         guard
             Self.shouldMoveToRelay(
-                now: now, answeredAt: answeredAt, soundLastArrived: current.soundLastArrived,
-                moves: current.relayMoves, lastMove: current.lastRelayMove)
+                now: now, routeFoundAt: current.routeFoundAt, soundLastArrived: current.soundLastArrived,
+                relayed: connection.route == .relayed, moves: current.relayMoves, lastMove: current.lastRelayMove)
         else { return }
         current.relayMoves += 1
         current.lastRelayMove = now
@@ -670,21 +689,22 @@ import UIKit
         Task { [weak self] in await self?.agent?.moveToRelay() }
     }
 
-    nonisolated static let silentAfterAnswer: TimeInterval = 2
+    nonisolated static let silentAfterRoute: TimeInterval = 4
     nonisolated static let silentMidCall: TimeInterval = 3
     nonisolated static let mostRelayMoves = 2
     nonisolated static let betweenRelayMoves: TimeInterval = 10
 
     /// The rule `mendIfSilent` follows, on its own so it can be tested.
     nonisolated static func shouldMoveToRelay(
-        now: Date, answeredAt: Date, soundLastArrived: Date?, moves: Int, lastMove: Date?
+        now: Date, routeFoundAt: Date?, soundLastArrived: Date?, relayed: Bool, moves: Int, lastMove: Date?
     ) -> Bool {
         guard moves < mostRelayMoves else { return false }
         if let lastMove, now.timeIntervalSince(lastMove) < betweenRelayMoves { return false }
         if let soundLastArrived {
             return now.timeIntervalSince(soundLastArrived) >= silentMidCall
         }
-        return now.timeIntervalSince(answeredAt) >= silentAfterAnswer
+        guard let routeFoundAt, !(relayed && moves == 0) else { return false }
+        return now.timeIntervalSince(routeFoundAt) >= silentAfterRoute
     }
 
     /// The two rules about the screen while a call is up: dark at an ear, and
