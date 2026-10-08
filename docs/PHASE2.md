@@ -626,6 +626,65 @@ alight. The two rules about the screen during a call now live side by side in
 `theScreenDuringTheCall()`. **Meetings (Phase 3) must do the same** when they
 arrive.
 
+### Calls through a VPN, mending a silent call, and faster set-up (2026-10-08)
+
+**What the owner found.** On 5G with **Tailscale and an exit node abroad**, a call
+to an outside number through the UCM connected and carried no sound, with the red
+warning. Without the VPN it worked, but with a lot of delay in the first seconds.
+`home.mym.ae` was on `25587b4` (before 1.0.0); nothing that carries call audio
+changed between that and 1.0.0, so updating it would not have helped.
+
+**What went wrong**, from Asterisk's log, the relay's log and the app's Call details:
+
+- The Synology at 192.168.1.210 is the Tailscale subnet router for the home
+  network. With Tailscale on, the phone reached the server's LAN address
+  *through* it — a direct route, 28 ms, better than the relay when it works — and
+  the Synology passes that traffic on under its own address. On the failed call
+  the encrypted sound (DTLS) arrived from a port that had never passed a
+  connectivity check, and Asterisk drops DTLS from any source that isn't one of
+  ICE's candidates, peer-reflexive ones included (`res_rtp_asterisk.c`, 22.11:
+  "Source not in ICE active candidate list"). That is Asterisk protecting the
+  call; the route simply didn't work that time and did on the next call.
+- The phone **couldn't look up the relay's name**: WebRTC's own lookups of
+  `turn.home.mym.ae` failed ("701 TURN host lookup received error") while public
+  DNS answered it. So when the direct route failed there was no relay to fall
+  back to, and nothing moved the call anyway.
+- **Slow set-up**: the offer waits for a relay route before it leaves, for up to
+  10 seconds. A relay name that won't look up costs all ten before the call even
+  reaches Linx. Without the VPN, the relay runs over TLS only (the owner's UDP 443
+  forward is off), and TCP on mobile data front-loads delay that the jitter
+  buffer then works off.
+
+**What changed (app only; no server change):**
+
+- **The relay is looked up by iOS** (`RelayAddresses`: `getaddrinfo`, which
+  follows the phone's VPN and DNS settings), the last good answer kept, and
+  WebRTC given the address. Each ICE server keeps the relay's name as its
+  `hostname`, so a `turns:` relay is still asked for it by SNI (how a front door
+  routes it) and its certificate is still held to it (`RelayCertificates` reads
+  the names from the URLs Linx issued). The lookup runs when the line opens and
+  when the credentials refresh, so a call finds the address already known.
+- **A silent call is moved onto the relay without hanging up**
+  (`PhoneModel.mendIfSilent`, `SIPUserAgent.moveToRelay`, `WebRTCMedia.moveToRelay`):
+  no sound two seconds after the answer, or sound that stopped for three, gives an
+  ICE restart that allows only the relay, in a re-INVITE. At most twice a call and
+  ten seconds apart. Asterisk restarts its ICE session when the candidates or
+  credentials change and resets DTLS only for `a=connection:new`, which WebRTC
+  never sends, so the encryption carries over. The connection is read every second
+  for the first eight seconds of a call and of the answer, so this happens in two
+  or three seconds; the red warning stays at seven, for a move that didn't help.
+  The browser call suite proves it live: a call to the echo test is switched to
+  relay-only with a restart mid-call, ends up relayed, and keeps hearing itself.
+- **The offer waits three seconds at most** for routes (it was ten), and still
+  leaves 300 ms after the first relay route.
+- **Call details gains "How long it took"**: from the tap — routes ready, call
+  sent, ringing, answered, and a move onto the relay if there was one — and
+  "Looked up by this phone" under Linx's relay. Copy these details includes both.
+- Not done, on purpose: forcing the relay whenever a VPN is on (the owner's
+  Tailscale route works well when it works), and holding a relay allocation open
+  while the app is in front (worth it only if the timeline shows routes are still
+  the slow step once the lookup is cached).
+
 ### A picture nobody is sending, on a call to the outside world (2026-10-05)
 
 On the iPad, video on and then off again on a call to an **outside number** left

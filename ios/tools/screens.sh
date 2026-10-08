@@ -33,7 +33,7 @@ bundle=com.linxpbx.app
 # Every screen the app can be launched straight into. The app reads -LinxScreen
 # in debug builds; more screens join this list as they are built.
 screens=(setup-phone signed-in this-phone keypad calls team more voicemail settings
-  in-call incoming-call video-call set-up-again)
+  in-call call-details incoming-call video-call set-up-again)
 # The ones worth having on their side as well.
 sideways=(video-call in-call)
 

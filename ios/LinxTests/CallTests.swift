@@ -111,6 +111,16 @@ import Testing
 
     func switchCamera() { cameraSwitched += 1 }
 
+    private(set) var relayMoves = 0
+    private(set) var steps: [String] = []
+    static let relayOffer = "v=0\r\no=- 3 3 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\na=ice-ufrag:relay\r\n"
+    func moveToRelay() async throws -> String {
+        relayMoves += 1
+        return Self.relayOffer
+    }
+    func mark(_ what: String) { steps.append(what) }
+    func began(at: Date) { steps.insert("began", at: 0) }
+
     func rollbackOffer() async {
         rolledBack = true
         setVideo(CallVideo(mine: false, theirs: video.theirs))

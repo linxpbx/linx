@@ -50,6 +50,13 @@ import UIKit
         /// it (docs/PHASE2.md §7).
         var video = CallVideo()
         var connection: MediaConnection?
+        /// Mending a call whose sound stopped getting through: how many times
+        /// it has been moved onto the relay, when last, and when sound last
+        /// arrived (`mendIfSilent`).
+        var relayMoves = 0
+        var lastRelayMove: Date?
+        var soundLastArrived: Date?
+        var bytesInLastSeen = 0
     }
 
     struct Recent: Identifiable, Equatable {
@@ -157,6 +164,9 @@ import UIKit
     /// Who an outgoing call is to, by the id the system was given: the
     /// system only keeps a number, and the app keeps the name as well.
     private var intended: [UUID: SIPPeer] = [:]
+    /// When the person asked for each of those calls: the call's timeline
+    /// starts there, before CallKit and the line have had their turn.
+    private var tappedAt: [UUID: Date] = [:]
     /// The video button started this call: the camera goes on as soon as
     /// the other side picks up.
     private var videoOnceAnswered = false
@@ -226,6 +236,7 @@ import UIKit
                         .turnCredentials(token: line.token)
                     guard !Task.isCancelled else { return }
                     self.relay = fresh
+                    RelayAddresses.warm(RelayCertificates.hosts(in: fresh.urls))
                     // A call that is already up gets them too, so a long
                     // call can still mend a broken route.
                     self.liveMedia?.use(relay: fresh)
@@ -273,6 +284,9 @@ import UIKit
             return
         }
         relay = line.line.turn
+        // Look the relay up now, through iOS, so the first call finds its
+        // address already known (`RelayAddresses`).
+        RelayAddresses.warm(RelayCertificates.hosts(in: line.line.turn.urls))
         keepTheRelayFresh(for: line)
         let agent = SIPUserAgent(
             account: account, transport: makeTransport(account),
@@ -280,6 +294,7 @@ import UIKit
                 let media = makeMedia(self?.relay)
                 media.onConnection = { [weak self] connection in
                     self?.call?.connection = connection
+                    self?.mendIfSilent()
                 }
                 media.onRoute = { [weak self] route in self?.soundIsComingOut(route) }
                 media.onRouteTrouble = { [weak self] words in self?.problem = words }
@@ -428,6 +443,7 @@ import UIKit
         let peer = SIPPeer(name: name ?? (target == Self.echoTest ? "Test sound" : target), number: target)
         let id = UUID()
         intended[id] = peer
+        tappedAt[id] = Date()
         calls.ask(.start(id, peer))
     }
 
@@ -620,8 +636,56 @@ import UIKit
     }
 
     /// How long a call may be silent before the screen says so. Long enough
-    /// for the first reading of the connection to have happened.
+    /// for the first reading of the connection to have happened, and for a
+    /// move onto the relay (`mendIfSilent`) to have had its chance.
     private static let silenceIsWrong: TimeInterval = 7
+
+    /// A call that is up but whose sound isn't getting through is moved onto
+    /// Linx's relay, without hanging up: no sound at all two seconds after
+    /// the answer, or sound that stopped for three seconds (the phone
+    /// changed networks, a VPN came on or went off). At most twice a call
+    /// and ten seconds apart, so a network that is simply bad can't make the
+    /// call hop back and forth. The owner's iPhone on Tailscale chose a
+    /// direct route through the Synology that never carried the sound, and
+    /// sat on it (2026-10-08): the relay is the route that works from
+    /// anywhere, so that is where a stuck call goes.
+    func mendIfSilent(at now: Date = Date()) {
+        guard var current = call, current.phase == .active, let answeredAt = current.answeredAt,
+            let connection = current.connection
+        else { return }
+        if connection.audioBytesIn > current.bytesInLastSeen {
+            current.bytesInLastSeen = connection.audioBytesIn
+            current.soundLastArrived = now
+            call = current
+            return
+        }
+        guard
+            Self.shouldMoveToRelay(
+                now: now, answeredAt: answeredAt, soundLastArrived: current.soundLastArrived,
+                moves: current.relayMoves, lastMove: current.lastRelayMove)
+        else { return }
+        current.relayMoves += 1
+        current.lastRelayMove = now
+        call = current
+        Task { [weak self] in await self?.agent?.moveToRelay() }
+    }
+
+    nonisolated static let silentAfterAnswer: TimeInterval = 2
+    nonisolated static let silentMidCall: TimeInterval = 3
+    nonisolated static let mostRelayMoves = 2
+    nonisolated static let betweenRelayMoves: TimeInterval = 10
+
+    /// The rule `mendIfSilent` follows, on its own so it can be tested.
+    nonisolated static func shouldMoveToRelay(
+        now: Date, answeredAt: Date, soundLastArrived: Date?, moves: Int, lastMove: Date?
+    ) -> Bool {
+        guard moves < mostRelayMoves else { return false }
+        if let lastMove, now.timeIntervalSince(lastMove) < betweenRelayMoves { return false }
+        if let soundLastArrived {
+            return now.timeIntervalSince(soundLastArrived) >= silentMidCall
+        }
+        return now.timeIntervalSince(answeredAt) >= silentAfterAnswer
+    }
 
     /// The two rules about the screen while a call is up: dark at an ear, and
     /// awake while there is a picture in the call.
@@ -699,7 +763,8 @@ import UIKit
             return
         }
         call = Call(id: id, peer: peer, incoming: false, phase: .calling)
-        Task { [weak self] in await self?.agent?.call(peer.number, name: peer.name) }
+        let startedAt = tappedAt.removeValue(forKey: id) ?? Date()
+        Task { [weak self] in await self?.agent?.call(peer.number, name: peer.name, startedAt: startedAt) }
     }
 
     private func end(_ id: UUID) {
@@ -879,6 +944,7 @@ import UIKit
         /// (`ios/tools/screens.sh`). A release build has none of this, and it
         /// never touches a network, a key or a real call.
         func pretend(_ call: Call) { self.call = call }
+        func pretend(_ diagnostics: CallDiagnostics) { self.diagnostics = diagnostics }
 
         func pretend(_ status: Status) { self.status = status }
 

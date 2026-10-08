@@ -41,6 +41,21 @@ struct CallDetailsView: View {
                     Text(helpWords)
                 }
 
+                if diagnostics.steps.count > 1 {
+                    Section {
+                        ForEach(Array(diagnostics.steps.dropFirst().enumerated()), id: \.offset) { _, step in
+                            LabeledContent(step.what, value: Self.after(step.at, diagnostics.steps[0].at))
+                        }
+                    } header: {
+                        Text("How long it took")
+                    } footer: {
+                        Text(
+                            diagnostics.movedToRelay
+                                ? "No sound was getting through the first route, so this phone moved the call onto Linx's relay."
+                                : "Counted from the moment you started the call.")
+                    }
+                }
+
                 Section("Routes this phone found") {
                     if diagnostics.found.isEmpty {
                         Text("None yet").foregroundStyle(LinxColor.textMuted)
@@ -56,6 +71,10 @@ struct CallDetailsView: View {
                     if let expires = diagnostics.relayExpiresAt {
                         LabeledContent("Credentials good for", value: Self.until(expires))
                     }
+                    LabeledContent(
+                        "Looked up by this phone",
+                        value: diagnostics.relayAddresses.isEmpty
+                            ? "no" : diagnostics.relayAddresses.joined(separator: ", "))
                     ForEach(diagnostics.relayTrouble, id: \.url) { trouble in
                         Text("\(trouble.url) — \(trouble.code) \(trouble.said)")
                             .font(.footnote)
@@ -114,6 +133,11 @@ struct CallDetailsView: View {
         return String(format: "%.1f MB", Double(bytes) / (1024 * 1024))
     }
 
+    /// "+0.4 s": how long after the call began a step came.
+    static func after(_ when: Date, _ start: Date) -> String {
+        String(format: "+%.1f s", max(0, when.timeIntervalSince(start)))
+    }
+
     static func until(_ when: Date) -> String {
         let minutes = Int(when.timeIntervalSinceNow / 60)
         if minutes < 0 { return "expired" }
@@ -142,9 +166,18 @@ struct CallDetailsView: View {
         if let expires = diagnostics.relayExpiresAt {
             lines.append("relay credentials: \(until(expires))")
         }
+        lines.append(
+            "relay looked up by this phone: \(diagnostics.relayAddresses.isEmpty ? "no" : diagnostics.relayAddresses.joined(separator: ", "))"
+        )
         for trouble in diagnostics.relayTrouble {
             lines.append("relay said: \(trouble.url) \(trouble.code) \(trouble.said)")
         }
+        if let start = diagnostics.steps.first?.at {
+            for step in diagnostics.steps.dropFirst() {
+                lines.append("\(after(step.at, start)) \(step.what)")
+            }
+        }
+        if diagnostics.movedToRelay { lines.append("moved onto the relay: yes") }
         return lines.joined(separator: "\n")
     }
 }

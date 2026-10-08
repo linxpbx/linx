@@ -134,6 +134,15 @@ don't use either of these.
 | 5b.9 | Turn that person's voicemail off (People → Voicemail → Turn off), dial `*97` | "There's no voicemail set up for this phone." — and no messages of anyone's are played |
 | 5b.10 | Restart the phone engine (System → Status → Restart on the phone system), then look at the lights | They come back on by themselves within a few seconds, without anyone dialling anything |
 
+## 5c. Networks that change under a call (build 15, 2026-10-08)
+
+| # | Do this | You should see |
+|---|---|---|
+| 5c.1 | **Tailscale (or any VPN) on**, mobile data, call an outside number | Sound within two or three seconds. If the first route didn't carry it, **Call details → How long it took** shows **Moving to the relay** and the call carries on relayed. No red warning |
+| 5c.2 | Same, **VPN off** | Sound from the start; Call details shows **Looked up by this phone** with your server's address |
+| 5c.3 | During a call, **turn Wi-Fi off** (phone moves to 5G), or switch the VPN on or off | The sound comes back within a few seconds without the call dropping |
+| 5c.4 | Any call: open **Call details → How long it took** | **Call sent** about a second after you tapped (it was up to 10 s), then **Ringing** and **Answered**. Send me the numbers if any step looks slow |
+
 ## 6. Where it gets hard
 
 Worth trying if you can, not blockers:

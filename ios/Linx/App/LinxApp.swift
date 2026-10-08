@@ -120,6 +120,9 @@ enum Screen: String {
     case setUpAgain = "set-up-again"
     case keypad
     case inCall = "in-call"
+    /// The call screen with Call details open over it: the timeline of how
+    /// long setting the call up took, and a move onto the relay.
+    case callDetails = "call-details"
     case incomingCall = "incoming-call"
     case calls
     case team
@@ -184,7 +187,7 @@ enum Screen: String {
         switch self {
         case .setUpPhone:
             break
-        case .signedIn, .thisPhone, .keypad, .inCall, .incomingCall, .calls, .team, .more, .voicemail,
+        case .signedIn, .thisPhone, .keypad, .inCall, .callDetails, .incomingCall, .calls, .team, .more, .voicemail,
             .settings, .videoCall:
             model.identity = Screen.sampleIdentity
             model.line = nil
@@ -208,6 +211,38 @@ enum Screen: String {
                             phase: .active, answeredAt: Date(timeIntervalSinceNow: -252),
                             connection: MediaConnection(
                                 route: .direct, roundTripMs: 38, relayProtocol: nil, audioBytesIn: 48_000)))
+                }
+                if self == .callDetails {
+                    // A call on 5G that started on a route through a VPN,
+                    // carried no sound, and was moved onto the relay
+                    // (2026-10-08): the steps as they come out in practice.
+                    let start = Date(timeIntervalSinceNow: -20)
+                    model.phone.pretend(
+                        PhoneModel.Call(
+                            peer: SIPPeer(name: "042144444", number: "042144444"), incoming: false,
+                            phase: .active, answeredAt: start.addingTimeInterval(3.4),
+                            connection: MediaConnection(
+                                route: .relayed, roundTripMs: 41, relayProtocol: "tls", audioBytesIn: 61_000,
+                                audioBytesOut: 12_000)))
+                    model.phone.pretend(
+                        CallDiagnostics(
+                            found: ["this network", "Linx's relay"], ice: "connected",
+                            relayURLs: [
+                                "turn:turn.example.com:443?transport=udp", "turns:turn.example.com:443?transport=tcp",
+                            ],
+                            relayExpiresAt: Date(timeIntervalSinceNow: 3500),
+                            relayAddresses: ["203.0.113.7"],
+                            steps: [
+                                .init(what: "Call started", at: start),
+                                .init(what: "Routes ready", at: start.addingTimeInterval(0.6)),
+                                .init(what: "Call sent", at: start.addingTimeInterval(0.6)),
+                                .init(what: "Ringing", at: start.addingTimeInterval(1.1)),
+                                .init(what: CallDiagnostics.answered, at: start.addingTimeInterval(3.4)),
+                                .init(what: "Moving to the relay", at: start.addingTimeInterval(5.5)),
+                                .init(what: "On the relay", at: start.addingTimeInterval(6.3)),
+                            ],
+                            movedToRelay: true, settled: true))
+                    model.phone.callDetailsAreOpen = true
                 }
                 if self == .incomingCall {
                     // The app's own ringing screen, which is what a phone

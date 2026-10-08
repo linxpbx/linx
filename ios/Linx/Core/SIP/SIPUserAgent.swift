@@ -97,6 +97,13 @@ struct AudioRoute: Equatable, Sendable {
     /// Nobody is sending a picture any more.
     var onPictureGone: (() -> Void)? { get set }
     func switchCamera()
+    /// Moves a call that is up onto Linx's relay (an ICE restart that allows
+    /// only the relay) and answers with the offer that tells the other side.
+    func moveToRelay() async throws -> String
+    /// One step of setting the call up, for the timeline on Call details.
+    func mark(_ what: String)
+    /// When the person asked for the call: the timeline counts from there.
+    func began(at: Date)
     /// Nobody accepted the last offer: put the call back exactly as it was,
     /// so the sound carries on untouched.
     func rollbackOffer() async
@@ -228,7 +235,7 @@ struct AudioRoute: Equatable, Sendable {
     // MARK: - Making and taking a call
 
     /// call rings someone: the number as typed, or *43 to hear yourself back.
-    func call(_ number: String, name: String? = nil) async {
+    func call(_ number: String, name: String? = nil, startedAt: Date = Date()) async {
         guard call == nil else { return }
         let target = number.trimmingCharacters(in: .whitespaces)
         guard !target.isEmpty else { return }
@@ -236,6 +243,7 @@ struct AudioRoute: Equatable, Sendable {
         var outgoing = Call(
             id: SIPRandom.token(16) + "@" + localHost, localTag: SIPRandom.token(10),
             peer: peer, incoming: false, media: makeMedia())
+        outgoing.media.began(at: startedAt)
         outgoing.remoteURI = "sip:\(target)@\(account.domain)"
         outgoing.remoteTarget = outgoing.remoteURI
         call = outgoing
@@ -273,6 +281,7 @@ struct AudioRoute: Equatable, Sendable {
         message.add("Content-Type", "application/sdp")
         message.body = offer
         outgoing.invite = message
+        if outgoing.attempts == 0 { outgoing.media.mark("Call sent") }
         call = outgoing
         send(message)
         outgoing.timeout?.cancel()
@@ -407,6 +416,22 @@ struct AudioRoute: Equatable, Sendable {
         sendReinvite(offer, of: current)
     }
 
+    /// Moves the call onto Linx's relay: the sound isn't getting through the
+    /// route it is on (PhoneModel decides when, and how often). The
+    /// re-INVITE carries an ICE restart that allows only the relay; the
+    /// conversation stays where it is until the new route answers.
+    func moveToRelay() async {
+        guard let current = call, current.established, !current.changing, !current.reinviting else { return }
+        call?.changing = true
+        call?.movedToRelay = true
+        defer { call?.changing = false }
+        guard let offer = try? await current.media.moveToRelay(), call?.id == current.id,
+            !(call?.reinviting ?? false)
+        else { return }
+        call?.reinviteForRelay = true
+        sendReinvite(offer, of: current)
+    }
+
     /// Hands the camera over to the one on the other side of the phone.
     func switchCamera() { call?.media.switchCamera() }
 
@@ -481,6 +506,11 @@ struct AudioRoute: Equatable, Sendable {
         switch status {
         case 100: return
         case 180, 183:
+            if !current.ringingMarked {
+                current.ringingMarked = true
+                call = current
+                current.media.mark("Ringing")
+            }
             onProgress?()
             // A 183 that carries sound is Asterisk playing something before
             // the call is answered (a ringing tone, or "the number you have
@@ -518,6 +548,7 @@ struct AudioRoute: Equatable, Sendable {
             current.established = true
             current.timeout?.cancel()
             call = current
+            current.media.mark(CallDiagnostics.answered)
             send(ack2xx(for: message, of: current))
             Task { [weak self] in
                 guard let self else { return }
@@ -586,6 +617,8 @@ struct AudioRoute: Equatable, Sendable {
         case 100..<200:
             return
         case 200..<300:
+            let forRelay = call?.reinviteForRelay ?? false
+            call?.reinviteForRelay = false
             call?.reinviting = false
             call?.reinviteOffer = nil
             call?.reinviteRequest = nil
@@ -605,7 +638,9 @@ struct AudioRoute: Equatable, Sendable {
                     try await current.media.accept(answer: message.body)
                 } catch {
                     await current.media.rollbackOffer()
-                    self.onVideoRefused?("The call couldn't take a picture just now. The sound is unaffected.")
+                    if !forRelay {
+                        self.onVideoRefused?("The call couldn't take a picture just now. The sound is unaffected.")
+                    }
                 }
             }
         case 401, 407:
@@ -640,13 +675,17 @@ struct AudioRoute: Equatable, Sendable {
     /// Puts the call back exactly as it was before the offer nobody
     /// accepted, and says so once.
     private func giveUpOnVideo(_ current: Call, why: String) {
+        let forRelay = call?.reinviteForRelay ?? false
+        call?.reinviteForRelay = false
         call?.reinviting = false
         call?.reinviteOffer = nil
         call?.reinviteRequest = nil
         call?.reinviteAttempts = 0
         Task { [weak self] in
             await current.media.rollbackOffer()
-            self?.onVideoRefused?(why)
+            // A relay move that didn't happen is no news to the person: the
+            // call carries on as it was.
+            if !forRelay { self?.onVideoRefused?(why) }
         }
     }
 
@@ -920,6 +959,12 @@ struct AudioRoute: Equatable, Sendable {
         var reinviteAttempts = 0
         /// Busy asking the camera for something: one at a time.
         var changing = false
+        /// The re-INVITE that is out moves the call onto the relay, rather
+        /// than changing the picture: if it fails, nothing is said about video.
+        var reinviteForRelay = false
+        /// The call has been moved onto the relay once already.
+        var movedToRelay = false
+        var ringingMarked = false
         var timeout: Task<Void, Never>?
     }
 }

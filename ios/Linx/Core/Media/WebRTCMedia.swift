@@ -66,6 +66,20 @@ struct CallDiagnostics: Equatable, Sendable {
     /// last an hour and are refreshed; expired ones mean no relay at all.
     var relayURLs: [String] = []
     var relayExpiresAt: Date?
+    /// The addresses the phone itself looked the relay up to (`RelayAddresses`):
+    /// what WebRTC was given instead of the name. Empty: the name was left
+    /// for WebRTC, which happens only when iOS couldn't look it up either.
+    var relayAddresses: [String] = []
+    /// How long each step of setting the call up took, from the moment the
+    /// call began (the timeline on Call details).
+    var steps: [Step] = []
+    struct Step: Equatable, Sendable {
+        var what: String
+        var at: Date
+    }
+    /// The call was moved onto Linx's relay because no sound was getting
+    /// through the route it started on.
+    var movedToRelay = false
     /// What the picture is set to now, in the words people use for it ("540p"),
     /// while this phone's camera is on (ADR-081).
     var picture: String?
@@ -79,6 +93,8 @@ struct CallDiagnostics: Equatable, Sendable {
     /// The words for a route through Linx's relay. On a mobile network it is
     /// the only way the sound can go.
     static let theRelay = "Linx's relay"
+    /// The timeline's step for the answer (the readings speed up from it).
+    static let answered = "Answered"
 
     /// Whether a route through the relay was found at all.
     var foundTheRelay: Bool { found.contains(Self.theRelay) }
@@ -180,6 +196,13 @@ struct PictureWatch {
     var onVideoTooExpensive: (() -> Void)?
 
     private var turn: PhoneLine.Turn?
+    /// The relay's names, looked up by iOS (`RelayAddresses`) before the call
+    /// starts.
+    private var relayAddresses: [String: [String]] = [:]
+    /// Only the relay, from the moment a call is moved onto it.
+    private var relayOnly = false
+    /// The offer that is out moves the call onto the relay.
+    private var movingToRelay = false
     private var connection: RTCPeerConnection?
     private var audio: RTCAudioTrack?
     private var camera: Camera?
@@ -208,9 +231,22 @@ struct PictureWatch {
     /// sound to go — the call connects and nobody hears anything (owner, on
     /// 5G, 2026-10-04). The offer still leaves the moment a relay route is
     /// in hand, so nothing waits that doesn't have to.
-    private static let gatherLimit: Duration = .seconds(10)
+    ///
+    /// Ten seconds was the cap until 2026-10-08, and on a phone whose relay
+    /// name wouldn't look up (Tailscale with an exit node) the offer sat out
+    /// all ten before the call even left. The relay's address is looked up
+    /// by iOS now and known before the call (`RelayAddresses`), so its route
+    /// arrives in well under a second on 5G, and a call that started without
+    /// it is moved onto the relay when no sound gets through
+    /// (`moveToRelay`). Three seconds is the most anyone waits.
+    private static let gatherLimit: Duration = .seconds(3)
     private static let afterRelayCandidate: Duration = .milliseconds(300)
     private static let readRouteEvery: Duration = .seconds(5)
+    /// How long the readings come a second apart: from when the call's
+    /// sound starts, and again from the answer (a call through a phone line
+    /// often has sound — the ringing — before it is answered).
+    private static let quickFor: TimeInterval = 8
+    private var quickUntil = Date.distantPast
     /// While a picture is going out there is something to decide on every
     /// reading (ADR-081), so they come a little faster. Still cheap: one
     /// statistics read, no network of its own.
@@ -220,10 +256,32 @@ struct PictureWatch {
     private static let tooThinForVideo = 150_000
     private static let tooThinReadings = 3
 
-    init(turn: PhoneLine.Turn?) {
+    init(turn: PhoneLine.Turn?, startedAt: Date = Date()) {
         self.turn = turn
         super.init()
+        diagnostics.steps = [.init(what: "Call started", at: startedAt)]
         noteTheRelay()
+    }
+
+    /// When the person asked for the call: the timeline counts from there.
+    func began(at: Date) {
+        note { $0.steps = [.init(what: "Call started", at: at)] + $0.steps.dropFirst() }
+    }
+
+    /// One step of the call's setting up, for the timeline on Call details.
+    func mark(_ what: String) {
+        if what == CallDiagnostics.answered { quickUntil = Date().addingTimeInterval(Self.quickFor) }
+        note { $0.steps.append(.init(what: what, at: Date())) }
+    }
+
+    /// Looks the relay up before the first offer or answer: by iOS, through
+    /// the phone's VPN and DNS (`RelayAddresses`).
+    private func lookUpTheRelay() async {
+        guard connection == nil else { return }
+        let hosts = RelayCertificates.hosts(in: turn?.urls ?? [])
+        relayAddresses = await RelayAddresses.addresses(for: hosts)
+        let found = relayAddresses.values.flatMap { $0 }
+        note { $0.relayAddresses = found }
     }
 
     /// What the call knows about itself, for the Call details screen.
@@ -247,6 +305,7 @@ struct PictureWatch {
     // MARK: - SIPCallMedia
 
     func offer() async throws -> String {
+        await lookUpTheRelay()
         let connection = try start()
         let local = try await withCheckedThrowingContinuation { (done: CheckedContinuation<String, Error>) in
             connection.offer(for: video.on ? Self.withVideo : Self.audioOnly) { description, error in
@@ -260,10 +319,36 @@ struct PictureWatch {
         try await setLocal(RTCSessionDescription(type: .offer, sdp: SDPTweaks.preferOpusFecDtx(local)))
         await waitForCandidates()
         guard let full = connection.localDescription?.sdp else { throw MediaTrouble.noOffer }
+        mark(diagnostics.foundTheRelay ? "Routes ready" : "Routes ready (no relay yet)")
         return ours(full)
     }
 
+    /// Moves a call that is up onto Linx's relay: the routes are looked for
+    /// again (an ICE restart) with only the relay allowed, and the offer that
+    /// tells the other side comes back for a re-INVITE. The conversation is
+    /// untouched while it happens — the old route stays in use until the new
+    /// one answers — and Asterisk takes a restart in a re-INVITE as it is
+    /// (res_rtp_asterisk restarts its ICE session when the candidates or
+    /// credentials change).
+    ///
+    /// For a call whose sound isn't getting through the route it started on:
+    /// the owner's phone on Tailscale chose a direct route through the
+    /// Synology that carried connectivity checks but not the encrypted sound,
+    /// and nothing moved it (2026-10-08). The relay is the route that works
+    /// from anywhere.
+    func moveToRelay() async throws -> String {
+        guard let connection else { throw MediaTrouble.noOffer }
+        relayOnly = true
+        movingToRelay = true
+        note { $0.movedToRelay = true }
+        mark("Moving to the relay")
+        connection.setConfiguration(configuration())
+        connection.restartIce()
+        return try await offer()
+    }
+
     func answer(to offer: String) async throws -> String {
+        await lookUpTheRelay()
         let connection = try start()
         try await setRemote(RTCSessionDescription(type: .offer, sdp: offer))
         // They have added a picture to the call. This phone shows it and
@@ -291,6 +376,10 @@ struct PictureWatch {
 
     func accept(answer: String) async throws {
         try await setRemote(RTCSessionDescription(type: .answer, sdp: answer))
+        if movingToRelay {
+            movingToRelay = false
+            mark("On the relay")
+        }
         capWhatThisPhoneSends()
         startWatching()
         // What they agreed to: a side that turns video down answers with a
@@ -353,7 +442,8 @@ struct PictureWatch {
     /// now on use these.
     func use(relay: PhoneLine.Turn) {
         turn = relay
-        connection?.setConfiguration(Self.configuration(relay: relay))
+        RelayAddresses.warm(RelayCertificates.hosts(in: relay.urls))
+        connection?.setConfiguration(configuration())
         noteTheRelay()
     }
 
@@ -363,7 +453,9 @@ struct PictureWatch {
     /// on as though nothing had been asked.
     func rollbackOffer() async {
         try? await setLocal(RTCSessionDescription(type: .rollback, sdp: ""))
-        if video.mine { await stopCamera() }
+        // A relay move nobody took leaves the camera as it was.
+        if video.mine, !movingToRelay { await stopCamera() }
+        movingToRelay = false
     }
 
     /// Whether this phone's own picture is the mirror image people expect of
@@ -651,14 +743,20 @@ struct PictureWatch {
     /// A direct route first, then Linx's relay over UDP, then over TLS on
     /// 443 — which is the one that works on a network that blocks
     /// everything else (docs/WEB.md §6).
-    static func configuration(relay: PhoneLine.Turn?) -> RTCConfiguration {
+    static func configuration(relay: PhoneLine.Turn?, addresses: [String: [String]] = [:], relayOnly: Bool = false)
+        -> RTCConfiguration
+    {
         let configuration = RTCConfiguration()
         if let relay, !relay.urls.isEmpty {
-            configuration.iceServers = [
+            // By address where iOS looked the name up, each server still
+            // carrying its name for TLS (SNI and the certificate check).
+            configuration.iceServers = RelayAddresses.servers(for: relay.urls, addresses: addresses).map {
                 RTCIceServer(
-                    urlStrings: relay.urls, username: relay.username, credential: relay.credential)
-            ]
+                    urlStrings: $0.urls, username: relay.username, credential: relay.credential,
+                    tlsCertPolicy: .secure, hostname: $0.hostname)
+            }
         }
+        if relayOnly { configuration.iceTransportPolicy = .relay }
         configuration.sdpSemantics = .unifiedPlan
         // Not "maxBundle": Asterisk's offers carry no BUNDLE group, and a
         // call is one stream of sound, so nothing is lost by it.
@@ -667,12 +765,18 @@ struct PictureWatch {
         return configuration
     }
 
+    /// This call's configuration: the relay by the addresses iOS found, and
+    /// only the relay once the call has been moved onto it.
+    private func configuration() -> RTCConfiguration {
+        Self.configuration(relay: turn, addresses: relayAddresses, relayOnly: relayOnly)
+    }
+
     private func start() throws -> RTCPeerConnection {
         if let connection { return connection }
         Self.live = self
         Self.prepareAudioSession()
         watchTheRoute()
-        let configuration = Self.configuration(relay: turn)
+        let configuration = configuration()
         // Who says the relay's TLS certificate is good: iOS, not the list
         // frozen inside WebRTC (`RelayCertificates`). Without this, a relay
         // certificate newer than the library is refused and a call that needs
@@ -838,6 +942,7 @@ struct PictureWatch {
     /// often, because a phone's battery pays for it.
     private func startWatching() {
         watch?.cancel()
+        quickUntil = Date().addingTimeInterval(Self.quickFor)
         watch = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -848,7 +953,13 @@ struct PictureWatch {
                     self.checkTheirPicture(connection)
                     self.checkNobodyIsSending()
                 }
-                try? await Task.sleep(for: self.video.mine ? Self.readRouteEveryWithVideo : Self.readRouteEvery)
+                // Every second for the first few seconds, so a call whose sound
+                // isn't getting through is noticed and mended in two or three
+                // (PhoneModel.mendIfSilent); then the usual pace.
+                let pause: Duration =
+                    Date() < self.quickUntil
+                    ? .seconds(1) : (self.video.mine ? Self.readRouteEveryWithVideo : Self.readRouteEvery)
+                try? await Task.sleep(for: pause)
             }
         }
     }
