@@ -237,6 +237,29 @@ the first build goes through Beta App Review** (usually a day or so).
 review, and enough for the Phase 2 demo. External only when people outside
 need it.
 
+## Signing without anyone signed in (an Admin API key)
+
+Xcode's own sign-in drops out now and then (it did twice on 2026-10-08), and
+then no build can be signed until the owner signs in again. An App Store
+Connect API key with the **Admin** role signs builds through Apple's cloud
+signing with nobody signed in, and it doesn't expire. The upload key from
+Part 1 step 5 can't do it: Apple answers "Cloud signing permission error".
+
+Once, in App Store Connect → **Users and Access** → **Integrations** →
+**Team Keys** → **+**: name it "Linx signing", Access **Admin**, Generate,
+then **Download API Key** (it downloads once). Put the `.p8` in
+`~/.appstoreconnect/private_keys/` (`chmod 600`), and its Key ID in
+`ios/signing.local.mk`, which git ignores:
+
+    LINX_ASC_KEY_ID = <the upload key's ID>
+    LINX_ASC_ISSUER = <the Issuer ID above the keys list>
+    LINX_ASC_SIGN_KEY_ID = <this key's ID>
+
+From then on, `make ios-archive && make ios-upload` works with nothing
+signed in. **The trade-off:** an Admin key can do anything in the App Store
+Connect account, so it lives only in that folder on this Mac, never in the
+repo or a message. If the Mac is lost, revoke it on the same page.
+
 ## If something goes wrong
 
 - **"Missing push key"** on the Calls to the app card: the `.p8` wasn't

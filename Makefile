@@ -125,26 +125,31 @@ ios-build-device: ios-deps ## Build the app for a real iPhone, Release, no signi
 		CODE_SIGNING_ALLOWED=NO 2>&1); then echo "ios device build: ok"; \
 	else echo "$$out" | grep -E "error:" | sort -u | head -40; echo "ios device build: FAILED"; exit 1; fi
 
+# This Mac's App Store Connect key IDs (not secrets; the .p8 files in
+# ~/.appstoreconnect/private_keys/ are), kept out of git.
+-include ios/signing.local.mk
+IOS_SIGN_AUTH = $(if $(LINX_ASC_SIGN_KEY_ID),-authenticationKeyPath $(HOME)/.appstoreconnect/private_keys/AuthKey_$(LINX_ASC_SIGN_KEY_ID).p8 -authenticationKeyID $(LINX_ASC_SIGN_KEY_ID) -authenticationKeyIssuerID $(LINX_ASC_ISSUER))
+
 .PHONY: ios-archive
 ios-archive: ios-deps ## Archive and export the app for TestFlight (needs the owner's Apple ID in Xcode; docs/ops/APPLE_SIGNING.md)
-	@# Only a hint: Xcode 27 keeps signed-in accounts elsewhere, and this
-	@# setting can look empty while signing works. xcodebuild's own "No
-	@# Accounts" below is the real answer (sign in, then run this again).
-	@defaults read com.apple.dt.Xcode DVTDeveloperAccountManagerAppleIDLists >/dev/null 2>&1 \
-		|| { echo "ios archive: no Apple ID in Xcode on this Mac."; \
-		     echo "  Xcode → Settings → Accounts → + and sign in (once), then run this again."; \
-		     echo "  docs/ops/APPLE_SIGNING.md has the rest."; exit 1; }
+	@# With a signing key (LINX_ASC_SIGN_KEY_ID, an App Store Connect API key
+	@# with the Admin role) nobody has to be signed in to Xcode: the key is
+	@# what Apple's cloud signing checks, and it doesn't expire. Without
+	@# one, Xcode's own sign-in is used, and that drops out now and then.
+	@[ -n "$(LINX_ASC_SIGN_KEY_ID)" ] || defaults read com.apple.dt.Xcode DVTDeveloperAccountManagerAppleIDLists >/dev/null 2>&1 \
+		|| { echo "ios archive: no Apple ID in Xcode on this Mac, and no LINX_ASC_SIGN_KEY_ID."; \
+		     echo "  docs/ops/APPLE_SIGNING.md, \"Signing without anyone signed in\"."; exit 1; }
 	@# The certificate and the profile don't have to exist yet:
 	@# -allowProvisioningUpdates lets Xcode make them from the signed-in
 	@# account the first time, which is what happens on a fresh Mac.
 	@rm -rf ios/build/archive && mkdir -p ios/build/archive
 	@if out=$$(xcodebuild archive -project $(IOS_PROJECT) -scheme Linx -configuration Release \
 		-destination 'generic/platform=iOS' -archivePath ios/build/archive/Linx.xcarchive \
-		-allowProvisioningUpdates 2>&1); then echo "ios archive: built"; \
+		-allowProvisioningUpdates $(IOS_SIGN_AUTH) 2>&1); then echo "ios archive: built"; \
 	else echo "$$out" | grep -E "error:" | sort -u | head -20; echo "ios archive: FAILED"; exit 1; fi
 	@if out=$$(xcodebuild -exportArchive -archivePath ios/build/archive/Linx.xcarchive \
 		-exportOptionsPlist ios/ExportOptions.plist -exportPath ios/build/archive/export \
-		-allowProvisioningUpdates 2>&1); then \
+		-allowProvisioningUpdates $(IOS_SIGN_AUTH) 2>&1); then \
 		echo "ios archive: exported $$(ls ios/build/archive/export/*.ipa)"; \
 	else echo "$$out" | grep -E "error:" | sort -u | head -20; echo "ios export: FAILED"; exit 1; fi
 	@# A build with no aps-environment cannot register for push, so the phone
