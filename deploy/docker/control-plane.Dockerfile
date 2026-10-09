@@ -15,8 +15,8 @@ COPY api/openapi.yaml /src/api/openapi.yaml
 COPY design/tokens.json /src/design/tokens.json
 RUN npm run build
 
-# golang:1.27.1-bookworm
-FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm@sha256:69a7b9788769bec032d238959b61854e9ae87f57be9029ec04e9885fabf99195 AS build
+# golang:1.27.2-bookworm
+FROM --platform=$BUILDPLATFORM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
