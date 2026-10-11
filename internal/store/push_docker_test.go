@@ -118,6 +118,24 @@ func TestPushDocker(t *testing.T) {
 		t.Fatalf("AlertDevices = %+v, %v", alerts, err)
 	}
 
+	// An app woken in the background by a call has only its VoIP token to
+	// send: the notification token saved before stays (2026-10-11), and so
+	// does the VoIP one when only the other arrives.
+	if err := s.SavePushTokens(ctx, device.ID,
+		push.Tokens{VoIP: "aabbccdd", Environment: push.Sandbox}, now); err != nil {
+		t.Fatal(err)
+	}
+	if alerts, err := s.AlertDevices(ctx, ext.ID); err != nil || len(alerts) != 1 || alerts[0].AlertToken != "eeff0011" {
+		t.Fatalf("an update without a notification token wiped the saved one: %+v, %v", alerts, err)
+	}
+	if err := s.SavePushTokens(ctx, device.ID,
+		push.Tokens{Alert: "eeff0011", Environment: push.Sandbox}, now); err != nil {
+		t.Fatal(err)
+	}
+	if devices, err := s.WakeDevices(ctx, []string{username}); err != nil || len(devices) != 1 || devices[0].VoIPToken != "aabbccdd" {
+		t.Fatalf("an update without a VoIP token wiped the saved one: %+v, %v", devices, err)
+	}
+
 	// Apple says the VoIP token is dead: it goes, the alert one stays, and
 	// the phone is no longer woken.
 	if err := s.ForgetPushToken(ctx, device.ID, "voip", now); err != nil {

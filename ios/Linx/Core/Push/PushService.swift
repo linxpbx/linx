@@ -66,11 +66,29 @@ struct PushTokens: Equatable, Sendable {
     func start() {
         bridge.owner = self
         UNUserNotificationCenter.current().delegate = bridge
+        fetchTheNotificationToken()
         guard CallStyle.usesCallKit else { return }
         let registry = PKPushRegistry(queue: nil)
         registry.delegate = bridge
         registry.desiredPushTypes = [.voIP]
         self.registry = registry
+    }
+
+    /// Apple hands over the notification token only to an app that asks for
+    /// it, every time it runs. Asking used to wait for the app to be on
+    /// screen, so an app woken in the background by a call sent Linx its
+    /// VoIP token alone, and missed calls went unannounced until it was next
+    /// opened (2026-10-11). Asking never shows a prompt, so it is done at
+    /// every launch, woken or not, once the person has already said yes.
+    private func fetchTheNotificationToken() {
+        Task {
+            switch await notificationState() {
+            case .authorized, .provisional, .ephemeral:
+                UIApplication.shared.registerForRemoteNotifications()
+            default:
+                break
+            }
+        }
     }
 
     /// askAboutNotifications is the one permission prompt the app shows, and

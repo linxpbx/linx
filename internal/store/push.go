@@ -131,9 +131,18 @@ func (s *Store) ForgetPushToken(ctx context.Context, device uuid.UUID, kind stri
 }
 
 // SavePushTokens is the app telling Linx where Apple can reach it.
+//
+// An empty token keeps the one saved: an app woken in the background by a
+// call hasn't been handed its notification token yet, and sending what it
+// has used to wipe the good one, so missed calls stopped being announced
+// until the app was next opened (2026-10-11). A token only goes when Apple
+// says it's dead (ForgetPushToken), or, for the VoIP one, when the phone
+// says calls must reach it by notification instead (ADR-078).
 func (s *Store) SavePushTokens(ctx context.Context, device uuid.UUID, t push.Tokens, at time.Time) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE device_identity
-		SET voip_token = $2, alert_token = $3, push_environment = $4, call_alerts = $5,
+		SET voip_token = CASE WHEN $5 THEN '' WHEN $2 = '' THEN voip_token ELSE $2 END,
+			alert_token = CASE WHEN $3 = '' THEN alert_token ELSE $3 END,
+			push_environment = $4, call_alerts = $5,
 			push_updated_at = $6, push_dead_at = NULL
 		WHERE device_id = $1`, device, t.VoIP, t.Alert, t.Environment, t.CallAlerts, at)
 	if err != nil {
