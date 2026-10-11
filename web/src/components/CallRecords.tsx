@@ -14,8 +14,9 @@ type CallReport = components["schemas"]["CallReport"];
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-/** "Incoming from 201 · 11 Oct, 16:06:10 · 42 s". */
+/** "Incoming from 201 · 11 Oct, 16:06:10 · 42 s", or "The app crashed · …". */
 export function callReportTitle(r: CallReport): string {
+  if (r.kind === "crash") return `The app crashed · ${when(r.started_at)}`;
   const way = r.direction === "incoming" ? `Incoming from ${r.peer || "a hidden number"}` : `Outgoing to ${r.peer}`;
   const secs = r.ended_at ? Math.round((new Date(r.ended_at).getTime() - new Date(r.started_at).getTime()) / 1000) : null;
   return [way, when(r.started_at), secs === null ? null : `${secs} s`].filter(Boolean).join(" · ");
@@ -53,6 +54,7 @@ export function CallRecordsDialog({ device, onClose }: { device: Device | null; 
           <DialogDescription>
             What this phone saw of each call it made or took in the last seven days, newest first. It sends one after
             every call: how the call was set up, the route it took and the sound in and out. Never the sound itself.
+            If the app ever crashes, the report iOS makes of it is here too.
           </DialogDescription>
         </DialogHeader>
         <div className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto">
@@ -64,7 +66,9 @@ export function CallRecordsDialog({ device, onClose }: { device: Device | null; 
           )}
           {reports?.map((r) => (
             <details key={r.id} className="rounded-md border p-2.5 text-sm">
-              <summary className="cursor-pointer font-medium">{callReportTitle(r)}</summary>
+              <summary className={`cursor-pointer font-medium ${r.kind === "crash" ? "text-destructive" : ""}`}>
+                {callReportTitle(r)}
+              </summary>
               <pre className="mt-2 whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-xs">{r.report}</pre>
               <div className="mt-2 flex items-center gap-2">
                 <Button size="sm" variant="outline" onClick={() => void copy(r)}>Copy</Button>

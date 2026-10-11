@@ -757,7 +757,12 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         "sip:", "  +0.0 s ← INVITE", "  +0.0 s → 180 Ringing", "  +2.0 s → 200 OK", "  +2.1 s ← ACK", "  +42.0 s ← BYE",
       ].join("\n");
       return route.fulfill(json({ items: [{
-        id: "cr1", call_id: "a84bc93d4c3f@pbx", direction: "incoming", peer: "1024",
+        id: "cr2", kind: "crash", call_id: "crash-2026-10-09T18:41:49Z", peer: "",
+        started_at: new Date(started.getTime() - 3_600_000).toISOString(),
+        report: "Linx crashed\napp: 1.0.0 (16), iOS 27.0.1\nexception: EXC_BREAKPOINT (SIGTRAP)\ncrashed thread:\n  libdispatch.dylib +0x37d28\n  Linx +0x16a88",
+        created_at: new Date(started.getTime() - 3_000_000).toISOString(),
+      }, {
+        id: "cr1", kind: "call", call_id: "a84bc93d4c3f@pbx", direction: "incoming", peer: "1024",
         started_at: started.toISOString(), ended_at: new Date(started.getTime() + 42_000).toISOString(),
         report, created_at: new Date(started.getTime() + 43_000).toISOString(),
       }] }));

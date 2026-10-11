@@ -133,6 +133,8 @@ After every call it makes or takes, the app sends Linx a short record of what it
 
 It's the same as the **Copy these details** text from the call screen, kept for you, so nobody has to remember to copy it during a call that's going wrong.
 
+If the app ever crashes, iOS makes a report of it and hands it to the app the next time it opens (sometimes up to a day later). The app sends it to Linx, and it appears in the same list as **The app crashed**, in red. It holds the crashed part of the app's code and nothing of yours.
+
 ## Settings on the phone
 
 **More** → **Settings**: your status, how this phone's line is doing, which extension it answers, which **Person** it signs in as and which **Linx server** it was set up on, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**. Two more:
