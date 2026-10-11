@@ -574,7 +574,7 @@ function MyPhonesSection({ me }: { me: Me }) {
       {error && <p role="alert" className="mt-3 text-sm font-medium text-destructive">{error}</p>}
       {/* Whether email is set up is an admin's setting to read; if it isn't,
           the answer says so and the code on screen still works. */}
-      <AddPhoneDialog open={adding} onOpenChange={setAdding} personName={me.name ?? "me"} emailOn={null} isMe
+      <AddPhoneDialog me={me} open={adding} onOpenChange={setAdding} personName={me.name ?? "me"} emailOn={null} isMe
         onSetUp={() => void load()} />
       <Dialog open={!!stopping} onOpenChange={(o) => { if (!o) setStopping(null); }}>
         <DialogContent>

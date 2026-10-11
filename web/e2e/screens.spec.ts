@@ -360,7 +360,12 @@ for (const scheme of ["light", "dark"] as const) {
       await phones.getByRole("button", { name: "Add phone" }).click();
       await expect(page.getByRole("dialog")).toContainText("Add a phone");
       await shot(page, `${scheme}-add-phone`);
+      // More than ten minutes since the last proof: the confirm box opens,
+      // and the code appears straight after it (not an error to read).
       await page.getByRole("button", { name: "Show a QR code" }).click();
+      await expect(page.getByRole("heading", { name: "Confirm it's you" })).toBeVisible();
+      await page.getByRole("textbox", { name: "Password" }).fill("correct horse battery");
+      await page.getByLabel("Code from your authenticator app").pressSequentially("123456");
       await expect(page.getByAltText("The setup code as a picture to scan")).toBeVisible();
       await expect(page.getByText("Waiting for the phone…")).toBeVisible();
       await shot(page, `${scheme}-add-phone-code`);
@@ -378,6 +383,8 @@ for (const scheme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "+ Add phone" }).click();
       await page.getByRole("radio", { name: "iPad" }).click();
       await page.getByRole("button", { name: "Email a link to Sara" }).click();
+      await page.getByLabel("Password").fill("correct horse battery");
+      await page.getByLabel("Code from your authenticator app").pressSequentially("123456");
       await expect(page.getByText("Emailed to sara@example.com.")).toBeVisible();
       await shot(page, `${scheme}-add-phone-emailed`);
       await page.getByRole("button", { name: "Cancel" }).click();

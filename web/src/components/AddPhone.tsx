@@ -5,8 +5,9 @@
 // Nothing secret is stored: the code is shown once, works once, and expires
 // in 10 minutes. No SIP password is ever in it.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { api, problemMessage } from "@/api/client";
+import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
+import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -71,7 +72,9 @@ function QrPicture({ url }: { url: string }) {
  * `onSetUp` runs when the phone finishes, so the list behind refreshes.
  * `emailOn` is null while Linx is still being asked whether email is set up.
  */
-export function AddPhoneDialog({ open, onOpenChange, personName, userId, emailOn, isMe, onSetUp }: {
+export function AddPhoneDialog({ me, open, onOpenChange, personName, userId, emailOn, isMe, onSetUp }: {
+  /** Who is signed in: making a code needs "confirm it's you" (docs/ADMIN.md §7). */
+  me: Me;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   personName: string;
@@ -96,7 +99,11 @@ export function AddPhoneDialog({ open, onOpenChange, personName, userId, emailOn
     setKind("iPhone"); setName(""); setTicket(null); setEmail(null); setDone(false); setError(""); setBusy(false);
   }, []);
 
-  const create = async (delivery: "qr" | "email" | "by_hand") => {
+  // A setup code is one of "confirm it's you"'s actions: if the last proof is
+  // more than ten minutes old, the confirm box opens and the code is made
+  // straight after it, instead of an error saying to sign in again.
+  const confirm = useConfirmIdentity(me);
+  const create = (delivery: "qr" | "email" | "by_hand") => confirm.run(async () => {
     setBusy(true);
     setError("");
     const { data, error: err } = await api.POST("/api/v1/enrollments", {
@@ -108,10 +115,12 @@ export function AddPhoneDialog({ open, onOpenChange, personName, userId, emailOn
       },
     });
     setBusy(false);
-    if (!data) { setError(problemMessage(err)); return; }
+    if (needsConfirm(err)) return { confirm: true };
+    if (!data) { setError(problemMessage(err)); return { confirm: false }; }
     setTicket(data);
     setEmail(data.email ?? null);
-  };
+    return { confirm: false };
+  });
 
   // While the code is on screen, ask every few seconds whether the phone has
   // finished: the ticket disappears from the waiting list the moment it has.
@@ -142,6 +151,7 @@ export function AddPhoneDialog({ open, onOpenChange, personName, userId, emailOn
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => { if (!o) void cancel(); else onOpenChange(o); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
@@ -221,6 +231,8 @@ export function AddPhoneDialog({ open, onOpenChange, personName, userId, emailOn
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {confirm.dialog}
+    </>
   );
 }
 

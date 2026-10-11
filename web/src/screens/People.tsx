@@ -378,7 +378,7 @@ function InviteResult({ name, link, email }: { name: string; link: string; email
 
 // --- Their iPhones and iPads (docs/PHASE2.md §4) ---
 
-function PhonesSection({ user, emailOn }: { user: User; emailOn: boolean | null }) {
+function PhonesSection({ me, user, emailOn }: { me: Me; user: User; emailOn: boolean | null }) {
   const [phones, setPhones] = useState<Device[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<Device | null>(null);
@@ -418,7 +418,7 @@ function PhonesSection({ user, emailOn }: { user: User; emailOn: boolean | null 
             actions={<Button size="sm" variant="outline" onClick={() => setRemoving(d)}>Stop it</Button>} />
         ))}
       </div>
-      <AddPhoneDialog open={adding} onOpenChange={setAdding} personName={user.name} userId={user.id}
+      <AddPhoneDialog me={me} open={adding} onOpenChange={setAdding} personName={user.name} userId={user.id}
         emailOn={emailOn} isMe={false} onSetUp={() => void load()} />
       <Dialog open={!!removing} onOpenChange={(o) => { if (!o) setRemoving(null); }}>
         <DialogContent>
@@ -599,7 +599,7 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
             )}
           </section>
 
-          <PhonesSection user={user} emailOn={emailOn} />
+          <PhonesSection me={me} user={user} emailOn={emailOn} />
 
           {user.extension_id && <VoicemailLine boxId={user.extension_id} />}
 

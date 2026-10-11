@@ -716,6 +716,8 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       return route.fulfill(json({ items: people.enrollments }));
     }
     if (p === "/api/v1/enrollments" && method === "POST") {
+      // Making a setup code is one of "confirm it's you"'s actions.
+      if (!system.confirmed) return route.fulfill(json({ type: "about:blank", title: "Forbidden", status: 403, code: "confirm_required", detail: "Confirm it's you." }, 403));
       const body = route.request().postDataJSON() as { name: string; user_id?: string; delivery?: string; send_email?: boolean };
       const user = people.users.find((u) => u.id === (body.user_id ?? "u1001"))!;
       const ext = people.extensions.find((e) => e.id === user.extension_id);
