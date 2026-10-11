@@ -178,6 +178,13 @@ struct CallDetailsView: View {
             }
         }
         if diagnostics.movedToRelay { lines.append("moved onto the relay: yes") }
+        if !diagnostics.offered.isEmpty {
+            lines.append("this phone offered: \(diagnostics.offered.joined(separator: ", "))")
+        }
+        if !diagnostics.pairs.isEmpty {
+            lines.append("routes tried:")
+            lines += diagnostics.pairs.map { "  \($0)" }
+        }
         return lines.joined(separator: "\n")
     }
 }

@@ -412,6 +412,26 @@ struct SoundOnTheRoadTests {
         #expect(CallDetailsView.size(0) == "nothing")
     }
 
+    @Test("the details say which routes were offered and tried, and which one won")
+    func routesInWords() {
+        // A mobile call went over TLS with UDP open, and the details couldn't
+        // say why (2026-10-11): now they list every pairing.
+        let relay: [String: NSObject] = ["candidateType": "relay" as NSString, "relayProtocol": "udp" as NSString,
+            "address": "86.98.181.234" as NSString]
+        let asterisk: [String: NSObject] = ["candidateType": "host" as NSString, "protocol": "udp" as NSString,
+            "address": "172.24.0.4" as NSString]
+        #expect(WebRTCMedia.words(for: relay) == "relay/udp", "this phone's own address is never shown")
+        #expect(WebRTCMedia.words(for: asterisk, address: true) == "host/udp 172.24.0.4")
+        let call = PhoneModel.Call(
+            peer: SIPPeer(name: "Omar Khalil", number: "1024"), incoming: true, phase: .active, answeredAt: Date())
+        var diagnostics = CallDiagnostics()
+        diagnostics.offered = ["relay/tls", "relay/udp"]
+        diagnostics.pairs = ["relay/udp → host/udp 172.24.0.4: succeeded, in use, 40 ms"]
+        let words = CallDetailsView.words(call: call, diagnostics: diagnostics)
+        #expect(words.contains("this phone offered: relay/tls, relay/udp"))
+        #expect(words.contains("routes tried:\n  relay/udp → host/udp 172.24.0.4: succeeded, in use, 40 ms"))
+    }
+
     // MARK: - A phone with a call up
 
     private func inACall() async throws -> (PhoneModel, FakeTransport, FakeMedia, FakeSystemCalls) {

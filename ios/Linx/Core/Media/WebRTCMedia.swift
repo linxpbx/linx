@@ -31,6 +31,15 @@ struct MediaConnection: Equatable, Sendable {
     /// Pictures received so far — "is their camera really still on?" in a
     /// number. A count that stops moving means it isn't.
     var framesIn = 0
+    /// The route in use, end to end, in the words Call details shows:
+    /// "relay/udp → host/udp 172.24.0.4".
+    var path = ""
+    /// What this phone offered as ways in ("relay/udp", "relay/tls"…), and
+    /// every pairing tried with how it went: what Call details needs to say
+    /// why one route won (2026-10-11, a mobile call that went over TLS with
+    /// UDP open).
+    var offered: [String] = []
+    var pairs: [String] = []
 }
 
 enum MediaTrouble: Error {
@@ -80,6 +89,10 @@ struct CallDiagnostics: Equatable, Sendable {
     /// The call was moved onto Linx's relay because no sound was getting
     /// through the route it started on.
     var movedToRelay = false
+    /// What this phone offered as ways in, and every pairing tried
+    /// (`MediaConnection.offered`, `.pairs`), as last read.
+    var offered: [String] = []
+    var pairs: [String] = []
     /// What the picture is set to now, in the words people use for it ("540p"),
     /// while this phone's camera is on (ADR-081).
     var picture: String?
@@ -1007,6 +1020,27 @@ struct PictureWatch {
         Task { await camera?.use(step) }
     }
 
+    private var lastPath: String?
+    private var soundHasArrived = false
+
+    /// The route and the first sound, on the timeline: when the call
+    /// changed route, and when anything was first heard from the other
+    /// end, so a slow start says whether it was the route or the sound.
+    private func noteTheRoute(_ connection: MediaConnection) {
+        if connection.path != lastPath {
+            lastPath = connection.path
+            mark("Route now \(connection.path)")
+        }
+        if !soundHasArrived, connection.audioBytesIn > 0 {
+            soundHasArrived = true
+            mark("First sound arrived")
+        }
+        note {
+            $0.offered = connection.offered
+            $0.pairs = connection.pairs
+        }
+    }
+
     /// Reads how the sound is getting through, every few seconds — no more
     /// often, because a phone's battery pays for it.
     private func startWatching() {
@@ -1016,6 +1050,7 @@ struct PictureWatch {
             while !Task.isCancelled {
                 guard let self else { return }
                 if let connection = await self.readConnection() {
+                    self.noteTheRoute(connection)
                     self.onConnection?(connection)
                     self.adaptTheVideo(connection)
                     self.checkTheLink(connection)
@@ -1064,6 +1099,7 @@ struct PictureWatch {
         }
         guard let pairID, let pair = report.statistics[pairID] else { return nil }
         let local = (pair.values["localCandidateId"] as? String).flatMap { report.statistics[$0] }
+        let remote = (pair.values["remoteCandidateId"] as? String).flatMap { report.statistics[$0] }
         let relayed = local?.values["candidateType"] as? String == "relay"
         let rtt = (pair.values["currentRoundTripTime"] as? NSNumber)?.doubleValue
         let room = (pair.values["availableOutgoingBitrate"] as? NSNumber)?.intValue
@@ -1072,7 +1108,45 @@ struct PictureWatch {
             roundTripMs: rtt.map { Int(($0 * 1000).rounded()) },
             relayProtocol: relayed ? local?.values["relayProtocol"] as? String : nil,
             audioBytesIn: audioBytesIn, audioBytesOut: audioBytesOut, outgoingBitrate: room,
-            framesIn: framesIn)
+            framesIn: framesIn,
+            path: "\(Self.words(for: local?.values)) → \(Self.words(for: remote?.values, address: true))",
+            offered: Self.offered(in: report), pairs: Self.pairs(in: report, chosen: pairID))
+    }
+
+    /// One end of a route in a few words: its kind, how it travels, and for
+    /// the far end where it is. This phone's own addresses are left out —
+    /// they're what a person would least want pasted into a message.
+    nonisolated static func words(for candidate: [String: NSObject]?, address: Bool = false) -> String {
+        guard let candidate else { return "?" }
+        let kind = candidate["candidateType"] as? String ?? "?"
+        let travels = (kind == "relay" ? candidate["relayProtocol"] : candidate["protocol"]) as? String ?? "?"
+        let at = address ? (candidate["address"] as? String ?? candidate["ip"] as? String ?? "") : ""
+        return "\(kind)/\(travels)\(at.isEmpty ? "" : " \(at)")"
+    }
+
+    private static func offered(in report: RTCStatisticsReport) -> [String] {
+        let kinds = report.statistics.values.filter { $0.type == "local-candidate" }.map { words(for: $0.values) }
+        return Array(Set(kinds)).sorted()
+    }
+
+    /// Every pairing tried, the chosen one first, at most eight.
+    private static func pairs(in report: RTCStatisticsReport, chosen: String) -> [String] {
+        let all = report.statistics.filter { $0.value.type == "candidate-pair" }
+        let ordered = all.sorted { a, b in
+            if (a.key == chosen) != (b.key == chosen) { return a.key == chosen }
+            return a.key < b.key
+        }
+        return ordered.prefix(8).map { id, pair in
+            let local = (pair.values["localCandidateId"] as? String).flatMap { report.statistics[$0] }
+            let remote = (pair.values["remoteCandidateId"] as? String).flatMap { report.statistics[$0] }
+            var line = "\(words(for: local?.values)) → \(words(for: remote?.values, address: true)): "
+            line += pair.values["state"] as? String ?? "?"
+            if id == chosen { line += ", in use" }
+            if let rtt = (pair.values["currentRoundTripTime"] as? NSNumber)?.doubleValue {
+                line += ", \(Int((rtt * 1000).rounded())) ms"
+            }
+            return line
+        }
     }
 
     // MARK: - One engine for the whole app
