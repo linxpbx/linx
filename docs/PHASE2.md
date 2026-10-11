@@ -873,3 +873,15 @@ Steps 3 and 4.1–4.5 passed on the owner's iPhone 18 Pro Max and iPad (ringing 
 - **On mobile data the sound arrived about 10 s late, in a burst.** The relay's UDP 443 wasn't reachable from the internet: the router's forward pointed at the old lab server, 192.168.1.212. So the call went over TURN/TLS (TCP), with a 1.8 s round trip, and lost packets held up everything behind them. The owner fixed the forward; a probe from the VPS now gets a binding response from 192.168.1.213.
   - The next call still chose TLS, and Call details couldn't say why. So Call details now lists what the phone **offered** (`relay/udp`, `relay/tls`…), every **route tried** with its state, round trip and which one is in use, and timeline steps for **"Route now …"** and **"First sound arrived"**. This phone's own addresses are never shown.
   - Repeat 4.6 on build 18 with that list in hand.
+
+### Answering at once, late pushes, and call records (2026-10-11, build 19)
+
+What the rest of the demo's step 4–5 retests found, read from the phone's own log over a cable (`idevicesyslog`) next to Asterisk's:
+
+- **Silence after pressing Answer.** The answer was tapped at 20:06:22.9, and the 200 OK reached Asterisk 4 s later: `answer(to:)` only began looking up the relay and gathering routes after the tap. `SIPUserAgent.invited` now starts preparing the answer the moment the INVITE arrives, and `answer()` sends what was prepared. Ringing lasts long enough for gathering to finish.
+- **A phone that rang after the caller had gone.** At 20:02:56 the phone's own connection to Apple's push service (`apsd`) was down. It came back at 20:02:58 and the wake push was delivered then, 20 s late, after the call had gone to voicemail. The app then rang for twenty seconds for nothing. Once the woken phone's line is signed in, it now waits only 4 s for the call (`waitOnceSignedIn`), since Linx rings a phone as soon as it signs in.
+- **The server's wait for a woken phone is 10 s, not 6** (migration 0048), for a phone whose push connection was just coming back. A phone that signs in sooner is rung at once. A server still on the old default moves with it; a value an admin chose is kept.
+- **Call records (the owner's idea).** After every call the app posts the Call details words and the call's SIP messages by first line to `POST /api/v1/me/call-reports`. Admins read them on People → the person → **Call records** (`GET /api/v1/devices/{id}/call-reports`, `devices:read`).
+  - Kept seven days, at most 100 per phone, at most 16 KB each. Trimmed on save, with no timer (migration 0049, `internal/callreport`).
+  - No audio, bodies or passwords, and this phone's own addresses are never written (`docs/THREAT_MODEL.md` "Call records from the app", `docs/RESOURCES.md` §3e).
+- **Still open: AirPods connected mid-call didn't take the sound.** That couldn't be judged while answers were slow. With answers prompt, retest 5.4 and read the "Sound to …" lines in the call's record.

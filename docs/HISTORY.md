@@ -144,3 +144,8 @@ The CLAUDE.md "Now" notes as they stood when Demo B was approved (2026-10-03), w
   - The 10-second mobile-data delay was the router's UDP 443 forward pointing at the wrong server. Call details now lists every route offered and tried, for the retest.
   - Also that day: Add phone opens "Confirm it's you" instead of showing its error; `golang.org/x/net` v0.60.0 (CVE-2026-78669); build 17 fixed a CallKit crash; home.mym.ae updated to `8d36549`.
 
+
+- **Answering at once, late pushes, and call records (2026-10-11, build 19, `docs/PHASE2.md` "Answering at once…").** The phone's own log, read over a cable, showed two causes:
+  - The answer was only prepared after the tap, giving 4 s of silence. It is now prepared while the phone rings.
+  - Apple's push service connection on the phone had dropped, so a push arrived 20 s late and rang for nobody. A woken phone now stops 4 s after signing in if no call comes, and the server waits 10 s for a woken phone (migration 0048).
+  - New, the owner's idea: **call records**. The app sends what it saw of every call, and admins read it on People → **Call records** (migration 0049, kept seven days).
