@@ -115,6 +115,22 @@ import SwiftUI
         if let tokens = push.current { await tellLinxWhereToReachThisPhone(tokens) }
     }
 
+    /// Crash reports iOS handed over go to Linx once this phone is signed
+    /// in (`CrashReports`), with the same token as everything else.
+    private func sendCrashReportsFromNowOn() {
+        guard let identity else { return }
+        let session = self.session
+        CrashReports.shared.send = { report in
+            do {
+                let token = try await session.accessToken()
+                try await LinxClient(server: identity.server).sendCallReport(report, token: token)
+                return true
+            } catch {
+                return false
+            }
+        }
+    }
+
     /// tellLinxWhereToReachThisPhone sends Apple's tokens on to Linx
     /// (`POST /api/v1/me/phone-push`). A phone that isn't signed in yet
     /// keeps them until it is.
@@ -183,6 +199,7 @@ import SwiftUI
             _ = try await session.accessToken()
             problem = nil
             state = .signedIn
+            sendCrashReportsFromNowOn()
             if homeFor != identity?.deviceID {
                 home.stop()
                 home = HomeModel(access: linx)

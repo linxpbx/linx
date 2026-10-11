@@ -412,6 +412,44 @@ struct SoundOnTheRoadTests {
         #expect(CallDetailsView.size(0) == "nothing")
     }
 
+    @Test("a crash iOS reports becomes a record with the crashed thread's frames")
+    func crashInWords() throws {
+        // The shape MetricKit's call stack tree has: the crashed thread
+        // marked, each frame a binary and an offset, the next frame inside.
+        let tree: [String: Any] = [
+            "callStacks": [
+                ["threadAttributed": false, "callStackRootFrames": [["binaryName": "UIKitCore"]]],
+                [
+                    "threadAttributed": true,
+                    "callStackRootFrames": [
+                        [
+                            "binaryName": "libdispatch.dylib", "offsetIntoBinaryTextSegment": 0x37d28,
+                            "subFrames": [
+                                [
+                                    "binaryName": "Linx", "offsetIntoBinaryTextSegment": 0x16a88,
+                                    "binaryUUID": "BAE0B802-A78C-3706-B26F-1113A00BDC3F",
+                                ]
+                            ],
+                        ]
+                    ],
+                ],
+            ]
+        ]
+        let json = try JSONSerialization.data(withJSONObject: tree)
+        let report = CrashReports.report(
+            at: Date(timeIntervalSince1970: 1_791_514_909), app: "1.0.0 (16)", os: "iPhone OS 27.0.1", exception: 6,
+            code: 1, signal: 5, termination: nil, stack: json)
+        #expect(report.kind == .crash && report.peer.isEmpty)
+        #expect(report.text.contains("exception: EXC_BREAKPOINT (6), code 1"))
+        #expect(report.text.contains("signal: SIGTRAP (5)"))
+        #expect(report.text.contains("crashed thread:\n  libdispatch.dylib +0x37d28\n  Linx +0x16a88 (BAE0B802)"))
+        // The same crash handed over twice is the same record.
+        let again = CrashReports.report(
+            at: Date(timeIntervalSince1970: 1_791_514_909), app: "1.0.0 (16)", os: "iPhone OS 27.0.1", exception: 6,
+            code: 1, signal: 5, termination: nil, stack: json)
+        #expect(report.callID == again.callID)
+    }
+
     @Test("a call offers only the routes Asterisk can use, so its answer stays small")
     func onlyUsefulRoutes() {
         // A 4.4 KB answer listing 24 routes took 7 s up a slow mobile link

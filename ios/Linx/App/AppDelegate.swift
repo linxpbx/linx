@@ -17,6 +17,7 @@ import UIKit
         // call on a simulator's lock screen.
         guard Screen.launched == nil else { return true }
         AppModel.shared.listenForCalls()
+        CrashReports.shared.start()
         return true
     }
 
