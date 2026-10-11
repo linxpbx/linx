@@ -85,8 +85,13 @@ import UIKit
                 // number is blocked, or the person is in a Focus that the
                 // caller isn't allowed through. The call is simply not
                 // taken, and the server rings their other phones.
-                if error == nil { MainActor.assumeIsolated { self.live.insert(id) } }
-                finished.resume(returning: error == nil)
+                // This answer comes on a queue of CallKit's own, not the
+                // main one, so it steps across rather than assuming.
+                let taken = error == nil
+                Task { @MainActor in
+                    if taken { self.live.insert(id) }
+                    finished.resume(returning: taken)
+                }
             }
         }
     }
@@ -199,8 +204,10 @@ import UIKit
             // The system wouldn't have it (a call it has already forgotten,
             // or an emergency call in the way). Nothing happens to the call
             // here: the app finds out from SIP, as it does for everything
-            // else that goes wrong.
-            MainActor.assumeIsolated { self?.refused(request) }
+            // else that goes wrong. The answer comes on CallKit's own
+            // queue (build 16 crashed assuming the main one), so it steps
+            // across.
+            Task { @MainActor in self?.refused(request) }
         }
     }
 
