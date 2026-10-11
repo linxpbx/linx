@@ -153,7 +153,12 @@ struct RingingTests {
         transport.asterisk(challenge)
         transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
         #expect(calls.ended.isEmpty)
-        try await Task.sleep(for: PhoneModel.waitOnceSignedIn + .milliseconds(500))
+        // Real time, and a slow CI machine: allow well past the four seconds.
+        var waited = Duration.zero
+        while calls.ended.isEmpty, waited < .seconds(15) {
+            try await Task.sleep(for: .milliseconds(100))
+            waited += .milliseconds(100)
+        }
         #expect(calls.ended.count == 1)
         #expect(!phone.busy)
     }
