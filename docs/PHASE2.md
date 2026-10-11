@@ -895,3 +895,15 @@ What the rest of the demo's step 4–5 retests found, read from the phone's own 
 - **Crash reports without a cable (the owner's ask).** `CrashReports` (MetricKit) takes iOS's crash diagnostics on the next launch, from `pastDiagnosticPayloads` and new deliveries. It sends each one once, as a record of kind `crash` (migration 0050), with the exception, the signal and the crashed thread's frames as binary + offset + UUID prefix. People → **Call records** shows it as **The app crashed**, in red.
   - It goes only to the company's own server; `docs/ops/STORE_SUBMISSION.md`'s privacy answers say so.
   - To read the frames, `atos` against the matching archive's dSYM, as on 2026-10-11.
+
+### Sound at the moment of answering (2026-10-11, build 21)
+
+The owner's requirement: answering must be as seamless as 3CX's, or better. Three causes, each measured: the call record, coturn's log, and Asterisk's pjnath ICE log at level 5 (`pjproject set log level 5` plus a debug logger channel).
+
+1. **Phone → front door: large messages stalled 4–7 s.** It was a PMTU black hole on the mobile path. Fixed by clamping MSS to 1300 on the front door, which is now part of `FRONT-DOOR.txt` (`installer.SmallerPacketsStep`) and the `front-doors` help guide. On the owner's Pangolin it is a `linx-mss.service` that runs at start-up.
+2. **The relay was reserved only after the call arrived.** On a woken phone on mobile data, TURN allocation finished about 5 s after the INVITE: coturn's first CreatePermission was at 18:27:34, after an INVITE at :29. Asterisk's own 14 checks all target the carrier's private addresses and can never succeed (Asterisk's candidates are LAN and Docker only), so the route depends entirely on the phone's checks arriving over the relay.
+   - Now every `RTCConfiguration` has `iceCandidatePoolSize = 1`. `WebRTCMedia.reserveTheRelay` keeps one connection made ahead of time (relay allocated) while the app is in front, and from the moment a push wakes it. The next call takes it over (`takeTheReservation`, matched on relay, credentials and addresses), and `stop()` releases it in the background.
+   - Outgoing calls benefit too: gathering is already done when the INVITE is built.
+3. **DTLS thrown away.** Asterisk logged `DTLS packet … dropped. ICE not completed yet`: the phone, answering `a=setup:active`, started DTLS before Asterisk's ICE had completed, then backed off for 1, 2, then 4 s. Answers to an `actpass` offer now say `a=setup:passive` (`SDPTweaks.letThemStartTheEncryption`), so Asterisk starts the handshake the moment its ICE completes (its log: "ICE starting media - perform DTLS").
+
+Call details and records gain "Call arrived", "Relay reserved ahead", "Relay ready" and "Answer ready". A record's SIP list now starts at the call's INVITE: the previous call's late `200 OK (BYE)` no longer skews the times.

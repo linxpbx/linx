@@ -152,3 +152,7 @@ The CLAUDE.md "Now" notes as they stood when Demo B was approved (2026-10-03), w
 - **Smaller answers and crash reports (2026-10-11, build 20, `docs/PHASE2.md` "Smaller answers…").**
   - The phone's answer listed 24 routes (4.4 KB) and took 7 s up a slow mobile link. It now lists only routes Asterisk can use.
   - Crash reports reach the server by themselves, through MetricKit, on the app's next launch (migration 0050). They show in People → **Call records**.
+- **Sound at the moment of answering (2026-10-11, build 21, `docs/PHASE2.md` "Sound at the moment…").** Measured from the call records and Asterisk's ICE log:
+  - Large messages from a phone on mobile data stalled. The front door now clamps MSS to 1300, also written into Linx's front-door steps and help guide.
+  - The relay was reserved only after the call arrived. The app now reserves it ahead.
+  - The phone started encryption before Asterisk was ready and was dropped. Asterisk now starts it.

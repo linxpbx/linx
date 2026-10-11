@@ -150,6 +150,11 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 - **Data on the phone:** a few KB per call, sent after the call has ended, so it never competes with the call's sound.
 - **Crash reports** (migration 0050) share the same table and limits. A crash is a few KB, and there should be none. MetricKit runs inside iOS, and the app only listens for its deliveries: no timer, no extra work at launch beyond reading what iOS already has.
 
+## 3f. A relay reserved ahead (2026-10-11, build 21)
+
+- **On the phone:** one WebRTC connection held while the app is in front, or from a wake-up push until the call: one relay allocation over UDP and one over TLS, which WebRTC refreshes every few minutes (a few hundred bytes each time). Released the moment the app goes to the background.
+- **On the server:** coturn keeps those one or two allocations per phone in use. That's well under a kilobyte of memory each, and no traffic while idle beyond the refreshes. Nothing new runs on the server.
+
 ## 4. Minimum and recommended hardware (as built)
 
 | | Minimum (setup refuses less) | Recommended |
