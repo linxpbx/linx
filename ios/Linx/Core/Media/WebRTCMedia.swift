@@ -715,6 +715,16 @@ struct PictureWatch {
     /// so does the call ending.
     private static var wantsSpeaker = false
 
+    /// The loudspeaker was switched on or off by hand, wherever the button
+    /// was: the app's own, or the system's call screen on the lock screen,
+    /// which the app never hears about except as a route change. Only the
+    /// app's button used to count, so a call answered on the lock screen
+    /// with the speaker on fell back to the earpiece the next time the
+    /// sound was set up again (owner, 2026-10-11).
+    private static func speakerChosen() {
+        wantsSpeaker = onTheSpeaker
+    }
+
     /// The loudspeaker was switched off by the audio session being set up
     /// again underneath the call, not by the person: put it back. The owner
     /// turned the speaker on while a call rang and it went off by itself the
@@ -778,6 +788,7 @@ struct PictureWatch {
                 .flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
             MainActor.assumeIsolated {
                 if reason == .newDeviceAvailable { Self.newDeviceArrived() }
+                if reason == .override { Self.speakerChosen() }
                 Self.keepTheSpeaker(after: reason)
                 Self.live?.mark("Sound to \(Self.outputWords) (\(Self.words(for: reason)))")
                 Self.tellTheRoute()
