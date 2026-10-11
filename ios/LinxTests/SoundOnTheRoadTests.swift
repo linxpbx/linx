@@ -412,6 +412,18 @@ struct SoundOnTheRoadTests {
         #expect(CallDetailsView.size(0) == "nothing")
     }
 
+    @Test("a call offers only the routes Asterisk can use, so its answer stays small")
+    func onlyUsefulRoutes() {
+        // A 4.4 KB answer listing 24 routes took 7 s up a slow mobile link
+        // (2026-10-11): TCP ones Asterisk never uses go, and so do link-local
+        // and all but one IPv6 network. The relay keeps its TCP/TLS ways in.
+        let configuration = WebRTCMedia.configuration(relay: nil)
+        #expect(configuration.tcpCandidatePolicy == .disabled)
+        #expect(configuration.disableLinkLocalNetworks)
+        #expect(configuration.maxIPv6Networks == 1)
+        #expect(configuration.iceTransportPolicy == .all)
+    }
+
     @Test("the details say which routes were offered and tried, and which one won")
     func routesInWords() {
         // A mobile call went over TLS with UDP open, and the details couldn't

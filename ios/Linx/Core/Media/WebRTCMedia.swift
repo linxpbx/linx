@@ -844,6 +844,16 @@ struct PictureWatch {
         // call is one stream of sound, so nothing is lost by it.
         configuration.rtcpMuxPolicy = .require
         configuration.continualGatheringPolicy = .gatherOnce
+        // Only the routes Asterisk can use, so the offer and the answer stay
+        // small: a phone listed 24 of them (11 over TCP, which Asterisk's ICE
+        // never uses, and 11 of its own addresses, most of them IPv6 ones on
+        // every network it has), and the 4.4 KB answer took 7 s to cross a
+        // slow mobile uplink while the caller heard it ring on (2026-10-11).
+        // The relay still has its TCP and TLS ways in; they are relay
+        // candidates, which this doesn't touch.
+        configuration.tcpCandidatePolicy = .disabled
+        configuration.disableLinkLocalNetworks = true
+        configuration.maxIPv6Networks = 1
         return configuration
     }
 
