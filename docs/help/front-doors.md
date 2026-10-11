@@ -33,6 +33,17 @@ Your router keeps sending TCP port 443 to the other program, and sends a UDP por
 
 Setup also writes everything to `/etc/linx/front-door/` on the server (`FRONT-DOOR.txt` and each block), for anyone working in a terminal.
 
+### Phones on mobile data: smaller packets
+
+Some mobile networks quietly drop full-size packets on the way in. Small messages get through at once, but anything bigger than one packet, like an iPhone answering a call or placing one, waits seconds while the phone works this out. You'd notice the caller hearing it ring on after you've answered, and the two call timers seconds apart. The cure is one setting on the machine your front door runs on, telling connections to use slightly smaller packets. On a Linux machine, as root:
+
+```
+iptables -t mangle -I FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1300
+iptables -t mangle -I OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1300
+```
+
+That lasts until the machine restarts. To keep it, put the same two lines in a small service that runs at start-up, for example `/etc/systemd/system/linx-mss.service` with `Type=oneshot`, `RemainAfterExit=yes` and the two lines as its `ExecStart`, then `systemctl enable --now linx-mss.service`. Nothing else on that machine notices the difference.
+
 ## Nothing: only at home (no internet)
 
 Linx works on your home or office network only: no calls from outside. It still needs your DNS company's token for its certificate.

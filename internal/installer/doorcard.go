@@ -53,6 +53,16 @@ func DoorCard(c Config, lan LAN) *install.DoorCard {
 	return card
 }
 
+// SmallerPacketsStep is for the machine the front door runs on. Some
+// mobile networks silently drop full-size packets on the way in, so any
+// message from a phone bigger than one packet (answering a call, placing
+// one) stalled for seconds while the phone found out (2026-10-11, the
+// owner's Pangolin): clamping TCP's segment size there avoids it.
+const SmallerPacketsStep = "On the front door's machine (Linux), use slightly smaller packets, or phones on some mobile networks wait seconds to answer or place a call: " +
+	"sudo iptables -t mangle -I FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1300 && " +
+	"sudo iptables -t mangle -I OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1300. " +
+	"It lasts until that machine restarts; the help guide \"Front doors\" shows how to keep it."
+
 // routerStep is what's left for the router with any front door that
 // passes Linx through.
 func routerStep(p string, linx netip.Addr, udp int) string {
@@ -192,6 +202,7 @@ func DoorCardText(card *install.DoorCard, router string) string {
 		}
 	}
 	fmt.Fprintf(&b, "\nThen, whichever it is:\n  %s\n", router)
+	b.WriteString("  " + SmallerPacketsStep + "\n")
 	b.WriteString("  DNS: setup points the names at your home's public address, and keeps them there if it changes.\n")
 	b.WriteString("  Check everything: sudo linx doctor (\"Calls from outside\").\n")
 	return b.String()
