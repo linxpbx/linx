@@ -460,6 +460,16 @@ func main() {
 	// call ends, and moves the Call history badge's counter.
 	historyBuilder := &callhistory.Builder{Store: store.CallHistory{Store: st}, Changed: hub.CallsChanged, Now: time.Now, Log: log}
 	historyBuilder.Missed = pushGW.Missed
+	// The app icon's number: the same two counts as the Calls and
+	// Voicemail badges inside the app, so the three always agree.
+	pushGW.Badge = func(ctx context.Context, tenant, user uuid.UUID) (int, error) {
+		missed, err := store.CallHistory{Store: st}.MissedCount(ctx, user)
+		if err != nil {
+			return 0, err
+		}
+		unheard, err := voicemailSvc.NewCount(ctx, voicemail.Viewer{Tenant: tenant, User: user})
+		return missed + unheard, err
+	}
 	voicemails.Arrived = pushGW.NewVoicemail
 	historySvc := &callhistory.Service{Store: store.CallHistory{Store: st}, Builder: historyBuilder, Now: time.Now}
 	tracker.Ended = historyBuilder.Kick

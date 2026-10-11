@@ -107,7 +107,7 @@ System → **Settings** → **Calls to the app** → **Set it up**: the team id,
 
 Once it's on, a call for someone whose app is asleep waits a few seconds — the caller hears ringing — while the phone wakes up and joins; then every phone of theirs rings together, as always. The card shows how many phones have been woken and how long they took. Apple is told the call's number and nothing else: no names, and nothing about what is said.
 
-A missed call and a new voicemail also arrive as ordinary notifications, on the phones whose owner allowed them.
+A missed call and a new voicemail also arrive as ordinary notifications, on the phones whose owner allowed them. The app's icon shows a number too: missed calls you haven't looked at plus voicemail you haven't heard, the same two numbers as the **Calls** and **Voicemail** tabs. It goes down when you open them, here or on anything else you're signed in on.
 
 Leave it off and nothing is sent to Apple at all; the app then rings only while it is open.
 

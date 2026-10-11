@@ -27,6 +27,11 @@ type Gateway struct {
 	Resolver safehttp.Resolver
 	Now      func() time.Time
 	Log      *slog.Logger
+	// Badge is the number a person's app icon shows: calls they missed
+	// since they last looked, and voicemail they haven't heard. Sent with
+	// every quiet notification so the icon is right even while the app
+	// isn't running. Nil sends no number, and the icon is left alone.
+	Badge func(ctx context.Context, tenant, user uuid.UUID) (int, error)
 
 	// HTTP replaces the guarded client the gateway makes for itself, and
 	// Host the address it sends to (tests only).
@@ -332,23 +337,44 @@ func (g *Gateway) quiet(ctx context.Context, extension uuid.UUID, kind, title, b
 		g.Log.Error("looking up the phones to notify", "kind", kind, "err", err)
 		return
 	}
-	payload, err := quietPayload(kind, title, body, nil)
-	if err != nil {
-		g.Log.Error("writing a notification", "kind", kind, "err", err)
-		return
-	}
 	now := g.now()
+	badges := map[uuid.UUID]*int{}
 	for _, d := range devices {
 		if !g.quiets.Allow("quiet:"+d.DeviceID.String(), now) {
 			g.count(func(s *Stats) { s.Limited++ })
 			continue
 		}
-		err := g.send(ctx, key, environmentOf(d, settings), notice{
+		badge, counted := badges[d.UserID]
+		if !counted {
+			badge = g.badge(ctx, d)
+			badges[d.UserID] = badge
+		}
+		payload, err := quietPayload(kind, title, body, badge)
+		if err != nil {
+			g.Log.Error("writing a notification", "kind", kind, "err", err)
+			return
+		}
+		err = g.send(ctx, key, environmentOf(d, settings), notice{
 			Token: d.AlertToken, Topic: settings.BundleID, PushType: "alert",
 			Priority: 10, Expiration: now.Add(24 * time.Hour).Unix(), Payload: payload,
 		})
 		g.after(ctx, d, kind, err)
 	}
+}
+
+// badge is the icon's number for d's person, or nil when it can't be
+// counted: a notification without a number leaves the icon as it was,
+// which is better than one that isn't sent.
+func (g *Gateway) badge(ctx context.Context, d Device) *int {
+	if g.Badge == nil {
+		return nil
+	}
+	n, err := g.Badge(ctx, d.Tenant, d.UserID)
+	if err != nil {
+		g.Log.Warn("counting the app icon's number", "device", d.DeviceID, "err", err)
+		return nil
+	}
+	return &n
 }
 
 // after records what became of one push and forgets a dead token.

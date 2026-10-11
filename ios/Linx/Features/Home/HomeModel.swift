@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UserNotifications
 
 // What the app's four tabs share (docs/PHASE2.md §7, build step 7): the team
 // with what everyone is doing, this person's own status, and the two numbers
@@ -21,8 +22,8 @@ import SwiftUI
     /// Nothing has arrived yet: the list shows its waiting state rather than
     /// "nobody here".
     private(set) var loaded = false
-    private(set) var missedCalls = 0
-    private(set) var newVoicemail = 0
+    private(set) var missedCalls = 0 { didSet { showOnTheIcon() } }
+    private(set) var newVoicemail = 0 { didSet { showOnTheIcon() } }
     /// This person's own status, as they last set it.
     private(set) var presence: Presence = .available
     private(set) var problem: String?
@@ -34,6 +35,17 @@ import SwiftUI
     private let access: LinxAccess?
     private var socket: TeamLive?
     private var running = false
+
+    /// The app icon's number is the two badges added up: Linx sends the
+    /// same sum with every missed-call and voicemail notification, so the
+    /// icon is right while the app is closed, and this keeps it right while
+    /// it's open, clearing it the moment the person looks. Only a signed-in
+    /// model touches the icon: a test or a screenshot run never does.
+    private func showOnTheIcon() {
+        guard access != nil else { return }
+        let number = missedCalls + newVoicemail
+        Task { try? await UNUserNotificationCenter.current().setBadgeCount(number) }
+    }
 
     /// `watching` is the websocket. A test and a screenshot run ask for a
     /// model without one: what they check is what the screens do with what

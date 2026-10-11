@@ -394,6 +394,32 @@ func TestQuietNotifications(t *testing.T) {
 	}
 }
 
+// The app icon's number goes with every quiet notification; without a
+// way to count, or when counting fails, the notification still goes and
+// the icon is left alone.
+func TestQuietNotificationsCarryTheIconNumber(t *testing.T) {
+	e := newEnv(t)
+	e.phone("aabbccdd", "eeff0011")
+	asked := 0
+	e.gateway.Badge = func(context.Context, uuid.UUID, uuid.UUID) (int, error) { asked++; return 3, nil }
+	e.gateway.Missed(context.Background(), uuid.New(), "101")
+	e.gateway.Badge = func(context.Context, uuid.UUID, uuid.UUID) (int, error) { return 0, errors.New("no database") }
+	e.gateway.NewVoicemail(context.Background(), uuid.New(), "101")
+
+	sent := e.apple.sent()
+	if len(sent) != 2 || asked != 1 {
+		t.Fatalf("sent %d notifications after %d counts, want 2 after 1", len(sent), asked)
+	}
+	first, _ := sent[0].Body["aps"].(map[string]any)
+	if first["badge"] != float64(3) {
+		t.Errorf("badge = %v, want 3", first["badge"])
+	}
+	second, _ := sent[1].Body["aps"].(map[string]any)
+	if _, ok := second["badge"]; ok {
+		t.Errorf("a number that couldn't be counted was sent: %v", second["badge"])
+	}
+}
+
 func TestNothingIsSentWhilePushIsOff(t *testing.T) {
 	e := newEnv(t)
 	e.store.settings.Enabled = false
