@@ -51,8 +51,10 @@ const (
 	// DefaultWaitMS is how long a call waits for a woken phone. Apple's own
 	// delivery is usually well under a second; this is the room for a phone
 	// on a slow mobile network, and it is the longest a caller hears
-	// ringing before the phones that are already there ring too.
-	DefaultWaitMS = 6000
+	// ringing before the phones that are already there ring too. Ten, not
+	// six, since a phone whose push connection to Apple had just come back
+	// missed six (migration 0048).
+	DefaultWaitMS = 10000
 	MaxWaitMS     = 15000
 
 	// WakesPerMinute bounds the wake pushes one device can be sent: a

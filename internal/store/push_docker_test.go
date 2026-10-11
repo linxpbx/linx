@@ -86,7 +86,7 @@ func TestPushDocker(t *testing.T) {
 
 	// The key, saved.
 	saved, err := s.SavePushSettings(ctx, push.Settings{Tenant: tenant, Enabled: true, TeamID: "ABCDE12345",
-		KeyID: "KEY1234567", BundleID: "com.linxpbx.app", Environment: push.Production, WaitMS: 6000,
+		KeyID: "KEY1234567", BundleID: "com.linxpbx.app", Environment: push.Production, WaitMS: push.DefaultWaitMS,
 		UpdatedAt: now}, []byte("sealed-key"), 0, audit("push.settings"))
 	if err != nil {
 		t.Fatal(err)
@@ -105,8 +105,8 @@ func TestPushDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	aors, wait := wake(t, ctx, pool, "PJSIP/"+username+"&PJSIP/d_nosuchone")
-	if aors != username || wait != 6000 {
-		t.Errorf("linx_wake = %q, %d; want %q, 6000", aors, wait, username)
+	if aors != username || wait != push.DefaultWaitMS {
+		t.Errorf("linx_wake = %q, %d; want %q, %d", aors, wait, username, push.DefaultWaitMS)
 	}
 
 	devices, err := s.WakeDevices(ctx, []string{username})
