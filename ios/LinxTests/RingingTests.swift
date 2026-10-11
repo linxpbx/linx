@@ -135,6 +135,29 @@ struct RingingTests {
         #expect(calls.ended.isEmpty)
     }
 
+    @Test("a push that arrives after the caller gave up stops ringing soon after the line signs in")
+    func aLatePushStopsRinging() async throws {
+        // Apple's push was late (the phone's own connection to Apple was
+        // down for twenty seconds), so by the time the line signed in the
+        // call was gone: it used to ring on for twenty seconds more.
+        let calls = FakeSystemCalls()
+        let transport = FakeTransport()
+        let phone = PhoneModel(
+            line: { Self.line() }, transport: { _ in transport }, media: { _ in FakeMedia() },
+            calls: calls, inFront: { true })
+        #expect(await phone.woken(from: "0500000001"))
+        await phone.start()
+        let first = try #require(transport.last("REGISTER"))
+        var challenge = SIPMessage.response(401, "Unauthorized", to: first)
+        challenge.add("WWW-Authenticate", "Digest realm=\"asterisk\", nonce=\"n1\", qop=\"auth\"")
+        transport.asterisk(challenge)
+        transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
+        #expect(calls.ended.isEmpty)
+        try await Task.sleep(for: PhoneModel.waitOnceSignedIn + .milliseconds(500))
+        #expect(calls.ended.count == 1)
+        #expect(!phone.busy)
+    }
+
     @Test("the call that follows the push keeps the id the system was given")
     func theCallArrivesAfterwards() async throws {
         let calls = FakeSystemCalls()

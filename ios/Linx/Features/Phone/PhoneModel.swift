@@ -133,6 +133,13 @@ import UIKit
     /// edge, for a phone on a slow mobile network.
     static let waitForTheInvitation: Duration = .seconds(20)
 
+    /// How long a woken phone waits once its line is signed in. Linx rings a
+    /// phone the moment it signs in, so an invitation that hasn't come by
+    /// now is for a call that has already ended: the caller gave up while
+    /// Apple's push was late. It used to ring on for twenty seconds after
+    /// the caller had gone (2026-10-11).
+    static let waitOnceSignedIn: Duration = .seconds(4)
+
     /// Everything the app needs to open a line: the SIP login, which Linx
     /// server it is, and the device token the relay knows this phone by.
     struct Line: Sendable {
@@ -331,6 +338,7 @@ import UIKit
             attempts = 0
             self.status = .ready
             problem = nil
+            waitLessForWhatWasWoken()
         case .reconnecting:
             self.status = .reconnecting
             retryLater()
@@ -408,6 +416,20 @@ import UIKit
         waking.remove(at: index)
         calls.reportEnded(id: id, .missed)
         closeIfNobodyIsLooking()
+    }
+
+    /// The line is signed in, so a call still on its way would be here in a
+    /// moment: every phone being woken waits only a few seconds more.
+    private func waitLessForWhatWasWoken() {
+        for index in waking.indices {
+            let id = waking[index].id
+            waking[index].giveUp?.cancel()
+            waking[index].giveUp = Task { [weak self] in
+                try? await Task.sleep(for: Self.waitOnceSignedIn)
+                guard !Task.isCancelled else { return }
+                self?.nothingArrived(id)
+            }
+        }
     }
 
     private func forgetWhatWasWoken(_ ending: SystemCallEnding) {
