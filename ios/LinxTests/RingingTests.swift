@@ -158,6 +158,40 @@ struct RingingTests {
         #expect(!phone.busy)
     }
 
+    @Test("a call that ends sends Linx what this phone saw of it")
+    func aCallSendsItsRecord() async throws {
+        // The owner's idea (2026-10-11): every call leaves a record on the
+        // server, so a call that went wrong can be read without a cable.
+        let calls = FakeSystemCalls()
+        let transport = FakeTransport()
+        var sent: [CallReport] = []
+        let phone = PhoneModel(
+            line: { Self.line() }, transport: { _ in transport }, media: { _ in FakeMedia() },
+            calls: calls, inFront: { true }, report: { _, report in sent.append(report) })
+        await phone.start()
+        let first = try #require(transport.last("REGISTER"))
+        var challenge = SIPMessage.response(401, "Unauthorized", to: first)
+        challenge.add("WWW-Authenticate", "Digest realm=\"asterisk\", nonce=\"n1\", qop=\"auth\"")
+        transport.asterisk(challenge)
+        transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
+
+        let invite = Self.invite(from: "201", name: "Front desk", callID: "call-9")
+        transport.asterisk(invite)
+        var cancel = SIPMessage.request("CANCEL", "sip:d_Ab12Cd34@abc.invalid;transport=ws")
+        for header in ["Via", "From", "To", "Call-ID"] { cancel.add(header, invite.first(header)!) }
+        cancel.add("CSeq", "1 CANCEL")
+        transport.asterisk(cancel)
+        #expect(await eventually { sent.count == 1 })
+        let record = try #require(sent.first)
+        #expect(record.incoming && record.peer == "201")
+        #expect(record.text.hasPrefix("Linx call details"))
+        #expect(record.text.contains("← INVITE"))
+        #expect(record.text.contains("→ 180 Ringing (INVITE)"))
+        #expect(record.text.contains("ended: not answered"))
+        // Signing in says nothing about a call, and never goes in.
+        #expect(!record.text.contains("REGISTER"))
+    }
+
     @Test("the call that follows the push keeps the id the system was given")
     func theCallArrivesAfterwards() async throws {
         let calls = FakeSystemCalls()

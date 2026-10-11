@@ -157,6 +157,13 @@ import UIKit
     }
 
     private let lineForThisPhone: @MainActor () async -> Line?
+    /// Sends what this phone saw of a call to Linx when it ends.
+    private let sendReport: @MainActor (Line, CallReport) -> Void
+    /// The line in use, which is where a call's record goes.
+    private var lineInUse: Line?
+    /// The call's SIP messages so far, by their first line, for its record.
+    private var sipTrace: [(at: Date, what: String)] = []
+    private static let mostTraced = 200
     private let makeTransport: @MainActor (SIPUserAgent.Account) -> any SIPTransport
     private let makeMedia: @MainActor (PhoneLine.Turn?) -> any SIPCallMedia
     private let calls: any SystemCalls
@@ -193,8 +200,10 @@ import UIKit
         },
         media: @escaping @MainActor (PhoneLine.Turn?) -> any SIPCallMedia = { WebRTCMedia(turn: $0) },
         calls: (any SystemCalls)? = nil,
-        inFront: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState == .active }
+        inFront: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState == .active },
+        report: @escaping @MainActor (Line, CallReport) -> Void = PhoneModel.sendToLinx
     ) {
+        self.sendReport = report
         self.lineForThisPhone = line
         self.makeTransport = transport
         self.makeMedia = media
@@ -289,6 +298,7 @@ import UIKit
 
     private func connect(to line: Line) {
         agent?.stop()
+        lineInUse = line
         guard let account = Self.account(for: line) else {
             status = .unavailable("Linx gave this phone a line it couldn't read. Set the phone up again.")
             return
@@ -325,6 +335,10 @@ import UIKit
         agent.onEstablished = { [weak self] in self?.answered() }
         agent.onEnded = { [weak self] why in self?.ended(why) }
         agent.onVideoRefused = { [weak self] why in self?.problem = why }
+        agent.onTrace = { [weak self] words in
+            guard let self, self.sipTrace.count < Self.mostTraced else { return }
+            self.sipTrace.append((Date(), words))
+        }
         self.agent = agent
         status = .starting
         agent.start()
@@ -950,11 +964,52 @@ import UIKit
         callDetailsAreOpen = false
         calls.reportEnded(id: finished.id, Self.ending(why))
         if case .failed(let said) = why { problem = said }
+        sendTheRecord(of: finished, why: why)
         defer { closeIfNobodyIsLooking() }
         guard finished.peer.number != Self.echoTest else { return }
         let kind: Recent.Kind =
             finished.incoming ? (finished.answeredAt == nil ? .missed : .incoming) : .outgoing
         recent = Array(([Recent(peer: finished.peer, kind: kind, at: Date())] + recent).prefix(20))
+    }
+
+    /// What this phone saw of the call, to Linx: the Call details words and
+    /// the SIP messages by their first line. A failure to send is let go —
+    /// the record is a help, never a reason for anything else to wait.
+    private func sendTheRecord(of finished: Call, why: SIPEnded) {
+        let trace = sipTrace
+        sipTrace = []
+        guard let line = lineInUse, finished.peer.number != Self.echoTest else { return }
+        let started = trace.first?.at ?? diagnostics.steps.first?.at ?? Date()
+        sendReport(line, Self.record(of: finished, diagnostics: diagnostics, trace: trace, why: why, started: started))
+    }
+
+    static func record(
+        of call: Call, diagnostics: CallDiagnostics, trace: [(at: Date, what: String)], why: SIPEnded, started: Date
+    ) -> CallReport {
+        var lines = [CallDetailsView.words(call: call, diagnostics: diagnostics)]
+        if !trace.isEmpty {
+            lines.append("sip:")
+            lines += trace.map { "  \(CallDetailsView.after($0.at, started)) \($0.what)" }
+        }
+        switch why {
+        case .hungUp: lines.append("ended: hung up")
+        case .missed: lines.append("ended: not answered")
+        case .failed(let said): lines.append("ended: failed — \(said)")
+        }
+        let text = String(lines.joined(separator: "\n").prefix(16_000))
+        return CallReport(
+            callID: call.id.uuidString, incoming: call.incoming, peer: String(call.peer.number.prefix(100)),
+            startedAt: started, endedAt: Date(), text: text)
+    }
+
+    /// The real sending: a background task of its own, so a call that ends
+    /// as the app goes to the background still gets its record out.
+    static func sendToLinx(_ line: Line, _ report: CallReport) {
+        let task = UIApplication.shared.beginBackgroundTask(withName: "Call record")
+        Task {
+            try? await LinxClient(server: line.server).sendCallReport(report, token: line.token)
+            UIApplication.shared.endBackgroundTask(task)
+        }
     }
 
     private static func ending(_ why: SIPEnded) -> SystemCallEnding {

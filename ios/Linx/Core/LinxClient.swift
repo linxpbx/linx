@@ -141,6 +141,16 @@ struct PhoneLine: Decodable, Sendable {
 }
 
 /// The app's side of the Linx API.
+/// One call as this phone saw it (`LinxClient.sendCallReport`).
+struct CallReport: Sendable, Equatable {
+    var callID: String
+    var incoming: Bool
+    var peer: String
+    var startedAt: Date
+    var endedAt: Date?
+    var text: String
+}
+
 struct LinxClient: Sendable {
     let server: URL
     let session: URLSession
@@ -199,6 +209,18 @@ struct LinxClient: Sendable {
                 "voip_token": tokens.voip, "alert_token": tokens.alert,
                 "environment": tokens.environment, "call_alerts": tokens.callAlerts,
             ], bearer: token)
+    }
+
+    /// What this phone saw of a call, sent after it ends for an admin to
+    /// read on the phone's page (internal/callreport). Linx answers 204.
+    func sendCallReport(_ report: CallReport, token: String) async throws {
+        var body: [String: Any] = [
+            "call_id": report.callID, "direction": report.incoming ? "incoming" : "outgoing",
+            "peer": report.peer, "started_at": ISO8601DateFormatter().string(from: report.startedAt),
+            "report": report.text,
+        ]
+        if let ended = report.endedAt { body["ended_at"] = ISO8601DateFormatter().string(from: ended) }
+        _ = try await send("/api/v1/me/call-reports", body: body, bearer: token)
     }
 
     // MARK: - What the screens ask for

@@ -141,6 +141,10 @@ struct AudioRoute: Equatable, Sendable {
     var onEnded: ((SIPEnded) -> Void)?
     /// A picture couldn't be added, and why in plain words.
     var onVideoRefused: ((String) -> Void)?
+    /// Every SIP message of a call, by its first line ("→ 200 OK (INVITE)"),
+    /// for the record the phone sends Linx after the call. Signing in and
+    /// keep-alives are left out; nothing but the first line ever is.
+    var onTrace: ((String) -> Void)?
 
     private let account: Account
     private let transport: any SIPTransport
@@ -484,6 +488,7 @@ struct AudioRoute: Equatable, Sendable {
 
     private func read(_ text: String) {
         guard let message = SIPMessage(text: text) else { return }
+        if let words = Self.traceWords(message) { onTrace?("← \(words)") }
         if message.status != nil {
             response(message)
         } else {
@@ -892,7 +897,21 @@ struct AudioRoute: Equatable, Sendable {
             method: method, uri: uri, nonceCount: held.count)
     }
 
-    private func send(_ message: SIPMessage) { transport.send(message.text) }
+    private func send(_ message: SIPMessage) {
+        if let words = Self.traceWords(message) { onTrace?("→ \(words)") }
+        transport.send(message.text)
+    }
+
+    /// A message's first line in a few words, or nil for signing in and
+    /// keep-alives, which say nothing about a call.
+    nonisolated static func traceWords(_ message: SIPMessage) -> String? {
+        let method = message.cseq?.method
+        guard method != "REGISTER", method != "OPTIONS" else { return nil }
+        if let request = message.method { return request }
+        guard let status = message.status else { return nil }
+        let reason = message.reason.map { " \($0)" } ?? ""
+        return "\(status)\(reason)\(method.map { " (\($0))" } ?? "")"
+    }
 
     private func end(_ current: Call, why: SIPEnded, tell: Bool = true) {
         guard call?.id == current.id else { return }
