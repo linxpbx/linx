@@ -885,3 +885,13 @@ What the rest of the demo's step 4–5 retests found, read from the phone's own 
   - Kept seven days, at most 100 per phone, at most 16 KB each. Trimmed on save, with no timer (migration 0049, `internal/callreport`).
   - No audio, bodies or passwords, and this phone's own addresses are never written (`docs/THREAT_MODEL.md` "Call records from the app", `docs/RESOURCES.md` §3e).
 - **Still open: AirPods connected mid-call didn't take the sound.** That couldn't be judged while answers were slow. With answers prompt, retest 5.4 and read the "Sound to …" lines in the call's record.
+
+### Smaller answers and crash reports (2026-10-11, build 20)
+
+- **The answer that took 7 s.** Build 19's call records with Asterisk's SIP log showed it: the phone sent its 200 OK at 21:14:00.7, and Asterisk received it at 21:14:08.
+  - The answer was 4.4 KB because it listed 24 candidates: 11 host TCP, which Asterisk's ICE never uses, and 11 host UDP, mostly IPv6 on every network the phone has. On a mobile uplink with a 1.5 s round trip, that took seconds, while every small message was instant.
+  - Uploads of 0.5–20 KB from the VPS to home.mym.ae took the same 0.6–0.8 s, which ruled out the front door and an MTU black hole.
+  - Fix: `tcpCandidatePolicy = .disabled`, `disableLinkLocalNetworks`, `maxIPv6Networks = 1`. Relay candidates are unchanged.
+- **Crash reports without a cable (the owner's ask).** `CrashReports` (MetricKit) takes iOS's crash diagnostics on the next launch, from `pastDiagnosticPayloads` and new deliveries. It sends each one once, as a record of kind `crash` (migration 0050), with the exception, the signal and the crashed thread's frames as binary + offset + UUID prefix. People → **Call records** shows it as **The app crashed**, in red.
+  - It goes only to the company's own server; `docs/ops/STORE_SUBMISSION.md`'s privacy answers say so.
+  - To read the frames, `atos` against the matching archive's dSYM, as on 2026-10-11.

@@ -149,3 +149,6 @@ The CLAUDE.md "Now" notes as they stood when Demo B was approved (2026-10-03), w
   - The answer was only prepared after the tap, giving 4 s of silence. It is now prepared while the phone rings.
   - Apple's push service connection on the phone had dropped, so a push arrived 20 s late and rang for nobody. A woken phone now stops 4 s after signing in if no call comes, and the server waits 10 s for a woken phone (migration 0048).
   - New, the owner's idea: **call records**. The app sends what it saw of every call, and admins read it on People → **Call records** (migration 0049, kept seven days).
+- **Smaller answers and crash reports (2026-10-11, build 20, `docs/PHASE2.md` "Smaller answers…").**
+  - The phone's answer listed 24 routes (4.4 KB) and took 7 s up a slow mobile link. It now lists only routes Asterisk can use.
+  - Crash reports reach the server by themselves, through MetricKit, on the app's next launch (migration 0050). They show in People → **Call records**.
