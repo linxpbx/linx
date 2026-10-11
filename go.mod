@@ -12,6 +12,12 @@ require (
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/libdns/desec v1.1.1
+	github.com/libdns/godaddy v1.1.0
+	github.com/libdns/libdns v1.1.1
+	github.com/libdns/namecheap v1.0.0
+	github.com/libdns/ovh v1.1.0
+	github.com/libdns/porkbun v1.1.0
 	github.com/miekg/dns v1.1.72
 	github.com/nyaruka/phonenumbers v1.8.1
 	github.com/oapi-codegen/nethttp-middleware v1.2.0
@@ -20,7 +26,7 @@ require (
 	github.com/vishvananda/netlink v1.3.1
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/term v0.46.0
 	golang.org/x/text v0.42.0
@@ -43,12 +49,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/josharian/native v1.1.0 // indirect
-	github.com/libdns/desec v1.1.1 // indirect
-	github.com/libdns/godaddy v1.1.0 // indirect
-	github.com/libdns/libdns v1.1.1 // indirect
-	github.com/libdns/namecheap v1.0.0 // indirect
-	github.com/libdns/ovh v1.1.0 // indirect
-	github.com/libdns/porkbun v1.1.0 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
 	github.com/mdlayher/netlink v1.7.2 // indirect
 	github.com/mdlayher/socket v0.5.1 // indirect
