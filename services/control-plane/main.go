@@ -35,6 +35,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/backupschedule"
 	"linxpbx.com/linx/internal/callhistory"
+	"linxpbx.com/linx/internal/callreport"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/db"
 	"linxpbx.com/linx/internal/dbsecret"
@@ -584,6 +585,7 @@ func main() {
 			s.SetHelpAnswers(helpAnswers)
 			s.SetEmail(emailSvc, weburl.FromEnv(os.Getenv))
 			s.SetPush(pushGW)
+			s.SetCallReports(&callreport.Service{Store: st, Now: time.Now})
 			routingSvc := &routing.Service{Store: st, Rules: st, Changes: st, Now: time.Now}
 			st.SetRoutingWords(routingSvc.Words)
 			s.SetRouting(routingSvc)

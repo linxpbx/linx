@@ -498,6 +498,17 @@ own review above, and are not repeated here.
   has joined, and **Start again** leaves. Nothing of a previous Linx stays
   behind.
 
+### Call records from the app (2026-10-11)
+
+After every call the Linx app sends `POST /api/v1/me/call-reports` with its device token: the Call details words and the call's SIP messages by first line. Admins read them with `GET /api/v1/devices/{id}/call-reports` (`devices:read`).
+
+| Threat | Mitigation |
+|---|---|
+| **Information disclosure:** a record holds phone numbers, timings and server-side addresses (Asterisk's container address, the relay's public one). | Only admins with `devices:read` can read them, the same people who already see call history. This phone's own addresses are never written (`WebRTCMedia.words(for:)` leaves the local address out). No message bodies, SDP, credentials or audio: only SIP first lines and the words the person could already copy. Kept seven days, at most 100 per phone, and deleted with the phone. |
+| **Spoofing:** one phone writing records for another. | The device comes from the device token's principal, never from the request body. A browser session or an API key gets 400 `not_a_phone`. |
+| **Denial of service / disk filling:** a phone (or a stolen device token) sending many records. | Each is at most 16 KB, checked in `callreport.Service` and by a database CHECK. Every save trims that phone to its newest 100, so a phone can never hold more than 1.6 MB. The device token is revoked with the phone. |
+| **Tampering:** a record with misleading text. | It is the phone's own account and is shown as plain text (React escapes it; no HTML). Nothing acts on it. |
+
 ## Pre-production review (2026-10-05)
 The whole backend, read as "a business is about to run its phones on this" rather than "does this phase work" (owner's ask, 2026-10-05). The earlier pre-launch audit was 2026-09-27, before Phases 1E, 1F and 2; this one covers everything since and re-checks the shape of the thing as a whole. Each phase's own review above stands; this doesn't repeat them.
 

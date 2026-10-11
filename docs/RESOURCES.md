@@ -143,6 +143,12 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 - **Calls:** one more comparison in `numbering_route` (an array check, plus a prefix match only for calls abroad on a level with a list): nothing measurable.
 - **CI:** the numbering Docker test now checks every country, full corpus for 15 and a smaller one for the rest: about 3 minutes, against 3 seconds for the UAE alone.
 
+## 3e. Call records from the app (2026-10-11, owner's idea)
+
+- **No new process or timer.** A phone sends one record when a call ends (one HTTPS POST of a few KB). Saving it also deletes that phone's records older than seven days or beyond its newest hundred, in the same transaction, so nothing runs on a timer to tidy up.
+- **Disk:** at most 16 KB each, and typically 2–4 KB. At most 100 per phone, so at most 1.6 MB per phone, and in practice well under 0.5 MB. A small office with ten app phones keeps a few MB at most.
+- **Data on the phone:** a few KB per call, sent after the call has ended, so it never competes with the call's sound.
+
 ## 4. Minimum and recommended hardware (as built)
 
 | | Minimum (setup refuses less) | Recommended |

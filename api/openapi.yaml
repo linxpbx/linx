@@ -1798,6 +1798,36 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/devices/{id}/call-reports:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listDeviceCallReports
+      summary: What an iPhone or iPad saw of its recent calls
+      description: >-
+        The reports the Linx app sent after each call, newest first, at
+        most a hundred and none older than seven days. A desk phone has
+        none.
+      tags: [devices]
+      security:
+        - bearer: [devices:read]
+      responses:
+        "200":
+          description: The reports.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CallReport"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/devices/{id}/reset-password:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -4299,7 +4329,9 @@ paths:
         For the Linx app, with its device token (ADR-074, docs/PHASE2.md §5).
         The app sends the token Apple gave it for calls (PushKit) and, once
         the person allows notifications, the one for a missed call or a new
-        voicemail. Sending an empty token forgets that one. Where CallKit
+        voicemail. An empty token keeps the one saved: an app woken in the
+        background may not have both yet. A token goes when Apple says it is
+        dead, and the PushKit one also when `call_alerts` is set. Where CallKit
         may not be used (mainland China, ADR-078) the app sends no PushKit
         token and sets `call_alerts` instead, and a ringing call reaches it
         as a time-sensitive notification. Anything that isn't a set-up phone
@@ -4317,11 +4349,11 @@ paths:
                 voip_token:
                   type: string
                   maxLength: 200
-                  description: The PushKit token, lower-case hex. Empty forgets it.
+                  description: The PushKit token, lower-case hex. Empty keeps the saved one.
                 alert_token:
                   type: string
                   maxLength: 200
-                  description: The notification token, lower-case hex. Empty forgets it.
+                  description: The notification token, lower-case hex. Empty keeps the saved one.
                 environment:
                   type: string
                   enum: [production, sandbox]
@@ -4336,6 +4368,30 @@ paths:
       responses:
         "204":
           description: Saved.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/me/call-reports:
+    post:
+      operationId: sendMyCallReport
+      summary: What this phone saw of a call
+      description: >-
+        For the Linx app, with its device token, after every call it made or
+        took: the words its Call details screen copies out and the call's SIP
+        messages by their first line (no bodies, no passwords). Kept seven
+        days, the newest hundred per phone, for an admin to read on the
+        phone's page. Anything that isn't a set-up phone gets 400
+        `not_a_phone`.
+      tags: [people]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CallReportInput"
+      responses:
+        "204":
+          description: Kept.
         default:
           $ref: "#/components/responses/Problem"
 
@@ -6499,6 +6555,58 @@ components:
         phone_engine_connected:
           type: boolean
 
+    CallReportInput:
+      type: object
+      additionalProperties: false
+      required: [call_id, direction, peer, started_at, report]
+      properties:
+        call_id:
+          type: string
+          maxLength: 200
+          description: The call's SIP Call-ID.
+        direction:
+          type: string
+          enum: [incoming, outgoing]
+        peer:
+          type: string
+          maxLength: 100
+          description: The other end's number.
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        report:
+          type: string
+          maxLength: 16384
+          description: The report itself, as plain text.
+    CallReport:
+      type: object
+      additionalProperties: false
+      required: [id, call_id, direction, peer, started_at, report, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        call_id:
+          type: string
+        direction:
+          type: string
+          enum: [incoming, outgoing]
+        peer:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        report:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     Device:
       description: A phone or app that rings for an extension (docs/PBX.md §3).
       type: object

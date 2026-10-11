@@ -20,6 +20,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/backupschedule"
 	"linxpbx.com/linx/internal/callhistory"
+	"linxpbx.com/linx/internal/callreport"
 	"linxpbx.com/linx/internal/email"
 	"linxpbx.com/linx/internal/enroll"
 	"linxpbx.com/linx/internal/helpanswers"
@@ -79,6 +80,8 @@ type Server struct {
 	history *callhistory.Service
 	// Ringing the app on a sleeping phone (SetPush, docs/PHASE2.md §5).
 	push *push.Gateway
+	// callReports keeps what phones saw of their calls (internal/callreport).
+	callReports *callreport.Service
 	// Email sending (SetEmail), and Linx's own address for its links.
 	email      *email.Service
 	webAddress string

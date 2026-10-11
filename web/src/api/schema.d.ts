@@ -1114,6 +1114,28 @@ export interface paths {
         patch: operations["updateDevice"];
         trace?: never;
     };
+    "/api/v1/devices/{id}/call-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What an iPhone or iPad saw of its recent calls
+         * @description The reports the Linx app sent after each call, newest first, at most a hundred and none older than seven days. A desk phone has none.
+         */
+        get: operations["listDeviceCallReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/devices/{id}/reset-password": {
         parameters: {
             query?: never;
@@ -2757,9 +2779,29 @@ export interface paths {
         put?: never;
         /**
          * Where Apple can reach this phone
-         * @description For the Linx app, with its device token (ADR-074, docs/PHASE2.md §5). The app sends the token Apple gave it for calls (PushKit) and, once the person allows notifications, the one for a missed call or a new voicemail. Sending an empty token forgets that one. Where CallKit may not be used (mainland China, ADR-078) the app sends no PushKit token and sets `call_alerts` instead, and a ringing call reaches it as a time-sensitive notification. Anything that isn't a set-up phone gets 400 `not_a_phone`.
+         * @description For the Linx app, with its device token (ADR-074, docs/PHASE2.md §5). The app sends the token Apple gave it for calls (PushKit) and, once the person allows notifications, the one for a missed call or a new voicemail. An empty token keeps the one saved: an app woken in the background may not have both yet. A token goes when Apple says it is dead, and the PushKit one also when `call_alerts` is set. Where CallKit may not be used (mainland China, ADR-078) the app sends no PushKit token and sets `call_alerts` instead, and a ringing call reaches it as a time-sensitive notification. Anything that isn't a set-up phone gets 400 `not_a_phone`.
          */
         post: operations["setMyPhonePush"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/call-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What this phone saw of a call
+         * @description For the Linx app, with its device token, after every call it made or took: the words its Call details screen copies out and the call's SIP messages by their first line (no bodies, no passwords). Kept seven days, the newest hundred per phone, for an admin to read on the phone's page. Anything that isn't a set-up phone gets 400 `not_a_phone`.
+         */
+        post: operations["sendMyCallReport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4076,6 +4118,35 @@ export interface components {
         ActiveCallList: {
             items: components["schemas"]["ActiveCall"][];
             phone_engine_connected: boolean;
+        };
+        CallReportInput: {
+            /** @description The call's SIP Call-ID. */
+            call_id: string;
+            /** @enum {string} */
+            direction: "incoming" | "outgoing";
+            /** @description The other end's number. */
+            peer: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            ended_at?: string;
+            /** @description The report itself, as plain text. */
+            report: string;
+        };
+        CallReport: {
+            /** Format: uuid */
+            id: string;
+            call_id: string;
+            /** @enum {string} */
+            direction: "incoming" | "outgoing";
+            peer: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            ended_at?: string;
+            report: string;
+            /** Format: date-time */
+            created_at: string;
         };
         /** @description A phone or app that rings for an extension (docs/PBX.md §3). */
         Device: {
@@ -7954,6 +8025,31 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    listDeviceCallReports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reports. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["CallReport"][];
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     resetDevicePassword: {
         parameters: {
             query?: never;
@@ -10541,9 +10637,9 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description The PushKit token, lower-case hex. Empty forgets it. */
+                    /** @description The PushKit token, lower-case hex. Empty keeps the saved one. */
                     voip_token?: string;
-                    /** @description The notification token, lower-case hex. Empty forgets it. */
+                    /** @description The notification token, lower-case hex. Empty keeps the saved one. */
                     alert_token?: string;
                     /**
                      * @description Which Apple this build's tokens belong to.
@@ -10560,6 +10656,29 @@ export interface operations {
         };
         responses: {
             /** @description Saved. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    sendMyCallReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallReportInput"];
+            };
+        };
+        responses: {
+            /** @description Kept. */
             204: {
                 headers: {
                     [name: string]: unknown;

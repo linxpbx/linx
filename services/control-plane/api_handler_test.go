@@ -747,9 +747,10 @@ func TestEverySecuredOperationDeclaresScopes(t *testing.T) {
 	// devices:write before making one for someone else. /me/phone-line is
 	// the app's own phone line, refused to anything but a phone's device
 	// token (docs/PHASE2.md §4), and /me/phone-push is where that same
-	// phone says where Apple can reach it (§5).
+	// phone says where Apple can reach it (§5); /me/call-reports is what it
+	// saw of each call (internal/callreport).
 	anyCredential := []string{"ChangeMyEmail", "CheckMyPassword", "ListMySessions", "SignOutMySession", "SignOutMyOtherSessions", "GetMe", "ListEventTypes", "BeginMyMfaEnrollment", "ConfirmMyMfaEnrollment", "ChangeMyPassword",
-		"IssueMyWebPhone", "IssueMyPhoneLine", "SetMyPhonePush", "GetMyTurnCredentials", "SetMyPresence",
+		"IssueMyWebPhone", "IssueMyPhoneLine", "SetMyPhonePush", "SendMyCallReport", "GetMyTurnCredentials", "SetMyPresence",
 		"ListMyPasskeys", "RenameMyPasskey", "RemoveMyPasskey", "AcceptPasswordOnly",
 		"ListMyCompanyLinks", "UnlinkMyCompanyAccount",
 		"ListVoicemail", "UpdateVoicemail", "DeleteVoicemail", "GetMyVoicemailCount", "GetVoicemailBox", "UpdateVoicemailBox",
