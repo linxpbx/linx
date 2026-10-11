@@ -450,6 +450,32 @@ struct SoundOnTheRoadTests {
         #expect(report.callID == again.callID)
     }
 
+    @Test("an answer lets Asterisk start the encryption, so nothing is thrown away")
+    func asteriskStartsTheEncryption() {
+        // Asterisk dropped a DTLS handshake that came before its side of the
+        // route was confirmed, and WebRTC waited seconds to try again.
+        let offer = "v=0\r\na=setup:actpass\r\n"
+        #expect(SDPTweaks.letThemStartTheEncryption("a=setup:active\r\n", offer: offer) == "a=setup:passive\r\n")
+        // An offer that has already chosen is answered as it must be.
+        #expect(
+            SDPTweaks.letThemStartTheEncryption("a=setup:active\r\n", offer: "a=setup:passive\r\n")
+                == "a=setup:active\r\n")
+    }
+
+    @Test("a relay reserved ahead is taken only by a call with the same relay and credentials")
+    func reservationsMatchTheirRelay() {
+        let turn = PhoneLine.Turn(
+            urls: ["turn:turn.example.com:443?transport=udp"], username: "u1", credential: "c",
+            expiresAt: Date(timeIntervalSinceNow: 3600), maxBitrateBps: 1_280_000)
+        let same = WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]])
+        #expect(same == WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]]))
+        let renewed = PhoneLine.Turn(
+            urls: turn.urls, username: "u2", credential: "c", expiresAt: turn.expiresAt, maxBitrateBps: 1_280_000)
+        #expect(same != WebRTCMedia.reservationKey(renewed, ["turn.example.com": ["203.0.113.5"]]))
+        #expect(same != WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.9"]]))
+        #expect(WebRTCMedia.reservationKey(nil, [:]).isEmpty)
+    }
+
     @Test("a call offers only the routes Asterisk can use, so its answer stays small")
     func onlyUsefulRoutes() {
         // A 4.4 KB answer listing 24 routes took 7 s up a slow mobile link

@@ -159,6 +159,15 @@ import UIKit
     private let lineForThisPhone: @MainActor () async -> Line?
     /// Sends what this phone saw of a call to Linx when it ends.
     private let sendReport: @MainActor (Line, CallReport) -> Void
+    /// Keeps a relay reserved for the next call while someone could be about
+    /// to call or be called: the app is in front, or a push has woken it for
+    /// a call that is on its way (`WebRTCMedia.reserveTheRelay`). Not while
+    /// a call is up, which is already using one.
+    private func reserveTheRelayIfWanted() {
+        guard call == nil, inFront() || !waking.isEmpty, let relay else { return }
+        Task { await WebRTCMedia.reserveTheRelay(relay) }
+    }
+
     /// The line in use, which is where a call's record goes.
     private var lineInUse: Line?
     /// The call's SIP messages so far, by their first line, for its record.
@@ -256,6 +265,7 @@ import UIKit
                     guard !Task.isCancelled else { return }
                     self.relay = fresh
                     RelayAddresses.warm(RelayCertificates.hosts(in: fresh.urls))
+                    self.reserveTheRelayIfWanted()
                     // A call that is already up gets them too, so a long
                     // call can still mend a broken route.
                     self.liveMedia?.use(relay: fresh)
@@ -271,6 +281,7 @@ import UIKit
     /// stop closes the line (the app went away, or the person signed out).
     func stop() {
         stopped = true
+        WebRTCMedia.releaseTheRelay()
         reconnect?.cancel()
         reconnect = nil
         relayRefresh?.cancel()
@@ -307,6 +318,7 @@ import UIKit
         // Look the relay up now, through iOS, so the first call finds its
         // address already known (`RelayAddresses`).
         RelayAddresses.warm(RelayCertificates.hosts(in: line.line.turn.urls))
+        reserveTheRelayIfWanted()
         keepTheRelayFresh(for: line)
         let agent = SIPUserAgent(
             account: account, transport: makeTransport(account),
@@ -336,7 +348,13 @@ import UIKit
         agent.onEnded = { [weak self] why in self?.ended(why) }
         agent.onVideoRefused = { [weak self] why in self?.problem = why }
         agent.onTrace = { [weak self] words in
-            guard let self, self.sipTrace.count < Self.mostTraced else { return }
+            guard let self else { return }
+            // A call starts with its INVITE: whatever came before it (the
+            // last call's goodbye answered late) belongs to no call.
+            if words.hasSuffix(" INVITE"), !self.sipTrace.contains(where: { $0.what.hasSuffix(" INVITE") }) {
+                self.sipTrace = []
+            }
+            guard self.sipTrace.count < Self.mostTraced else { return }
             self.sipTrace.append((Date(), words))
         }
         self.agent = agent
@@ -353,6 +371,7 @@ import UIKit
             self.status = .ready
             problem = nil
             waitLessForWhatWasWoken()
+            reserveTheRelayIfWanted()
         case .reconnecting:
             self.status = .reconnecting
             retryLater()
@@ -965,6 +984,8 @@ import UIKit
         calls.reportEnded(id: finished.id, Self.ending(why))
         if case .failed(let said) = why { problem = said }
         sendTheRecord(of: finished, why: why)
+        // The call took the reserved relay with it: reserve the next one.
+        reserveTheRelayIfWanted()
         defer { closeIfNobodyIsLooking() }
         guard finished.peer.number != Self.echoTest else { return }
         let kind: Recent.Kind =

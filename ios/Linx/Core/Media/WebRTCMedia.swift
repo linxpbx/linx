@@ -366,6 +366,7 @@ struct PictureWatch {
     }
 
     func answer(to offer: String) async throws -> String {
+        if diagnostics.steps.isEmpty { note { $0.steps = [.init(what: "Call arrived", at: Date())] } }
         await lookUpTheRelay()
         let connection = try start()
         try await setRemote(RTCSessionDescription(type: .offer, sdp: offer))
@@ -383,8 +384,12 @@ struct PictureWatch {
                 done.resume(returning: description.sdp)
             }
         }
-        try await setLocal(RTCSessionDescription(type: .answer, sdp: SDPTweaks.preferOpusFecDtx(local)))
+        // Asterisk starts the encryption once its own side of the route is
+        // confirmed (`SDPTweaks.letThemStartTheEncryption`).
+        let answer = SDPTweaks.letThemStartTheEncryption(SDPTweaks.preferOpusFecDtx(local), offer: offer)
+        try await setLocal(RTCSessionDescription(type: .answer, sdp: answer))
         await waitForCandidates()
+        mark("Answer ready")
         guard let full = connection.localDescription?.sdp else { throw MediaTrouble.noAnswer }
         capWhatThisPhoneSends()
         startWatching()
@@ -851,6 +856,10 @@ struct PictureWatch {
         // slow mobile uplink while the caller heard it ring on (2026-10-11).
         // The relay still has its TCP and TLS ways in; they are relay
         // candidates, which this doesn't touch.
+        // One set of routes gathered as soon as the connection is made,
+        // rather than when the call's offer or answer is: a connection made
+        // ahead of the call (`reserveTheRelay`) has its relay ready by then.
+        configuration.iceCandidatePoolSize = 1
         configuration.tcpCandidatePolicy = .disabled
         configuration.disableLinkLocalNetworks = true
         configuration.maxIPv6Networks = 1
@@ -863,21 +872,92 @@ struct PictureWatch {
         Self.configuration(relay: turn, addresses: relayAddresses, relayOnly: relayOnly)
     }
 
+    // MARK: - The relay, reserved ahead of the call
+
+    /// A connection made before any call, with its routes (the relay above
+    /// all) already gathered. Reserving a relay on a mobile network took
+    /// about five seconds, and it used to start only when the call arrived,
+    /// so the person answered into silence (2026-10-11). The phone keeps one
+    /// ready while the app is in front and from the moment a push wakes it,
+    /// and the next call takes it over. It goes when the app goes to the
+    /// background, so nothing is held for a phone nobody is using.
+    private struct Reservation {
+        let key: String
+        let connection: RTCPeerConnection
+        let verifier: RelayCertificates
+        let delegate: NobodyListening
+        let made: Date
+    }
+
+    private static var reservation: Reservation?
+    /// Relay credentials are good for an hour and the line refreshes them;
+    /// a reservation older than this is made again.
+    private static let reservationLasts: TimeInterval = 20 * 60
+
+    nonisolated static func reservationKey(_ turn: PhoneLine.Turn?, _ addresses: [String: [String]]) -> String {
+        guard let turn else { return "" }
+        let found = addresses.keys.sorted().map { "\($0)=\(addresses[$0]!.sorted().joined(separator: ","))" }
+        return ([turn.username] + turn.urls + found).joined(separator: "|")
+    }
+
+    /// Reserves a relay for the next call, unless one for the same relay
+    /// and credentials is already waiting.
+    static func reserveTheRelay(_ turn: PhoneLine.Turn?) async {
+        guard let turn, !turn.urls.isEmpty else { return }
+        let addresses = await RelayAddresses.addresses(for: RelayCertificates.hosts(in: turn.urls))
+        let key = reservationKey(turn, addresses)
+        if let held = reservation, held.key == key, Date().timeIntervalSince(held.made) < reservationLasts {
+            return
+        }
+        releaseTheRelay()
+        let verifier = RelayCertificates(relay: turn)
+        let delegate = NobodyListening()
+        guard
+            let connection = factory.peerConnection(
+                with: configuration(relay: turn, addresses: addresses), constraints: noConstraints,
+                certificateVerifier: verifier, delegate: delegate)
+        else { return }
+        reservation = Reservation(
+            key: key, connection: connection, verifier: verifier, delegate: delegate, made: Date())
+    }
+
+    /// Lets the reserved relay go.
+    static func releaseTheRelay() {
+        reservation?.connection.close()
+        reservation = nil
+    }
+
+    private static func takeTheReservation(_ key: String) -> RTCPeerConnection? {
+        guard let held = reservation, held.key == key, Date().timeIntervalSince(held.made) < reservationLasts
+        else { return nil }
+        reservation = nil
+        return held.connection
+    }
+
     private func start() throws -> RTCPeerConnection {
         if let connection { return connection }
         Self.live = self
         Self.prepareAudioSession()
         watchTheRoute()
-        let configuration = configuration()
-        // Who says the relay's TLS certificate is good: iOS, not the list
-        // frozen inside WebRTC (`RelayCertificates`). Without this, a relay
-        // certificate newer than the library is refused and a call that needs
-        // the relay has nowhere for its sound to go.
-        guard
-            let connection = Self.factory.peerConnection(
-                with: configuration, constraints: Self.noConstraints,
-                certificateVerifier: RelayCertificates(relay: turn), delegate: self)
-        else { throw MediaTrouble.noOffer }
+        let connection: RTCPeerConnection
+        if let ready = Self.takeTheReservation(Self.reservationKey(turn, relayAddresses)) {
+            // Made ahead of the call, its relay already reserved: the call
+            // takes it over and its routes are ready at once.
+            ready.delegate = self
+            connection = ready
+            mark("Relay reserved ahead")
+        } else {
+            // Who says the relay's TLS certificate is good: iOS, not the list
+            // frozen inside WebRTC (`RelayCertificates`). Without this, a relay
+            // certificate newer than the library is refused and a call that
+            // needs the relay has nowhere for its sound to go.
+            guard
+                let made = Self.factory.peerConnection(
+                    with: configuration(), constraints: Self.noConstraints,
+                    certificateVerifier: RelayCertificates(relay: turn), delegate: self)
+            else { throw MediaTrouble.noOffer }
+            connection = made
+        }
         let source = Self.factory.audioSource(with: Self.microphone)
         let track = Self.factory.audioTrack(with: source, trackId: "linx-audio")
         connection.add(track, streamIds: ["linx"])
@@ -1262,6 +1342,9 @@ extension WebRTCMedia: RTCPeerConnectionDelegate {
         // whole gathering (the browser does the same).
         let relay = candidate.sdp.contains(" typ relay")
         Task { @MainActor in
+            if let kind, !self.diagnostics.found.contains(kind), kind == CallDiagnostics.theRelay {
+                self.mark("Relay ready")
+            }
             if let kind { self.note { if !$0.found.contains(kind) { $0.found.append(kind) } } }
             guard relay else { return }
             try? await Task.sleep(for: Self.afterRelayCandidate)
@@ -1358,4 +1441,19 @@ extension WebRTCMedia: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(
         _ connection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel
     ) {}
+}
+
+/// The delegate of a connection made ahead of the call, before any call
+/// wants to hear from it (`WebRTCMedia.reserveTheRelay`). The call that
+/// takes the connection over becomes its delegate.
+final class NobodyListening: NSObject, RTCPeerConnectionDelegate {
+    func peerConnection(_ connection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
+    func peerConnection(_ connection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}
+    func peerConnection(_ connection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
+    func peerConnectionShouldNegotiate(_ connection: RTCPeerConnection) {}
+    func peerConnection(_ connection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {}
+    func peerConnection(_ connection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+    func peerConnection(_ connection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {}
+    func peerConnection(_ connection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
+    func peerConnection(_ connection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
 }

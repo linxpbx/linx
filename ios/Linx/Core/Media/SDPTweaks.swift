@@ -19,6 +19,18 @@ enum SDPTweaks {
     /// link down to what the first seconds of the call could manage.
     static let videoMaxBitrate = VideoQuality.hd.bitrate
 
+    /// letThemStartTheEncryption answers an offer that lets either side start
+    /// the DTLS handshake (`actpass`) as the side that waits (`passive`).
+    /// Asterisk drops a handshake that arrives before its own side of the
+    /// route is confirmed, and WebRTC then waits one, two, four seconds
+    /// before trying again: a call answered on mobile data had its sound
+    /// start seconds late (2026-10-11). As the side that starts, Asterisk
+    /// begins the moment it is ready, and nothing is thrown away.
+    static func letThemStartTheEncryption(_ answer: String, offer: String) -> String {
+        guard offer.contains("a=setup:actpass") else { return answer }
+        return answer.replacingOccurrences(of: "a=setup:active", with: "a=setup:passive")
+    }
+
     /// preferOpusFecDtx writes the Opus settings into an SDP this phone is
     /// about to send. An SDP without Opus is left exactly as it was.
     static func preferOpusFecDtx(_ sdp: String) -> String {
