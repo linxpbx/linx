@@ -746,6 +746,22 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
       if (d) d.revoked_at = now();
       return route.fulfill({ status: 204 });
     }
+    if (devId && p === `/api/v1/devices/${devId}/call-reports` && method === "GET") {
+      const started = new Date(Date.now() - 20 * 60_000);
+      const report = [
+        "Linx call details", "to: 1024", "connection: connected", "route: relayed (udp)",
+        "sound in: 6839 bytes, out: 11725 bytes", "round trip: 214 ms", "found: this network, the internet, Linx's relay",
+        "+2.0 s Answered", "+2.3 s Route now relay/udp → host/udp 172.24.0.2", "+2.4 s First sound arrived",
+        "this phone offered: host/udp, relay/tls, relay/udp, srflx/udp", "routes tried:",
+        "  relay/udp → host/udp 172.24.0.2: succeeded, in use, 214 ms",
+        "sip:", "  +0.0 s ← INVITE", "  +0.0 s → 180 Ringing", "  +2.0 s → 200 OK", "  +2.1 s ← ACK", "  +42.0 s ← BYE",
+      ].join("\n");
+      return route.fulfill(json({ items: [{
+        id: "cr1", call_id: "a84bc93d4c3f@pbx", direction: "incoming", peer: "1024",
+        started_at: started.toISOString(), ended_at: new Date(started.getTime() + 42_000).toISOString(),
+        report, created_at: new Date(started.getTime() + 43_000).toISOString(),
+      }] }));
+    }
     if (devId && p === `/api/v1/devices/${devId}/reset-password` && method === "POST") {
       const d = people.devices.find((x) => x.id === devId);
       if (!d) return route.fulfill(json({ type: "about:blank", title: "Not Found", status: 404, code: "not_found", detail: "No." }, 404));

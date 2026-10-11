@@ -127,6 +127,12 @@ My account → **My phones** → **I've lost it**. It stops at once and for good
 
 Even if someone has the phone, they can't use it to be you: the key is inside the phone and can't be copied, and the phone stops by itself after 6 months with no contact. Stopping it also makes Linx forget how to ring it, so nothing more is sent to that phone at all.
 
+## When a call went wrong (admins)
+
+After every call it makes or takes, the app sends Linx a short record of what it saw: how the call was set up, the route it took through the network, the sound in and out, and anything that failed. Never the sound itself, and no passwords. People → the person → **Call records** beside the phone shows the last seven days, newest first. Open one to read it, or **Copy** it to send to whoever looks after your Linx.
+
+It's the same as the **Copy these details** text from the call screen, kept for you, so nobody has to remember to copy it during a call that's going wrong.
+
 ## Settings on the phone
 
 **More** → **Settings**: your status, how this phone's line is doing, which extension it answers, which **Person** it signs in as and which **Linx server** it was set up on, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**. Two more:

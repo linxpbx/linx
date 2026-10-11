@@ -380,6 +380,13 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByText("Sara's iPad")).toBeVisible();
       await expect(page.getByText("Set it up again")).toBeVisible();
       await shot(page, `${scheme}-person-phones`);
+      // What the phone saw of its calls, for working out what went wrong.
+      await page.getByRole("button", { name: "Call records" }).first().click();
+      await expect(page.getByRole("heading", { name: /Call records:/ })).toBeVisible();
+      await page.getByText(/Incoming from 1024/).click();
+      await expect(page.getByText("route: relayed (udp)", { exact: false })).toBeVisible();
+      await shot(page, `${scheme}-phone-call-records`);
+      await page.keyboard.press("Escape");
       await page.getByRole("button", { name: "+ Add phone" }).click();
       await page.getByRole("radio", { name: "iPad" }).click();
       await page.getByRole("button", { name: "Email a link to Sara" }).click();

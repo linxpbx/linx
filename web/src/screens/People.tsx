@@ -6,6 +6,7 @@ import { api, problemMessage, type Me } from "@/api/client";
 import type { components } from "@/api/schema";
 import { AddChooserDialog, useAlwaysQuickAdd } from "@/components/AddChooser";
 import { AddPhoneDialog, PhoneRow } from "@/components/AddPhone";
+import { CallRecordsDialog } from "@/components/CallRecords";
 import { needsConfirm, useConfirmIdentity } from "@/components/ConfirmIdentity";
 import { DataTable } from "@/components/DataTable";
 import { Dot } from "@/components/presence";
@@ -382,6 +383,7 @@ function PhonesSection({ me, user, emailOn }: { me: Me; user: User; emailOn: boo
   const [phones, setPhones] = useState<Device[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<Device | null>(null);
+  const [records, setRecords] = useState<Device | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
@@ -415,11 +417,15 @@ function PhonesSection({ me, user, emailOn }: { me: Me; user: User; emailOn: boo
         {phones?.length === 0 && user.extension_id && <p className="text-sm text-muted-foreground">No iPhone or iPad yet.</p>}
         {phones?.map((d) => (
           <PhoneRow key={d.id} device={d} now={now}
-            actions={<Button size="sm" variant="outline" onClick={() => setRemoving(d)}>Stop it</Button>} />
+            actions={<>
+              <Button size="sm" variant="outline" onClick={() => setRecords(d)}>Call records</Button>
+              <Button size="sm" variant="outline" onClick={() => setRemoving(d)}>Stop it</Button>
+            </>} />
         ))}
       </div>
       <AddPhoneDialog me={me} open={adding} onOpenChange={setAdding} personName={user.name} userId={user.id}
         emailOn={emailOn} isMe={false} onSetUp={() => void load()} />
+      <CallRecordsDialog device={records} onClose={() => setRecords(null)} />
       <Dialog open={!!removing} onOpenChange={(o) => { if (!o) setRemoving(null); }}>
         <DialogContent>
           <DialogHeader>
