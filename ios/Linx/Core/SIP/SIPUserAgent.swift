@@ -298,7 +298,13 @@ struct AudioRoute: Equatable, Sendable {
         else { return }
         let answer: String
         do {
-            answer = try await incoming.media.answer(to: invite.body)
+            // Made while it rang; a call answered before that finished
+            // waits only for what's left of it.
+            if let preparing = incoming.preparing {
+                answer = try await preparing.value
+            } else {
+                answer = try await incoming.media.answer(to: invite.body)
+            }
         } catch {
             send(.response(500, "Server Internal Error", to: invite).withTag(incoming.localTag))
             end(incoming, why: .failed("This phone couldn't start the call's sound."))
@@ -771,6 +777,8 @@ struct AudioRoute: Equatable, Sendable {
         incoming.remoteURI = SIPMessage.uri(in: from)
         incoming.remoteTarget = SIPMessage.uri(in: invite.first("Contact") ?? from)
         incoming.routeSet = invite.all("Record-Route")
+        let media = incoming.media
+        incoming.preparing = Task { try await media.answer(to: invite.body) }
         call = incoming
         var ringing = SIPMessage.response(180, "Ringing", to: invite).withTag(incoming.localTag)
         ringing.add("Contact", contact)
@@ -889,6 +897,7 @@ struct AudioRoute: Equatable, Sendable {
     private func end(_ current: Call, why: SIPEnded, tell: Bool = true) {
         guard call?.id == current.id else { return }
         call?.timeout?.cancel()
+        call?.preparing?.cancel()
         current.media.stop()
         call = nil
         if tell { onEnded?(why) }
@@ -946,6 +955,11 @@ struct AudioRoute: Equatable, Sendable {
         var routeSet: [String] = []
         var inviteBranch = ""
         var invite: SIPMessage?
+        /// The answer, being made while the phone rings: looking the relay
+        /// up and gathering this phone's routes takes seconds, and doing it
+        /// after the person pressed Answer left them in silence and the
+        /// caller hearing it ring on (2026-10-11).
+        var preparing: Task<String, Error>?
         var offer: String?
         var credentials: Credentials?
         var attempts = 0
