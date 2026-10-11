@@ -2798,8 +2798,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * What this phone saw of a call
-         * @description For the Linx app, with its device token, after every call it made or took: the words its Call details screen copies out and the call's SIP messages by their first line (no bodies, no passwords). Kept seven days, the newest hundred per phone, for an admin to read on the phone's page. Anything that isn't a set-up phone gets 400 `not_a_phone`.
+         * What this phone saw of a call, or of a crash
+         * @description For the Linx app, with its device token, after every call it made or took: the words its Call details screen copies out and the call's SIP messages by their first line (no bodies, no passwords). Also a crash of the app, as iOS reported it the next time the app ran (`kind` crash: the exception and the crashed thread's frames, unsymbolicated). Kept seven days, the newest hundred per phone, for an admin to read on the phone's page. Anything that isn't a set-up phone gets 400 `not_a_phone`.
          */
         post: operations["sendMyCallReport"];
         delete?: never;
@@ -4120,10 +4120,19 @@ export interface components {
             phone_engine_connected: boolean;
         };
         CallReportInput: {
-            /** @description The call's SIP Call-ID. */
+            /**
+             * @description A call, or a crash of the app that iOS reported the next time it ran (MetricKit). A crash has no direction and an empty `peer`.
+             * @default call
+             * @enum {string}
+             */
+            kind: "call" | "crash";
+            /** @description The call's id, or the crash's. */
             call_id: string;
-            /** @enum {string} */
-            direction: "incoming" | "outgoing";
+            /**
+             * @description A call's direction; left out for a crash.
+             * @enum {string}
+             */
+            direction?: "incoming" | "outgoing";
             /** @description The other end's number. */
             peer: string;
             /** Format: date-time */
@@ -4136,9 +4145,11 @@ export interface components {
         CallReport: {
             /** Format: uuid */
             id: string;
+            /** @enum {string} */
+            kind: "call" | "crash";
             call_id: string;
             /** @enum {string} */
-            direction: "incoming" | "outgoing";
+            direction?: "incoming" | "outgoing";
             peer: string;
             /** Format: date-time */
             started_at: string;

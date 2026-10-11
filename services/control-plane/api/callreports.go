@@ -28,8 +28,15 @@ func (s *Server) SendMyCallReport(ctx context.Context, req SendMyCallReportReque
 		return fail(&apihttp.Error{Status: http.StatusBadRequest, Code: "not_a_phone",
 			Detail: "This only works for the Linx app on a phone that has been set up."})
 	}
+	kind, direction := callreport.KindCall, ""
+	if req.Body.Kind != nil {
+		kind = string(*req.Body.Kind)
+	}
+	if req.Body.Direction != nil {
+		direction = string(*req.Body.Direction)
+	}
 	err := s.callReports.Save(ctx, p.TenantID, *p.DeviceID, callreport.Report{
-		CallID: req.Body.CallId, Direction: string(req.Body.Direction), Peer: req.Body.Peer,
+		Kind: kind, CallID: req.Body.CallId, Direction: direction, Peer: req.Body.Peer,
 		StartedAt: req.Body.StartedAt, EndedAt: req.Body.EndedAt, Text: req.Body.Report,
 	})
 	if err != nil {
@@ -65,8 +72,13 @@ func (s *Server) ListDeviceCallReports(ctx context.Context, req ListDeviceCallRe
 	}
 	out := ListDeviceCallReports200JSONResponse{Items: make([]CallReport, 0, len(reports))}
 	for _, r := range reports {
-		out.Items = append(out.Items, CallReport{Id: r.ID, CallId: r.CallID, Direction: CallReportDirection(r.Direction),
-			Peer: r.Peer, StartedAt: r.StartedAt, EndedAt: r.EndedAt, Report: r.Text, CreatedAt: r.CreatedAt})
+		item := CallReport{Id: r.ID, Kind: CallReportKind(r.Kind), CallId: r.CallID, Peer: r.Peer,
+			StartedAt: r.StartedAt, EndedAt: r.EndedAt, Report: r.Text, CreatedAt: r.CreatedAt}
+		if r.Direction != "" {
+			d := CallReportDirection(r.Direction)
+			item.Direction = &d
+		}
+		out.Items = append(out.Items, item)
 	}
 	return out, nil
 }

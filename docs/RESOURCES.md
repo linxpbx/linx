@@ -148,6 +148,7 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 - **No new process or timer.** A phone sends one record when a call ends (one HTTPS POST of a few KB). Saving it also deletes that phone's records older than seven days or beyond its newest hundred, in the same transaction, so nothing runs on a timer to tidy up.
 - **Disk:** at most 16 KB each, and typically 2–4 KB. At most 100 per phone, so at most 1.6 MB per phone, and in practice well under 0.5 MB. A small office with ten app phones keeps a few MB at most.
 - **Data on the phone:** a few KB per call, sent after the call has ended, so it never competes with the call's sound.
+- **Crash reports** (migration 0050) share the same table and limits. A crash is a few KB, and there should be none. MetricKit runs inside iOS, and the app only listens for its deliveries: no timer, no extra work at launch beyond reading what iOS already has.
 
 ## 4. Minimum and recommended hardware (as built)
 

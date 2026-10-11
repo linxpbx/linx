@@ -79,6 +79,17 @@ func TestCallReportsDocker(t *testing.T) {
 		t.Errorf("newest first: got %q first", got[0].CallID)
 	}
 
+	// A crash is kept beside the calls, with no direction or other end.
+	clock = clock.Add(time.Second)
+	if err := svc.Save(ctx, tenant, phone.ID, callreport.Report{Kind: callreport.KindCrash, CallID: "crash-1",
+		StartedAt: clock, Text: "EXC_BREAKPOINT (SIGTRAP)"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = svc.List(ctx, tenant, phone.ID)
+	if err != nil || got[0].Kind != callreport.KindCrash || got[0].Direction != "" || got[1].Kind != callreport.KindCall {
+		t.Fatalf("after a crash: first %+v, %v", got[0], err)
+	}
+
 	// Another company sees none of them.
 	if other, err := svc.List(ctx, uuid.Must(uuid.NewV7()), phone.ID); err != nil || len(other) != 0 {
 		t.Errorf("another tenant saw %d reports, %v", len(other), err)

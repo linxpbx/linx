@@ -29,9 +29,17 @@ const (
 	MaxPeer      = 100
 )
 
-// Report is one call, as one phone saw it.
+// What a record is about.
+const (
+	KindCall  = "call"
+	KindCrash = "crash"
+)
+
+// Report is one call, or one crash of the app, as one phone saw it.
 type Report struct {
-	ID        uuid.UUID
+	ID uuid.UUID
+	// Kind is KindCall or KindCrash; empty means a call.
+	Kind      string
 	TenantID  uuid.UUID
 	DeviceID  uuid.UUID
 	CallID    string
@@ -65,9 +73,16 @@ var errInvalid = func(detail string) error {
 // Save keeps a report sent by device.
 func (s *Service) Save(ctx context.Context, tenant, device uuid.UUID, r Report) error {
 	now := s.Now().UTC()
+	if r.Kind == "" {
+		r.Kind = KindCall
+	}
 	switch {
-	case r.Direction != "incoming" && r.Direction != "outgoing":
+	case r.Kind != KindCall && r.Kind != KindCrash:
+		return errInvalid("A record is about a call or a crash.")
+	case r.Kind == KindCall && r.Direction != "incoming" && r.Direction != "outgoing":
 		return errInvalid("A call is either incoming or outgoing.")
+	case r.Kind == KindCrash && (r.Direction != "" || r.Peer != ""):
+		return errInvalid("A crash has no direction and no other end.")
 	case strings.TrimSpace(r.CallID) == "" || len(r.CallID) > MaxCallID:
 		return errInvalid("The call's id is missing or too long.")
 	case len(r.Peer) > MaxPeer:

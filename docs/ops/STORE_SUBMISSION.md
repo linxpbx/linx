@@ -26,7 +26,7 @@ A suggested note is in §7.
 
 ### Privacy — "data collected"
 
-**Nothing.** Linx's makers receive no data at all: calls, voicemail, the directory and call history live on the company's own server. In App Store Connect's privacy form, every category is **not collected**, and **no tracking**.
+**Nothing.** Linx's makers receive no data at all: calls, voicemail, the directory and call history live on the company's own server. So do the app's **call records and crash reports** (2026-10-11): after a call, or on the next launch after a crash, the app sends them to the same company server it already talks to, for that company's admins. They never reach Linx's makers, Apple's crash service or anyone else. In App Store Connect's privacy form, every category is **not collected**, and **no tracking**.
 
 The app ships `ios/Linx/PrivacyInfo.xcprivacy` saying exactly that, plus the one required-reason API it uses — user defaults (`CA92.1`), for the handful of choices a phone remembers for itself: light or dark, whether Linx calls appear in the iPhone's own Recents, which camera a video call starts on, and who is starred. Google's WebRTC carries its own manifest inside the framework.
 
@@ -119,7 +119,7 @@ Checked against the **shipped binary**, not the source: `Payload/Linx.app` out o
 | Purpose strings | camera, microphone **and local network** — the one people forget, which iOS prompts for because WebRTC looks for a short route — all in plain words |
 | Encryption | `ITSAppUsesNonExemptEncryption = false`, so TestFlight never stops to ask |
 | Privacy manifest | present at the bundle root; no data collected, no tracking, and the one required-reason API declared (`UserDefaults`, `CA92.1`) is **exactly** the one the code uses — checked by searching the app for every other reason category |
-| Tracking | none: no analytics, no crash reporter, no IDFA, no App Tracking Transparency, no third-party SDK but WebRTC |
+| Tracking | none: no analytics, no third-party crash reporter, no IDFA, no App Tracking Transparency, no third-party SDK but WebRTC. MetricKit's crash reports and the call records go only to the company's own Linx server (above). |
 | Private API | none: no `valueForKey`, `performSelector`, `NSClassFromString` or `_UI…` anywhere |
 | Web views | none, so Guideline 4.2's "a website in a wrapper" doesn't arise |
 | Accounts | the app creates none — an administrator does, on the company's own server — so 5.1.1's in-app deletion rule doesn't apply. **It must still be said in the review notes**, because the automated pass reads a sign-in screen and asks |

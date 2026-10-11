@@ -25,13 +25,15 @@ func TestSaveChecksWhatThePhoneSends(t *testing.T) {
 	s := Service{Store: m, Now: time.Now}
 	good := Report{CallID: "abc", Direction: "outgoing", Peer: "042144444", StartedAt: time.Now(), Text: "Linx call details"}
 	for name, change := range map[string]func(*Report){
-		"no direction": func(r *Report) { r.Direction = "sideways" },
-		"no call id":   func(r *Report) { r.CallID = " " },
-		"long call id": func(r *Report) { r.CallID = strings.Repeat("x", MaxCallID+1) },
-		"long peer":    func(r *Report) { r.Peer = strings.Repeat("1", MaxPeer+1) },
-		"empty report": func(r *Report) { r.Text = "" },
-		"too big":      func(r *Report) { r.Text = strings.Repeat("x", MaxReport+1) },
-		"not text":     func(r *Report) { r.Text = "\xff\xfe" },
+		"no direction":  func(r *Report) { r.Direction = "sideways" },
+		"no call id":    func(r *Report) { r.CallID = " " },
+		"long call id":  func(r *Report) { r.CallID = strings.Repeat("x", MaxCallID+1) },
+		"long peer":     func(r *Report) { r.Peer = strings.Repeat("1", MaxPeer+1) },
+		"empty report":  func(r *Report) { r.Text = "" },
+		"too big":       func(r *Report) { r.Text = strings.Repeat("x", MaxReport+1) },
+		"not text":      func(r *Report) { r.Text = "\xff\xfe" },
+		"unknown kind":  func(r *Report) { r.Kind = "hunch" },
+		"crash, a peer": func(r *Report) { r.Kind, r.Direction = KindCrash, "" },
 	} {
 		r := good
 		change(&r)
@@ -43,7 +45,12 @@ func TestSaveChecksWhatThePhoneSends(t *testing.T) {
 	if err := s.Save(context.Background(), tenant, device, good); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.saved) != 1 || m.saved[0].TenantID != tenant || m.saved[0].DeviceID != device || m.saved[0].ID == uuid.Nil {
+	if len(m.saved) != 1 || m.saved[0].TenantID != tenant || m.saved[0].DeviceID != device || m.saved[0].ID == uuid.Nil ||
+		m.saved[0].Kind != KindCall {
 		t.Errorf("saved %+v", m.saved)
+	}
+	crash := Report{Kind: KindCrash, CallID: "crash-1", StartedAt: time.Now(), Text: "EXC_BREAKPOINT"}
+	if err := s.Save(context.Background(), tenant, device, crash); err != nil {
+		t.Errorf("a crash was refused: %v", err)
 	}
 }

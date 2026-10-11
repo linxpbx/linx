@@ -4374,11 +4374,13 @@ paths:
   /api/v1/me/call-reports:
     post:
       operationId: sendMyCallReport
-      summary: What this phone saw of a call
+      summary: What this phone saw of a call, or of a crash
       description: >-
         For the Linx app, with its device token, after every call it made or
         took: the words its Call details screen copies out and the call's SIP
-        messages by their first line (no bodies, no passwords). Kept seven
+        messages by their first line (no bodies, no passwords). Also a crash
+        of the app, as iOS reported it the next time the app ran (`kind`
+        crash: the exception and the crashed thread's frames, unsymbolicated). Kept seven
         days, the newest hundred per phone, for an admin to read on the
         phone's page. Anything that isn't a set-up phone gets 400
         `not_a_phone`.
@@ -6558,15 +6560,23 @@ components:
     CallReportInput:
       type: object
       additionalProperties: false
-      required: [call_id, direction, peer, started_at, report]
+      required: [call_id, peer, started_at, report]
       properties:
+        kind:
+          type: string
+          enum: [call, crash]
+          default: call
+          description: >-
+            A call, or a crash of the app that iOS reported the next time it
+            ran (MetricKit). A crash has no direction and an empty `peer`.
         call_id:
           type: string
           maxLength: 200
-          description: The call's SIP Call-ID.
+          description: The call's id, or the crash's.
         direction:
           type: string
           enum: [incoming, outgoing]
+          description: A call's direction; left out for a crash.
         peer:
           type: string
           maxLength: 100
@@ -6584,11 +6594,14 @@ components:
     CallReport:
       type: object
       additionalProperties: false
-      required: [id, call_id, direction, peer, started_at, report, created_at]
+      required: [id, kind, call_id, peer, started_at, report, created_at]
       properties:
         id:
           type: string
           format: uuid
+        kind:
+          type: string
+          enum: [call, crash]
         call_id:
           type: string
         direction:
