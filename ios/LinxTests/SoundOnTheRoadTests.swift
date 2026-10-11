@@ -416,10 +416,16 @@ struct SoundOnTheRoadTests {
     func routesInWords() {
         // A mobile call went over TLS with UDP open, and the details couldn't
         // say why (2026-10-11): now they list every pairing.
-        let relay: [String: NSObject] = ["candidateType": "relay" as NSString, "relayProtocol": "udp" as NSString,
-            "address": "86.98.181.234" as NSString]
-        let asterisk: [String: NSObject] = ["candidateType": "host" as NSString, "protocol": "udp" as NSString,
-            "address": "172.24.0.4" as NSString]
+        let relay: [String: NSObject] = [
+            "candidateType": "relay" as NSString,
+            "relayProtocol": "udp" as NSString,
+            "address": "86.98.181.234" as NSString,
+        ]
+        let asterisk: [String: NSObject] = [
+            "candidateType": "host" as NSString,
+            "protocol": "udp" as NSString,
+            "address": "172.24.0.4" as NSString,
+        ]
         #expect(WebRTCMedia.words(for: relay) == "relay/udp", "this phone's own address is never shown")
         #expect(WebRTCMedia.words(for: asterisk, address: true) == "host/udp 172.24.0.4")
         let call = PhoneModel.Call(
