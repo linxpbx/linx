@@ -43,7 +43,7 @@ struct PushTokens: Equatable, Sendable {
     /// A call is on its way: the call's id and the caller's number, which is
     /// all that was ever sent. The app has to ring before it does anything
     /// else, and `then` is Apple's own "I'm finished with this push".
-    var onCall: ((_ call: String, _ from: String, _ then: @escaping () -> Void) -> Void)?
+    var onCall: ((_ call: String, _ from: String, _ video: Bool, _ then: @escaping () -> Void) -> Void)?
     /// A VoIP push that isn't a call this app can ring: a payload a later
     /// Linx sent that this version doesn't understand, or one that arrived
     /// damaged. **iOS still requires a call to be reported** — an app that
@@ -154,12 +154,14 @@ struct PushTokens: Equatable, Sendable {
         return data.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// What a push says, and nothing more: the call's id and the caller's
-    /// number. A push without them is not a Linx call and is ignored.
-    nonisolated static func call(in payload: [AnyHashable: Any]) -> (call: String, from: String)? {
+    /// What a push says, and nothing more: the call's id, the caller's
+    /// number, and whether it is a video call. A push without the first two
+    /// is not a Linx call and is ignored; one from a Linx that doesn't say
+    /// rings as an ordinary call.
+    nonisolated static func call(in payload: [AnyHashable: Any]) -> (call: String, from: String, video: Bool)? {
         guard let linx = payload["linx"] as? [AnyHashable: Any] else { return nil }
         guard let call = linx["call"] as? String, !call.isEmpty else { return nil }
-        return (call, linx["from"] as? String ?? "")
+        return (call, linx["from"] as? String ?? "", linx["video"] as? Bool ?? false)
     }
 
     /// Whether a notification is the "a call is ringing" one, which the app
@@ -168,7 +170,7 @@ struct PushTokens: Equatable, Sendable {
         (payload["linx"] as? [AnyHashable: Any])?["kind"] as? String == "call"
     }
 
-    fileprivate func arrived(call: String, from: String, then done: @escaping () -> Void) {
+    fileprivate func arrived(call: String, from: String, video: Bool, then done: @escaping () -> Void) {
         guard let onCall else {
             // Nobody is listening yet, which shouldn't happen — the app
             // wires this up before PushKit is started. A call still has to
@@ -177,7 +179,7 @@ struct PushTokens: Equatable, Sendable {
             nothingToRing(then: done)
             return
         }
-        onCall(call, from, done)
+        onCall(call, from, video, done)
     }
 
     fileprivate func nothingToRing(then done: @escaping () -> Void) {
@@ -226,7 +228,7 @@ struct PushTokens: Equatable, Sendable {
                     owner?.nothingToRing(then: done)
                     return
                 }
-                owner?.arrived(call: said.call, from: said.from, then: done)
+                owner?.arrived(call: said.call, from: said.from, video: said.video, then: done)
             }
         }
 

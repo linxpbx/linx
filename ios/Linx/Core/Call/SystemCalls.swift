@@ -64,11 +64,11 @@ enum SystemCallEnding: Equatable, Sendable {
     /// Reports a call coming in, and answers whether the system took it.
     /// This is the first thing that happens when a wake push arrives — no
     /// network, no database, nothing else first.
-    func reportIncoming(id: UUID, from: SIPPeer) async -> Bool
+    func reportIncoming(id: UUID, from: SIPPeer, video: Bool) async -> Bool
     /// The caller's name, once the invitation itself says who it is.
     func rename(id: UUID, to peer: SIPPeer)
-    /// A picture went into the call, or came out of it: a Linx call always
-    /// rings as a phone call and gains video afterwards (docs/PHASE2.md §7).
+    /// A picture went into the call, or came out of it. A video call rings
+    /// as one from the start (owner, 2026-10-12); this is every change after.
     func reportVideo(id: UUID, on: Bool)
     /// Their phone is ringing (an outgoing call only).
     func reportRingingThere(id: UUID)
@@ -94,7 +94,7 @@ enum SystemCallEnding: Equatable, Sendable {
     var onAudio: ((Bool) -> Void)?
     var onReset: (() -> Void)?
 
-    func reportIncoming(id: UUID, from: SIPPeer) async -> Bool { true }
+    func reportIncoming(id: UUID, from: SIPPeer, video: Bool) async -> Bool { true }
     func rename(id: UUID, to peer: SIPPeer) {}
     func reportVideo(id: UUID, on: Bool) {}
     func reportRingingThere(id: UUID) {}

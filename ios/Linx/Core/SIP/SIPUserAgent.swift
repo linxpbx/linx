@@ -91,6 +91,9 @@ struct AudioRoute: Equatable, Sendable {
     /// that tells the other side.
     func startVideo() async throws -> String
     func stopVideo() async throws -> String
+    /// A video call: the camera goes on before the call's first offer, so
+    /// the call rings as video (owner, 2026-10-12).
+    func cameraFirst() async throws
     /// Takes the picture out of the call altogether — neither side is sending
     /// one — and answers with the offer that says so.
     func dropVideo() async throws -> String
@@ -136,7 +139,9 @@ struct AudioRoute: Equatable, Sendable {
     }
 
     var onStatus: ((SIPStatus) -> Void)?
-    var onIncoming: ((SIPPeer) -> Void)?
+    /// A call coming in, and whether it is a video call (their invitation
+    /// has a picture in it).
+    var onIncoming: ((SIPPeer, Bool) -> Void)?
     /// Their phone is ringing (180 or 183).
     var onProgress: (() -> Void)?
     var onEstablished: (() -> Void)?
@@ -157,6 +162,10 @@ struct AudioRoute: Equatable, Sendable {
     private let localHost = SIPRandom.token(10) + ".invalid"
 
     private var registration = Registration()
+    /// Signing the line out (`signOff`): the REGISTER that says so, and a
+    /// second go at it after a challenge, both carry expires=0.
+    private var leaving = false
+    private var signingOff: CheckedContinuation<Void, Never>?
     private var call: Call?
     private var registerTimer: Task<Void, Never>?
     /// Invitations this phone gave up on, kept only long enough to answer
@@ -190,6 +199,36 @@ struct AudioRoute: Equatable, Sendable {
     }
 
     /// stop ends the call, signs the line out and closes the connection.
+    /// signOff tells Asterisk this phone is going and waits for it to agree
+    /// (two seconds at most) before the connection closes. Closing first
+    /// lost a call Asterisk had sent in that same moment: it went down a
+    /// connection that was shutting and rang nothing for thirty seconds
+    /// (2026-10-12). A call that arrives while this waits is taken as usual.
+    func signOff() async {
+        registerTimer?.cancel()
+        registerTimer = nil
+        leaving = true
+        register(unregister: true)
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            signingOff = done
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                self?.signedOff()
+            }
+        }
+    }
+
+    /// The line stays after all: a call arrived while it was signing off.
+    func signBackOn() {
+        leaving = false
+        register()
+    }
+
+    private func signedOff() {
+        signingOff?.resume()
+        signingOff = nil
+    }
+
     func stop() {
         registerTimer?.cancel()
         registerTimer = nil
@@ -241,7 +280,7 @@ struct AudioRoute: Equatable, Sendable {
     // MARK: - Making and taking a call
 
     /// call rings someone: the number as typed, or *43 to hear yourself back.
-    func call(_ number: String, name: String? = nil, startedAt: Date = Date()) async {
+    func call(_ number: String, name: String? = nil, startedAt: Date = Date(), video: Bool = false) async {
         guard call == nil else { return }
         let target = number.trimmingCharacters(in: .whitespaces)
         guard !target.isEmpty else { return }
@@ -253,6 +292,19 @@ struct AudioRoute: Equatable, Sendable {
         outgoing.remoteURI = "sip:\(target)@\(account.domain)"
         outgoing.remoteTarget = outgoing.remoteURI
         call = outgoing
+
+        // A video call: the camera is on before the first offer, so the call
+        // rings as video. Someone whose phone can't show a picture answers
+        // without one, and it is an ordinary call (owner, 2026-10-12).
+        if video {
+            outgoing.media.setSpeaker(true)
+            do {
+                try await outgoing.media.cameraFirst()
+            } catch {
+                outgoing.media.mark("The camera wouldn't start, so this rang as a voice call")
+            }
+            guard call?.id == outgoing.id else { return }
+        }
 
         let offer: String
         do {
@@ -709,6 +761,10 @@ struct AudioRoute: Equatable, Sendable {
         switch status {
         case 100..<200: return
         case 200..<300:
+            if leaving {
+                signedOff()
+                return
+            }
             registered(message)
         case 401, 407:
             // Two goes at a challenge: a nonce Asterisk has forgotten is
@@ -722,8 +778,12 @@ struct AudioRoute: Equatable, Sendable {
             }
             registration.attempts += 1
             registration.credentials = Credentials(challenge: challenge)
-            register()
+            register(unregister: leaving)
         default:
+            if leaving {
+                signedOff()
+                return
+            }
             onStatus?(.unavailable(Self.words(for: status, message.reason)))
         }
     }
@@ -793,7 +853,7 @@ struct AudioRoute: Equatable, Sendable {
         var ringing = SIPMessage.response(180, "Ringing", to: invite).withTag(incoming.localTag)
         ringing.add("Contact", contact)
         send(ringing)
-        onIncoming?(peer)
+        onIncoming?(peer, SDPTweaks.theySendVideo(invite.body))
     }
 
     /// Asterisk sometimes asks to change a call that is already up (a
@@ -814,7 +874,7 @@ struct AudioRoute: Equatable, Sendable {
             } catch {
                 // Why, in the call record: a refused change leaves the two
                 // ends disagreeing about the call (2026-10-12).
-                current.media.mark("Refused Linx's change: \(error)")
+                current.media.mark("Refused Linx's change (\(SDPTweaks.iceWords(invite.body))): \(error)")
                 self.send(.response(488, "Not Acceptable Here", to: invite).withTag(current.localTag))
             }
         }

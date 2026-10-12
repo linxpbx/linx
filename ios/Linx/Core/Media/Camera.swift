@@ -67,10 +67,8 @@ enum CameraTrouble: Error {
     private var front =
         UserDefaults.standard.object(forKey: Settings.startVideoCallsWithTheFrontCamera) as? Bool ?? true
     private var running = false
-    /// What is being asked for now, and what the running capture format can
-    /// actually give.
+    /// The step being sent now.
     private(set) var quality: VideoQuality
-    private var captured: VideoQuality?
 
     init(factory: RTCPeerConnectionFactory, quality: VideoQuality = .standard) {
         self.quality = quality
@@ -100,32 +98,32 @@ enum CameraTrouble: Error {
     func start() async throws {
         guard !running else { return }
         guard await Self.allowed() else { throw CameraTrouble.notAllowed }
-        guard let device = Self.device(front: front), let format = Self.format(for: device, at: quality) else {
+        guard let device = Self.device(front: front), let format = Self.format(for: device, at: Self.capturedAt)
+        else {
             throw CameraTrouble.noCamera
         }
         try await capturer.startCapture(with: device, format: format, fps: fps(format))
         running = true
-        captured = quality
+        use(quality)
         Self.centerStageOnce(device)
     }
 
-    /// Follow the link to a new step. Coming down, and going up to anything the
-    /// running format can still give, is the source's own scaling and the
-    /// picture doesn't blink; going up past it restarts the camera once.
-    func use(_ quality: VideoQuality) async {
+    /// The camera always runs at the top step, and every step — HD on or
+    /// off included — is the source's own scaling of it. Restarting the
+    /// camera to go up a step blanked the picture for a moment, which is
+    /// what tapping HD did (2026-10-12).
+    static let capturedAt = VideoQuality.hd
+
+    /// Follow the link to a new step: the picture is scaled, the camera is
+    /// left alone, and nothing blinks.
+    func use(_ quality: VideoQuality) {
         self.quality = quality
         source.adaptOutputFormat(
             toWidth: Int32(quality.width), height: Int32(quality.height), fps: Int32(quality.frameRate))
-        guard running, let captured, quality > captured else { return }
-        guard let device = Self.device(front: front), let format = Self.format(for: device, at: quality) else {
-            return
-        }
-        try? await capturer.startCapture(with: device, format: format, fps: fps(format))
-        self.captured = quality
     }
 
     private func fps(_ format: AVCaptureDevice.Format) -> Int {
-        min(quality.frameRate, Int(format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30))
+        min(Self.capturedAt.frameRate, Int(format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30))
     }
 
     func stop() {
@@ -138,10 +136,10 @@ enum CameraTrouble: Error {
     /// at what they are looking at.
     func flip() {
         front.toggle()
-        guard running, let device = Self.device(front: front), let format = Self.format(for: device, at: quality)
+        guard running, let device = Self.device(front: front),
+            let format = Self.format(for: device, at: Self.capturedAt)
         else { return }
         capturer.startCapture(with: device, format: format, fps: fps(format))
-        captured = quality
     }
 
     /// Whether this phone's own picture should be shown mirrored, as a

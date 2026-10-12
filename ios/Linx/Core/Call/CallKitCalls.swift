@@ -70,11 +70,13 @@ import UIKit
 
     // MARK: - Telling the system
 
-    func reportIncoming(id: UUID, from: SIPPeer) async -> Bool {
+    func reportIncoming(id: UUID, from: SIPPeer, video: Bool) async -> Bool {
         let update = CXCallUpdate()
         update.remoteHandle = Self.handle(for: from)
         update.localizedCallerName = from.name.isEmpty ? nil : from.name
-        update.hasVideo = false
+        // A video call says so on the lock screen and in a car (owner,
+        // 2026-10-12).
+        update.hasVideo = video
         update.supportsHolding = false
         update.supportsGrouping = false
         update.supportsUngrouping = false

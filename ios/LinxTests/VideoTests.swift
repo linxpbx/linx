@@ -274,7 +274,7 @@ struct VideoTests {
         #expect(phone.call?.phase == .active)
     }
 
-    @Test("the video button in the Team list rings first and turns the camera on when they answer")
+    @Test("the Video call button rings as a video call, the camera on from the start (2026-10-12)")
     func videoCallFromTheTeamList() async throws {
         let transport = FakeTransport()
         let media = FakeMedia()
@@ -290,17 +290,21 @@ struct VideoTests {
 
         phone.callNumber("1024", name: "Omar Khalil", withVideo: true)
         #expect(await eventually { transport.last("INVITE") != nil })
-        // It rings as an ordinary call: no picture is offered until it is
-        // answered, so the lock screen and a car see what they expect.
+        // It rings as a video call: the camera is on before the invitation,
+        // which offers a picture from the start (owner, 2026-10-12).
         let invite = try #require(transport.last("INVITE"))
-        #expect(!invite.body.contains("m=video"))
+        #expect(media.cameraFirstCalls == 1)
+        #expect(invite.body.contains("m=video"))
+        #expect(phone.call?.videoCall == true)
+        #expect(phone.call?.speaker == true)
 
         var ok = SIPMessage.response(200, "OK", to: invite).withTag("theirs")
         ok.add("Contact", "<sip:1024@1.2.3.4:8089;transport=ws>")
-        ok.body = FakeMedia.soundAnswer
+        ok.body = FakeMedia.videoAnswer
         transport.asterisk(ok)
-        #expect(await eventually { media.video.mine })
-        #expect(await eventually { transport.last("INVITE")?.body.contains("m=video") == true })
+        #expect(await eventually { phone.call?.phase == .active })
+        // Nothing more to ask for: the picture was in the call from the start.
+        #expect(transport.count("INVITE") == 1)
     }
 
     @Test("hanging up puts the camera down with everything else")

@@ -45,6 +45,9 @@ import UIKit
         var speaker = false
         /// The **HD** button on the video screen, off at the start of every call.
         var hd = false
+        /// Rung as a video call (owner, 2026-10-12): the ringing screens say
+        /// so, and answering it turns this phone's camera on.
+        var videoCall = false
         /// Their phone is ringing (Asterisk said so).
         var ringingThere = false
         /// Whose camera is on. A call is sound until somebody presses the
@@ -59,6 +62,10 @@ import UIKit
         var lastRelayMove: Date?
         var soundLastArrived: Date?
         var bytesInLastSeen = 0
+        /// Linx's reports on the sound it receives from this phone: the
+        /// count last read, and when it last moved.
+        var reportsLastSeen = 0
+        var linxLastHeardUs: Date?
         /// When a route for the sound was first found: the silence clock
         /// starts here, not at the answer (`mendIfSilent`).
         var routeFoundAt: Date?
@@ -155,6 +162,7 @@ import UIKit
     private struct Waking {
         let id: UUID
         let from: String
+        var video = false
         var giveUp: Task<Void, Never>?
     }
 
@@ -197,7 +205,8 @@ import UIKit
     private var tappedAt: [UUID: Date] = [:]
     /// The video button started this call: the camera goes on as soon as
     /// the other side picks up.
-    private var videoOnceAnswered = false
+    /// Calls asked for with the **Video call** button, until they start.
+    private var videoCalls: Set<UUID> = []
     /// Whether this call has already asked about their camera.
     private var askedAboutTheirVideo = false
     /// The sound of the call that is up, for handing the microphone and the
@@ -221,7 +230,13 @@ import UIKit
         self.calls = calls ?? CallStyle.systemCalls()
         self.inFront = inFront
         self.calls.onRequest = { [weak self] request in self?.systemAsked(request) }
-        self.calls.onAudio = { [weak self] on in self?.liveMedia?.systemAudio(on) }
+        self.calls.onAudio = { [weak self] on in
+            guard let media = self?.liveMedia else {
+                WebRTCMedia.systemAudioWithNoCall(on)
+                return
+            }
+            media.systemAudio(on)
+        }
         self.calls.onReset = { [weak self] in self?.systemForgotEverything() }
     }
 
@@ -295,7 +310,7 @@ import UIKit
         agent = nil
         if let call { calls.reportEnded(id: call.id, .failed) }
         call = nil
-        videoOnceAnswered = false
+        videoCalls.removeAll()
         askAboutTheirVideo = nil
         askedAboutTheirVideo = false
         changingVideo = false
@@ -344,7 +359,7 @@ import UIKit
                 return media
             })
         agent.onStatus = { [weak self] status in self?.lineChanged(status) }
-        agent.onIncoming = { [weak self] peer in self?.incoming(peer) }
+        agent.onIncoming = { [weak self] peer, video in self?.incoming(peer, video: video) }
         agent.onProgress = { [weak self] in self?.ringingThere() }
         agent.onEstablished = { [weak self] in self?.answered() }
         agent.onEnded = { [weak self] why in self?.ended(why) }
@@ -410,10 +425,10 @@ import UIKit
     ///
     /// It answers whether the phone is now ringing, which is when the app
     /// goes on to open its line and wait for the call itself.
-    func woken(from: String) async -> Bool {
+    func woken(from: String, video: Bool = false) async -> Bool {
         let id = UUID()
         let peer = Self.caller(from)
-        guard await calls.reportIncoming(id: id, from: peer) else { return false }
+        guard await calls.reportIncoming(id: id, from: peer, video: video) else { return false }
         // One line, one call: a second caller hears busy and the server
         // sends them to voicemail, as it does for the browser. The push
         // still had to be reported, so the call is ended right away.
@@ -421,7 +436,7 @@ import UIKit
             calls.reportEnded(id: id, .missed)
             return false
         }
-        var woken = Waking(id: id, from: from)
+        var woken = Waking(id: id, from: from, video: video)
         woken.giveUp = Task { [weak self] in
             try? await Task.sleep(for: Self.waitForTheInvitation)
             guard !Task.isCancelled else { return }
@@ -439,7 +454,7 @@ import UIKit
     /// left on the screen, and the rule is kept.
     func wokenByNothing() async {
         let id = UUID()
-        guard await calls.reportIncoming(id: id, from: SIPPeer(name: "", number: "")) else { return }
+        guard await calls.reportIncoming(id: id, from: SIPPeer(name: "", number: ""), video: false) else { return }
         calls.reportEnded(id: id, .failed)
     }
 
@@ -475,33 +490,46 @@ import UIKit
         waking.removeAll()
     }
 
+    /// The line is signed out before it closes, so a call Asterisk sends in
+    /// that moment still arrives and is rung instead of lost (2026-10-12).
     private func closeIfNobodyIsLooking() {
         guard !busy, !inFront() else { return }
-        stop()
+        guard let agent else {
+            stop()
+            return
+        }
+        Task { [weak self] in
+            await agent.signOff()
+            guard let self, self.agent === agent else { return }
+            if self.busy || self.inFront() {
+                agent.signBackOn()
+            } else {
+                self.stop()
+            }
+        }
     }
 
     // MARK: - What the person asks for
 
-    /// dial rings whatever is on the keypad.
-    func dial() {
+    /// dial rings whatever is on the keypad, as a voice call or a video call.
+    func dial(withVideo: Bool = false) {
         let number = typed
         typed = ""
-        callNumber(number)
+        callNumber(number, withVideo: withVideo)
     }
 
-    /// `withVideo` is the video button in the Team list: the call still
-    /// rings as an ordinary call — that is what a lock screen and a car
-    /// understand — and this phone's camera goes on the moment it is
-    /// answered (docs/PHASE2.md §7).
+    /// `withVideo` is the **Video call** button: the camera is on from the
+    /// start and the call rings as a video call. A phone that can't show a
+    /// picture answers it as an ordinary call (owner, 2026-10-12).
     func callNumber(_ number: String, name: String? = nil, withVideo: Bool = false) {
         guard case .ready = status, call == nil else { return }
         let target = number.trimmingCharacters(in: .whitespaces)
         guard !target.isEmpty else { return }
         problem = nil
-        videoOnceAnswered = withVideo
         if target != Self.echoTest { lastDialled = target }
         let peer = SIPPeer(name: name ?? (target == Self.echoTest ? "Test sound" : target), number: target)
         let id = UUID()
+        if withVideo { videoCalls.insert(id) }
         intended[id] = peer
         tappedAt[id] = Date()
         calls.ask(.start(id, peer))
@@ -743,6 +771,11 @@ import UIKit
         // fresh count), not silence: build 21 read it as three seconds of
         // nothing and moved both ends of a video call onto the relay at
         // once, which broke the call (2026-10-12).
+        if connection.reportsBack != current.reportsLastSeen {
+            current.reportsLastSeen = connection.reportsBack
+            current.linxLastHeardUs = now
+            call = current
+        }
         if connection.audioBytesIn != current.bytesInLastSeen {
             current.bytesInLastSeen = connection.audioBytesIn
             current.soundLastArrived = now
@@ -752,7 +785,8 @@ import UIKit
         guard
             Self.shouldMoveToRelay(
                 now: now, routeFoundAt: current.routeFoundAt, soundLastArrived: current.soundLastArrived,
-                relayed: connection.route == .relayed, moves: current.relayMoves, lastMove: current.lastRelayMove)
+                relayed: connection.route == .relayed, moves: current.relayMoves, lastMove: current.lastRelayMove,
+                linxHeardUs: current.linxLastHeardUs)
         else { return }
         current.relayMoves += 1
         current.lastRelayMove = now
@@ -764,12 +798,22 @@ import UIKit
     nonisolated static let silentMidCall: TimeInterval = 3
     nonisolated static let mostRelayMoves = 2
     nonisolated static let betweenRelayMoves: TimeInterval = 10
+    /// Linx reports on what it hears about once a second; a report this
+    /// recent means the route works both ways.
+    nonisolated static let linxHearsUsWithin: TimeInterval = 3
 
     /// The rule `mendIfSilent` follows, on its own so it can be tested.
+    ///
+    /// A route Linx says it is hearing us over is never left: the silence is
+    /// the other end, still connecting. The iPad at home moved off a perfect
+    /// direct route because the iPhone on 5G hadn't been heard yet, and the
+    /// move made both ends negotiate again (2026-10-12).
     nonisolated static func shouldMoveToRelay(
-        now: Date, routeFoundAt: Date?, soundLastArrived: Date?, relayed: Bool, moves: Int, lastMove: Date?
+        now: Date, routeFoundAt: Date?, soundLastArrived: Date?, relayed: Bool, moves: Int, lastMove: Date?,
+        linxHeardUs: Date? = nil
     ) -> Bool {
         guard moves < mostRelayMoves else { return false }
+        if let linxHeardUs, now.timeIntervalSince(linxHeardUs) < linxHearsUsWithin { return false }
         if let lastMove, now.timeIntervalSince(lastMove) < betweenRelayMoves { return false }
         if let soundLastArrived {
             return now.timeIntervalSince(soundLastArrived) >= silentMidCall
@@ -853,9 +897,13 @@ import UIKit
             calls.reportEnded(id: id, .failed)
             return
         }
-        call = Call(id: id, peer: peer, incoming: false, phase: .calling)
+        let video = videoCalls.remove(id) != nil
+        call = Call(id: id, peer: peer, incoming: false, phase: .calling, speaker: video, videoCall: video)
+        if video { calls.reportVideo(id: id, on: true) }
         let startedAt = tappedAt.removeValue(forKey: id) ?? Date()
-        Task { [weak self] in await self?.agent?.call(peer.number, name: peer.name, startedAt: startedAt) }
+        Task { [weak self] in
+            await self?.agent?.call(peer.number, name: peer.name, startedAt: startedAt, video: video)
+        }
     }
 
     private func end(_ id: UUID) {
@@ -891,25 +939,28 @@ import UIKit
 
     // MARK: - What the line tells the app
 
-    private func incoming(_ peer: SIPPeer) {
+    private func incoming(_ peer: SIPPeer, video: Bool) {
         // The call the phone was woken for: the system has been ringing
         // since the push arrived, so it keeps the same id and only learns
         // the caller's name now.
         if let index = matching(peer) {
             let woken = waking.remove(at: index)
             woken.giveUp?.cancel()
-            call = Call(id: woken.id, peer: peer, incoming: true, phase: .ringing)
+            call = Call(id: woken.id, peer: peer, incoming: true, phase: .ringing, videoCall: video)
             calls.rename(id: woken.id, to: peer)
+            // The push may have come from a Linx that doesn't say video, or
+            // been wrong: the invitation is the last word.
+            if video != woken.video { calls.reportVideo(id: woken.id, on: video) }
             ringInTheApp()
             return
         }
         // The app was already here, so nothing has been reported yet.
         let id = UUID()
-        call = Call(id: id, peer: peer, incoming: true, phase: .ringing)
+        call = Call(id: id, peer: peer, incoming: true, phase: .ringing, videoCall: video)
         ringInTheApp()
         Task { [weak self] in
             guard let self else { return }
-            guard await self.calls.reportIncoming(id: id, from: peer) else {
+            guard await self.calls.reportIncoming(id: id, from: peer, video: video) else {
                 // The system wouldn't have it: a blocked number, or a Focus
                 // this caller isn't allowed through. Linx is told the phone
                 // is busy and rings whatever else the person has.
@@ -978,10 +1029,9 @@ import UIKit
         // (it asked the app to answer it); an outgoing one is connected the
         // moment the other side picks up.
         if !current.incoming { calls.reportAnswered(id: current.id) }
-        if videoOnceAnswered {
-            videoOnceAnswered = false
-            toggleVideo()
-        }
+        // Answering a video call turns this phone's camera on, as the
+        // person expects; they can turn it off again like any other time.
+        if current.incoming, current.videoCall, !current.video.mine { toggleVideo() }
     }
 
     private func ended(_ why: SIPEnded) {

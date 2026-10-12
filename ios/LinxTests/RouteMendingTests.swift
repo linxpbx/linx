@@ -78,12 +78,13 @@ struct RouteMendingTests {
         let found = Date(timeIntervalSinceReferenceDate: 1000)
         func should(
             _ after: TimeInterval, route: Bool = true, sound: TimeInterval? = nil, relayed: Bool = false,
-            moves: Int = 0, lastMove: TimeInterval? = nil
+            moves: Int = 0, lastMove: TimeInterval? = nil, linx: TimeInterval? = nil
         ) -> Bool {
             PhoneModel.shouldMoveToRelay(
                 now: found.addingTimeInterval(after), routeFoundAt: route ? found : nil,
                 soundLastArrived: sound.map { found.addingTimeInterval($0) }, relayed: relayed, moves: moves,
-                lastMove: lastMove.map { found.addingTimeInterval($0) })
+                lastMove: lastMove.map { found.addingTimeInterval($0) },
+                linxHeardUs: linx.map { found.addingTimeInterval($0) })
         }
         #expect(!should(3.5))  // the encryption and the first sound may not be through yet
         #expect(should(4.0))  // nothing at all four seconds after a route was found
@@ -96,6 +97,10 @@ struct RouteMendingTests {
         #expect(!should(30, moves: 2))  // twice a call at most
         #expect(!should(30, moves: 1, lastMove: 25))  // and ten seconds apart
         #expect(should(30, moves: 1, lastMove: 19))
+        // Linx says it hears us: the route works, the other end is late (2026-10-12).
+        #expect(!should(6, linx: 5))
+        #expect(!should(10, sound: 7, linx: 9))
+        #expect(should(10, linx: 6))  // its reports stopped too: the route has gone
     }
 
     @Test("a working call at home is not moved while its sound is still on the way (2026-10-08)")

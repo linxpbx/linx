@@ -64,9 +64,9 @@ import SwiftUI
     /// (`AppDelegate`): PushKit only delivers a call to an app that was
     /// already listening for one.
     func listenForCalls() {
-        push.onCall = { [weak self] _, from, done in
+        push.onCall = { [weak self] _, from, video, done in
             Task { @MainActor in
-                await self?.woken(from: from)
+                await self?.woken(from: from, video: video)
                 // Apple's "I'm finished with this push", once the phone is
                 // ringing. Opening the line goes on in the background.
                 done()
@@ -88,8 +88,8 @@ import SwiftUI
     /// The phone rings first — that is all that happens here — and the line
     /// is opened afterwards, because the call is held ringing for a few
     /// seconds at the server's end (docs/PHASE2.md §5).
-    func woken(from: String) async {
-        guard await phone.woken(from: from) else { return }
+    func woken(from: String, video: Bool = false) async {
+        guard await phone.woken(from: from, video: video) else { return }
         Task { [weak self] in await self?.openTheLineForACall() }
     }
 

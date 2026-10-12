@@ -148,16 +148,20 @@ struct PersonView: View {
 
                 if !isMe {
                     VStack(spacing: LinxSpace.s3) {
-                        Button("Call \(member.name)") {
+                        Button {
                             phone.callNumber(member.extensionNumber, name: member.name)
+                        } label: {
+                            Label("Call \(member.name)", systemImage: "phone.fill")
                         }
-                        .buttonStyle(.linxPrimary)
+                        .buttonStyle(.linxCall)
                         .disabled(!callable)
 
-                        Button("Video call") {
+                        Button {
                             phone.callNumber(member.extensionNumber, name: member.name, withVideo: true)
+                        } label: {
+                            Label("Video call", systemImage: "video.fill")
                         }
-                        .buttonStyle(.linxSecondary)
+                        .buttonStyle(.linxPrimary)
                         .disabled(!callable)
 
                         Button(starred ? "Remove from favourites" : "Add to favourites") {
@@ -255,9 +259,9 @@ private struct TeamRow: View {
                 Button {
                     phone.callNumber(member.extensionNumber, name: member.name)
                 } label: {
-                    Image(systemName: "phone")
+                    Image(systemName: "phone.fill")
                         .font(.title3)
-                        .foregroundStyle(callable ? (selected ? LinxColor.onBrand : LinxColor.accent) : quietInk)
+                        .foregroundStyle(callable ? (selected ? LinxColor.onBrand : LinxColor.call) : quietInk)
                 }
                 .buttonStyle(.borderless)
                 .disabled(!callable)
@@ -266,9 +270,9 @@ private struct TeamRow: View {
                 Button {
                     phone.callNumber(member.extensionNumber, name: member.name, withVideo: true)
                 } label: {
-                    Image(systemName: "video")
+                    Image(systemName: "video.fill")
                         .font(.title3)
-                        .foregroundStyle(callable ? (selected ? LinxColor.onBrand : LinxColor.accent) : quietInk)
+                        .foregroundStyle(callable ? (selected ? LinxColor.onBrand : LinxColor.brandFill) : quietInk)
                 }
                 .buttonStyle(.borderless)
                 .disabled(!callable)

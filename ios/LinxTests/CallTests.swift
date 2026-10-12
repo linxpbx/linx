@@ -165,6 +165,12 @@ import Testing
     /// Their camera came on, or went off, as WebRTC would say it.
     func pretendTheirVideo(_ on: Bool) { setVideo(CallVideo(mine: video.mine, theirs: on)) }
     func sendTone(_ digit: Character) { tones.append(digit) }
+    /// The camera turned on before the call's first offer (a video call).
+    var cameraFirstCalls = 0
+    func cameraFirst() async throws {
+        cameraFirstCalls += 1
+        setVideo(CallVideo(mine: true, theirs: video.theirs))
+    }
     func systemAudio(_ on: Bool) { systemAudioOn = on }
     func stop() { stopped = true }
 }
@@ -201,7 +207,7 @@ struct CallTests {
         let box = Box()
         let agent = SIPUserAgent(account: Self.account, transport: transport, media: { media })
         agent.onStatus = { box.status = $0 }
-        agent.onIncoming = { box.incoming = $0 }
+        agent.onIncoming = { peer, _ in box.incoming = peer }
         agent.onProgress = { box.ringingThere = true }
         agent.onEstablished = { box.established = true }
         agent.onEnded = { box.ended = $0 }

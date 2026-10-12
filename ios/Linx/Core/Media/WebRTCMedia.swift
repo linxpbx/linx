@@ -40,6 +40,11 @@ struct MediaConnection: Equatable, Sendable {
     /// UDP open).
     var offered: [String] = []
     var pairs: [String] = []
+    /// Reports from Linx about the sound it is receiving from this phone
+    /// (RTCP, about one a second): a count that moves means this phone's
+    /// route works, even while nothing has come back yet because the other
+    /// end is still connecting.
+    var reportsBack = 0
 }
 
 enum MediaTrouble: Error {
@@ -335,6 +340,12 @@ struct PictureWatch {
         try await setLocal(RTCSessionDescription(type: .offer, sdp: SDPTweaks.preferOpusFecDtx(local)))
         await waitForCandidates()
         guard let full = connection.localDescription?.sdp else { throw MediaTrouble.noOffer }
+        // An offer with no routes would switch Asterisk's ICE off for good;
+        // not sending it leaves the call as it was (the caller rolls back).
+        guard SDPTweaks.everyStreamHasRoutes(full) else {
+            mark("Found no routes to offer, so nothing was changed")
+            throw MediaTrouble.noOffer
+        }
         mark(diagnostics.foundTheRelay ? "Routes ready" : "Routes ready (no relay yet)")
         return ours(full)
     }
@@ -392,7 +403,9 @@ struct PictureWatch {
         let answer = SDPTweaks.letThemStartTheEncryption(SDPTweaks.preferOpusFecDtx(local), offer: offer)
         try await setLocal(RTCSessionDescription(type: .answer, sdp: answer))
         await waitForCandidates()
-        mark("Answer ready")
+        // Whether Linx started its routes afresh, which is when this phone
+        // may switch route: worth seeing next to the "Route now" lines.
+        mark(theyRestarted ? "Answer ready (Linx restarted its routes)" : "Answer ready")
         guard let full = connection.localDescription?.sdp else { throw MediaTrouble.noAnswer }
         capWhatThisPhoneSends()
         startWatching()
@@ -449,6 +462,20 @@ struct PictureWatch {
         let offer = try await offer()
         capWhatThisPhoneSends()
         return offer
+    }
+
+    /// A video call: the camera is on before the call's first offer, so the
+    /// call rings as one. If the other side can't show a picture, its answer
+    /// leaves video out and the camera goes off again (`accept(answer:)`).
+    func cameraFirst() async throws {
+        await lookUpTheRelay()
+        let connection = try start()
+        let camera = Camera(factory: Self.factory, quality: ladder.quality)
+        try await camera.start()
+        self.camera = camera
+        videoSender = connection.add(camera.track, streamIds: ["linx"])
+        tracks.local = camera.track
+        said(CallVideo(mine: true, theirs: false, theirPicture: false))
     }
 
     /// Switches it off again, and hands back the offer that says so. The
@@ -637,6 +664,7 @@ struct PictureWatch {
     /// in manual-audio mode whenever CallKit is in charge, so this is the
     /// only thing that ever starts or stops a call's sound.
     func systemAudio(_ on: Bool) {
+        mark(on ? "iOS gave the call its sound" : "iOS took the sound back")
         Self.handOver(on)
         // Nothing else happens here, and nothing may. Setting the category
         // on the session CallKit has just handed over stops the sound dead,
@@ -651,6 +679,13 @@ struct PictureWatch {
     /// takes the session back, which is why this is the class's and not one
     /// call's.
     private static var handedOver = false
+
+    /// The hand-over when no call's media is there to take it (it arrived
+    /// before the media was made, or after it was gone): the count still
+    /// has to follow the system's, or the next call starts silent.
+    static func systemAudioWithNoCall(_ on: Bool) {
+        handOver(on)
+    }
 
     private static func handOver(_ on: Bool) {
         guard on != handedOver else { return }
@@ -993,6 +1028,9 @@ struct PictureWatch {
 
     private func setRemote(_ description: RTCSessionDescription) async throws {
         guard let connection else { throw MediaTrouble.noAnswer }
+        let user = SDPTweaks.iceUser(description.sdp)
+        theyRestarted = theirICEUser != nil && user != nil && user != theirICEUser
+        theirICEUser = user ?? theirICEUser
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
             connection.setRemoteDescription(description) { error in
                 if let error {
@@ -1006,6 +1044,17 @@ struct PictureWatch {
 
     /// Waits for this phone's addresses, but never for long.
     private func waitForCandidates() async {
+        // Right after an ICE restart the state can still read "complete"
+        // from the last gathering, before the new one has begun: an offer
+        // sent then has no routes in it at all, which Asterisk takes as "no
+        // ICE" for the rest of the call (SDPTweaks.everyStreamHasRoutes).
+        // So "complete" counts only once the routes are in the description.
+        let giveUp = Date().addingTimeInterval(TimeInterval(Self.gatherLimit.components.seconds))
+        while connection?.iceGatheringState == .complete, !stopped,
+            !SDPTweaks.everyStreamHasRoutes(connection?.localDescription?.sdp ?? ""), Date() < giveUp
+        {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         guard connection?.iceGatheringState != .complete else { return }
         gatheringLimit = Task { [weak self] in
             try? await Task.sleep(for: Self.gatherLimit)
@@ -1118,11 +1167,14 @@ struct PictureWatch {
         guard let step = ladder.reading(spare: connection.outgoingBitrate, ceiling: ceiling) else { return }
         capWhatThisPhoneSends()
         note { $0.picture = step.words }
-        let camera = camera
-        Task { await camera?.use(step) }
+        camera?.use(step)
     }
 
     private var lastPath: String?
+    /// Linx's ICE username from its last description, and whether the last
+    /// one changed it.
+    private var theirICEUser: String?
+    private var theyRestarted = false
     private var soundHasArrived = false
 
     /// The route and the first sound, on the timeline: when the call
@@ -1178,19 +1230,32 @@ struct PictureWatch {
         var audioBytesIn = 0
         var audioBytesOut = 0
         var framesIn = 0
+        var reportsBack = 0
         var pairID: String?
+        // The sound's own route. A call whose picture travels separately has
+        // two, and taking whichever came first made Call details seem to
+        // switch route every few seconds (2026-10-12).
+        var soundTransport: String?
         for (_, statistic) in report.statistics {
             switch statistic.type {
             case "transport":
-                pairID = statistic.values["selectedCandidatePairId"] as? String ?? pairID
+                pairID = pairID ?? statistic.values["selectedCandidatePairId"] as? String
             case "outbound-rtp" where statistic.values["kind"] as? String == "audio":
+                soundTransport = statistic.values["transportId"] as? String ?? soundTransport
                 audioBytesOut += (statistic.values["bytesSent"] as? NSNumber)?.intValue ?? 0
             case "inbound-rtp" where statistic.values["kind"] as? String == "audio":
                 audioBytesIn += (statistic.values["bytesReceived"] as? NSNumber)?.intValue ?? 0
             case "inbound-rtp" where statistic.values["kind"] as? String == "video":
                 framesIn += (statistic.values["framesDecoded"] as? NSNumber)?.intValue ?? 0
+            case "remote-inbound-rtp" where statistic.values["kind"] as? String == "audio":
+                reportsBack += (statistic.values["roundTripTimeMeasurements"] as? NSNumber)?.intValue ?? 0
             default: break
             }
+        }
+        if let soundTransport,
+            let chosen = report.statistics[soundTransport]?.values["selectedCandidatePairId"] as? String
+        {
+            pairID = chosen
         }
         if pairID == nil {
             pairID =
@@ -1212,7 +1277,7 @@ struct PictureWatch {
             audioBytesIn: audioBytesIn, audioBytesOut: audioBytesOut, outgoingBitrate: room,
             framesIn: framesIn,
             path: "\(Self.words(for: local?.values)) → \(Self.words(for: remote?.values, address: true))",
-            offered: Self.offered(in: report), pairs: Self.pairs(in: report, chosen: pairID))
+            offered: Self.offered(in: report), pairs: Self.pairs(in: report, chosen: pairID), reportsBack: reportsBack)
     }
 
     /// One end of a route in a few words: its kind, how it travels, and for
@@ -1307,7 +1372,11 @@ struct PictureWatch {
         let session = RTCAudioSession.sharedInstance()
         let system = CallStyle.usesCallKit
         session.useManualAudio = system
-        if system { session.isAudioEnabled = false }
+        // Off until the system hands the sound over — unless it already
+        // has. Switching it off then left it off for the whole call, since
+        // the hand-over that turns it on had already happened: a call with
+        // no sound either way (2026-10-12).
+        if system { session.isAudioEnabled = handedOver }
         session.lockForConfiguration()
         defer { session.unlockForConfiguration() }
         do {

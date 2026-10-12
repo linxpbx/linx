@@ -81,26 +81,12 @@ struct KeypadView: View {
                     .foregroundStyle(LinxColor.accent)
                     .frame(maxWidth: .infinity)
 
-                Button {
-                    // Nothing typed and a number rung before: fill it in
-                    // rather than ring it, which is what every phone does
-                    // and what stops a pocket from redialling anybody.
-                    if phone.typed.isEmpty {
-                        @Bindable var phone = phone
-                        phone.typed = phone.lastDialled
-                    } else {
-                        phone.dial()
-                    }
-                } label: {
-                    Image(systemName: "phone.fill")
-                        .font(.title2)
-                        .foregroundStyle(LinxColor.onCall)
-                        .frame(width: keySize, height: keySize)
-                        .background(LinxColor.call, in: .circle)
+                // Call in green with a handset, Video call in Cobalt with a
+                // camera (owner, 2026-10-12).
+                HStack(spacing: LinxSpace.s3) {
+                    dialButton(video: false, size: keySize)
+                    dialButton(video: true, size: keySize)
                 }
-                .disabled(phone.typed.isEmpty && phone.lastDialled.isEmpty)
-                .opacity(phone.typed.isEmpty && phone.lastDialled.isEmpty ? 0.5 : 1)
-                .accessibilityLabel(phone.typed.isEmpty ? "Redial \(phone.lastDialled)" : "Call")
 
                 Button {
                     if !phone.typed.isEmpty { phone.typed.removeLast() }
@@ -121,6 +107,30 @@ struct KeypadView: View {
         .padding(.vertical, LinxSpace.s4)
         .frame(maxWidth: 560)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func dialButton(video: Bool, size keySize: CGFloat) -> some View {
+        Button {
+            // Nothing typed and a number rung before: fill it in
+            // rather than ring it, which is what every phone does
+            // and what stops a pocket from redialling anybody.
+            if phone.typed.isEmpty {
+                @Bindable var phone = phone
+                phone.typed = phone.lastDialled
+            } else {
+                phone.dial(withVideo: video)
+            }
+        } label: {
+            Image(systemName: video ? "video.fill" : "phone.fill")
+                .font(.title2)
+                .foregroundStyle(video ? LinxColor.onBrand : LinxColor.onCall)
+                .frame(width: keySize, height: keySize)
+                .background(video ? LinxColor.brandFill : LinxColor.call, in: .circle)
+        }
+        .disabled(phone.typed.isEmpty && phone.lastDialled.isEmpty)
+        .opacity(phone.typed.isEmpty && phone.lastDialled.isEmpty ? 0.5 : 1)
+        .accessibilityLabel(
+            phone.typed.isEmpty ? "Redial \(phone.lastDialled)" : (video ? "Video call" : "Call"))
     }
 
     private func press(_ digit: String) {

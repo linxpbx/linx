@@ -121,6 +121,49 @@ enum SDPTweaks {
         return false
     }
 
+    /// everyStreamHasRoutes says whether every open stream of an offer
+    /// carries at least one route candidate. Asterisk turns ICE off for a
+    /// stream whose offer has none (res_pjsip_sdp_rtp's check_ice_support),
+    /// for the rest of the call: a move to the relay sent the instant its
+    /// gathering began went out with none, and the call fell silent
+    /// (2026-10-12).
+    ///
+    /// Streams bundled onto one route share its candidates, which may sit in
+    /// the first of them only, so a bundle needs them once.
+    static func everyStreamHasRoutes(_ sdp: String) -> Bool {
+        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
+        let bundled = Set(
+            sdp.components(separatedBy: eol).first { $0.hasPrefix("a=group:BUNDLE ") }
+                .map { $0.dropFirst("a=group:BUNDLE ".count).split(separator: " ").map(String.init) } ?? [])
+        let open = sections(sdp, eol: eol).filter { $0[0].split(separator: " ").dropFirst().first != "0" }
+        let hasRoutes = { (section: [String]) in section.contains(where: { $0.hasPrefix("a=candidate:") }) }
+        let inBundle = { (section: [String]) in
+            section.contains { $0.hasPrefix("a=mid:") && bundled.contains(String($0.dropFirst("a=mid:".count))) }
+        }
+        let alone = open.filter { !inBundle($0) }
+        let together = open.filter(inBundle)
+        return alone.allSatisfy(hasRoutes) && (together.isEmpty || together.contains(where: hasRoutes))
+    }
+
+    /// The first ICE username in an SDP: when the other side's changes, it
+    /// has started looking for routes afresh (an ICE restart).
+    static func iceUser(_ sdp: String) -> String? {
+        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
+        return sdp.components(separatedBy: eol).first { $0.hasPrefix("a=ice-ufrag:") }
+            .map { String($0.dropFirst("a=ice-ufrag:".count)) }
+    }
+
+    /// Which streams of an offer carry ICE details, in a few words for Call
+    /// details: "audio ice, video no ice".
+    static func iceWords(_ sdp: String) -> String {
+        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
+        return sections(sdp, eol: eol).map { section in
+            let kind = section[0].dropFirst(2).prefix { $0 != " " }
+            let ice = section.contains(where: { $0.hasPrefix("a=ice-ufrag:") })
+            return "\(kind) \(ice ? "ice" : "no ice")"
+        }.joined(separator: ", ")
+    }
+
     /// The SDP cut into its media sections, each starting with its own m=
     /// line. Lines before the first m= belong to the session and are left
     /// out: every question here is about one stream.

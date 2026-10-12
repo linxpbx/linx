@@ -33,6 +33,24 @@ struct LinxSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+/// The green **Call** button, beside the Cobalt **Video call** one: the two
+/// differ in colour and in icon wherever they appear (owner, 2026-10-12).
+struct LinxCallButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.headline)
+            .foregroundStyle(LinxColor.onCall)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, LinxSpace.s4)
+            .background(LinxColor.call, in: .rect(cornerRadius: LinxRadius.md))
+            .opacity(configuration.isPressed ? 0.85 : 1)
+    }
+}
+
+extension ButtonStyle where Self == LinxCallButtonStyle {
+    static var linxCall: LinxCallButtonStyle { LinxCallButtonStyle() }
+}
+
 extension ButtonStyle where Self == LinxPrimaryButtonStyle {
     static var linxPrimary: LinxPrimaryButtonStyle { LinxPrimaryButtonStyle() }
 }

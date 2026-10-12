@@ -129,9 +129,12 @@ struct CallView: View {
                         symbol: "phone.down.fill", words: "Decline", colour: LinxColor.end,
                         ink: LinxColor.onEnd
                     ) { phone.decline() }
+                    // A video call is answered with the Cobalt camera button,
+                    // so it can't be mistaken for a voice call (owner, 2026-10-12).
                     RoundCallButton(
-                        symbol: "phone.fill", words: "Answer", colour: LinxColor.call,
-                        ink: LinxColor.onCall
+                        symbol: call.videoCall ? "video.fill" : "phone.fill", words: "Answer",
+                        colour: call.videoCall ? LinxColor.brandFill : LinxColor.call,
+                        ink: call.videoCall ? LinxColor.onBrand : LinxColor.onCall
                     ) { phone.answer() }
                 }
                 .padding(.bottom, LinxSpace.s6)
@@ -224,8 +227,10 @@ struct CallView: View {
 
     private var what: String {
         switch call.phase {
-        case .ringing: return "Calling you"
-        case .calling: return call.ringingThere ? "Ringing…" : "Calling…"
+        case .ringing: return call.videoCall ? "Video calling you" : "Calling you"
+        case .calling:
+            if call.videoCall { return call.ringingThere ? "Ringing for a video call…" : "Video calling…" }
+            return call.ringingThere ? "Ringing…" : "Calling…"
         case .active: return Self.length(since: call.answeredAt, to: now)
         }
     }

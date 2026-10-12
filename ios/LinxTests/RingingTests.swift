@@ -42,8 +42,12 @@ import Testing
     /// the app to end the call that never began.
     var startsCalls = true
 
-    func reportIncoming(id: UUID, from: SIPPeer) async -> Bool {
+    /// Which reported calls rang as video calls.
+    var reportedVideo: [Bool] = []
+
+    func reportIncoming(id: UUID, from: SIPPeer, video: Bool) async -> Bool {
         reported.append((id, from))
+        reportedVideo.append(video)
         return takesCalls
     }
 
@@ -285,7 +289,7 @@ struct RingingTests {
     @Test("a push that no call follows stops ringing by itself")
     func aPushThatComesToNothing() async throws {
         let calls = FakeSystemCalls()
-        let (phone, _, _) = await phone(calls: calls, inFront: false)
+        let (phone, transport, _) = await phone(calls: calls, inFront: false)
         _ = await phone.woken(from: "1031")
         let reported = try #require(calls.reported.first?.id)
         // The caller gave up while the phone was waking. Rather than wait
@@ -294,8 +298,25 @@ struct RingingTests {
         #expect(!phone.busy)
         // Nobody is looking at the app, so the line closes again: a
         // registration left behind would make Linx think this phone is
-        // awake and stop pushing to it.
-        #expect(phone.status == .starting)
+        // awake and stop pushing to it. It signs out first, and closes once
+        // Asterisk has agreed, so a call sent in that moment isn't lost.
+        #expect(await eventually { transport.last("REGISTER")?.first("Expires") == "0" })
+        #expect(phone.status != .starting)
+        transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
+        #expect(await eventually { phone.status == .starting })
+    }
+
+    @Test("a video call rings as one, and answering it turns the camera on (2026-10-12)")
+    func aVideoCallRingsAsOne() async throws {
+        let calls = FakeSystemCalls()
+        let (phone, transport, media) = await phone(calls: calls)
+        var invite = Self.invite(from: "1031", name: "Omar Nasser", callID: "call-v")
+        invite.body = FakeMedia.videoOffer
+        transport.asterisk(invite)
+        #expect(await eventually { calls.reportedVideo == [true] })
+        #expect(phone.call?.videoCall == true)
+        calls.ask(.answer(try #require(phone.call?.id)))
+        #expect(await eventually { media.video.mine })
     }
 
     @Test("a second call while this one is up is reported and ended at once")
