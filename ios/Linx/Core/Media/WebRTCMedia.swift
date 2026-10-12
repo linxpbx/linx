@@ -133,62 +133,6 @@ struct CallDiagnostics: Equatable, Sendable {
     }
 }
 
-/// Whether the other side's picture is really arriving, from the frame count
-/// alone — the only honest answer, because a side can stop sending without
-/// saying so (the echo test does exactly that the moment this phone's camera
-/// goes off) and can start again just as quietly.
-///
-/// A frozen last frame left on the screen for the rest of the call was the
-/// first half of this (owner, 2026-10-04: "the big screen freezes"); a picture
-/// switched off at the first reading and then unable ever to come back was the
-/// second (owner, 2026-10-05: the echo test showed no picture at all, because
-/// the first reading arrives before the first frame does).
-struct PictureWatch {
-    /// Readings with no new frame before the picture is called gone — two, so
-    /// a lift, a lorry or a handover between masts doesn't take it away.
-    static let quietReadings = 2
-
-    private var seen = 0
-    private var quiet = 0
-
-    /// What the reading changes, or nil for "nothing has changed". `showing`
-    /// is whether their picture is on the screen now; `announced` is what
-    /// their SDP last said about their camera.
-    mutating func reading(framesIn: Int, showing: Bool, announced: Bool) -> Bool? {
-        defer { seen = framesIn }
-        if framesIn > seen {
-            quiet = 0
-            // A picture nobody says they are sending is never put back on the
-            // screen. The last frames of a call whose video has just been
-            // turned off would otherwise put the video screen back up with
-            // nobody's camera on (owner, 2026-10-05).
-            return showing || !announced ? nil : true
-        }
-        guard showing else {
-            quiet = 0
-            return nil
-        }
-        quiet += 1
-        guard quiet >= Self.quietReadings else { return nil }
-        quiet = 0
-        return false
-    }
-
-    /// Their picture came or went for a reason of its own (their SDP said so,
-    /// or the call ended): the count starts again.
-    mutating func forget() {
-        quiet = 0
-        seen = 0
-    }
-
-    /// Call it stopped on the very next quiet reading rather than the second.
-    /// Used the moment this phone's own camera goes off, because what was
-    /// arriving was very often this phone's own picture coming back.
-    mutating func oneReadingIsEnough() {
-        quiet = Self.quietReadings - 1
-    }
-}
-
 @MainActor final class WebRTCMedia: NSObject, SIPCallMedia {
     /// What the phone found out about the route, every few seconds while a
     /// call is up.
@@ -204,14 +148,15 @@ struct PictureWatch {
     /// Why the call sounds the way it does, each time there is more to say.
     var onDiagnostics: ((CallDiagnostics) -> Void)?
 
-    /// Whose camera is on, and the pictures themselves (docs/PHASE2.md §7).
-    private(set) var video = CallVideo()
+    /// Whose camera is on, and the pictures themselves. The picture travels
+    /// on its own direct link between the two devices (`DirectPicture`,
+    /// ADR-087); this call's own connection carries the sound only.
+    var video: CallVideo { picture?.video ?? CallVideo() }
     let tracks = VideoTracks()
     var onVideoChanged: ((CallVideo) -> Void)?
-    /// The link can't carry a picture any more: turn this phone's camera off
-    /// and tell the other side, which is the user agent's job, not this
-    /// one's.
+    /// The link can't carry a picture any more: turn this phone's camera off.
     var onVideoTooExpensive: (() -> Void)?
+    private var picture: DirectPicture?
 
     private var turn: PhoneLine.Turn?
     /// The relay's names, looked up by iOS (`RelayAddresses`) before the call
@@ -223,15 +168,6 @@ struct PictureWatch {
     private var movingToRelay = false
     private var connection: RTCPeerConnection?
     private var audio: RTCAudioTrack?
-    private var camera: Camera?
-    private var videoSender: RTCRtpSender?
-    /// How long the link has been too thin for a picture, in readings.
-    private var tooThin = 0
-    /// Which step of picture quality this call is on (ADR-081).
-    private var ladder = VideoLadder()
-    /// The person's **HD** button. Off at the start of every call, so a call
-    /// never spends the data 720p costs unless someone chose it.
-    private var hd = false
     private var gathered: CheckedContinuation<Void, Never>?
     private var gatheringLimit: Task<Void, Never>?
     private var watch: Task<Void, Never>?
@@ -268,14 +204,6 @@ struct PictureWatch {
     /// often has sound — the ringing — before it is answered).
     private static let quickFor: TimeInterval = 8
     private var quickUntil = Date.distantPast
-    /// While a picture is going out there is something to decide on every
-    /// reading (ADR-081), so they come a little faster. Still cheap: one
-    /// statistics read, no network of its own.
-    private static let readRouteEveryWithVideo: Duration = .seconds(3)
-    /// Room enough for the voice, the overhead and a thin picture. Below it
-    /// the picture is what gives way.
-    private static let tooThinForVideo = 150_000
-    private static let tooThinReadings = 3
 
     init(turn: PhoneLine.Turn?, startedAt: Date = Date()) {
         self.turn = turn
@@ -329,7 +257,7 @@ struct PictureWatch {
         await lookUpTheRelay()
         let connection = try start()
         let local = try await withCheckedThrowingContinuation { (done: CheckedContinuation<String, Error>) in
-            connection.offer(for: video.on ? Self.withVideo : Self.audioOnly) { description, error in
+            connection.offer(for: Self.audioOnly) { description, error in
                 guard let description else {
                     done.resume(throwing: error ?? MediaTrouble.noOffer)
                     return
@@ -384,13 +312,8 @@ struct PictureWatch {
         await lookUpTheRelay()
         let connection = try start()
         try await setRemote(RTCSessionDescription(type: .offer, sdp: offer))
-        // They have added a picture to the call. This phone shows it and
-        // answers "I'll watch, I'm not sending" — its own camera is never
-        // switched on by somebody else, only by the button on this screen.
-        let theirs = SDPTweaks.theySendVideo(offer)
-        if theirs, camera == nil { watchOnly() }
         let local = try await withCheckedThrowingContinuation { (done: CheckedContinuation<String, Error>) in
-            connection.answer(for: theirs || video.on ? Self.withVideo : Self.audioOnly) { description, error in
+            connection.answer(for: Self.audioOnly) { description, error in
                 guard let description else {
                     done.resume(throwing: error ?? MediaTrouble.noAnswer)
                     return
@@ -409,7 +332,6 @@ struct PictureWatch {
         guard let full = connection.localDescription?.sdp else { throw MediaTrouble.noAnswer }
         capWhatThisPhoneSends()
         startWatching()
-        theySaid(theirs)
         return ours(full)
     }
 
@@ -421,81 +343,51 @@ struct PictureWatch {
         }
         capWhatThisPhoneSends()
         startWatching()
-        // What they agreed to: a side that turns video down answers with a
-        // video section of port 0, and this phone stops showing a window.
-        theySaid(SDPTweaks.theySendVideo(answer))
-        if video.mine, !SDPTweaks.hasVideo(answer) { await stopCamera() }
     }
 
     /// The last thing done to every SDP this phone sends: the browser's own
-    /// Opus settings, and the ceiling on the picture.
+    /// Opus settings.
     private func ours(_ sdp: String) -> String {
-        SDPTweaks.capVideo(SDPTweaks.preferOpusFecDtx(sdp))
+        SDPTweaks.preferOpusFecDtx(sdp)
     }
 
-    // MARK: - The picture (docs/PHASE2.md §7)
+    // MARK: - The picture (ADR-087)
 
-    /// Switches this phone's camera on and hands back an offer for the
-    /// re-INVITE that tells the other side. A call always starts as sound —
-    /// that is what a lock screen, a car and a headset understand — and the
-    /// picture is added to it afterwards, by either side, whenever someone
-    /// presses the button.
-    func startVideo() async throws -> String {
-        guard connection != nil else { throw MediaTrouble.noOffer }
-        guard !video.mine else { return try await offer() }
-        let camera = self.camera ?? Camera(factory: Self.factory, quality: ladder.quality)
-        try await camera.start()
-        self.camera = camera
-        if let sender = videoSender {
-            // There is already a place for a picture in this call (they
-            // started one): this phone's camera goes into it.
-            sender.track = camera.track
-            for transceiver in connection?.transceivers ?? []
-            where transceiver.mediaType == .video {
-                transceiver.setDirection(.sendRecv, error: nil)
-            }
-        } else {
-            videoSender = connection?.add(camera.track, streamIds: ["linx"])
+    /// Opens the call's picture link once the call is up: the two devices
+    /// find each other on it and the picture goes straight between them.
+    /// `cameraFirst` is a video call — this phone's camera goes on as soon
+    /// as the other side is there.
+    func startPicture(link: any PictureLink, cameraFirst: Bool) {
+        guard picture == nil, !stopped else { return }
+        let picture = DirectPicture(
+            link: link, configuration: configuration(), factory: Self.factory, tracks: tracks,
+            cameraFirst: cameraFirst)
+        picture.onMark = { [weak self] what in self?.mark(what) }
+        picture.onTooExpensive = { [weak self] in self?.onVideoTooExpensive?() }
+        picture.onVideoChanged = { [weak self] video in
+            guard let self else { return }
+            self.note { $0.picture = video.mine ? (self.hd ? "720p" : "540p") : nil }
+            self.onVideoChanged?(video)
         }
-        tracks.local = camera.track
-        said(CallVideo(mine: true, theirs: video.theirs, theirPicture: video.theirPicture))
-        let offer = try await offer()
-        capWhatThisPhoneSends()
-        return offer
+        self.picture = picture
+        picture.start()
     }
 
-    /// A video call: the camera is on before the call's first offer, so the
-    /// call rings as one. If the other side can't show a picture, its answer
-    /// leaves video out and the camera goes off again (`accept(answer:)`).
-    func cameraFirst() async throws {
-        await lookUpTheRelay()
-        let connection = try start()
-        let camera = Camera(factory: Self.factory, quality: ladder.quality)
-        try await camera.start()
-        self.camera = camera
-        videoSender = connection.add(camera.track, streamIds: ["linx"])
-        tracks.local = camera.track
-        said(CallVideo(mine: true, theirs: false, theirPicture: false))
-    }
-
-    /// Switches it off again, and hands back the offer that says so. The
-    /// call carries on as sound, which is the point of doing it this way.
-    func stopVideo() async throws -> String {
-        await stopCamera()
-        return try await offer()
+    /// This phone's camera, on or off. The call's sound is never touched.
+    func setCamera(_ on: Bool) async throws {
+        try await picture?.setCamera(on)
     }
 
     /// The front camera or the back one.
-    func switchCamera() { camera?.flip() }
+    func switchCamera() { picture?.switchCamera() }
 
-    /// The **HD** button. Turned off, the picture comes down to 540p at the
-    /// next reading of the link (three seconds at most); turned on, it climbs
-    /// to 720p the usual way, once the link has shown it has the room.
+    /// The **HD** button: 720p instead of 540p for this phone's picture.
     func useHD(_ on: Bool) {
-        guard hd != on else { return }
         hd = on
-        mark(on ? "HD on" : "HD off")
+        picture?.useHD(on)
     }
+
+    private var hd = false
 
     /// Newer relay credentials. The old ones last an hour and a phone is
     /// signed in for days, so these arrive before the old ones run out and
@@ -509,118 +401,17 @@ struct PictureWatch {
         noteTheRelay()
     }
 
-    /// Nobody took the offer this phone just made (the other side wouldn't
-    /// have video, or the switch refused it). `rollback` puts the call back
-    /// exactly where it was (RFC 8829 §4.1.10) so the conversation carries
-    /// on as though nothing had been asked.
+    /// Nobody took the offer this phone just made (a move onto the relay
+    /// the switch refused). `rollback` puts the call back exactly where it
+    /// was (RFC 8829 §4.1.10) so the conversation carries on.
     func rollbackOffer() async {
         try? await setLocal(RTCSessionDescription(type: .rollback, sdp: ""))
-        // A relay move nobody took leaves the camera as it was.
-        if video.mine, !movingToRelay { await stopCamera() }
         movingToRelay = false
     }
 
     /// Whether this phone's own picture is the mirror image people expect of
     /// themselves (the front camera) or the plain one (the back).
-    var mirrorsMyVideo: Bool { camera?.mirrored ?? true }
-
-    private func stopCamera() async {
-        camera?.stop()
-        camera = nil
-        tracks.local = nil
-        // The place in the call stays, empty and receive-only: taking it
-        // away altogether would renumber the call's streams, which Asterisk
-        // and the other side would have to follow for no good reason.
-        videoSender?.track = nil
-        // Their picture very often *was* this phone's, coming back (the sound
-        // test does exactly that). So one quiet reading is enough to call it
-        // stopped now, instead of the usual two: it is what takes the big
-        // picture off the screen within a few seconds rather than ten.
-        frames.oneReadingIsEnough()
-        // Keep a place for their picture only if one is really arriving. Asking
-        // to go on watching a camera that has sent nothing leaves the call in
-        // its video screen with neither picture in it, which is what the owner
-        // found on the iPad (2026-10-05): video on, video off, and a split
-        // screen with nothing in either half.
-        if video.theirPicture {
-            watchOnly()
-        } else {
-            for transceiver in connection?.transceivers ?? [] where transceiver.mediaType == .video {
-                transceiver.setDirection(.inactive, error: nil)
-            }
-        }
-        said(CallVideo(mine: false, theirs: video.theirs, theirPicture: video.theirPicture))
-    }
-
-    /// "Show me yours, I'm not sending mine."
-    private func watchOnly() {
-        for transceiver in connection?.transceivers ?? [] where transceiver.mediaType == .video {
-            transceiver.setDirection(.recvOnly, error: nil)
-            videoSender = transceiver.sender
-        }
-    }
-
-    /// Their SDP, or a stream starting, says whether they *mean* to send a
-    /// picture; the frame count says whether it is really arriving. Both are
-    /// needed: without the first, the last few frames of a call whose video
-    /// has just been turned off put the video screen back up with nobody's
-    /// camera on (owner, 2026-10-05); without the second, a picture that
-    /// stopped sits frozen on the screen.
-    private func theySaid(_ on: Bool) {
-        guard on != video.theirs else { return }
-        // The track itself is kept either way. A picture that stopped has to
-        // be able to come back — the same track starts carrying frames again
-        // and WebRTC says nothing about it, because as far as it is concerned
-        // nothing changed (owner, 2026-10-05: the echo test showed no picture
-        // at all, the camera having been called off at the first reading,
-        // before the first frame had had time to arrive). It is let go of when
-        // the other side really takes it away, and when the call ends.
-        frames.forget()
-        // Their word for it is enough to put the screen up; the frames decide
-        // what is drawn in it, and the first ones are usually a moment behind.
-        said(CallVideo(mine: video.mine, theirs: on, theirPicture: on && video.theirPicture))
-    }
-
-    /// Whether their frames are arriving. On its own it never changes which
-    /// screen the call is on — only what the picture area shows — so a stutter
-    /// can't flip the app between the video screen and the voice screen.
-    private func theirPicture(_ arriving: Bool) {
-        guard arriving != video.theirPicture, video.theirs || !arriving else { return }
-        said(CallVideo(mine: video.mine, theirs: video.theirs, theirPicture: arriving))
-        // Nobody is sending a picture any more — theirs has stopped and this
-        // phone's camera is off. A video screen with nothing in it is not what
-        // the call is, so the picture is taken **out of the call** and both
-        // sides go back to an ordinary call (owner, 2026-10-05: "it should have
-        // taken to the voice only active call since video is off"). It comes
-        // back the way it arrived in the first place: whenever either side
-        // presses the button.
-        guard !arriving, !video.mine else { return }
-        onPictureGone?()
-    }
-
-    /// Nobody is sending a picture any more.
-    var onPictureGone: (() -> Void)?
-
-    /// Takes the picture out of the call altogether and hands back the offer
-    /// that says so. Unlike stopping the camera, this also stops *asking* for
-    /// theirs: the call becomes a plain call again at both ends.
-    func dropVideo() async throws -> String {
-        await stopCamera()
-        for transceiver in connection?.transceivers ?? [] where transceiver.mediaType == .video {
-            transceiver.setDirection(.inactive, error: nil)
-        }
-        tracks.remote = nil
-        frames.forget()
-        said(CallVideo())
-        return try await offer()
-    }
-
-    private func said(_ now: CallVideo) {
-        guard now != video else { return }
-        video = now
-        tooThin = 0
-        onVideoChanged?(now)
-    }
+    var mirrorsMyVideo: Bool { picture?.mirrored ?? true }
 
     func setMuted(_ muted: Bool) {
         audio?.isEnabled = !muted
@@ -647,12 +438,10 @@ struct PictureWatch {
         gatheringLimit = nil
         gathered?.resume()
         gathered = nil
-        camera?.stop()
-        camera = nil
-        videoSender = nil
+        picture?.stop()
+        picture = nil
         tracks.local = nil
         tracks.remote = nil
-        video = CallVideo()
         audio = nil
         connection?.close()
         connection = nil
@@ -1078,96 +867,17 @@ struct PictureWatch {
         note { $0.settled = true }
     }
 
-    /// Their picture is on the screen while pictures are arriving — and back
-    /// on it the moment they start arriving again.
-    private func checkTheirPicture(_ connection: MediaConnection) {
-        guard
-            let arriving = frames.reading(
-                framesIn: connection.framesIn, showing: video.theirPicture, announced: video.theirs)
-        else { return }
-        guard !arriving || tracks.remote != nil else { return }
-        theirPicture(arriving)
-    }
-
-    /// Readings where their camera is announced, nothing is arriving from it,
-    /// and this phone isn't sending either. The frame watch only notices a
-    /// picture that *stops*; a picture that never starts needs counting too,
-    /// or the call sits in its video screen with nothing in it.
-    private var nothingArriving = 0
-
-    private func checkNobodyIsSending() {
-        guard !video.mine, video.theirs, !video.theirPicture else {
-            nothingArriving = 0
-            return
-        }
-        nothingArriving += 1
-        guard nothingArriving >= PictureWatch.quietReadings else { return }
-        nothingArriving = 0
-        onPictureGone?()
-    }
-
-    private var frames = PictureWatch()
-
-    /// Sound comes first (docs/PHASE2.md §7). When the link has not got the
-    /// room for a picture for three readings running — a quarter of a minute
-    /// — this phone's camera goes off and the call carries on as a phone
-    /// call, rather than letting the voice break up for a picture nobody can
-    /// see properly anyway. One reading is not enough: a lift, a lorry or a
-    /// handover between masts would otherwise end every video call.
-    private func checkTheLink(_ connection: MediaConnection) {
-        guard video.mine, let room = connection.outgoingBitrate else {
-            tooThin = 0
-            return
-        }
-        guard room < Self.tooThinForVideo else {
-            tooThin = 0
-            return
-        }
-        tooThin += 1
-        guard tooThin >= Self.tooThinReadings else { return }
-        tooThin = 0
-        onVideoTooExpensive?()
-    }
-
     /// Caps what this phone sends, whatever the other side's SDP allows:
-    /// the voice at Opus's mono ceiling, and the picture well below what a
-    /// phone would send if nobody asked (CLAUDE.md, the low-bandwidth rule).
+    /// the voice at Opus's mono ceiling (CLAUDE.md, the low-bandwidth rule).
     private func capWhatThisPhoneSends() {
         guard let connection else { return }
-        for sender in connection.senders {
-            let kind = sender.track?.kind
-            guard kind == kRTCMediaStreamTrackKindAudio || kind == kRTCMediaStreamTrackKindVideo else { continue }
-            let video = kind == kRTCMediaStreamTrackKindVideo
+        for sender in connection.senders where sender.track?.kind == kRTCMediaStreamTrackKindAudio {
             let parameters = sender.parameters
-            if video {
-                // Within the step, WebRTC may trade size for smoothness as it
-                // sees fit — that is its own congestion control doing the fine
-                // work between our readings.
-                parameters.degradationPreference = NSNumber(value: RTCDegradationPreference.balanced.rawValue)
-            }
             for encoding in parameters.encodings {
-                encoding.maxBitrateBps = NSNumber(
-                    value: video ? ladder.quality.bitrate : SDPTweaks.opusMaxBitrate)
-                if video { encoding.maxFramerate = NSNumber(value: ladder.quality.frameRate) }
+                encoding.maxBitrateBps = NSNumber(value: SDPTweaks.opusMaxBitrate)
             }
             sender.parameters = parameters
         }
-    }
-
-    /// Follows the link while a picture is going out (ADR-081): better where
-    /// there is room to spare for a quarter of a minute, smaller at the first
-    /// reading that says there isn't, and never above what the route allows —
-    /// a relayed call can only have what Linx's relay will carry for one call.
-    private func adaptTheVideo(_ connection: MediaConnection) {
-        guard video.mine else {
-            if ladder.quality != .standard { ladder = VideoLadder() }
-            return
-        }
-        let ceiling = VideoQuality.ceiling(route: connection.route, relay: turn?.maxBitrateBps, hd: hd)
-        guard let step = ladder.reading(spare: connection.outgoingBitrate, ceiling: ceiling) else { return }
-        capWhatThisPhoneSends()
-        note { $0.picture = step.words }
-        camera?.use(step)
     }
 
     private var lastPath: String?
@@ -1206,17 +916,11 @@ struct PictureWatch {
                 if let connection = await self.readConnection() {
                     self.noteTheRoute(connection)
                     self.onConnection?(connection)
-                    self.adaptTheVideo(connection)
-                    self.checkTheLink(connection)
-                    self.checkTheirPicture(connection)
-                    self.checkNobodyIsSending()
                 }
                 // Every second for the first few seconds, so a call whose sound
                 // isn't getting through is noticed and mended in two or three
                 // (PhoneModel.mendIfSilent); then the usual pace.
-                let pause: Duration =
-                    Date() < self.quickUntil
-                    ? .seconds(1) : (self.video.mine ? Self.readRouteEveryWithVideo : Self.readRouteEvery)
+                let pause: Duration = Date() < self.quickUntil ? .seconds(1) : Self.readRouteEvery
                 try? await Task.sleep(for: pause)
             }
         }
@@ -1322,7 +1026,7 @@ struct PictureWatch {
     /// makes one. The video codecs are the phone's own hardware ones first
     /// (H.264), which is the difference between a warm phone and a flat
     /// battery; nothing of them runs until a camera is switched on.
-    private static let factory: RTCPeerConnectionFactory = {
+    static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
         return RTCPeerConnectionFactory(
             encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: RTCDefaultVideoDecoderFactory())
@@ -1332,12 +1036,6 @@ struct PictureWatch {
 
     private static let audioOnly = RTCMediaConstraints(
         mandatoryConstraints: ["OfferToReceiveAudio": "true", "OfferToReceiveVideo": "false"],
-        optionalConstraints: nil)
-
-    /// Once there is a picture in the call, every offer and answer carries
-    /// it: a re-offer that forgot to would take the call's video away.
-    private static let withVideo = RTCMediaConstraints(
-        mandatoryConstraints: ["OfferToReceiveAudio": "true", "OfferToReceiveVideo": "true"],
         optionalConstraints: nil)
 
     /// What WebRTC does to the microphone's sound before it goes out.
@@ -1494,24 +1192,6 @@ extension WebRTCMedia: RTCPeerConnectionDelegate {
     /// The other side's picture has arrived (unified plan tells the app
     /// about each stream as it starts). The track itself is what the screen
     /// draws; nothing is copied.
-    nonisolated func peerConnection(
-        _ connection: RTCPeerConnection, didAdd receiver: RTCRtpReceiver, streams: [RTCMediaStream]
-    ) {
-        guard let track = receiver.track as? RTCVideoTrack else { return }
-        Task { @MainActor in
-            self.tracks.remote = track
-            self.theySaid(true)
-        }
-    }
-
-    nonisolated func peerConnection(_ connection: RTCPeerConnection, didRemove receiver: RTCRtpReceiver) {
-        guard receiver.track is RTCVideoTrack else { return }
-        Task { @MainActor in
-            self.tracks.remote = nil
-            self.theySaid(false)
-        }
-    }
-
     nonisolated func peerConnectionShouldNegotiate(_ connection: RTCPeerConnection) {}
     nonisolated func peerConnection(_ connection: RTCPeerConnection, didChange state: RTCSignalingState) {}
     nonisolated func peerConnection(_ connection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}

@@ -319,17 +319,20 @@ struct RingingTests {
         #expect(phone.call?.id == id)
     }
 
-    @Test("a video call rings as one, and answering it turns the camera on (2026-10-12)")
+    @Test("a video call rings as one, and answering it turns the camera on (ADR-087)")
     func aVideoCallRingsAsOne() async throws {
         let calls = FakeSystemCalls()
         let (phone, transport, media) = await phone(calls: calls)
         var invite = Self.invite(from: "1031", name: "Omar Nasser", callID: "call-v")
-        invite.body = FakeMedia.videoOffer
+        invite.add("X-Linx-Video", "yes")
         transport.asterisk(invite)
         #expect(await eventually { calls.reportedVideo == [true] })
         #expect(phone.call?.videoCall == true)
         calls.ask(.answer(try #require(phone.call?.id)))
-        #expect(await eventually { media.video.mine })
+        // The camera goes on over the picture link as soon as the other side
+        // is there, and the sound comes out of the loudspeaker.
+        #expect(await eventually { media.pictureCameraFirst == true })
+        #expect(await eventually { phone.call?.speaker == true })
     }
 
     @Test("a second call while this one is up is reported and ended at once")

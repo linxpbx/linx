@@ -11,14 +11,6 @@ enum SDPTweaks {
     /// Opus's most, in bits per second: full-quality mono voice.
     static let opusMaxBitrate = 24000
 
-    /// The ceiling written into an SDP this phone sends, in bits per second:
-    /// the most a picture could ever use here (`VideoQuality.hd`). What it
-    /// *does* use is decided call by call from the link and the route
-    /// (ADR-081) and set on the sender itself, which is where a moving ceiling
-    /// belongs — an SDP is negotiated once and would otherwise hold a good
-    /// link down to what the first seconds of the call could manage.
-    static let videoMaxBitrate = VideoQuality.hd.bitrate
-
     /// letThemStartTheEncryption answers an offer that lets either side start
     /// the DTLS handshake (`actpass`) as the side that waits (`passive`).
     /// Asterisk drops a handshake that arrives before its own side of the
@@ -64,61 +56,6 @@ enum SDPTweaks {
         }
         lines[fmtp] = prefix + parameters.joined(separator: ";")
         return lines.joined(separator: eol)
-    }
-
-    /// capVideo writes that ceiling into an SDP this phone is about to send
-    /// (RFC 3556 `b=AS`, in kilobits), so the other side and Asterisk both
-    /// know it before a single frame is sent. An SDP with no video in it is
-    /// left exactly as it was.
-    static func capVideo(_ sdp: String) -> String {
-        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
-        var lines = sdp.components(separatedBy: eol)
-        guard let video = lines.firstIndex(where: { $0.hasPrefix("m=video ") }) else { return sdp }
-        // b= goes straight after c=, and there is at most one of each per
-        // media section (RFC 4566 §5).
-        var at = video + 1
-        while at < lines.count, lines[at].hasPrefix("i=") || lines[at].hasPrefix("c=") { at += 1 }
-        let cap = "b=AS:\(videoMaxBitrate / 1000)"
-        if at < lines.count, lines[at].hasPrefix("b=AS:") {
-            lines[at] = cap
-        } else {
-            lines.insert(cap, at: at)
-        }
-        return lines.joined(separator: eol)
-    }
-
-    /// hasVideo reports whether an SDP offers or answers a picture at all: a
-    /// video section that hasn't been turned down (port 0) or switched off.
-    static func hasVideo(_ sdp: String) -> Bool {
-        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
-        for section in sections(sdp, eol: eol) where section.first?.hasPrefix("m=video ") == true {
-            let port = section[0].dropFirst("m=video ".count).prefix { $0.isNumber }
-            guard port != "0" else { continue }
-            if section.contains(where: { $0.hasPrefix("a=inactive") }) { continue }
-            return true
-        }
-        return false
-    }
-
-    /// theySendVideo reports whether the other side's SDP says *they* will
-    /// send a picture — their `sendrecv` or `sendonly`, which is what
-    /// decides whether this phone shows a window for them.
-    static func theySendVideo(_ sdp: String) -> Bool {
-        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
-        for section in sections(sdp, eol: eol) where section.first?.hasPrefix("m=video ") == true {
-            let port = section[0].dropFirst("m=video ".count).prefix { $0.isNumber }
-            guard port != "0" else { continue }
-            if section.contains(where: { $0.hasPrefix("a=sendrecv") || $0.hasPrefix("a=sendonly") }) {
-                return true
-            }
-            // No direction at all means sendrecv (RFC 4566).
-            if !section.contains(where: {
-                $0.hasPrefix("a=recvonly") || $0.hasPrefix("a=inactive")
-            }) {
-                return true
-            }
-        }
-        return false
     }
 
     /// everyStreamHasRoutes says whether every open stream of an offer

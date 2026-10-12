@@ -58,8 +58,8 @@ import Testing
     /// Whether the system has handed over the microphone and the speaker.
     private(set) var systemAudioOn: Bool?
 
-    // The picture (docs/PHASE2.md §7). The camera is make-believe: what the
-    // tests check is what the app *says* about it over SIP.
+    // The picture (ADR-087). The camera and the link are make-believe: what
+    // the tests check is that SIP never carries them.
     var video = CallVideo()
     var onVideoChanged: ((CallVideo) -> Void)?
     var onVideoTooExpensive: (() -> Void)?
@@ -69,44 +69,38 @@ import Testing
     private(set) var cameraSwitched = 0
     /// Set to make the camera refuse, as one does when the person said no.
     var cameraRefuses: CameraTrouble?
+    /// How often the picture link was opened, and whether as a video call.
+    private(set) var pictureLinks = 0
+    private(set) var pictureCameraFirst: Bool?
+    /// Every on and off asked of the camera.
+    private(set) var cameraCalls: [Bool] = []
 
-    func offer() async throws -> String { video.mine ? Self.videoOffer : Self.soundOffer }
+    func offer() async throws -> String { Self.soundOffer }
 
     func answer(to offer: String) async throws -> String {
         answeredOffer = offer
-        if SDPTweaks.theySendVideo(offer) { setVideo(CallVideo(mine: video.mine, theirs: true)) }
-        return video.on ? Self.videoAnswer : Self.soundAnswer
+        return Self.soundAnswer
     }
 
-    func startVideo() async throws -> String {
-        if let cameraRefuses { throw cameraRefuses }
-        setVideo(CallVideo(mine: true, theirs: video.theirs))
-        return Self.videoOffer
+    func startPicture(link: any PictureLink, cameraFirst: Bool) {
+        pictureLinks += 1
+        pictureCameraFirst = cameraFirst
     }
 
-    func stopVideo() async throws -> String {
-        setVideo(CallVideo(mine: false, theirs: video.theirs))
-        return Self.soundOffer
+    func setCamera(_ on: Bool) async throws {
+        if on, let cameraRefuses { throw cameraRefuses }
+        cameraCalls.append(on)
+        var now = video
+        now.mine = on
+        setVideo(now)
     }
 
-    var onPictureGone: (() -> Void)?
-    private(set) var dropped = false
-
-    func dropVideo() async throws -> String {
-        dropped = true
-        setVideo(CallVideo())
-        return Self.soundOffer
-    }
-
-    /// Their picture has stopped and this phone isn't sending one, as
-    /// WebRTCMedia's frame watch would say it.
-    func pretendTheirPictureStopped() { onPictureGone?() }
-
-    /// Readings in which their camera is announced and nothing arrives from
-    /// it, as WebRTCMedia's own count of that would end.
-    func pretendNothingIsArriving(readings: Int) {
-        guard readings >= PictureWatch.quietReadings else { return }
-        onPictureGone?()
+    /// The other side can't show a picture (a desk phone), as the call link
+    /// would say it.
+    func pretendNoPicture() {
+        var now = video
+        now.available = false
+        setVideo(now)
     }
 
     func switchCamera() { cameraSwitched += 1 }
@@ -123,10 +117,7 @@ import Testing
     func mark(_ what: String) { steps.append(what) }
     func began(at: Date) { steps.insert("began", at: 0) }
 
-    func rollbackOffer() async {
-        rolledBack = true
-        setVideo(CallVideo(mine: false, theirs: video.theirs))
-    }
+    func rollbackOffer() async { rolledBack = true }
 
     private func setVideo(_ now: CallVideo) {
         guard now != video else { return }
@@ -136,15 +127,8 @@ import Testing
 
     static let soundOffer = "v=0\r\na=linx-offer\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendrecv\r\n"
     static let soundAnswer = "v=0\r\na=linx-answer\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendrecv\r\n"
-    static let videoOffer =
-        soundOffer + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendrecv\r\n"
-    static let videoAnswer =
-        soundAnswer + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendrecv\r\n"
 
-    func accept(answer: String) async throws {
-        acceptedAnswer = answer
-        setVideo(CallVideo(mine: video.mine, theirs: SDPTweaks.theySendVideo(answer)))
-    }
+    func accept(answer: String) async throws { acceptedAnswer = answer }
     func setMuted(_ muted: Bool) { self.muted = muted }
     func setSpeaker(_ on: Bool) {
         speaker = on
@@ -162,15 +146,15 @@ import Testing
     /// Where the sound is, as the system would say it.
     func soundComesOut(of route: AudioRoute) { onRoute?(route) }
 
-    /// Their camera came on, or went off, as WebRTC would say it.
-    func pretendTheirVideo(_ on: Bool) { setVideo(CallVideo(mine: video.mine, theirs: on)) }
-    func sendTone(_ digit: Character) { tones.append(digit) }
-    /// The camera turned on before the call's first offer (a video call).
-    var cameraFirstCalls = 0
-    func cameraFirst() async throws {
-        cameraFirstCalls += 1
-        setVideo(CallVideo(mine: true, theirs: video.theirs))
+    /// Their camera came on, or went off, as the picture link would say it.
+    func pretendTheirVideo(_ on: Bool) {
+        var now = video
+        now.available = true
+        now.theirs = on
+        now.theirPicture = on
+        setVideo(now)
     }
+    func sendTone(_ digit: Character) { tones.append(digit) }
     func systemAudio(_ on: Bool) { systemAudioOn = on }
     func stop() { stopped = true }
 }

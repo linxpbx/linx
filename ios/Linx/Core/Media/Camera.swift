@@ -3,17 +3,15 @@ import Foundation
 import UIKit
 @preconcurrency import WebRTC
 
-// This phone's camera, for a 1:1 video call (docs/PHASE2.md §7). It runs
-// only while the person has their video on: a call starts as sound, and the
-// camera is switched on by hand and switched off again with the button, with
-// the call, or when the network can't carry it.
+// This phone's camera, for a 1:1 video call. It runs only while the person
+// has their video on: switched on by the button (or by a video call), and off
+// again with the button, with the call, or when the network can't carry it.
+// Its picture goes to the other device on the call's direct link
+// (`DirectPicture`, ADR-087).
 //
-// What it asks the camera for follows the link (`VideoQuality`, ADR-081): a
-// call starts at 640×480, climbs as far as 720p where there is room for it,
-// and comes down to a face on a thin one. The *scaling* is the video source's
-// own and costs nothing; the camera itself is only restarted when a step needs
-// more pixels than the format in use can give, which is why going up is the
-// slow direction (CLAUDE.md, the low-bandwidth rule).
+// The camera captures at 720p and the video source scales that to the step
+// in use (540p, or 720p with **HD**); WebRTC's own congestion control adapts
+// below that, end to end. Scaling costs nothing and never blinks.
 
 /// Whose camera is on, as the screen sees it.
 ///
@@ -25,6 +23,9 @@ import UIKit
 /// when a picture stutters or when the last frames of a camera just switched
 /// off are still in the air (owner, 2026-10-05).
 struct CallVideo: Equatable, Sendable {
+    /// Whether the other side can show a picture at all: nil until the
+    /// call link says, false for a desk phone or an outside number.
+    var available: Bool?
     /// This phone is sending a picture.
     var mine = false
     /// The other side says they are sending one.

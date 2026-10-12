@@ -81,81 +81,7 @@ struct SoundOnTheRoadTests {
         phone.stop()
     }
 
-    // MARK: - A picture that follows the link (ADR-081)
-
-    @Test("the picture never asks for more than the route allows")
-    func theCeiling() {
-        // Straight to the other side: as good as the link can carry.
-        #expect(VideoQuality.ceiling(route: .direct, relay: nil) == .hd)
-        #expect(VideoQuality.ceiling(route: .direct, relay: 1_280_000) == .hd)
-        // Through Linx's relay: never more than the relay will carry for one
-        // call, because asking for more doesn't slow the picture down, it
-        // freezes it (owner, 2026-10-05).
-        #expect(VideoQuality.ceiling(route: .relayed, relay: 1_280_000) == .high)
-        #expect(VideoQuality.ceiling(route: .relayed, relay: 512_000) == .low)
-        #expect(VideoQuality.ceiling(route: .relayed, relay: 200_000) == .thin)
-        // A server too old to say stays where every Linx relay has always been.
-        #expect(VideoQuality.ceiling(route: .relayed, relay: nil) == .standard)
-    }
-
-    @Test("HD off holds the picture at 540p; on, a relay of 240 kB/s carries 720p (2026-10-12)")
-    func theHDButton() {
-        #expect(VideoQuality.ceiling(route: .relayed, relay: 1_920_000) == .hd)
-        #expect(VideoQuality.ceiling(route: .relayed, relay: 1_920_000, hd: true) == .hd)
-        #expect(VideoQuality.ceiling(route: .relayed, relay: 1_920_000, hd: false) == .high)
-        #expect(VideoQuality.ceiling(route: .direct, relay: nil, hd: false) == .high)
-        // HD never lifts a picture above what the route allows.
-        #expect(VideoQuality.ceiling(route: .relayed, relay: 512_000, hd: true) == .low)
-        #expect(VideoQuality.ceiling(route: .relayed, relay: 512_000, hd: false) == .low)
-    }
-
-    @Test("a picture just switched on isn't made worse while the link is still being measured")
-    func theLadderSettles() {
-        var ladder = VideoLadder()
-        // The room on a link is measured from what is flowing on it, so for the
-        // first readings after a camera comes on the measurement is still
-        // catching up and reads low. Acting on it would make a good picture
-        // worse the moment it appeared (owner, 2026-10-05).
-        for _ in 0..<VideoLadder.settlingReadings {
-            #expect(ladder.reading(spare: 50_000, ceiling: .hd) == nil)
-        }
-        #expect(ladder.quality == .standard)
-        // After that it is believed — on the second tight reading, not the
-        // first.
-        #expect(ladder.reading(spare: 50_000, ceiling: .hd) == nil)
-        #expect(ladder.reading(spare: 50_000, ceiling: .hd) == .low)
-    }
-
-    @Test("the picture comes down soon and goes up slowly")
-    func theLadder() {
-        var ladder = VideoLadder()
-        #expect(ladder.quality == .standard)
-        // A link with room to spare: nothing happens for a few readings, then
-        // it steps up once — not twice, and not every reading.
-        for _ in 0..<(VideoLadder.steadyReadings - 1) {
-            #expect(ladder.reading(spare: 4_000_000, ceiling: .hd) == nil)
-        }
-        #expect(ladder.reading(spare: 4_000_000, ceiling: .hd) == .high)
-        #expect(ladder.reading(spare: 4_000_000, ceiling: .hd) == nil)
-        // The link narrows: down after two readings that say so, each step
-        // judged on its own readings.
-        #expect(ladder.reading(spare: 300_000, ceiling: .hd) == nil)
-        #expect(ladder.reading(spare: 300_000, ceiling: .hd) == .standard)
-        #expect(ladder.reading(spare: 300_000, ceiling: .hd) == nil)
-        #expect(ladder.reading(spare: 300_000, ceiling: .hd) == .low)
-        // The bottom step is the bottom: the camera going off altogether is
-        // the other rule's job, not this one's.
-        #expect(ladder.reading(spare: 10_000, ceiling: .hd) == nil)
-        #expect(ladder.reading(spare: 10_000, ceiling: .hd) == .thin)
-        #expect(ladder.reading(spare: 10_000, ceiling: .hd) == nil)
-        #expect(ladder.reading(spare: 10_000, ceiling: .hd) == nil)
-        #expect(ladder.quality == .thin)
-        // A ceiling that drops — the call turned out to be relayed — takes the
-        // picture with it at once.
-        var relayed = VideoLadder(start: .hd)
-        #expect(relayed.reading(spare: 4_000_000, ceiling: .high) == .high)
-        #expect(relayed.reading(spare: 4_000_000, ceiling: .high) == nil)
-    }
+    // MARK: - The steps of picture quality (ADR-081)
 
     @Test("every step is smaller than the one above it, and names itself")
     func theSteps() {
@@ -165,12 +91,9 @@ struct SoundOnTheRoadTests {
             #expect(lower.bitrate < higher.bitrate)
             #expect(lower.width <= higher.width)
             #expect(lower.height < higher.height)
-            #expect(lower.needs > lower.bitrate)
         }
         #expect(VideoQuality.hd.words == "720p")
         #expect(VideoQuality.standard.words == "480p")
-        // What a phone sends is never above the ceiling written into the SDP.
-        #expect(SDPTweaks.videoMaxBitrate == VideoQuality.hd.bitrate)
     }
 
     // MARK: - Who says the relay's certificate is good
@@ -200,55 +123,6 @@ struct SoundOnTheRoadTests {
 
     // MARK: - Their picture coming and going
 
-    @Test("a picture that stops arriving comes back when it starts again")
-    func theirPictureComesBack() {
-        var watch = PictureWatch()
-        // It is announced before any frame has arrived, which is the ordinary
-        // way round: nothing is said until frames stop coming.
-        #expect(watch.reading(framesIn: 0, showing: true, announced: true) == nil)
-        #expect(watch.reading(framesIn: 0, showing: true, announced: true) == false)
-        // The echo test's picture starts the moment this phone's camera does.
-        #expect(watch.reading(framesIn: 12, showing: false, announced: true) == true)
-        #expect(watch.reading(framesIn: 30, showing: true, announced: true) == nil)
-        // It stops. One quiet reading is a hiccup; two mean it has gone.
-        #expect(watch.reading(framesIn: 30, showing: true, announced: true) == nil)
-        #expect(watch.reading(framesIn: 30, showing: true, announced: true) == false)
-        // And it comes back, which is the half that was missing.
-        #expect(watch.reading(framesIn: 31, showing: false, announced: true) == true)
-    }
-
-    @Test("frames left over from a picture that has been turned off don't put it back")
-    func theirPictureStaysOffWhenNobodyIsSending() {
-        var watch = PictureWatch()
-        // Stop video: their SDP says they are not sending, and the last few
-        // frames still arrive. The screen must stay as it is — the owner's
-        // phone went back to the voice call and then straight to the video
-        // screen with nobody's camera on (2026-10-05).
-        #expect(watch.reading(framesIn: 40, showing: false, announced: false) == nil)
-        #expect(watch.reading(framesIn: 44, showing: false, announced: false) == nil)
-        // Once they say they are sending again, it comes back.
-        #expect(watch.reading(framesIn: 48, showing: false, announced: true) == true)
-    }
-
-    @Test("a picture nobody is sending is taken out of the call")
-    func thePictureLeavesTheCall() async throws {
-        let (phone, transport, media, _) = try await inACall()
-        // They turn their camera on and this phone leaves its own off: a
-        // one-way video call, which is perfectly ordinary.
-        media.pretendTheirVideo(true)
-        #expect(await eventually { phone.call?.video.theirs == true })
-        phone.answeredAboutTheirVideo(turningMineOn: false)
-        let invites = transport.count("INVITE")
-        // Then their picture stops arriving. A video screen with nothing in it
-        // is not what the call is, so the picture is taken out of the call and
-        // both ends go back to an ordinary call (owner, 2026-10-05).
-        media.pretendTheirPictureStopped()
-        #expect(await eventually { media.dropped })
-        #expect(await eventually { transport.count("INVITE") == invites + 1 })
-        #expect(phone.call?.video.on == false)
-        #expect(phone.call?.phase == .active)
-    }
-
     @Test("the question about their camera waits for an answer")
     func theQuestionWaits() async throws {
         let (phone, _, media, _) = try await inACall()
@@ -272,25 +146,6 @@ struct SoundOnTheRoadTests {
         media.pretendTheirVideo(true)
         media.pretendTheirVideo(false)
         #expect(phone.askAboutTheirVideo == nil)
-    }
-
-    @Test("a picture announced but never arriving leaves the call too")
-    func thePictureThatNeverCame() async throws {
-        let (phone, transport, media, _) = try await inACall()
-        // The other side says they are sending and nothing ever arrives: on
-        // the iPad the owner turned video on and off again and was left on a
-        // split video screen with neither picture in it (2026-10-05). The
-        // frame watch only notices a picture that *stops*, so one that never
-        // starts is counted instead.
-        media.pretendTheirVideo(true)
-        #expect(await eventually { phone.call?.video.theirs == true })
-        phone.answeredAboutTheirVideo(turningMineOn: false)
-        let invites = transport.count("INVITE")
-        media.pretendNothingIsArriving(readings: PictureWatch.quietReadings)
-        #expect(await eventually { media.dropped })
-        #expect(await eventually { transport.count("INVITE") == invites + 1 })
-        #expect(phone.call?.video.on == false)
-        #expect(phone.call?.phase == .active)
     }
 
     @Test("their camera is asked about once in a call, however often it comes and goes")
@@ -330,14 +185,13 @@ struct SoundOnTheRoadTests {
 
     @Test("the video button says it is working, and one press is one press")
     func videoSaysItIsWorking() async throws {
-        let (phone, transport, _, _) = try await inACall()
-        let invites = transport.count("INVITE")
+        let (phone, _, media, _) = try await inACall()
         phone.toggleVideo()
         #expect(phone.changingVideo)
         // A second press while the first is still in the air changes nothing.
         phone.toggleVideo()
         #expect(await eventually { !phone.changingVideo })
-        #expect(transport.count("INVITE") == invites + 1)
+        #expect(media.cameraCalls == [true])
     }
 
     // MARK: - A call that connects and carries no sound

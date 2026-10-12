@@ -171,15 +171,18 @@ struct CallView: View {
             AudioRouteButton(
                 onSpeaker: call.speaker, deviceName: phone.whereTheSoundGoes
             ) { phone.toggleSpeaker() }
-            // A picture is added to the call that is already up: the call
-            // itself never stops, and turning it off again leaves an
-            // ordinary phone call (docs/PHASE2.md §7).
+            // The picture has its own link to the other device (ADR-087):
+            // the call itself never stops, and turning it off again leaves
+            // an ordinary phone call. A desk phone or an outside number
+            // can't show one, so the button is off for those.
+            let noPicture = call.video.available == false
             CallToggleButton(
                 symbol: "video.fill", words: phone.changingVideo ? "Starting…" : "Video", on: false,
                 waiting: phone.changingVideo
             ) { phone.toggleVideo() }
-            .disabled(call.phase != .active || phone.changingVideo)
-            .opacity(call.phase == .active ? 1 : 0.5)
+            .disabled(call.phase != .active || phone.changingVideo || noPicture)
+            .opacity(call.phase == .active && !noPicture ? 1 : 0.5)
+            .accessibilityHint(noPicture ? "Their phone can't show a picture." : "")
         }
         .padding(.bottom, LinxSpace.s4)
     }

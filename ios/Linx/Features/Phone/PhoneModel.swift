@@ -356,9 +356,6 @@ import UIKit
                 self?.diagnostics = media.diagnostics
                 media.onVideoChanged = { [weak self] video in self?.videoChanged(video) }
                 media.onVideoTooExpensive = { [weak self] in self?.videoCostTooMuch() }
-                media.onPictureGone = { [weak self] in
-                    Task { await self?.agent?.dropVideo() }
-                }
                 self?.liveMedia = media
                 self?.tracks = media.tracks
                 return media
@@ -566,13 +563,14 @@ import UIKit
         calls.ask(.tone(call.id, digit))
     }
 
-    // MARK: - The picture (docs/PHASE2.md §7)
+    // MARK: - The picture (ADR-087)
 
-    /// Turns this phone's camera on or off in the call that is up. The call
-    /// itself carries straight on either way — that is why video is added to
-    /// a call here and never rung as a different kind of call.
+    /// Turns this phone's camera on or off in the call that is up. The
+    /// picture has its own direct link to the other device, so the call's
+    /// sound carries straight on either way. Nothing happens on a call to a
+    /// phone that can't show a picture (a desk phone, an outside number).
     func toggleVideo() {
-        guard let call, call.phase == .active, !changingVideo else { return }
+        guard let call, call.phase == .active, !changingVideo, call.video.available != false else { return }
         let on = !call.video.mine
         problem = nil
         // Everyone expects a video call to come out of the loudspeaker; a
@@ -1042,9 +1040,14 @@ import UIKit
         // (it asked the app to answer it); an outgoing one is connected the
         // moment the other side picks up.
         if !current.incoming { calls.reportAnswered(id: current.id) }
-        // Answering a video call turns this phone's camera on, as the
-        // person expects; they can turn it off again like any other time.
-        if current.incoming, current.videoCall, !current.video.mine { toggleVideo() }
+        // A video call: this phone's camera goes on as soon as the picture
+        // link finds the other side (the user agent asked for it), so there
+        // is nothing to ask about their camera, and the sound comes out of
+        // the loudspeaker as everyone expects.
+        if current.videoCall {
+            askedAboutTheirVideo = true
+            if !current.speaker { toggleSpeaker() }
+        }
     }
 
     private func ended(_ why: SIPEnded) {

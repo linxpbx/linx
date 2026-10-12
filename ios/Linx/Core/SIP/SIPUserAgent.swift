@@ -80,25 +80,20 @@ struct AudioRoute: Equatable, Sendable {
     /// person (`CallDetailsView`), never a decision.
     var diagnostics: CallDiagnostics { get }
     var onDiagnostics: ((CallDiagnostics) -> Void)? { get set }
-    /// Whose camera is on in this call, and the two pictures themselves
-    /// (docs/PHASE2.md §7). A call is sound until somebody asks for more.
+    /// Whose camera is on in this call, and the two pictures themselves.
+    /// The picture travels on a direct link between the two devices
+    /// (ADR-087), never through Asterisk, which carries the sound only.
     var video: CallVideo { get }
     var tracks: VideoTracks { get }
     var onVideoChanged: ((CallVideo) -> Void)? { get set }
     /// The link hasn't the room for a picture any more.
     var onVideoTooExpensive: (() -> Void)? { get set }
-    /// Switches this phone's camera on or off and answers with the offer
-    /// that tells the other side.
-    func startVideo() async throws -> String
-    func stopVideo() async throws -> String
-    /// A video call: the camera goes on before the call's first offer, so
-    /// the call rings as video (owner, 2026-10-12).
-    func cameraFirst() async throws
-    /// Takes the picture out of the call altogether — neither side is sending
-    /// one — and answers with the offer that says so.
-    func dropVideo() async throws -> String
-    /// Nobody is sending a picture any more.
-    var onPictureGone: (() -> Void)? { get set }
+    /// Opens the picture link once the call is up; `cameraFirst` turns this
+    /// phone's camera on as soon as the other side is there (a video call).
+    func startPicture(link: any PictureLink, cameraFirst: Bool)
+    /// This phone's camera, on or off. Nothing about the call's sound
+    /// changes, and nothing goes through the phone system.
+    func setCamera(_ on: Bool) async throws
     func switchCamera()
     /// The **HD** button: whether this phone's picture may go above 540p.
     func useHD(_ on: Bool)
@@ -139,8 +134,8 @@ struct AudioRoute: Equatable, Sendable {
     }
 
     var onStatus: ((SIPStatus) -> Void)?
-    /// A call coming in, and whether it is a video call (their invitation
-    /// has a picture in it).
+    /// A call coming in, and whether it is a video call (X-Linx-Video on
+    /// their invitation, ADR-087).
     var onIncoming: ((SIPPeer, Bool) -> Void)?
     /// Their phone is ringing (180 or 183).
     var onProgress: (() -> Void)?
@@ -156,6 +151,8 @@ struct AudioRoute: Equatable, Sendable {
     private let account: Account
     private let transport: any SIPTransport
     private let makeMedia: @MainActor () -> any SIPCallMedia
+    /// The call link for a call's SIP Call-ID (`CallLinkSocket`).
+    private let makeLink: @MainActor (String) -> (any PictureLink)?
     /// A host that is this phone and nowhere else: .invalid is reserved for
     /// exactly this (RFC 2606), and the websocket, not the address, is what
     /// Asterisk answers on.
@@ -181,11 +178,14 @@ struct AudioRoute: Equatable, Sendable {
 
     init(
         account: Account, transport: any SIPTransport,
-        media: @escaping @MainActor () -> any SIPCallMedia
+        media: @escaping @MainActor () -> any SIPCallMedia,
+        link: (@MainActor (String) -> (any PictureLink)?)? = nil
     ) {
         self.account = account
         self.transport = transport
         self.makeMedia = media
+        self.makeLink =
+            link ?? { [account] callID in CallLinkSocket(sip: account.websocket, token: account.token, callID: callID) }
         transport.onOpen = { [weak self] in self?.register() }
         transport.onText = { [weak self] text in self?.read(text) }
         transport.onClose = { [weak self] why in self?.closed(why) }
@@ -291,20 +291,12 @@ struct AudioRoute: Equatable, Sendable {
         outgoing.media.began(at: startedAt)
         outgoing.remoteURI = "sip:\(target)@\(account.domain)"
         outgoing.remoteTarget = outgoing.remoteURI
+        // A video call says so in a header (ADR-087): the INVITE carries the
+        // sound only, and the cameras go on over the picture link once it's
+        // answered. A phone that can't show a picture just rings.
+        outgoing.videoCall = video
+        if video { outgoing.media.setSpeaker(true) }
         call = outgoing
-
-        // A video call: the camera is on before the first offer, so the call
-        // rings as video. Someone whose phone can't show a picture answers
-        // without one, and it is an ordinary call (owner, 2026-10-12).
-        if video {
-            outgoing.media.setSpeaker(true)
-            do {
-                try await outgoing.media.cameraFirst()
-            } catch {
-                outgoing.media.mark("The camera wouldn't start, so this rang as a voice call")
-            }
-            guard call?.id == outgoing.id else { return }
-        }
 
         let offer: String
         do {
@@ -332,6 +324,7 @@ struct AudioRoute: Equatable, Sendable {
         message.add("Call-ID", outgoing.id)
         message.add("CSeq", "\(outgoing.seq) INVITE")
         message.add("Contact", contact)
+        if outgoing.videoCall { message.add("X-Linx-Video", "yes") }
         addCommonHeaders(&message)
         if outgoing.credentials != nil {
             message.add("Authorization", answer(&outgoing.credentials, method: "INVITE", uri: outgoing.remoteURI))
@@ -377,6 +370,7 @@ struct AudioRoute: Equatable, Sendable {
         send(ok)
         incoming.established = true
         call = incoming
+        startPicture(of: incoming)
         onEstablished?()
     }
 
@@ -420,64 +414,29 @@ struct AudioRoute: Equatable, Sendable {
         end(current, why: .hungUp)
     }
 
-    // MARK: - The picture (docs/PHASE2.md §7)
+    // MARK: - The picture (ADR-087)
 
-    /// Turns this phone's camera on or off in a call that is already up, and
-    /// tells the other side with a re-INVITE. The call itself never stops:
-    /// video comes and goes inside it, which is why a bad network can drop
-    /// the picture and leave the conversation alone.
+    /// The call is up: its picture link opens, and on a video call this
+    /// phone's camera goes on as soon as the other side is there. The echo
+    /// test has nobody on the other end to link with.
+    private func startPicture(of current: Call) {
+        guard current.peer.number != "*43", let link = makeLink(current.id) else { return }
+        current.media.startPicture(link: link, cameraFirst: current.videoCall)
+    }
+
+    /// Turns this phone's camera on or off in a call that is up. The call
+    /// itself is untouched: the picture has its own link to the other
+    /// device, so nothing goes through the phone system and the sound never
+    /// notices.
     func setVideo(_ on: Bool) async {
         guard let current = call, current.established else { return }
-        guard on else {
-            await stopTheCamera(of: current)
-            return
-        }
-        guard !current.changing, !current.media.video.mine else { return }
-        call?.changing = true
-        defer { call?.changing = false }
         do {
-            let offer = try await current.media.startVideo()
-            guard call?.id == current.id else { return }
-            sendReinvite(offer, of: current)
+            try await current.media.setCamera(on)
         } catch let trouble as CameraTrouble {
             onVideoRefused?(trouble.words)
         } catch {
             onVideoRefused?("This phone couldn't start its camera. Try again in a moment.")
         }
-    }
-
-    /// Stop video always happens. The camera is the person's, not the other
-    /// side's and not the switch's: it goes off here and the screen goes
-    /// back to the call, whatever is still in the air — a change not yet
-    /// answered, or a far end that never answers at all. Only the message
-    /// that tells the other side has to wait its turn, and a call carrying
-    /// a camera that is off costs nothing but a line of SDP (the owner's
-    /// phone sat on the video screen with no way back, 2026-10-04).
-    private func stopTheCamera(of current: Call) async {
-        call?.changing = true
-        defer { call?.changing = false }
-        let offer = try? await current.media.stopVideo()
-        guard call?.id == current.id else { return }
-        // One change at a time (RFC 3261 §14.1): if the last one hasn't
-        // been answered, the camera is off here and the other side finds
-        // out from the next offer either side makes.
-        guard let offer, !(call?.reinviting ?? false) else { return }
-        sendReinvite(offer, of: current)
-    }
-
-    /// Nobody is sending a picture any more, so the call goes back to being an
-    /// ordinary call: the picture is taken out of it with one more re-INVITE,
-    /// and both ends agree about it. Either side pressing the button puts a
-    /// picture back in, exactly as it did the first time.
-    func dropVideo() async {
-        guard let current = call, current.established, !current.changing else { return }
-        call?.changing = true
-        defer { call?.changing = false }
-        guard let offer = try? await current.media.dropVideo(), call?.id == current.id else { return }
-        // One change at a time (RFC 3261 §14.1): if a change of this phone's is
-        // still in the air, the next offer either side makes says it anyway.
-        guard !(call?.reinviting ?? false) else { return }
-        sendReinvite(offer, of: current)
     }
 
     /// Moves the call onto Linx's relay: the sound isn't getting through the
@@ -626,6 +585,7 @@ struct AudioRoute: Equatable, Sendable {
                         try await current.media.accept(answer: message.body)
                     }
                     guard self.call?.id == current.id else { return }
+                    self.startPicture(of: current)
                     self.onEstablished?()
                 } catch {
                     self.send(self.inDialog("BYE", of: current))
@@ -676,16 +636,13 @@ struct AudioRoute: Equatable, Sendable {
         send(bye)
     }
 
-    /// What came back from this phone's own re-INVITE: the picture going
-    /// into a call that is up, or coming out of it. The conversation itself
-    /// is untouched whichever way it goes — that is the whole reason video
-    /// is added to a call rather than being a different kind of call.
+    /// What came back from this phone's own re-INVITE (a move onto the
+    /// relay). The conversation itself is untouched whichever way it goes.
     private func reinviteResponse(_ message: SIPMessage, status: Int, of current: Call) {
         switch status {
         case 100..<200:
             return
         case 200..<300:
-            let forRelay = call?.reinviteForRelay ?? false
             call?.reinviteForRelay = false
             call?.reinviting = false
             call?.reinviteOffer = nil
@@ -700,15 +657,11 @@ struct AudioRoute: Equatable, Sendable {
             ack.add("Call-ID", current.id)
             ack.add("CSeq", "\(message.cseq?.number ?? current.seq) ACK")
             send(ack)
-            Task { [weak self] in
-                guard let self else { return }
+            Task {
                 do {
                     try await current.media.accept(answer: message.body)
                 } catch {
                     await current.media.rollbackOffer()
-                    if !forRelay {
-                        self.onVideoRefused?("The call couldn't take a picture just now. The sound is unaffected.")
-                    }
                 }
             }
         case 401, 407:
@@ -719,7 +672,7 @@ struct AudioRoute: Equatable, Sendable {
             guard let challenge = challenge(in: message), current.reinviteAttempts < 1,
                 let offer = current.reinviteOffer
             else {
-                giveUpOnVideo(current, why: "This phone couldn't turn the video on. The sound is unaffected.")
+                giveUpOnChange(current)
                 return
             }
             call?.reinviteAttempts += 1
@@ -729,32 +682,22 @@ struct AudioRoute: Equatable, Sendable {
             sendReinvite(offer, of: again)
         default:
             ackReinvite(message, of: current)
-            // 491 is both sides asking at once (RFC 3261 §14.1): rare with
-            // one switch in the middle, and the person simply presses the
-            // button again.
-            giveUpOnVideo(
-                current,
-                why: status == 491
-                    ? "Both phones changed the call at the same moment. Try the video button again."
-                    : "The other phone wouldn't take video. The sound is unaffected.")
+            // 491 is both sides asking at once (RFC 3261 §14.1); the next
+            // move onto the relay, if it is still needed, tries again.
+            giveUpOnChange(current)
         }
     }
 
     /// Puts the call back exactly as it was before the offer nobody
-    /// accepted, and says so once.
-    private func giveUpOnVideo(_ current: Call, why: String) {
-        let forRelay = call?.reinviteForRelay ?? false
+    /// accepted. The only change this phone asks for is a move onto the
+    /// relay, and one that didn't happen is no news to the person.
+    private func giveUpOnChange(_ current: Call) {
         call?.reinviteForRelay = false
         call?.reinviting = false
         call?.reinviteOffer = nil
         call?.reinviteRequest = nil
         call?.reinviteAttempts = 0
-        Task { [weak self] in
-            await current.media.rollbackOffer()
-            // A relay move that didn't happen is no news to the person: the
-            // call carries on as it was.
-            if !forRelay { self?.onVideoRefused?(why) }
-        }
+        Task { await current.media.rollbackOffer() }
     }
 
     private func registerResponse(_ message: SIPMessage, status: Int) {
@@ -847,13 +790,14 @@ struct AudioRoute: Equatable, Sendable {
         incoming.remoteURI = SIPMessage.uri(in: from)
         incoming.remoteTarget = SIPMessage.uri(in: invite.first("Contact") ?? from)
         incoming.routeSet = invite.all("Record-Route")
+        incoming.videoCall = invite.first("X-Linx-Video") == "yes"
         let media = incoming.media
         incoming.preparing = Task { try await media.answer(to: invite.body) }
         call = incoming
         var ringing = SIPMessage.response(180, "Ringing", to: invite).withTag(incoming.localTag)
         ringing.add("Contact", contact)
         send(ringing)
-        onIncoming?(peer, SDPTweaks.theySendVideo(invite.body))
+        onIncoming?(peer, incoming.videoCall)
     }
 
     /// Asterisk sometimes asks to change a call that is already up (a
@@ -1053,16 +997,17 @@ struct AudioRoute: Equatable, Sendable {
         var established = false
         var earlyMedia = false
         /// A re-INVITE of this phone's is out and hasn't been answered yet
-        /// (adding or taking away the picture).
+        /// (a move onto the relay).
         var reinviting = false
         var reinviteOffer: String?
         var reinviteRequest: SIPMessage?
         var reinviteAttempts = 0
-        /// Busy asking the camera for something: one at a time.
+        /// Busy changing the call: one change at a time.
         var changing = false
-        /// The re-INVITE that is out moves the call onto the relay, rather
-        /// than changing the picture: if it fails, nothing is said about video.
+        /// The re-INVITE that is out moves the call onto the relay.
         var reinviteForRelay = false
+        /// Rung as a video call (X-Linx-Video, ADR-087).
+        var videoCall = false
         /// The call has been moved onto the relay once already.
         var movedToRelay = false
         var ringingMarked = false
