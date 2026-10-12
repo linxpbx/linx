@@ -306,6 +306,19 @@ struct RingingTests {
         #expect(await eventually { phone.status == .starting })
     }
 
+    @Test("Answer pressed before the woken call arrives answers it when it does (2026-10-12)")
+    func answeredBeforeItArrived() async throws {
+        let calls = FakeSystemCalls()
+        let (phone, transport, _) = await phone(calls: calls)
+        #expect(await phone.woken(from: "1031", video: true))
+        let id = try #require(calls.reported.first?.id)
+        // The lock screen's Answer, eleven seconds before the invitation.
+        calls.ask(.answer(id))
+        transport.asterisk(Self.invite(from: "1031", name: "Omar Nasser", callID: "call-early"))
+        #expect(await eventually { transport.sent.contains { $0.status == 200 && $0.callID == "call-early" } })
+        #expect(phone.call?.id == id)
+    }
+
     @Test("a video call rings as one, and answering it turns the camera on (2026-10-12)")
     func aVideoCallRingsAsOne() async throws {
         let calls = FakeSystemCalls()

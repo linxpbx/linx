@@ -163,6 +163,11 @@ import UIKit
         let id: UUID
         let from: String
         var video = false
+        /// Answered on the lock screen before the call itself arrived: it is
+        /// answered the moment it does (2026-10-12, a woken iPhone on 5G
+        /// rang for 11 s before the invitation came, and the person's
+        /// Answer was dropped).
+        var answered = false
         var giveUp: Task<Void, Never>?
     }
 
@@ -875,6 +880,10 @@ import UIKit
         case .start(let id, let peer):
             place(id: id, to: intended[id] ?? peer)
         case .answer(let id):
+            if let index = waking.firstIndex(where: { $0.id == id }) {
+                waking[index].answered = true
+                return
+            }
             guard call?.id == id, call?.phase == .ringing else { return }
             ringer.stop()
             Task { [weak self] in await self?.agent?.answer() }
@@ -951,6 +960,10 @@ import UIKit
             // The push may have come from a Linx that doesn't say video, or
             // been wrong: the invitation is the last word.
             if video != woken.video { calls.reportVideo(id: woken.id, on: video) }
+            if woken.answered {
+                Task { [weak self] in await self?.agent?.answer() }
+                return
+            }
             ringInTheApp()
             return
         }
