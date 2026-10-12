@@ -35,8 +35,11 @@ const (
 // behind a front door, so limits per person and overall do the work.
 const (
 	// UserQuota is how many allocations one person may hold at once (the
-	// part of the username after the colon: their id).
-	UserQuota = 10
+	// part of the username after the colon: their id). Each phone or
+	// browser on a call holds two (UDP and TLS) and two more for every
+	// route search during it, so 10 was reached by one person's iPhone and
+	// iPad on a video call (2026-10-12).
+	UserQuota = 20
 	// TotalQuota is how many allocations the server holds at once.
 	TotalQuota = 300
 	// MaxBPS is each allocation's bandwidth cap, bytes a second each way.
