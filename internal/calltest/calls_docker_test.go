@@ -286,10 +286,21 @@ func TestCallsDocker(t *testing.T) {
 		for !strings.Contains(e.asteriskLogs(), redial) {
 			if time.Now().After(deadline) {
 				logs, _ := exec.Command("docker", "logs", arrives).CombinedOutput()
-				t.Fatalf("Ivy not rung once her phone arrived late; her phone said:\n%s\n--- Asterisk:\n%s",
-					logs, e.asteriskLogs())
+				all, _ := exec.Command("docker", "logs", astName).CombinedOutput()
+				var hers []string
+				for _, l := range strings.Split(string(all), "\n") {
+					if strings.Contains(l, ivy.dev.SIPUsername) && !strings.Contains(l, "linx-wake:") {
+						hers = append(hers, l)
+					}
+				}
+				t.Fatalf("Ivy not rung once her phone arrived late; her phone said:\n%s\n--- Asterisk about her:\n%s\n%s",
+					logs, strings.Join(hers, "\n"), e.asteriskCLI("pjsip show endpoint "+ivy.dev.SIPUsername))
 			}
-			time.Sleep(250 * time.Millisecond)
+			// A real phone is checked the moment it signs in (the owner's
+			// iPhone was "Reachable" in the same second); the test phone isn't
+			// always, so ask Asterisk to check it now.
+			e.asteriskCLI("pjsip qualify " + ivy.dev.SIPUsername)
+			time.Sleep(time.Second)
 		}
 		e.waitWS(arrives)
 		e.wait(late)
