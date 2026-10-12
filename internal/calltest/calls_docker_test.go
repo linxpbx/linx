@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -26,6 +27,7 @@ import (
 	"linxpbx.com/linx/internal/ari"
 	"linxpbx.com/linx/internal/asteriskconf"
 	"linxpbx.com/linx/internal/callhistory"
+	"linxpbx.com/linx/internal/calllink"
 	"linxpbx.com/linx/internal/calltest/sipws"
 	"linxpbx.com/linx/internal/doctor"
 	"linxpbx.com/linx/internal/pbx"
@@ -140,8 +142,42 @@ func TestCallsDocker(t *testing.T) {
 		// names itself sip.linx.test (from_domain, see start), never its
 		// container address: phones keep that name in their call history.
 		e.asteriskCLI("pjsip set logger on")
-		e.run("call", "call.xml", alice, "-s", "102", "-d", "2000")
+		call := e.sipp("call", "call.xml", alice, "-s", "102", "-d", "4000")
+
+		// The call link (ADR-087) finds a device's own leg by its SIP
+		// Call-ID and the leg it is bridged to, from Asterisk alone; nobody
+		// else's device can find it.
+		resolver := &calllink.Resolver{Linx: func(_ context.Context, u string) (bool, error) { return u == bob.dev.SIPUsername, nil }}
+		resolver.Connected(ariConn.Load())
+		var mine ari.Channel
+		eventually(t, "Alice's call answered", 10*time.Second, func() bool {
+			var chans []ari.Channel
+			if err := ariConn.Load().Get(ctx, "channels", &chans); err != nil {
+				return false
+			}
+			for _, ch := range chans {
+				if ch.Endpoint() == alice.dev.SIPUsername && ch.State == "Up" && ch.ProtocolID != "" {
+					mine = ch
+					return true
+				}
+			}
+			return false
+		})
+		leg, err := resolver.Resolve(ctx, alice.dev.SIPUsername, mine.ProtocolID)
+		if err != nil || leg.Channel != mine.Name || !strings.HasPrefix(leg.Peer, "PJSIP/"+bob.dev.SIPUsername+"-") || !leg.PeerLinx {
+			t.Errorf("Alice's leg = %+v, %v", leg, err)
+		}
+		if _, err := resolver.Resolve(ctx, bob.dev.SIPUsername, mine.ProtocolID); !errors.Is(err, calllink.ErrNoCall) {
+			t.Errorf("Bob found Alice's leg by her Call-ID: %v", err)
+		}
+		if !resolver.Alive(ctx, leg.ChannelID) {
+			t.Error("Alice's channel not alive during the call")
+		}
+		e.wait(call)
 		e.asteriskCLI("pjsip set logger off")
+		if resolver.Alive(ctx, leg.ChannelID) {
+			t.Error("Alice's channel still alive after the call")
+		}
 		if logs := e.asteriskLogs(); !strings.Contains(logs, `From: "Alice" <sip:101@sip.linx.test>`) {
 			t.Errorf("the INVITE to Bob doesn't come from sip.linx.test:\n%s", logs)
 		}
@@ -732,15 +768,13 @@ func TestCallsDocker(t *testing.T) {
 		erin := e.newWebPhone("105", "Erin")
 
 		// Browsers get WebRTC media (ICE, DTLS-SRTP, AVPF, rtcp-mux) over
-		// the websocket; phones keep SIP over TLS with SDES-SRTP. The app
-		// and the browser also get the video codecs and one video stream,
-		// for 1:1 video calls (migration 0044, docs/PHASE2.md §7); a desk
-		// phone is never offered video at all, which the phone endpoint
-		// below is what checks.
+		// the websocket; phones keep SIP over TLS with SDES-SRTP. Nobody
+		// gets video through Asterisk: a picture between two Linx devices
+		// goes directly between them (ADR-087, migration 0052).
 		web := e.asteriskCLI("pjsip show endpoint " + dana.dev.SIPUsername)
 		for _, want := range []string{`transport\s*:\s*transport-wss`, `media_encryption\s*:\s*dtls`, `ice_support\s*:\s*true`,
 			`use_avpf\s*:\s*true`, `rtcp_mux\s*:\s*true`, `dtls_verify\s*:\s*Fingerprint`, `dtls_setup\s*:\s*actpass`,
-			`allow\s*:\s*\(opus\|g722\|ulaw\|h264\|vp8\)`, `max_video_streams\s*:\s*1`, `bundle\s*:\s*true`} {
+			`(?m)allow\s*:\s*\(opus\|g722\|ulaw\)\s*$`, `bundle\s*:\s*true`} {
 			if !regexp.MustCompile(want).MatchString(web) {
 				t.Errorf("web endpoint doesn't match %s:\n%s", want, web)
 			}

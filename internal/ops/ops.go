@@ -39,6 +39,7 @@ var Services = []Service{
 	{Name: "control-plane", Container: "linx-control-plane", Label: "Web and API", Restart: true},
 	{Name: "asterisk", Container: "linx-asterisk", Label: "Phone system", Restart: true},
 	{Name: "coturn", Container: "linx-coturn", Label: "Calls-from-outside relay", Restart: true},
+	{Name: "livekit", Container: "linx-livekit", Label: "Group calls", Restart: true},
 	{Name: "postgres", Container: "linx-postgres", Label: "Database"},
 	{Name: "certd", Container: "linx-certd", Label: "Certificates", Restart: true},
 	{Name: "step-ca", Container: "linx-step-ca", Label: "Internal certificates"},

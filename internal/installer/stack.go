@@ -50,6 +50,10 @@ const (
 	// credentials with and coturn checks them with (ADR-039; Docker secret
 	// linx_turn_secret).
 	TURNSecretPath = SecretsDir + "/linx_turn_secret"
+	// LiveKitSecretPath is the video server's API key (ADR-088; Docker
+	// secret linx_livekit_secret): the control plane signs group calls'
+	// tokens with it and LiveKit checks them.
+	LiveKitSecretPath = SecretsDir + "/linx_livekit_secret"
 	// nonrootGID is the distroless "nonroot" group that Linx service images
 	// run as. The DNS token is root-owned and readable by this group only.
 	nonrootGID = 65532
@@ -152,6 +156,9 @@ func StackPlan(c Config, dnsToken, imageTag string, lan LAN) StackSetup {
 	turnSecretStep := fileStep("Save the call relay's secret (readable by root and the Linx services only)",
 		TURNSecretPath, []byte(existingOrNewTURNSecret(TURNSecretPath)), 0o440, 0o700)
 	turnSecretStep.File.Gid = nonrootGID
+	liveKitSecretStep := fileStep("Save the video server's key (readable by root and the Linx services only)",
+		LiveKitSecretPath, []byte(existingOrNewTURNSecret(LiveKitSecretPath)), 0o440, 0o700)
+	liveKitSecretStep.File.Gid = nonrootGID
 	kind := "trusted certificate"
 	if c.Certificates.Staging {
 		kind = "test certificate"
@@ -166,6 +173,7 @@ func StackPlan(c Config, dnsToken, imageTag string, lan LAN) StackSetup {
 			asteriskDBPasswordStep,
 			ariPasswordStep,
 			turnSecretStep,
+			liveKitSecretStep,
 			fileStep("Write the Linx services configuration", stackFile, compose.File, 0o644, 0o755),
 			fileStep("Remember this server's id (for \"Moved to a new place?\" after a restore)", ServerIDPath, []byte(ServerID()+"\n"), 0o644, 0o755),
 			fileStep("Write the Linx settings for "+c.Domain.Name, stackEnv, stackDotEnv(c, imageTag, lan), 0o644, 0o755),

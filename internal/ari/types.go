@@ -55,6 +55,9 @@ type Channel struct {
 	Connected    CallerID `json:"connected"`
 	Dialplan     Dialplan `json:"dialplan"`
 	CreationTime Time     `json:"creationtime"`
+	// ProtocolID is the leg's SIP Call-ID: what a device knows its own call
+	// by, so the call link can find that device's channel (ADR-087).
+	ProtocolID string `json:"protocol_id"`
 }
 
 // Endpoint returns the PJSIP endpoint (a device's SIP username) a channel

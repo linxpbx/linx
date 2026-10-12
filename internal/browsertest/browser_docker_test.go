@@ -268,6 +268,7 @@ func TestBrowserCallsDocker(t *testing.T) {
 		"control-plane": envOr("LINX_CONTROL_PLANE_IMAGE", "linx-control-plane:dev"),
 		"asterisk":      envOr("LINX_ASTERISK_IMAGE", "linx-asterisk:dev"),
 		"coturn":        envOr("LINX_COTURN_IMAGE", "linx-coturn:dev"),
+		"livekit":       envOr("LINX_LIVEKIT_IMAGE", "linx-livekit:dev"),
 	}
 	for svc, img := range images {
 		if !imageExists(img) {
@@ -342,7 +343,7 @@ func (h *harness) start() {
 			return
 		}
 		if t.Failed() {
-			for _, c := range []string{"linx-control-plane", "linx-asterisk", "linx-coturn"} {
+			for _, c := range []string{"linx-control-plane", "linx-asterisk", "linx-coturn", "linx-livekit"} {
 				out, _ := exec.Command("docker", "logs", "--tail", envOr("LINX_LOG_LINES", "150"), c).CombinedOutput()
 				t.Logf("--- %s:\n%s", c, out)
 			}
@@ -398,7 +399,7 @@ func (h *harness) start() {
 	must(t, os.WriteFile(filepath.Join(h.dir, "override.yaml"), []byte(override(h.door)), 0o644))
 	env := fmt.Sprintf("LINX_IMAGE_PREFIX=%s\nLINX_VERSION=test\nLINX_DOMAIN=%s\nLINX_DNS_PROVIDER=cloudflare\n"+
 		"LINX_SIP_ADDRESS=127.0.0.1\nLINX_SIP_NETWORKS=%s\nLINX_POSTGRES_IMAGE=%s\nLINX_FRONT_DOOR=%s\n", imagePrefix, domain, publicSubnet, db.PostgresImage, h.door)
-	services := []string{"postgres", "step-ca", "control-plane", "asterisk", "coturn"}
+	services := []string{"postgres", "step-ca", "control-plane", "asterisk", "livekit", "coturn"}
 	linx := netip.MustParseAddr("192.0.2.1") // replaced by container names below
 	switch h.door {
 	case installer.FrontDoorPangolin:
@@ -597,6 +598,8 @@ func (h *harness) provision(t *testing.T) {
 	for _, n := range []string{"101", "102"} {
 		h.call("POST", "/api/v1/extensions", map[string]any{"number": n, "display_name": "Browser " + n, "call_permission_level_id": level.ID}, nil)
 	}
+	// 104 is the third person of the group call (ADR-088).
+	h.call("POST", "/api/v1/extensions", map[string]string{"number": "104", "display_name": "Browser 104"}, nil)
 	h.call("POST", "/api/v1/extensions", map[string]string{"number": "103", "display_name": "Desk softphone"}, &ext)
 	var dev struct {
 		Device struct {
@@ -618,6 +621,7 @@ func (h *harness) provision(t *testing.T) {
 	}
 	aisha := person("aisha@linx.test", "Aisha Rahman", "user", "--extension", "101")
 	omar := person("omar@linx.test", "Omar Khalil", "user", "--extension", "102")
+	layla := person("layla@linx.test", "Layla Haddad", "user", "--extension", "104")
 	// An admin who sets up with a passkey (Chromium's virtual authenticator).
 	owner := person("owner@linx.test", "Owner", "admin")
 
@@ -667,7 +671,8 @@ func (h *harness) provision(t *testing.T) {
 		"--env", "LINX_BASE_URL="+baseURL(h.door),
 		"--env", "LINX_OTHER_URL="+otherURL(h.door),
 		"--env", "LINX_TEST_SPKI="+os.Getenv("LINX_TEST_SPKI"),
-		"--env", "LINX_SETUP_A="+aisha, "--env", "LINX_SETUP_B="+omar, "--env", "LINX_SETUP_ADMIN="+owner,
+		"--env", "LINX_SETUP_A="+aisha, "--env", "LINX_SETUP_B="+omar, "--env", "LINX_SETUP_C="+layla,
+		"--env", "LINX_SETUP_ADMIN="+owner,
 		"--env", "LINX_REACH_URL="+reachURL,
 		"--env", "CI=1",
 		playwrightImage, "npx", "--no-install", "playwright", "test", "--config", "e2e/calls.config.ts")

@@ -30,12 +30,15 @@ func testConfig(t *testing.T) Config {
 	os.WriteFile(secret, []byte(strings.Repeat("s3", 20)+"\n"), 0o600)
 	return Config{
 		ConfPath: filepath.Join(dir, "run", "turnserver.conf"), SecretFile: secret, Realm: "example.com",
-		CertsDir: "/var/lib/linx/certs", PeerHost: "linx-asterisk-media",
+		CertsDir: "/var/lib/linx/certs", PeerHost: "linx-asterisk-media", VideoHost: "linx-livekit-media",
 		LookupHost: func(h string) ([]netip.Addr, error) {
-			if h != "linx-asterisk-media" {
-				return nil, errors.New("no such host")
+			switch h {
+			case "linx-asterisk-media":
+				return []netip.Addr{netip.MustParseAddr("172.23.0.2")}, nil
+			case "linx-livekit-media":
+				return []netip.Addr{netip.MustParseAddr("172.23.0.5")}, nil
 			}
-			return []netip.Addr{netip.MustParseAddr("172.23.0.2")}, nil
+			return nil, errors.New("no such host")
 		},
 		InterfaceAddrs: func() ([]net.Addr, error) {
 			return []net.Addr{
@@ -53,7 +56,8 @@ func TestResolveAndRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Peer != netip.MustParseAddr("172.23.0.2") || a.Relay != netip.MustParseAddr("172.23.0.3") {
+	if a.Peer != netip.MustParseAddr("172.23.0.2") || a.Relay != netip.MustParseAddr("172.23.0.3") ||
+		a.Video != netip.MustParseAddr("172.23.0.5") {
 		t.Fatalf("%+v", a)
 	}
 	if err := c.Render(a); err != nil {
@@ -62,8 +66,8 @@ func TestResolveAndRender(t *testing.T) {
 	b, _ := os.ReadFile(c.ConfPath)
 	conf := string(b)
 	for _, want := range []string{
-		"\nrelay-ip=172.23.0.3\n", "\nallowed-peer-ip=172.23.0.2\n",
-		"\ndenied-peer-ip=0.0.0.0-255.255.255.255\n", "\ndenied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff\n",
+		"\nrelay-ip=172.23.0.3\n", "\nallowed-peer-ip=172.23.0.2\n", "\nallowed-peer-ip=172.23.0.3\n",
+		"\nallowed-peer-ip=172.23.0.5\n", "\ndenied-peer-ip=0.0.0.0-255.255.255.255\n", "\ndenied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff\n",
 		"\nuse-auth-secret\n", "\nstatic-auth-secret=" + strings.Repeat("s3", 20) + "\n", "\nrealm=example.com\n",
 		"\ncert=/var/lib/linx/certs/current/fullchain.pem\n", "\nno-tcp-relay\n", "\nno-multicast-peers\n",
 		"\nuser-quota=20\n", "\nlistening-port=3478\n", "\ntls-listening-port=5349\n",
@@ -74,6 +78,22 @@ func TestResolveAndRender(t *testing.T) {
 	}
 	if fi, _ := os.Stat(c.ConfPath); fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v: it holds the secret", fi.Mode())
+	}
+}
+
+func TestRelaysWithoutTheVideoServer(t *testing.T) {
+	c := testConfig(t)
+	c.VideoHost = "nowhere"
+	a, err := c.Resolve()
+	if err != nil || a.Video.IsValid() {
+		t.Fatalf("%+v %v", a, err)
+	}
+	if err := c.Render(a); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(c.ConfPath)
+	if n := strings.Count(string(b), "allowed-peer-ip="); n != 2 {
+		t.Errorf("%d allowed peers:\n%s", n, b)
 	}
 }
 

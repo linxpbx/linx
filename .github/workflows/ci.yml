@@ -93,6 +93,8 @@ jobs:
           - { service: certd, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=certd" }
           # The official coturn image plus Linx's Go entrypoint (ADR-039).
           - { service: coturn, dockerfile: deploy/docker/coturn.Dockerfile, build-args: "" }
+          # The official LiveKit server plus Linx's Go entrypoint (ADR-088).
+          - { service: livekit, dockerfile: deploy/docker/livekit.Dockerfile, build-args: "" }
           # Brings up WireGuard tunnels for phone lines (ADR-046).
           - { service: wireguard, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=wireguard" }
     steps:
@@ -271,6 +273,15 @@ jobs:
           load: true
           tags: linx-coturn:ci
           cache-from: type=gha,scope=coturn
+      - name: Load the LiveKit image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/livekit.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: linx-livekit:ci
+          cache-from: type=gha,scope=livekit
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -285,6 +296,7 @@ jobs:
           LINX_ASTERISK_IMAGE: linx-asterisk:amd64
           LINX_CONTROL_PLANE_IMAGE: linx-control-plane:ci
           LINX_COTURN_IMAGE: linx-coturn:ci
+          LINX_LIVEKIT_IMAGE: linx-livekit:ci
           LINX_FRONT_DOORS: ${{ matrix.door }}
         run: make setup-dev && make test-browser
 
@@ -383,6 +395,7 @@ jobs:
           - { service: control-plane, dockerfile: deploy/docker/control-plane.Dockerfile, build-args: "" }
           - { service: certd, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=certd" }
           - { service: coturn, dockerfile: deploy/docker/coturn.Dockerfile, build-args: "" }
+          - { service: livekit, dockerfile: deploy/docker/livekit.Dockerfile, build-args: "" }
           - { service: wireguard, dockerfile: deploy/docker/go-service.Dockerfile, build-args: "SERVICE=wireguard" }
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/linx-${{ matrix.service }}

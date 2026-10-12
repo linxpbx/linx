@@ -4486,6 +4486,140 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/call-link:
+    get:
+      operationId: openCallLink
+      summary: The call link (websocket)
+      description: >-
+        A websocket (subprotocol `linx.call.v1`) a Linx device opens once
+        its call is answered, so the two devices of one call can set up the
+        direct link their picture travels on (ADR-087,
+        docs/VIDEO_CALLS.md §3.1). `call` is the device's own SIP Call-ID
+        for the call; the server finds that device's channel through
+        Asterisk and the channel it is bridged to, and refuses anything
+        else (404 `no_such_call`). Messages to the device: `peer` (the
+        other end is here, `video` true, with its `polite` role; or
+        `video` false: the other end can't do a picture), `signal` (what
+        the other end sent), `peer-gone`. From the device: `signal` with
+        any JSON `data`, at most 64 KB a message and 50 a second, passed
+        on unread. The same two callers as `/api/v1/team/live`. Served by
+        a hand-written handler (excluded from code generation).
+      tags: [team]
+      parameters:
+        - name: call
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 256
+      security:
+        - bearer: [team:read]
+      responses:
+        "101":
+          description: Switching to the websocket.
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/group-calls:
+    post:
+      operationId: startGroupCall
+      summary: Add a person to a call (it becomes a group call)
+      description: >-
+        Add person in a call between two Linx devices (ADR-088,
+        docs/VIDEO_CALLS.md §4). `call` is the asking device's own SIP
+        Call-ID; the server checks through Asterisk that the device is in
+        that call and that the other side is a Linx device with its call
+        link open (409 `not_linx` otherwise), makes a room on the video
+        server, sends the other side a `move` message over the call link,
+        rings `extension` into the room, and answers with the asker's own
+        way in. The same two callers as the call link. Hand-written
+        (excluded from code generation).
+      tags: [team]
+      security:
+        - bearer: [team:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [call, extension]
+              properties:
+                call: { type: string, maxLength: 256 }
+                extension: { type: string }
+      responses:
+        "200":
+          description: Where to join, and the token to join with.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupCallJoin"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/group-calls/join:
+    post:
+      operationId: joinGroupCall
+      summary: Join the group call this call was an invitation to
+      description: >-
+        For a device that has just answered a call carrying `X-Linx-Room`:
+        the server reads the room from that device's own channel in
+        Asterisk (only the server's own invitation sets it) and answers
+        with the way in. 404 `no_group_call` for any other call.
+        Hand-written (excluded from code generation).
+      tags: [team]
+      security:
+        - bearer: [team:read]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [call]
+              properties:
+                call: { type: string, maxLength: 256 }
+      responses:
+        "200":
+          description: Where to join, and the token to join with.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupCallJoin"
+        default:
+          $ref: "#/components/responses/Problem"
+
+  /api/v1/group-calls/{room}/people:
+    post:
+      operationId: addGroupCallPerson
+      summary: Ring one more person into a group call
+      description: >-
+        Only for a device the video server shows in `room` (403
+        `not_in_call` otherwise); a group call holds 8 people (409
+        `group_call_full`). Hand-written (excluded from code generation).
+      tags: [team]
+      security:
+        - bearer: [team:read]
+      parameters:
+        - name: room
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [extension]
+              properties:
+                extension: { type: string }
+      responses:
+        "204":
+          description: Their phones are ringing.
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/voicemail:
     get:
       operationId: listVoicemail
@@ -5506,6 +5640,17 @@ components:
             $ref: "#/components/schemas/Problem"
 
   schemas:
+    GroupCallJoin:
+      type: object
+      description: >-
+        The way into a group call on the video server (ADR-088): its room,
+        a ten-minute LiveKit token for this device alone, and the path on
+        this server where LiveKit's signalling is (`/livekit/`).
+      required: [room, token, url]
+      properties:
+        room: { type: string }
+        token: { type: string }
+        url: { type: string }
     CallHistoryParty:
       type: object
       required: [number, name]

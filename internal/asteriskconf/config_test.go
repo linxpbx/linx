@@ -316,7 +316,15 @@ func TestRenderARI(t *testing.T) {
 		// database says who can be woken, the dialplan leaves out the ones
 		// already here, and the call waits for the rest.
 		"[linx-wake]", "Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})",
-		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF(", "Set(WAKEVIDEO=${CHANNEL(videonativeformat)})", "exten => late,1,Set(WAKECAME=0)",
+		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF(", `Video: ${IF($["${LINXVIDEO}" = "yes"]?yes:no)})`, "exten => late,1,Set(WAKECAME=0)",
+		// A video call is a header, never a video stream (ADR-087); every
+		// leg a step rings is told, and told which group call invites it.
+		`Set(__LINXVIDEO=${IF($["${PJSIP_HEADER(read,X-Linx-Video)}" = "yes"]?yes:)})`,
+		"Dial(${ARG1},${ARG2},b(linx-headers^s^1))", "Dial(${ARG1},${RINGLEFT},b(linx-headers^s^1))",
+		"Set(PJSIP_HEADER(add,X-Linx-Video)=yes)", "Set(PJSIP_HEADER(add,X-Linx-Room)=${LINXROOM})",
+		// Ringing someone into a group call (ADR-088): their phones ring as
+		// for any call, and nothing else happens if nobody answers.
+		"[linx-room-invite]", "same => n,Gosub(linx-ring,${EXTEN},1(${TARGETS},${SECS}))",
 		"Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})",
 		// A device state Asterisk couldn't answer means wake the phone: the
 		// wrong way round is a phone that never rings (the whole of row 2.4

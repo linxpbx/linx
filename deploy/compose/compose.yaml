@@ -150,6 +150,8 @@ services:
       - linx_ca_devices_password
       # Signs browsers' relay credentials (docs/WEB.md §5).
       - linx_turn_secret
+      # Signs group calls' tokens for the video server (ADR-088).
+      - linx_livekit_secret
     # Group 1000 (step-ca's): reads linx_ca_services_password, to get its
     # own ARI certificate from the internal CA (ADR-034), and
     # linx_ca_devices_password, to sign phones' certificates (ADR-073).
@@ -265,7 +267,7 @@ services:
     networks:
       linx-public: {}
       linx-media: {}
-    depends_on: [asterisk]
+    depends_on: [asterisk, livekit]
     healthcheck:
       test: [CMD, /usr/local/bin/coturn-entrypoint, healthcheck]
       interval: 30s
@@ -274,6 +276,40 @@ services:
       start_period: 10s
     mem_limit: 128m
     pids_limit: 64
+
+  # The video server for group calls (ADR-088, docs/VIDEO_CALLS.md §4):
+  # LiveKit, reached only by the control plane, which proxies its
+  # signalling at /livekit/ and alone mints its tokens (linx-private), and
+  # by coturn, which relays every device's media to it (linx-media). It
+  # publishes no port and has no route out.
+  livekit:
+    image: ${LINX_IMAGE_PREFIX:-ghcr.io/linxpbx}/linx-livekit:${LINX_VERSION:?set by linx setup}
+    # Short names are Linx's own services only (see control-plane).
+    dns_search: .
+    container_name: linx-livekit
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      # About 3/4 of mem_limit (docs/RESOURCES.md).
+      GOMEMLIMIT: 96MiB
+    secrets: [linx_livekit_secret]
+    tmpfs: [/tmp]
+    networks:
+      linx-private: {}
+      linx-media:
+        # Where coturn sends media, and the one address LiveKit offers
+        # devices; an alias on this network only.
+        aliases: [linx-livekit-media]
+    healthcheck:
+      test: [CMD, /usr/local/bin/livekit-entrypoint, healthcheck]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 128m
+    pids_limit: 128
 
   # Phone engine (docs/PBX.md): Asterisk 22, pjsip. Reads extensions and
   # devices straight from Postgres, over ODBC, through the asterisk schema's
@@ -518,6 +554,11 @@ secrets:
   # checks them with it (ADR-039). Root-owned, group 65532, mode 0440.
   linx_turn_secret:
     file: ./secrets/linx_turn_secret
+  # The video server's API key (ADR-088): the control plane signs group
+  # calls' tokens with it, LiveKit checks them. Root-owned, group 65532,
+  # mode 0440.
+  linx_livekit_secret:
+    file: ./secrets/linx_livekit_secret
 
 volumes:
   certd-state:
@@ -634,8 +675,8 @@ networks:
   linx-sipws:
     name: linx-sipws
     internal: true
-  # Browser audio between coturn and Asterisk, and nothing else: no other
-  # container, no route out (docs/WEB.md §2).
+  # Media between coturn and Asterisk (browser audio, docs/WEB.md §2) and
+  # LiveKit (group calls, ADR-088), and nothing else: no route out.
   linx-media:
     name: linx-media
     internal: true

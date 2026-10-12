@@ -243,11 +243,22 @@ func (c *Client) Permit(peer netip.AddrPort) error {
 
 // Echo sends data to peer through the relay and waits for it to come back.
 func (c *Client) Echo(peer netip.AddrPort, data []byte) ([]byte, error) {
-	m := stunMsg{typ: msgType(methodSend, 1), attrs: []stunAttr{{attrXorPeerAddress, xorAddr(peer)}, {attrData, data}}}
-	rand.Read(m.tid[:])
-	if _, err := c.Conn.Write(m.encode(nil)); err != nil {
+	if err := c.Send(peer, data); err != nil {
 		return nil, err
 	}
+	return c.Receive()
+}
+
+// Send sends data to peer through the relay.
+func (c *Client) Send(peer netip.AddrPort, data []byte) error {
+	m := stunMsg{typ: msgType(methodSend, 1), attrs: []stunAttr{{attrXorPeerAddress, xorAddr(peer)}, {attrData, data}}}
+	rand.Read(m.tid[:])
+	_, err := c.Conn.Write(m.encode(nil))
+	return err
+}
+
+// Receive waits for the next data a peer sent through the relay.
+func (c *Client) Receive() ([]byte, error) {
 	for {
 		resp, err := c.read()
 		if err != nil {

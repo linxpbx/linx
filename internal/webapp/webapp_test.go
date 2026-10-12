@@ -65,7 +65,7 @@ func TestPoliciesStayStrict(t *testing.T) {
 			t.Errorf("PolicyFor(%q): %s", bad, got)
 		}
 	}
-	if !strings.Contains(PermissionsPolicy, "microphone=(self)") || !strings.Contains(PermissionsPolicy, "camera=()") {
+	if !strings.Contains(PermissionsPolicy, "microphone=(self)") || !strings.Contains(PermissionsPolicy, "camera=(self)") {
 		t.Errorf("Permissions-Policy: %s", PermissionsPolicy)
 	}
 }

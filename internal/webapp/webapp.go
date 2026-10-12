@@ -22,9 +22,10 @@ const ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 
 	"worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; " +
 	"form-action 'self'; frame-ancestors 'none'"
 
-// PermissionsPolicy lets this origin use the microphone and choose the
-// speaker, and nothing else a page could ask for.
-const PermissionsPolicy = "microphone=(self), speaker-selection=(self), camera=(), geolocation=(), " +
+// PermissionsPolicy lets this origin use the microphone and the camera
+// (video calls, ADR-087) and choose the speaker, and nothing else a page
+// could ask for.
+const PermissionsPolicy = "microphone=(self), speaker-selection=(self), camera=(self), geolocation=(), " +
 	"payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=(), display-capture=()"
 
 // PolicyFor is ContentSecurityPolicy that also lets the page connect to

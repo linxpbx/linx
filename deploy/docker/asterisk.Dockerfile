@@ -104,7 +104,10 @@ RUN make menuselect.makeopts || make menuselect.makeopts
 # ADR-069) and res_pjsip_mwi with res_pjsip_pubsub and the MWI body
 # generator, which are what turn those counts into a NOTIFY the phone
 # understands — trimmed at the category level, not by
-# hand-picking every res_pjsip_* submodule menuselect enables together.
+# hand-picking every res_pjsip_* submodule menuselect enables together;
+# and res_pjsip_header_funcs for PJSIP_HEADER, which reads X-Linx-Video
+# from a phone's INVITE and passes it, and X-Linx-Room, to the phones a
+# call rings (ADR-087, ADR-088).
 # BUILD_NATIVE off: it compiles with -march=native, for the CPU that built
 # the image, and the image must run on any amd64/arm64 server (Asterisk
 # from a CI cache built on one runner died at start on another).
@@ -129,7 +132,7 @@ RUN menuselect/menuselect \
       --enable res_odbc --enable res_odbc_transaction \
       --enable res_pjproject \
       --enable res_pjsip --enable res_pjsip_acl --enable res_pjsip_authenticator_digest \
-      --enable res_pjsip_caller_id --enable res_pjsip_dtmf_info \
+      --enable res_pjsip_caller_id --enable res_pjsip_dtmf_info --enable res_pjsip_header_funcs \
       --enable res_pjsip_endpoint_identifier_ip --enable res_pjsip_endpoint_identifier_user \
       --enable res_pjsip_exten_state --enable res_pjsip_logger --enable res_pjsip_nat \
       --enable res_pjsip_pubsub --enable res_pjsip_mwi --enable res_pjsip_mwi_body_generator \

@@ -9,6 +9,10 @@ import (
 
 const coturnContainer = "linx-coturn"
 
+// livekitContainer is the video server for group calls (ADR-088), the
+// relay's other destination.
+const livekitContainer = "linx-livekit"
+
 // mediaNetwork is compose.yaml's network between coturn and Asterisk.
 const mediaNetwork = "linx-media"
 
@@ -18,8 +22,9 @@ const coturnConf = "/tmp/linx-coturn/turnserver.conf"
 
 // Relay checks the relay for browsers away from home (ADR-039, docs/WEB.md
 // §2): coturn running and healthy (its health check proves it answers and
-// serves the current certificate), relaying to Asterisk's audio and to
-// nothing else, on a network with nothing else on it. Whether it can be
+// serves the current certificate), relaying to Asterisk's audio, to the
+// video server (ADR-088) and between Linx's own devices through itself
+// (ADR-087), and to nothing else, on a network with nothing else on it. Whether it can be
 // reached from the internet depends on the front door, checked with it.
 func Relay(ctx context.Context, env Env) []Result {
 	var rs results
@@ -35,7 +40,9 @@ func Relay(ctx context.Context, env Env) []Result {
 const relayLogs = "Look at its log for the reason: sudo docker logs --tail 50 " + coturnContainer
 
 // relayPeers checks coturn's rendered configuration denies every address
-// and allows exactly one: Asterisk's on linx-media, as it is right now.
+// and allows only Linx's own on linx-media, as they are right now:
+// Asterisk's (which it must), its own (one device's relay to another's)
+// and the video server's.
 func relayPeers(ctx context.Context, env Env, rs *results) {
 	conf, err := env.Runner.Run(ctx, nil, "docker", "exec", coturnContainer, "cat", coturnConf)
 	if err != nil {
@@ -43,22 +50,37 @@ func relayPeers(ctx context.Context, env Env, rs *results) {
 		return
 	}
 	allowed, denyAll := RelayPeers(string(conf))
-	out, err := env.Runner.Run(ctx, nil, "docker", "inspect", "--type", "container", "--format",
-		`{{with index .NetworkSettings.Networks "`+mediaNetwork+`"}}{{.IPAddress}}{{end}}`, asteriskContainer)
-	asterisk, perr := netip.ParseAddr(strings.TrimSpace(string(out)))
+	asterisk, aerr := mediaAddress(ctx, env, asteriskContainer)
+	ours := map[netip.Addr]bool{asterisk: true}
+	for _, c := range []string{coturnContainer, livekitContainer} {
+		if a, err := mediaAddress(ctx, env, c); err == nil {
+			ours[a] = true
+		}
+	}
+	strangers := slices.ContainsFunc(allowed, func(a netip.Addr) bool { return !ours[a] })
 	switch {
-	case err != nil || perr != nil:
+	case aerr != nil:
 		rs.fail("The phone system isn't on the call relay's network ("+mediaNetwork+"), so calls from outside have no audio.",
 			"Restart Linx to restore its settings: "+composeCmd+" up --detach")
 	case !denyAll:
 		rs.fail("The call relay isn't limited to the phone system: it could be used to reach other addresses.",
 			"Linx never sets this up; restart it to restore its settings: sudo docker restart "+coturnContainer)
-	case len(allowed) != 1 || allowed[0] != asterisk:
-		rs.fail("The call relay is set up for an address that isn't the phone system's ("+asterisk.String()+").",
-			"It follows the phone system's address within a minute; if this stays, restart it: sudo docker restart "+coturnContainer)
+	case !slices.Contains(allowed, asterisk) || strangers:
+		rs.fail("The call relay is set up for an address that isn't the phone system's ("+asterisk.String()+") or the video server's.",
+			"It follows their addresses within a minute; if this stays, restart it: sudo docker restart "+coturnContainer)
 	default:
-		rs.ok("The call relay only passes audio to and from the phone system.")
+		rs.ok("The call relay only passes calls to and from the phone system and the video server.")
 	}
+}
+
+// mediaAddress is a container's address on linx-media.
+func mediaAddress(ctx context.Context, env Env, container string) (netip.Addr, error) {
+	out, err := env.Runner.Run(ctx, nil, "docker", "inspect", "--type", "container", "--format",
+		`{{with index .NetworkSettings.Networks "`+mediaNetwork+`"}}{{.IPAddress}}{{end}}`, container)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	return netip.ParseAddr(strings.TrimSpace(string(out)))
 }
 
 // RelayPeers reads a turnserver.conf: the allowed peer addresses, and
@@ -85,7 +107,7 @@ func RelayPeers(conf string) (allowed []netip.Addr, denyAll bool) {
 }
 
 // relayNetwork checks linx-media is internal (no route out) and holds only
-// coturn and Asterisk.
+// coturn, Asterisk and the video server.
 func relayNetwork(ctx context.Context, env Env, rs *results) {
 	out, err := env.Runner.Run(ctx, nil, "docker", "network", "inspect", "--format",
 		`{{.Internal}}{{range .Containers}} {{.Name}}{{end}}`, mediaNetwork)
@@ -96,15 +118,16 @@ func relayNetwork(ctx context.Context, env Env, rs *results) {
 	f := strings.Fields(string(out))
 	members := f[min(1, len(f)):]
 	slices.Sort(members)
-	want := []string{asteriskContainer, coturnContainer}
+	ours := []string{asteriskContainer, coturnContainer, livekitContainer}
+	strangers := slices.ContainsFunc(members, func(m string) bool { return !slices.Contains(ours, m) })
 	switch {
 	case len(f) == 0 || f[0] != "true":
 		rs.fail("The call relay's network ("+mediaNetwork+") can reach outside the server.",
 			"Linx never sets this up; remove it and restart Linx: "+composeCmd+" down && "+composeCmd+" up --detach")
-	case !slices.Equal(members, want):
-		rs.fail("Something other than the call relay and the phone system is on their private network ("+strings.Join(members, ", ")+").",
+	case strangers:
+		rs.fail("Something other than the call relay, the phone system and the video server is on their private network ("+strings.Join(members, ", ")+").",
 			"Disconnect it: sudo docker network disconnect "+mediaNetwork+" <name>")
 	default:
-		rs.ok("The call relay's network is private to it and the phone system.")
+		rs.ok("The call relay's network is private to it, the phone system and the video server.")
 	}
 }

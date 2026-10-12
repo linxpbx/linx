@@ -8,7 +8,7 @@ SHELL := /bin/bash
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X linxpbx.com/linx/internal/version.Version=$(VERSION) -X linxpbx.com/linx/internal/version.Commit=$(COMMIT)
-GO_BINS := cmd/linx cmd/linx-firewall-sync cmd/linx-backup-agent cmd/linx-ops-agent services/control-plane services/certd services/asterisk-entrypoint services/coturn-entrypoint services/wireguard
+GO_BINS := cmd/linx cmd/linx-firewall-sync cmd/linx-backup-agent cmd/linx-ops-agent services/control-plane services/certd services/asterisk-entrypoint services/coturn-entrypoint services/livekit-entrypoint services/wireguard
 
 .PHONY: help
 help: ## Show available commands
@@ -77,7 +77,7 @@ test-calls: ## Phone engine call suite only: Asterisk + SIPp over TLS/SRTP (need
 		echo "call suite: FAILED"; exit 1; fi
 
 .PHONY: test-browser
-test-browser: ## Browser call suite: the real stack + two headless Chromiums (needs make image for control-plane, asterisk, coturn)
+test-browser: ## Browser call suite: the real stack + headless Chromiums (needs make image for control-plane, asterisk, coturn, livekit)
 	@if out=$$(LINX_BROWSER_TESTS=1 go test -count=1 -v -timeout 20m -run TestBrowserCallsDocker ./internal/browsertest/ 2>&1); then \
 		if echo "$$out" | grep -q -- "--- SKIP"; then echo "$$out" | grep -A2 -- "--- SKIP"; echo "browser suite: SKIPPED"; exit 1; fi; \
 		echo "browser suite: ok"; \
@@ -202,8 +202,8 @@ security: ## Known-vulnerability scan (Go + npm) and licence allowlist
 	@go run ./tools/licensecheck -lock tools/openapi-ts/package-lock.json
 
 .PHONY: image
-image: ## Build a local image, e.g. make image SERVICE=control-plane (or certd, asterisk, coturn)
-	@if [ "$(SERVICE)" = "asterisk" ] || [ "$(SERVICE)" = "coturn" ] || [ "$(SERVICE)" = "control-plane" ]; then \
+image: ## Build a local image, e.g. make image SERVICE=control-plane (or certd, asterisk, coturn, livekit)
+	@if [ "$(SERVICE)" = "asterisk" ] || [ "$(SERVICE)" = "coturn" ] || [ "$(SERVICE)" = "livekit" ] || [ "$(SERVICE)" = "control-plane" ]; then \
 		docker buildx build -q -f deploy/docker/$(SERVICE).Dockerfile \
 			--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --load -t linx-$(SERVICE):dev . >/dev/null; \
 	else \

@@ -15,7 +15,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -35,6 +37,7 @@ import (
 	"linxpbx.com/linx/internal/auth"
 	"linxpbx.com/linx/internal/backupschedule"
 	"linxpbx.com/linx/internal/callhistory"
+	"linxpbx.com/linx/internal/calllink"
 	"linxpbx.com/linx/internal/callreport"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/db"
@@ -44,6 +47,7 @@ import (
 	"linxpbx.com/linx/internal/help"
 	"linxpbx.com/linx/internal/helpanswers"
 	"linxpbx.com/linx/internal/install"
+	"linxpbx.com/linx/internal/livekit"
 	"linxpbx.com/linx/internal/moved"
 	"linxpbx.com/linx/internal/numbering"
 	"linxpbx.com/linx/internal/ops"
@@ -447,8 +451,34 @@ func main() {
 		log.Warn("no folder for playing voicemail; *97 can't play messages", "err", err)
 		listening.Dir = ""
 	}
-	tracker.Stasis = func(ctx context.Context, c *ari.Conn, ev ari.Event) { listening.Stasis(ctx, c, ev) }
+	tracker.Stasis = func(ctx context.Context, c *ari.Conn, ev ari.Event) {
+		// The waiting half of a group call's invitation (ADR-088): it
+		// stays in the app, untouched, until the call it rang ends.
+		if ev.Type == "StasisStart" && len(ev.Args) > 0 && ev.Args[0] == StasisRoom {
+			return
+		}
+		listening.Stasis(ctx, c, ev)
+	}
+	// The call link (ADR-087): Asterisk says who each device is talking to.
+	callResolver := &calllink.Resolver{Linx: func(ctx context.Context, username string) (bool, error) {
+		d, _, err := st.DeviceBySIPUsername(ctx, username)
+		if errors.Is(err, pbx.ErrNotFound) {
+			return false, nil
+		}
+		return d.Kind == "web" || d.Kind == "ios", err
+	}}
+	callHub := &calllink.Hub{}
+	// Group calls on the video server (ADR-088): off, with a plain answer,
+	// on a server without its key.
+	liveKitURL := envOr(os.Getenv, "LINX_LIVEKIT_URL", livekit.DefaultURL)
+	liveKitSecret, err := os.ReadFile(envOr(os.Getenv, "LINX_LIVEKIT_SECRET_FILE", "/run/secrets/linx_livekit_secret"))
+	if err != nil {
+		log.Warn("no video server key; group calls are off", "err", err)
+	}
+	groups := &groupCalls{St: st, Asterisk: callResolver, Hub: callHub, Secret: bytes.TrimSpace(liveKitSecret),
+		Rooms: &livekit.Rooms{URL: liveKitURL, Secret: bytes.TrimSpace(liveKitSecret)}, Now: time.Now, Log: log}
 	tracker.Registered = func(c *ari.Conn) {
+		callResolver.Connected(c)
 		if c == nil {
 			light.Disconnected()
 			return
@@ -624,6 +654,10 @@ func main() {
 	registerCallHandlers(mux, authn, historySvc, st.TimeZone, log)
 	mux.Handle("GET "+controlplaneapi.SIPPath, sipHandler(authn, st, relay))
 	mux.Handle("GET "+controlplaneapi.TeamLivePath, teamLiveHandler(authn, st, hub))
+	mux.Handle("GET "+controlplaneapi.CallLinkPath, callLinkHandler(authn, st, callResolver, callHub))
+	mux.Handle(GroupCallsPath, groups.handler(authn))
+	mux.Handle(GroupCallsPath+"/", groups.handler(authn))
+	mux.Handle(LiveKitPath, liveKitHandler(liveKitURL, log))
 	// Everything else is the web client (ADR-037).
 	mux.Handle("/", webapp.Handler(os.DirFS(envOr(os.Getenv, "LINX_WEB_DIR", webapp.DefaultDir))))
 

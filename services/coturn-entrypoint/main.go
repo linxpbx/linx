@@ -65,7 +65,7 @@ func main() {
 		log.Error("render configuration", "err", err)
 		os.Exit(2)
 	}
-	log.Info("relaying to the phone system only", "peer", addrs.Peer, "relay", addrs.Relay)
+	log.Info("relaying to Linx only", "phone system", addrs.Peer, "relay", addrs.Relay, "video server", addrs.Video)
 
 	cmd := exec.Command(turnserverBin, "-c", cfg.ConfPath)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
@@ -95,10 +95,11 @@ func main() {
 			case <-t.C:
 			}
 			watcher.Check(ctx)
-			// Asterisk came back with another address (a new container):
-			// coturn's allowed peer is fixed at start, so start over.
+			// Asterisk or the video server came back with another address
+			// (a new container): coturn's allowed peers are fixed at start,
+			// so start over.
 			if now, err := cfg.Resolve(); err == nil && now != addrs {
-				log.Warn("the phone system's address changed; restarting to relay to the new one", "was", addrs.Peer, "now", now.Peer)
+				log.Warn("Linx's addresses changed; restarting to relay to the new ones", "was", addrs, "now", now)
 				close(peerMoved)
 				return
 			}

@@ -260,6 +260,10 @@ func (c Config) WriteTrunkCA() (skipped int, err error) {
 // Asterisk sends over the outbound websocket is addressed to it.
 const ARIApp = "linx"
 
+// RoomInviteContext is where the control plane rings someone into a group
+// call from (ADR-088).
+const RoomInviteContext = "linx-room-invite"
+
 // ARIUser is the username Asterisk presents to the control plane's ARI
 // websocket, with the linx_ari_password secret.
 const ARIUser = "asterisk"
@@ -1092,8 +1096,13 @@ exten => _[0-9*#+],1,Goto(linx-outbound,${EXTEN},1)
 ; maybe an outside one (999 is 3 digits; extensions and ring groups can't
 ; take such numbers, migrations 0016 and 0032). Its first step is already
 ; asked, so linx-route starts at "got".
+; A video call from the app or the browser says so in X-Linx-Video
+; (ADR-087): its picture travels between the two devices, never through
+; here, so the INVITE carries sound only. Inherited by every leg the call
+; rings, where linx-headers passes it on, and read by the wake push.
 [linx-local]
 exten => _X.,1,Set(CDR(linx_dialled)=${EXTEN})
+ same => n,Set(__LINXVIDEO=${IF($["${PJSIP_HEADER(read,X-Linx-Video)}" = "yes"]?yes:)})
  same => n,Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(n:${EXTEN},${CALLERID(num)})})
  same => n,GotoIf($[${ODBCROWS} < 1]?linx-outbound,${EXTEN},1)
  same => n,GotoIf($["${CALLERID(num)}" = "${EXTEN}"]?linx-messages,not-available,1)
@@ -1140,22 +1149,47 @@ exten => s,1,Set(STEPS=1)
 [linx-ring]
 exten => _X.,1,Gosub(linx-wake,s,1(${ARG1}))
  same => n,Set(RINGUNTIL=$[${EPOCH} + ${ARG2}])
- same => n,Dial(${ARG1},${ARG2})
+ same => n,Dial(${ARG1},${ARG2},b(linx-headers^s^1))
  same => n,Gosub(linx-wake,late,1(${RINGUNTIL}))
  same => n,GotoIf($["${WAKECAME}" != "1"]?out)
  same => n,Set(RINGLEFT=$[${RINGUNTIL} - ${EPOCH}])
  same => n,GotoIf($[${RINGLEFT} < 1]?out)
- same => n,Dial(${ARG1},${RINGLEFT})
+ same => n,Dial(${ARG1},${RINGLEFT},b(linx-headers^s^1))
  same => n(out),Return()
 exten => s,1,Gosub(linx-wake,s,1(${ARG1}))
  same => n,Set(RINGUNTIL=$[${EPOCH} + ${ARG2}])
- same => n,Dial(${ARG1},${ARG2})
+ same => n,Dial(${ARG1},${ARG2},b(linx-headers^s^1))
  same => n,Gosub(linx-wake,late,1(${RINGUNTIL}))
  same => n,GotoIf($["${WAKECAME}" != "1"]?out)
  same => n,Set(RINGLEFT=$[${RINGUNTIL} - ${EPOCH}])
  same => n,GotoIf($[${RINGLEFT} < 1]?out)
- same => n,Dial(${ARG1},${RINGLEFT})
+ same => n,Dial(${ARG1},${RINGLEFT},b(linx-headers^s^1))
  same => n(out),Return()
+
+; Ringing someone into a group call (ADR-088): the control plane
+; originates Local/<extension>@linx-room-invite with LINXROOM (and
+; LINXVIDEO) set, and the other half of that Local channel waits in the
+; control plane's Stasis app. This rings the extension's phones exactly as
+; a call to it would — a sleeping app is woken first — and each one is told
+; which group call it is invited to (linx-headers). No voicemail and no
+; next step: an invitation nobody takes simply stops.
+[linx-room-invite]
+exten => _X.,1,Set(ARRAY(ACTION,TARGETS,SECS,NEXT,COUNTS,LABEL)=${LINX_ROUTE(n:${EXTEN},${CALLERID(num)})})
+ same => n,GotoIf($[${ODBCROWS} < 1]?done)
+ same => n,GotoIf($["${ACTION}" != "dial"]?done)
+ same => n,Gosub(linx-ring,${EXTEN},1(${TARGETS},${SECS}))
+ same => n(done),Hangup()
+
+; What each leg a step rings is told, as it is dialled (Dial's b): that
+; the call is a video call (X-Linx-Video, ADR-087), and which group call
+; it is an invitation to (X-Linx-Room, ADR-088). Only the app and the
+; browser read them; anything else ignores an X- header.
+[linx-headers]
+exten => s,1,GotoIf($["${LINXVIDEO}" != "yes"]?room)
+ same => n,Set(PJSIP_HEADER(add,X-Linx-Video)=yes)
+ same => n(room),GotoIf($["${LINXROOM}" = ""]?done)
+ same => n,Set(PJSIP_HEADER(add,X-Linx-Room)=${LINXROOM})
+ same => n(done),Return()
 
 ; Waking a sleeping iPhone or iPad (ADR-074, docs/PHASE2.md §5). An app
 ; that isn't connected can't be rung by SIP, so before this step's phones
@@ -1187,8 +1221,7 @@ exten => s,1,Set(WAKELIST=)
  same => n(next),Set(WAKEI=$[${WAKEI} + 1])
  same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?scan)
  same => n,GotoIf($["${WAKELIST}" = ""]?done)
- same => n,Set(WAKEVIDEO=${CHANNEL(videonativeformat)})
- same => n,UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF($["${WAKEVIDEO}" != "" & "${WAKEVIDEO}" != "(nothing)"]?yes:no)})
+ same => n,UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF($["${LINXVIDEO}" = "yes"]?yes:no)})
  same => n,GotoIf($["${CHANNEL(state)}" = "Up"]?wait)
  same => n,Ringing()
  same => n(wait),Set(WAKEUNTIL=$[${EPOCH} + (${WAKEMS} + 999) / 1000])

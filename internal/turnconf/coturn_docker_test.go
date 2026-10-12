@@ -181,6 +181,33 @@ func TestCoturnDocker(t *testing.T) {
 		}
 	})
 
+	t.Run("and from one device's relay to another's", func(t *testing.T) {
+		// Two devices that can only reach the relay send each other their
+		// picture through it (ADR-087).
+		credA, credB := issuer.Issue(person), issuer.Issue(uuid.New())
+		a, b := udpClient(credA.Username, credA.Password), udpClient(credB.Username, credB.Password)
+		for _, c := range []*turn.Client{a, b} {
+			if err := c.Allocate(); err != nil {
+				t.Fatalf("allocate: %v\n%s", err, logs())
+			}
+		}
+		if err := a.Permit(b.Relayed); err != nil {
+			t.Fatalf("permission for the other relay: %v", err)
+		}
+		if err := b.Permit(a.Relayed); err != nil {
+			t.Fatalf("permission for the other relay: %v", err)
+		}
+		if err := a.Send(b.Relayed, []byte("my picture")); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.Conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := b.Receive(); err != nil || string(got) != "my picture" {
+			t.Fatalf("the other device got %q %v\n%s", got, err, logs())
+		}
+	})
+
 	t.Run("and to nothing else", func(t *testing.T) {
 		cred := issuer.Issue(person)
 		c := udpClient(cred.Username, cred.Password)
@@ -189,7 +216,6 @@ func TestCoturnDocker(t *testing.T) {
 		}
 		for what, p := range map[string]netip.AddrPort{
 			"another container": netip.AddrPortFrom(strangerIP, dtEchoUDP),
-			"the relay itself":  c.Relayed,
 			"the internet":      netip.MustParseAddrPort("1.1.1.1:53"),
 			"a LAN":             netip.MustParseAddrPort("192.168.1.1:5061"),
 			"the Docker host":   netip.MustParseAddrPort("172.17.0.1:22"),

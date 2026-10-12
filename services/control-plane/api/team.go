@@ -19,6 +19,14 @@ const (
 	TeamSubprotocol = "linx.team.v1"
 )
 
+// CallLinkPath is the call link's websocket (ADR-087, hand-written,
+// services/control-plane/calllink.go), and CallLinkSubprotocol its
+// subprotocol.
+const (
+	CallLinkPath        = "/api/v1/call-link"
+	CallLinkSubprotocol = "linx.call.v1"
+)
+
 // TeamListBody is GET /team's body and each message on its websocket.
 func TeamListBody(rows []pbx.TeamStatus) TeamList {
 	out := TeamList{Items: make([]TeamMember, 0, len(rows))}

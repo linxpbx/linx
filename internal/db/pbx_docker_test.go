@@ -123,7 +123,7 @@ func TestAsteriskRealtimeDocker(t *testing.T) {
 		}
 		return row
 	}
-	if got, want := endpoint("d_w3bw3bw3"), "transport-wss opus,g722,ulaw,h264,vp8 dtls yes yes yes fingerprint actpass yes yes - 1"; got != want {
+	if got, want := endpoint("d_w3bw3bw3"), "transport-wss opus,g722,ulaw dtls yes yes yes fingerprint actpass yes yes - -"; got != want {
 		t.Errorf("web endpoint = %q, want %q", got, want)
 	}
 	if got, want := endpoint("d_1a2b3c4d"), "transport-tls opus,g722,ulaw sdes no no no - - - no - -"; got != want {

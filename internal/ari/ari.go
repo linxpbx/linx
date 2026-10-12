@@ -141,6 +141,8 @@ type restRequest struct {
 	RequestID     string `json:"request_id"`
 	Method        string `json:"method"`
 	URI           string `json:"uri"`
+	ContentType   string `json:"content_type,omitempty"`
+	MessageBody   string `json:"message_body,omitempty"`
 }
 
 type restResponse struct {
@@ -162,12 +164,19 @@ func (c *Conn) Get(ctx context.Context, uri string, out any) error {
 // one connection at once — the call that *97 is controlling runs beside
 // the call tracker's own requests — so the write is serialised here.
 //
-// Linx writes five things over ARI and nothing else (ADR-083): answering
-// the channel that dialled *97, playing into it, stopping a playback,
-// hanging up, and setting a mailbox's counts for the message-waiting
-// light. Asterisk allows them because ari.conf's local user is no longer
+// Linx writes six things over ARI and nothing else (ADR-083, ADR-088):
+// answering the channel that dialled *97, playing into it, stopping a
+// playback, hanging up, setting a mailbox's counts for the message-waiting
+// light, and ringing someone into a group call (an originate into the
+// linx-room-invite context, which rings their phones as any call does). Asterisk allows them because ari.conf's local user is no longer
 // read-only.
 func (c *Conn) Do(ctx context.Context, method, uri string, out any) error {
+	return c.DoJSON(ctx, method, uri, nil, out)
+}
+
+// DoJSON is Do with a JSON body: ringing someone into a group call carries
+// the call's room as a channel variable (ADR-088).
+func (c *Conn) DoJSON(ctx context.Context, method, uri string, body, out any) error {
 	id := fmt.Sprintf("linx-%d", c.nextID.Add(1))
 	ch := make(chan restResponse, 1)
 	c.mu.Lock()
@@ -183,7 +192,15 @@ func (c *Conn) Do(ctx context.Context, method, uri string, out any) error {
 		c.mu.Unlock()
 	}()
 
-	msg, err := json.Marshal(restRequest{Type: "RESTRequest", TransactionID: id, RequestID: id, Method: method, URI: uri})
+	req := restRequest{Type: "RESTRequest", TransactionID: id, RequestID: id, Method: method, URI: uri}
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		req.ContentType, req.MessageBody = "application/json", string(b)
+	}
+	msg, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
