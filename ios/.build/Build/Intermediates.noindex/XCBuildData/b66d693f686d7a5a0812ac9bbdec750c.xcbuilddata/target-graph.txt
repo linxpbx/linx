@@ -1,0 +1,4 @@
+Target dependency graph (2 targets)
+Target 'LinxTests' in project 'Linx'
+➜ Explicit dependency on target 'Linx' in project 'Linx'
+Target 'Linx' in project 'Linx' (no dependencies)

@@ -50,6 +50,10 @@ struct CallLinkMessage: Decodable, Sendable {
     var video: Bool?
     var polite: Bool?
     var data: PictureSignal?
+    /// "move": the call became a group call, and this is the way in.
+    var room: String?
+    var token: String?
+    var url: String?
 }
 
 @MainActor final class DirectPicture: NSObject {
@@ -61,6 +65,9 @@ struct CallLinkMessage: Decodable, Sendable {
     var onTooExpensive: (() -> Void)?
     /// A step for the call's timeline (Call details).
     var onMark: ((String) -> Void)?
+    /// The call has become a group call (ADR-088): the other side added
+    /// someone, and this is how to join.
+    var onMove: ((GroupJoin) -> Void)?
 
     private let link: any PictureLink
     private let configuration: RTCConfiguration
@@ -189,6 +196,10 @@ struct CallLinkMessage: Decodable, Sendable {
             said(mine: false, theirs: false, theirPicture: false)
         case "signal":
             if let signal = message.data { await signalled(signal) }
+        case "move":
+            if let room = message.room, let token = message.token, let url = message.url {
+                onMove?(GroupJoin(room: room, token: token, url: url))
+            }
         default:
             break
         }

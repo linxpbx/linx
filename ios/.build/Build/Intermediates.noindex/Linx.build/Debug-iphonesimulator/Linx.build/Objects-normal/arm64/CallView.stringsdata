@@ -1,0 +1,64 @@
+{
+  "source": "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/CallView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Turn mine on too",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 52
+        }
+      },
+      {
+        "comment": "",
+        "key": "Not now",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 53
+        }
+      },
+      {
+        "comment": "",
+        "key": "You can see them either way. Turning your camera on lets them see you.",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 55
+        }
+      },
+      {
+        "comment": "",
+        "key": "Call details",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 84
+        }
+      },
+      {
+        "comment": "",
+        "key": "Their phone can't show a picture.",
+        "location": {
+          "startingColumn": 44,
+          "startingLine": 191
+        }
+      },
+      {
+        "comment": "",
+        "key": "",
+        "location": {
+          "startingColumn": 82,
+          "startingLine": 191
+        }
+      },
+      {
+        "comment": "",
+        "key": "Done",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 218
+        }
+      }
+    ]
+  },
+  "version": 1
+}

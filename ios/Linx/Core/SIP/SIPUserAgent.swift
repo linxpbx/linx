@@ -95,6 +95,15 @@ struct AudioRoute: Equatable, Sendable {
     /// changes, and nothing goes through the phone system.
     func setCamera(_ on: Bool) async throws
     func switchCamera()
+    /// The other side made this a group call (ADR-088).
+    var onGroupMove: ((GroupJoin) -> Void)? { get set }
+    /// The group call ended for this phone, and why in words.
+    var onGroupEnded: ((String) -> Void)? { get set }
+    /// Moves the call onto the video server: its sound and pictures go
+    /// there, and the phone call's own sound goes quiet. Nil if it can't.
+    func joinGroup(_ join: GroupJoin, server: URL) -> GroupPeople?
+    /// In a group call: the phone call may end without the call ending.
+    var inGroup: Bool { get }
     /// The **HD** button: whether this phone's picture may go above 540p.
     func useHD(_ on: Bool)
     /// Moves a call that is up onto Linx's relay (an ICE restart that allows
@@ -455,6 +464,12 @@ struct AudioRoute: Equatable, Sendable {
         sendReinvite(offer, of: current)
     }
 
+    /// The SIP Call-ID of the call that is up, which is how the server finds
+    /// it (the call link, group calls).
+    var callID: String? { call?.id }
+    /// Whether the call that is up was an invitation into a group call.
+    var callIsInvitation: Bool { call?.invitation ?? false }
+
     /// Hands the camera over to the one on the other side of the phone.
     func switchCamera() { call?.media.switchCamera() }
 
@@ -791,6 +806,7 @@ struct AudioRoute: Equatable, Sendable {
         incoming.remoteTarget = SIPMessage.uri(in: invite.first("Contact") ?? from)
         incoming.routeSet = invite.all("Record-Route")
         incoming.videoCall = invite.first("X-Linx-Video") == "yes"
+        incoming.invitation = invite.first("X-Linx-Room") != nil
         let media = incoming.media
         incoming.preparing = Task { try await media.answer(to: invite.body) }
         call = incoming
@@ -929,7 +945,9 @@ struct AudioRoute: Equatable, Sendable {
         guard call?.id == current.id else { return }
         call?.timeout?.cancel()
         call?.preparing?.cancel()
-        current.media.stop()
+        // In a group call the phone call was only what rang: its sound is
+        // the video server's now, and the phone model ends it.
+        if !current.media.inGroup { current.media.stop() }
         call = nil
         if tell { onEnded?(why) }
     }
@@ -1008,6 +1026,8 @@ struct AudioRoute: Equatable, Sendable {
         var reinviteForRelay = false
         /// Rung as a video call (X-Linx-Video, ADR-087).
         var videoCall = false
+        /// Rung to invite this phone into a group call (X-Linx-Room, ADR-088).
+        var invitation = false
         /// The call has been moved onto the relay once already.
         var movedToRelay = false
         var ringingMarked = false

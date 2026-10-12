@@ -1,0 +1,40 @@
+{
+  "source": "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/GroupCallView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Name or extension",
+        "location": {
+          "startingColumn": 48,
+          "startingLine": 137
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add person",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 138
+        }
+      },
+      {
+        "comment": "",
+        "key": "Cancel",
+        "location": {
+          "startingColumn": 70,
+          "startingLine": 141
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add person",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 172
+        }
+      }
+    ]
+  },
+  "version": 1
+}

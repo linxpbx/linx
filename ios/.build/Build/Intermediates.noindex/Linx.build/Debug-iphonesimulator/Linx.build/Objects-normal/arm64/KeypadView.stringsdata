@@ -1,0 +1,48 @@
+{
+  "source": "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/KeypadView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Test my sound",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 79
+        }
+      },
+      {
+        "comment": "",
+        "key": "Delete the last number",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 100
+        }
+      },
+      {
+        "comment": "",
+        "key": "Redial %@",
+        "location": {
+          "startingColumn": 35,
+          "startingLine": 133
+        }
+      },
+      {
+        "comment": "",
+        "key": "Video call",
+        "location": {
+          "startingColumn": 76,
+          "startingLine": 133
+        }
+      },
+      {
+        "comment": "",
+        "key": "Call",
+        "location": {
+          "startingColumn": 91,
+          "startingLine": 133
+        }
+      }
+    ]
+  },
+  "version": 1
+}

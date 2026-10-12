@@ -1,0 +1,152 @@
+{
+  "source": "/Users/mohammed/Projects/linx/ios/Linx/Features/Home/HomeView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Calls",
+        "location": {
+          "startingColumn": 17,
+          "startingLine": 32
+        }
+      },
+      {
+        "comment": "",
+        "key": "Team",
+        "location": {
+          "startingColumn": 17,
+          "startingLine": 37
+        }
+      },
+      {
+        "comment": "",
+        "key": "Keypad",
+        "location": {
+          "startingColumn": 17,
+          "startingLine": 41
+        }
+      },
+      {
+        "comment": "",
+        "key": "More",
+        "location": {
+          "startingColumn": 17,
+          "startingLine": 45
+        }
+      },
+      {
+        "comment": "",
+        "key": "Favourites",
+        "location": {
+          "startingColumn": 42,
+          "startingLine": 83
+        }
+      },
+      {
+        "comment": "",
+        "key": "Done",
+        "location": {
+          "startingColumn": 36,
+          "startingLine": 96
+        }
+      },
+      {
+        "comment": "",
+        "key": "This phone",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 115
+        }
+      },
+      {
+        "comment": "",
+        "key": "Last number",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 140
+        }
+      },
+      {
+        "comment": "",
+        "key": "Star somebody in Team and they stand here, beside the keypad.",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 152
+        }
+      },
+      {
+        "comment": "",
+        "key": "Put %@'s extension on the keypad",
+        "location": {
+          "startingColumn": 33,
+          "startingLine": 192
+        }
+      },
+      {
+        "comment": "",
+        "key": "Call %@",
+        "location": {
+          "startingColumn": 33,
+          "startingLine": 203
+        }
+      },
+      {
+        "comment": "",
+        "key": "More",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 258
+        }
+      },
+      {
+        "comment": "",
+        "key": "Settings",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 247
+        }
+      },
+      {
+        "comment": "",
+        "key": "Voicemail",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 230
+        }
+      },
+      {
+        "comment": "",
+        "key": "%lld",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 233
+        }
+      },
+      {
+        "comment": "",
+        "key": "%lld new",
+        "location": {
+          "startingColumn": 57,
+          "startingLine": 239
+        }
+      },
+      {
+        "comment": "",
+        "key": "Extension",
+        "location": {
+          "startingColumn": 36,
+          "startingLine": 252
+        }
+      },
+      {
+        "comment": "",
+        "key": "This phone",
+        "location": {
+          "startingColumn": 36,
+          "startingLine": 253
+        }
+      }
+    ]
+  },
+  "version": 1
+}

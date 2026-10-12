@@ -1,0 +1,16 @@
+{
+  "source": "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/AudioRouteButton.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Where the sound comes out: %@",
+        "location": {
+          "startingColumn": 29,
+          "startingLine": 54
+        }
+      }
+    ]
+  },
+  "version": 1
+}

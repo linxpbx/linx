@@ -104,6 +104,15 @@ import Testing
     }
 
     func switchCamera() { cameraSwitched += 1 }
+    var onGroupMove: ((GroupJoin) -> Void)?
+    var onGroupEnded: ((String) -> Void)?
+    /// The group calls this call was moved into.
+    private(set) var groupsJoined: [GroupJoin] = []
+    var inGroup: Bool { !groupsJoined.isEmpty && !stopped }
+    func joinGroup(_ join: GroupJoin, server: URL) -> GroupPeople? {
+        groupsJoined.append(join)
+        return GroupPeople()
+    }
     var hd: [Bool] = []
     func useHD(_ on: Bool) { hd.append(on) }
 

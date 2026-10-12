@@ -157,6 +157,11 @@ struct CallDiagnostics: Equatable, Sendable {
     /// The link can't carry a picture any more: turn this phone's camera off.
     var onVideoTooExpensive: (() -> Void)?
     private var picture: DirectPicture?
+    var onGroupMove: ((GroupJoin) -> Void)?
+    var onGroupEnded: ((String) -> Void)?
+    /// The group call this call became (ADR-088), if it did.
+    private var group: GroupCall?
+    var inGroup: Bool { group != nil }
 
     private var turn: PhoneLine.Turn?
     /// The relay's names, looked up by iOS (`RelayAddresses`) before the call
@@ -364,6 +369,7 @@ struct CallDiagnostics: Equatable, Sendable {
             cameraFirst: cameraFirst)
         picture.onMark = { [weak self] what in self?.mark(what) }
         picture.onTooExpensive = { [weak self] in self?.onVideoTooExpensive?() }
+        picture.onMove = { [weak self] join in self?.onGroupMove?(join) }
         picture.onVideoChanged = { [weak self] video in
             guard let self else { return }
             self.note { $0.picture = video.mine ? (self.hd ? "720p" : "540p") : nil }
@@ -375,11 +381,45 @@ struct CallDiagnostics: Equatable, Sendable {
 
     /// This phone's camera, on or off. The call's sound is never touched.
     func setCamera(_ on: Bool) async throws {
+        if let group {
+            try await group.setCamera(on)
+            return
+        }
         try await picture?.setCamera(on)
     }
 
     /// The front camera or the back one.
-    func switchCamera() { picture?.switchCamera() }
+    func switchCamera() {
+        if let group {
+            group.switchCamera()
+            return
+        }
+        picture?.switchCamera()
+    }
+
+    /// Moves the call onto Linx's video server (ADR-088): the group call
+    /// takes over the sound and the pictures, and this call's own sound
+    /// goes quiet both ways — the phone call stays only so the call is
+    /// still a call, for the system, the Team list and history.
+    func joinGroup(_ join: GroupJoin, server: URL) -> GroupPeople? {
+        if let group { return group.state }
+        guard let socket = GroupCall.socket(server: server, join: join) else { return nil }
+        let camera = video.mine
+        picture?.stop()
+        picture = nil
+        audio?.isEnabled = false
+        for receiver in connection?.receivers ?? [] where receiver.track?.kind == kRTCMediaStreamTrackKindAudio {
+            receiver.track?.isEnabled = false
+        }
+        let group = GroupCall(socket: socket, configuration: configuration(), factory: Self.factory, camera: camera)
+        group.onMark = { [weak self] what in self?.mark(what) }
+        group.onEnded = { [weak self] why in self?.onGroupEnded?(why) }
+        self.group = group
+        mark("Moved into a group call")
+        group.start()
+        onVideoChanged?(CallVideo())
+        return group.state
+    }
 
     /// The **HD** button: 720p instead of 540p for this phone's picture.
     func useHD(_ on: Bool) {
@@ -411,9 +451,13 @@ struct CallDiagnostics: Equatable, Sendable {
 
     /// Whether this phone's own picture is the mirror image people expect of
     /// themselves (the front camera) or the plain one (the back).
-    var mirrorsMyVideo: Bool { picture?.mirrored ?? true }
+    var mirrorsMyVideo: Bool { group?.mirrored ?? picture?.mirrored ?? true }
 
     func setMuted(_ muted: Bool) {
+        if let group {
+            group.setMuted(muted)
+            return
+        }
         audio?.isEnabled = !muted
     }
 
@@ -440,6 +484,8 @@ struct CallDiagnostics: Equatable, Sendable {
         gathered = nil
         picture?.stop()
         picture = nil
+        group?.leave()
+        group = nil
         tracks.local = nil
         tracks.remote = nil
         audio = nil

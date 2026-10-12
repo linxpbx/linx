@@ -235,3 +235,36 @@ extension LinxClient {
             "/api/v1/voicemail/\(id.uuidString.lowercased())", method: "DELETE", body: nil, token: token)
     }
 }
+
+extension LinxClient {
+    // MARK: - Group calls (ADR-088)
+
+    /// Add person in a call between two Linx devices: the call becomes a
+    /// group call, and this is this phone's way into it.
+    func startGroupCall(call: String, extension number: String, token: String) async throws -> GroupJoin {
+        let data = try await change(
+            "/api/v1/group-calls", method: "POST", body: ["call": call, "extension": number], token: token)
+        return try decodeGroupJoin(data)
+    }
+
+    /// An answered invitation: the group call it was ringing this phone into.
+    func joinGroupCall(call: String, token: String) async throws -> GroupJoin {
+        let data = try await change("/api/v1/group-calls/join", method: "POST", body: ["call": call], token: token)
+        return try decodeGroupJoin(data)
+    }
+
+    /// Rings one more person into a group call this phone is in.
+    func addToGroupCall(room: String, extension number: String, token: String) async throws {
+        let room = room.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? room
+        let path = "/api/v1/group-calls/\(room)/people"
+        _ = try await change(path, method: "POST", body: ["extension": number], token: token)
+    }
+
+    private func decodeGroupJoin(_ data: Data) throws -> GroupJoin {
+        do {
+            return try JSONDecoder.linx.decode(GroupJoin.self, from: data)
+        } catch {
+            throw LinxError.unexpected
+        }
+    }
+}

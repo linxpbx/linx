@@ -1,0 +1,44 @@
+{
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/DER.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DER.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DER.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DER.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DER.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DER.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/DeviceKey.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DeviceKey.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DeviceKey.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DeviceKey.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DeviceKey.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DeviceKey.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/LinxAccess.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxAccess.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxAccess.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxAccess.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxAccess.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxAccess.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/LinxClient.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxClient.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxClient.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxClient.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxClient.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxClient.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/LinxData.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxData.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxData.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxData.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxData.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LinxData.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/PhoneIdentity.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneIdentity.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneIdentity.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneIdentity.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneIdentity.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneIdentity.swiftdeps"
+  }
+}

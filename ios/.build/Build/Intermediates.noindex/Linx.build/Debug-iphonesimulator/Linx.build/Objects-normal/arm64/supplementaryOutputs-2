@@ -1,0 +1,44 @@
+{
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/Call/SystemCalls.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/SystemCalls.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/SystemCalls.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/SystemCalls.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/SystemCalls.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/SystemCalls.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/Media/Camera.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/Camera.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/Camera.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/Camera.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/Camera.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/Camera.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/Media/DirectPicture.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DirectPicture.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DirectPicture.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DirectPicture.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DirectPicture.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/DirectPicture.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/Media/GroupCall.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCall.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCall.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCall.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCall.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCall.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/Media/LiveKitWire.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LiveKitWire.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LiveKitWire.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LiveKitWire.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LiveKitWire.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/LiveKitWire.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Core/Media/RelayAddresses.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/RelayAddresses.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/RelayAddresses.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/RelayAddresses.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/RelayAddresses.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/RelayAddresses.swiftdeps"
+  }
+}

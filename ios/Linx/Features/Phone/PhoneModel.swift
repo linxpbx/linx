@@ -121,6 +121,8 @@ import UIKit
     /// through someone typing a PIN into a menu is its own small disaster
     /// (owner's point about the fold, 2026-10-05).
     var callKeypadIsOpen = false
+    /// The Add person sheet is open (ADR-088).
+    var addingPerson = false
     var callDetailsAreOpen = false
     private(set) var recent: [Recent] = []
     /// The last thing that didn't work, for the screen to show once.
@@ -218,6 +220,17 @@ import UIKit
     /// speaker over when the system says so.
     private weak var liveMedia: (any SIPCallMedia)?
 
+    /// The group call this call became (ADR-088): everyone in it and their
+    /// pictures, for the screen.
+    private(set) var group: GroupPeople?
+    /// The media that holds the group call. Held here, because the phone
+    /// call underneath it may end — the other person who was in it left —
+    /// while this phone carries on in the group.
+    private var groupMedia: (any SIPCallMedia)?
+    /// The person ended the call: the phone call ending is the end of all
+    /// of it, group call included.
+    private var leavingGroup = false
+
     init(
         line: @escaping @MainActor () async -> Line?,
         transport: @escaping @MainActor (SIPUserAgent.Account) -> any SIPTransport = {
@@ -311,6 +324,10 @@ import UIKit
         ringer.stop()
         UIDevice.current.isProximityMonitoringEnabled = false
         holdTheScreen(false)
+        groupMedia?.stop()
+        groupMedia = nil
+        group = nil
+        groupRoom = nil
         agent?.stop()
         agent = nil
         if let call { calls.reportEnded(id: call.id, .failed) }
@@ -356,6 +373,8 @@ import UIKit
                 self?.diagnostics = media.diagnostics
                 media.onVideoChanged = { [weak self] video in self?.videoChanged(video) }
                 media.onVideoTooExpensive = { [weak self] in self?.videoCostTooMuch() }
+                media.onGroupMove = { [weak self] join in self?.joinGroup(join) }
+                media.onGroupEnded = { [weak self] why in self?.groupEnded(why) }
                 self?.liveMedia = media
                 self?.tracks = media.tracks
                 return media
@@ -563,6 +582,80 @@ import UIKit
         calls.ask(.tone(call.id, digit))
     }
 
+    // MARK: - Group calls (ADR-088)
+
+    /// Whether Add person can do anything now: a call between two Linx
+    /// devices that is up, or a group call.
+    var canAddPeople: Bool {
+        guard let call, call.phase == .active else { return false }
+        return group != nil || call.video.available == true
+    }
+
+    /// Add person: rings someone into this call, which becomes a group call
+    /// on Linx's video server if it isn't one already. Words for the screen
+    /// if it couldn't, or nil.
+    func addPerson(_ number: String) async -> String? {
+        guard let line = lineInUse else { return "This phone isn't signed in to Linx." }
+        let client = LinxClient(server: line.server)
+        do {
+            if let room = groupRoom {
+                try await client.addToGroupCall(room: room, extension: number, token: line.token)
+                return nil
+            }
+            guard let callID = agent?.callID else { return "There's no call to add them to." }
+            let join = try await client.startGroupCall(call: callID, extension: number, token: line.token)
+            joinGroup(join)
+            return nil
+        } catch let error as LinxError {
+            return error.words
+        } catch {
+            return "Linx couldn't add them. Try again."
+        }
+    }
+
+    /// The people Add person can choose from.
+    func teamToAdd() async -> [TeamMember] {
+        guard let line = lineInUse else { return [] }
+        let list = try? await LinxClient(server: line.server).team(token: line.token)
+        return (list?.items ?? []).filter { $0.extensionNumber != line.line.extensionNumber }
+    }
+
+    /// The group call's room, once this call is one.
+    private var groupRoom: String?
+
+    private func joinGroup(_ join: GroupJoin) {
+        guard group == nil, let media = liveMedia, let line = lineInUse else { return }
+        guard let people = media.joinGroup(join, server: line.server) else {
+            problem = "Linx couldn't join the group call."
+            return
+        }
+        groupMedia = media
+        groupRoom = join.room
+        group = people
+        askAboutTheirVideo = nil
+        askedAboutTheirVideo = true
+        if let call, !call.speaker { toggleSpeaker() }
+        theScreenDuringTheCall()
+    }
+
+    private func joinInvitation() async {
+        guard let line = lineInUse, let callID = agent?.callID else { return }
+        do {
+            let join = try await LinxClient(server: line.server).joinGroupCall(call: callID, token: line.token)
+            joinGroup(join)
+        } catch {
+            problem = "Linx couldn't join the group call."
+        }
+    }
+
+    /// The video server let this phone go (the room closed, or the link to
+    /// it broke): the call is over.
+    private func groupEnded(_ why: String) {
+        guard groupMedia != nil, let call else { return }
+        problem = why
+        calls.ask(.end(call.id))
+    }
+
     // MARK: - The picture (ADR-087)
 
     /// Turns this phone's camera on or off in the call that is up. The
@@ -577,6 +670,19 @@ import UIKit
         // phone held to an ear with the camera on would show a ceiling.
         if on, !call.speaker { toggleSpeaker() }
         changingVideo = true
+        if let groupMedia {
+            Task { [weak self] in
+                do {
+                    try await groupMedia.setCamera(on)
+                } catch let trouble as CameraTrouble {
+                    self?.problem = trouble.words
+                } catch {
+                    self?.problem = "This phone couldn't start its camera. Try again in a moment."
+                }
+                self?.changingVideo = false
+            }
+            return
+        }
         Task { [weak self] in
             await self?.agent?.setVideo(on)
             guard let self else { return }
@@ -617,6 +723,11 @@ import UIKit
 
     /// The camera facing the person, or the one facing what they can see.
     func switchCamera() {
+        if let groupMedia {
+            groupMedia.switchCamera()
+            mirrorsMyVideo = groupMedia.mirrorsMyVideo
+            return
+        }
         agent?.switchCamera()
         mirrorsMyVideo = liveMedia?.mirrorsMyVideo ?? true
     }
@@ -890,7 +1001,11 @@ import UIKit
         case .mute(let id, let muted):
             guard var current = call, current.id == id else { return }
             current.muted = muted
-            agent?.setMuted(muted)
+            if let groupMedia {
+                groupMedia.setMuted(muted)
+            } else {
+                agent?.setMuted(muted)
+            }
             call = current
         case .tone(let id, let digit):
             guard call?.id == id, call?.phase == .active else { return }
@@ -928,6 +1043,20 @@ import UIKit
         }
         guard let call, call.id == id else { return }
         ringer.stop()
+        if let groupMedia {
+            // Leaving the group call: it goes, and the phone call with it
+            // if it's still there.
+            leavingGroup = true
+            groupMedia.stop()
+            self.groupMedia = nil
+            group = nil
+            if agent?.callID != nil {
+                agent?.hangUp()
+            } else {
+                ended(.hungUp)
+            }
+            return
+        }
         if call.incoming, call.phase == .ringing {
             agent?.decline()
         } else {
@@ -1048,9 +1177,19 @@ import UIKit
             askedAboutTheirVideo = true
             if !current.speaker { toggleSpeaker() }
         }
+        // An invitation into a group call: the server says which, and this
+        // phone goes straight there.
+        if agent?.callIsInvitation == true { Task { [weak self] in await self?.joinInvitation() } }
     }
 
     private func ended(_ why: SIPEnded) {
+        // In a group call the phone call underneath may end — the person it
+        // was with left — and this phone carries on in the group.
+        if groupMedia != nil, !leavingGroup, call != nil { return }
+        leavingGroup = false
+        groupMedia = nil
+        group = nil
+        groupRoom = nil
         ringer.stop()
         UIDevice.current.isProximityMonitoringEnabled = false
         holdTheScreen(false)
@@ -1063,6 +1202,7 @@ import UIKit
         myPictureIsBig = false
         callKeypadIsOpen = false
         callDetailsAreOpen = false
+        addingPerson = false
         calls.reportEnded(id: finished.id, Self.ending(why))
         if case .failed(let said) = why { problem = said }
         sendTheRecord(of: finished, why: why)

@@ -1,0 +1,72 @@
+{
+  "source": "/Users/mohammed/Projects/linx/ios/Linx/Features/Voicemail/VoicemailView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Voicemail",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 184
+        }
+      },
+      {
+        "comment": "",
+        "key": "Delete",
+        "location": {
+          "startingColumn": 40,
+          "startingLine": 172
+        }
+      },
+      {
+        "comment": "",
+        "key": "Stop",
+        "location": {
+          "startingColumn": 43,
+          "startingLine": 233
+        }
+      },
+      {
+        "comment": "",
+        "key": "Play the message from %@",
+        "location": {
+          "startingColumn": 52,
+          "startingLine": 233
+        }
+      },
+      {
+        "comment": "",
+        "key": "Call %@ back",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 261
+        }
+      },
+      {
+        "comment": "",
+        "key": "New",
+        "location": {
+          "startingColumn": 49,
+          "startingLine": 241
+        }
+      },
+      {
+        "comment": "",
+        "key": "No messages",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 291
+        }
+      },
+      {
+        "comment": "",
+        "key": "When someone leaves you a voicemail it appears here, and this phone gets a quiet notification.",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 294
+        }
+      }
+    ]
+  },
+  "version": 1
+}

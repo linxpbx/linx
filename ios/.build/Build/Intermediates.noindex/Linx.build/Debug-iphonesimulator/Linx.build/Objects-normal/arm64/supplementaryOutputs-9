@@ -1,0 +1,44 @@
+{
+  "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/CallLayout.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallLayout.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallLayout.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallLayout.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallLayout.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallLayout.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/CallView.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallView.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallView.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallView.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallView.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/CallView.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/GroupCallView.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCallView.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCallView.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCallView.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCallView.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/GroupCallView.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/KeypadView.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/KeypadView.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/KeypadView.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/KeypadView.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/KeypadView.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/KeypadView.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/PhoneModel.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneModel.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneModel.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneModel.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneModel.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/PhoneModel.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/Linx/Features/Phone/VideoCallView.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/VideoCallView.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/VideoCallView.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/VideoCallView.dia",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/VideoCallView.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/Linx.build/Objects-normal/arm64/VideoCallView.swiftdeps"
+  }
+}

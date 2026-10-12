@@ -1,0 +1,88 @@
+{
+  "source": "/Users/mohammed/Projects/linx/ios/Linx/Features/Calls/CallsView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Which calls",
+        "location": {
+          "startingColumn": 16,
+          "startingLine": 112
+        }
+      },
+      {
+        "comment": "",
+        "key": "All",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 113
+        }
+      },
+      {
+        "comment": "",
+        "key": "Missed",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 114
+        }
+      },
+      {
+        "comment": "",
+        "key": "Calls",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 129
+        }
+      },
+      {
+        "comment": "",
+        "key": "Name or number",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 132
+        }
+      },
+      {
+        "comment": "",
+        "key": "Show older calls",
+        "location": {
+          "startingColumn": 32,
+          "startingLine": 180
+        }
+      },
+      {
+        "comment": "",
+        "key": "Call %@ back",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 239
+        }
+      },
+      {
+        "comment": "",
+        "key": "Call %@ back",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 337
+        }
+      },
+      {
+        "comment": "",
+        "key": "No calls yet",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 372
+        }
+      },
+      {
+        "comment": "",
+        "key": "Calls you make and take on any of your phones show up here.",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 375
+        }
+      }
+    ]
+  },
+  "version": 1
+}

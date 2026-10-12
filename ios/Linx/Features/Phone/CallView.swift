@@ -25,7 +25,9 @@ struct CallView: View {
         // second"). A ZStack that stays put while its child changes keeps them
         // alive.
         ZStack {
-            if call.video.on {
+            if let group = phone.group {
+                GroupCallView(call: call, group: group)
+            } else if call.video.on {
                 VideoCallView(call: call, now: now)
             } else {
                 sound
@@ -60,6 +62,9 @@ struct CallView: View {
                 phone.callDetailsAreOpen = false
             }
         }
+        .sheet(isPresented: $phone.addingPerson) {
+            AddPersonSheet { phone.addingPerson = false }
+        }
     }
 
     private var theirVideoQuestion: String {
@@ -78,6 +83,7 @@ struct CallView: View {
                 }
                 .accessibilityLabel("Call details")
                 Spacer()
+                AddPersonButton()
             }
             if let warning = warning {
                 Button {

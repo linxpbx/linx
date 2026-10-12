@@ -1,0 +1,120 @@
+{
+  "source": "/Users/mohammed/Projects/linx/ios/Linx/Features/Team/TeamView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Unstar",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 41
+        }
+      },
+      {
+        "comment": "",
+        "key": "Favourite",
+        "location": {
+          "startingColumn": 45,
+          "startingLine": 41
+        }
+      },
+      {
+        "comment": "",
+        "key": "Team",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 75
+        }
+      },
+      {
+        "comment": "",
+        "key": "Name or extension",
+        "location": {
+          "startingColumn": 95,
+          "startingLine": 79
+        }
+      },
+      {
+        "comment": "",
+        "key": "Favourites",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 60
+        }
+      },
+      {
+        "comment": "",
+        "key": "Remove from favourites",
+        "location": {
+          "startingColumn": 42,
+          "startingLine": 167
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add to favourites",
+        "location": {
+          "startingColumn": 69,
+          "startingLine": 167
+        }
+      },
+      {
+        "comment": "",
+        "key": "Call %@",
+        "location": {
+          "startingColumn": 35,
+          "startingLine": 154
+        }
+      },
+      {
+        "comment": "",
+        "key": "Video call",
+        "location": {
+          "startingColumn": 35,
+          "startingLine": 162
+        }
+      },
+      {
+        "comment": "",
+        "key": "My status, %@",
+        "location": {
+          "startingColumn": 29,
+          "startingLine": 229
+        }
+      },
+      {
+        "comment": "",
+        "key": "My status",
+        "location": {
+          "startingColumn": 17,
+          "startingLine": 204
+        }
+      },
+      {
+        "comment": "",
+        "key": "Call %@",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 268
+        }
+      },
+      {
+        "comment": "",
+        "key": "Video call %@",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 279
+        }
+      },
+      {
+        "comment": "",
+        "key": "Nobody else has an extension yet.",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 353
+        }
+      }
+    ]
+  },
+  "version": 1
+}

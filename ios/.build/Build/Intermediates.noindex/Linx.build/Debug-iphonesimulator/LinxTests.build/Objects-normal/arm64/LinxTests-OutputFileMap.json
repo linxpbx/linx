@@ -1,0 +1,209 @@
+{
+  "" : {
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LinxTests-primary.dia",
+    "emit-module-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LinxTests-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LinxTests-primary-emit-module.dia",
+    "pch" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LinxTests-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LinxTests-primary.swiftdeps"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/BigScreenTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/BigScreenTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/BigScreenTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/BigScreenTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/BigScreenTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/BigScreenTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/BigScreenTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/BigScreenTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/BigScreenTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/CallTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/CallTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/CallTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/CallTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/CallTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/CallTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/CallTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/CallTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/CallTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/DERTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DERTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DERTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DERTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DERTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DERTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DERTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DERTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DERTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/DesignTokensTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DesignTokensTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DesignTokensTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DesignTokensTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DesignTokensTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DesignTokensTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DesignTokensTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DesignTokensTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/DesignTokensTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/GroupCallTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/GroupCallTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/GroupCallTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/GroupCallTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/GroupCallTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/GroupCallTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/GroupCallTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/GroupCallTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/GroupCallTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/LiveKitLiveTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LiveKitLiveTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LiveKitLiveTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LiveKitLiveTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LiveKitLiveTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LiveKitLiveTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LiveKitLiveTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LiveKitLiveTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/LiveKitLiveTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/PhoneModelTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneModelTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneModelTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneModelTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneModelTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneModelTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneModelTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneModelTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneModelTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/PhoneSessionTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneSessionTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneSessionTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneSessionTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneSessionTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneSessionTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneSessionTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneSessionTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/PhoneSessionTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/ProofTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ProofTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ProofTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ProofTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ProofTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ProofTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ProofTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ProofTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ProofTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/RingingTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RingingTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RingingTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RingingTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RingingTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RingingTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RingingTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RingingTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RingingTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/RouteMendingTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RouteMendingTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RouteMendingTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RouteMendingTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RouteMendingTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RouteMendingTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RouteMendingTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RouteMendingTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/RouteMendingTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/SDPTweaksTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SDPTweaksTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SDPTweaksTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SDPTweaksTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SDPTweaksTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SDPTweaksTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SDPTweaksTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SDPTweaksTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SDPTweaksTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/SIPDigestTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPDigestTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPDigestTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPDigestTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPDigestTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPDigestTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPDigestTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPDigestTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPDigestTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/SIPMessageTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPMessageTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPMessageTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPMessageTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPMessageTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPMessageTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPMessageTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPMessageTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SIPMessageTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/ScreenTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreenTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreenTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreenTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreenTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreenTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreenTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreenTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreenTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/ScreensDataTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreensDataTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreensDataTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreensDataTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreensDataTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreensDataTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreensDataTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreensDataTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/ScreensDataTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/SetupCodeTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SetupCodeTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SetupCodeTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SetupCodeTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SetupCodeTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SetupCodeTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SetupCodeTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SetupCodeTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SetupCodeTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/SmallThingsTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SmallThingsTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SmallThingsTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SmallThingsTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SmallThingsTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SmallThingsTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SmallThingsTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SmallThingsTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SmallThingsTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/SoundOnTheRoadTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SoundOnTheRoadTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SoundOnTheRoadTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SoundOnTheRoadTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SoundOnTheRoadTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SoundOnTheRoadTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SoundOnTheRoadTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SoundOnTheRoadTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/SoundOnTheRoadTests~partial.swiftmodule"
+  },
+  "/Users/mohammed/Projects/linx/ios/LinxTests/VideoTests.swift" : {
+    "const-values" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/VideoTests.swiftconstvalues",
+    "dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/VideoTests.d",
+    "diagnostics" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/VideoTests.dia",
+    "index-unit-output-path" : "/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/VideoTests.o",
+    "llvm-bc" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/VideoTests.bc",
+    "object" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/VideoTests.o",
+    "swift-dependencies" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/VideoTests.swiftdeps",
+    "swiftmodule" : "/Users/mohammed/Projects/linx/ios/.build/Build/Intermediates.noindex/Linx.build/Debug-iphonesimulator/LinxTests.build/Objects-normal/arm64/VideoTests~partial.swiftmodule"
+  }
+}

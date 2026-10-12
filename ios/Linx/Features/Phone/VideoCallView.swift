@@ -283,6 +283,7 @@ private struct Who: View {
                 .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
             ConnectionWords(call: call)
             if call.video.mine { HDButton(on: call.hd) }
+            AddPersonButton()
             if theirCameraOff {
                 Text("Their camera is off. This is yours — they can see you.")
                     .font(.caption)
@@ -396,7 +397,7 @@ private struct Buttons: View {
     }
 }
 
-private struct CallCircle: View {
+struct CallCircle: View {
     let symbol: String
     let words: String
     let on: Bool

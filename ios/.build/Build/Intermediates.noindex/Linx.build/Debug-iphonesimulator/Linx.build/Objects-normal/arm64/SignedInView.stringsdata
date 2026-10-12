@@ -1,0 +1,120 @@
+{
+  "source": "/Users/mohammed/Projects/linx/ios/Linx/Features/Home/SignedInView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "THIS PHONE",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 19
+        }
+      },
+      {
+        "comment": "",
+        "key": "Extension %@ · %@",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 29
+        }
+      },
+      {
+        "comment": "",
+        "key": "Signing out forgets this phone's key. If you've lost the phone, stop it in Linx on a computer: My account → My phones → I've lost it.",
+        "location": {
+          "startingColumn": 21,
+          "startingLine": 102
+        }
+      },
+      {
+        "comment": "",
+        "key": "Sign out of this phone",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 95
+        }
+      },
+      {
+        "comment": "",
+        "key": "Your phone line is ready",
+        "location": {
+          "startingColumn": 42,
+          "startingLine": 40
+        }
+      },
+      {
+        "comment": "",
+        "key": "Getting your phone line…",
+        "location": {
+          "startingColumn": 71,
+          "startingLine": 40
+        }
+      },
+      {
+        "comment": "",
+        "key": "This phone rings for your extension, asleep or awake, and calls from it show your number.",
+        "location": {
+          "startingColumn": 39,
+          "startingLine": 45
+        }
+      },
+      {
+        "comment": "",
+        "key": "The app asks Linx for it every time it starts, and never keeps a password.",
+        "location": {
+          "startingColumn": 39,
+          "startingLine": 46
+        }
+      },
+      {
+        "comment": "",
+        "key": "How calls arrive here",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 63
+        }
+      },
+      {
+        "comment": "",
+        "key": "Set up again by %@",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 77
+        }
+      },
+      {
+        "comment": "",
+        "key": "Only if this phone goes that long without being in touch, or the password of the Linx account changes. While you use it, it keeps itself going.",
+        "location": {
+          "startingColumn": 33,
+          "startingLine": 81
+        }
+      },
+      {
+        "comment": "",
+        "key": "Set this phone up again",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 129
+        }
+      },
+      {
+        "comment": "",
+        "key": "Ask for a new setup code — a QR code or an emailed link — and scan it here.",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 135
+        }
+      },
+      {
+        "comment": "",
+        "key": "Start again",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 138
+        }
+      }
+    ]
+  },
+  "version": 1
+}
