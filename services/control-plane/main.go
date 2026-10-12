@@ -483,6 +483,7 @@ func main() {
 			// dialplan holds it for a moment while Apple wakes the app.
 			go pushGW.Wake(context.Background(), wakeAORs(fields["Aors"]), push.Call{
 				ID: asString(fields["Call"]), From: asString(fields["From"]), At: time.Now(),
+				Video: asString(fields["Video"]) == "yes",
 			})
 		}
 	}

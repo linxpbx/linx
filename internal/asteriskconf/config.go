@@ -717,12 +717,17 @@ func DefaultRouteInterface(procNetRoute string) (string, error) {
 // rtpConf pins audio to the port range compose.yaml publishes, and sets
 // which addresses browsers are offered (ice, from iceSettings). strictrtp
 // only accepts audio from the address a call's audio actually comes from.
+// rtcpinterval: a report on what Asterisk receives every second rather than
+// every five, which is how an app phone knows Linx hears it while the other
+// end is still connecting, and leaves a working route alone (2026-10-12).
+// About 100 bytes a second per call, docs/RESOURCES.md.
 func rtpConf(ice string) string {
 	return fmt.Sprintf(`; Rendered by linx-asterisk-entrypoint.
 [general]
 rtpstart=%d
 rtpend=%d
 strictrtp=yes
+rtcpinterval=1000
 %s`, RTPStart, RTPEnd, ice)
 }
 
@@ -1039,7 +1044,8 @@ readsql = SELECT * FROM linx_wake('${SQL_ESC(${ARG1})}')
 // number), else hears "not in use".
 // WakeEvent is the UserEvent the dialplan sends when a step is about to
 // ring an app phone that isn't connected (ADR-074): the control plane asks
-// Apple to wake it while the call waits.
+// Apple to wake it while the call waits. Video says whether the caller
+// offered a picture, so a video call rings as one on the lock screen.
 const WakeEvent = "LinxWake"
 
 const extensionsConf = `; Rendered by linx-asterisk-entrypoint.
@@ -1126,13 +1132,30 @@ exten => s,1,Set(STEPS=1)
 ; Rings one step's phones: an extension's, or a ring group's (its number,
 ; or s when it has none). Only the context and number are for the control
 ; plane's call events, which tell from them what is ringing.
+; A woken phone that arrives after the wake step's wait is still rung:
+; when nobody could be rung at all (CHANUNAVAIL) and a phone was woken,
+; the step waits for it for the rest of its ring time and dials again.
+; On 5G an iPhone took 11.4 s to arrive against a 10 s wait, and the call
+; went to voicemail with the phone on its way (2026-10-12).
 [linx-ring]
 exten => _X.,1,Gosub(linx-wake,s,1(${ARG1}))
+ same => n,Set(RINGUNTIL=$[${EPOCH} + ${ARG2}])
  same => n,Dial(${ARG1},${ARG2})
- same => n,Return()
+ same => n,Gosub(linx-wake,late,1(${RINGUNTIL}))
+ same => n,GotoIf($["${WAKECAME}" != "1"]?out)
+ same => n,Set(RINGLEFT=$[${RINGUNTIL} - ${EPOCH}])
+ same => n,GotoIf($[${RINGLEFT} < 1]?out)
+ same => n,Dial(${ARG1},${RINGLEFT})
+ same => n(out),Return()
 exten => s,1,Gosub(linx-wake,s,1(${ARG1}))
+ same => n,Set(RINGUNTIL=$[${EPOCH} + ${ARG2}])
  same => n,Dial(${ARG1},${ARG2})
- same => n,Return()
+ same => n,Gosub(linx-wake,late,1(${RINGUNTIL}))
+ same => n,GotoIf($["${WAKECAME}" != "1"]?out)
+ same => n,Set(RINGLEFT=$[${RINGUNTIL} - ${EPOCH}])
+ same => n,GotoIf($[${RINGLEFT} < 1]?out)
+ same => n,Dial(${ARG1},${RINGLEFT})
+ same => n(out),Return()
 
 ; Waking a sleeping iPhone or iPad (ADR-074, docs/PHASE2.md §5). An app
 ; that isn't connected can't be rung by SIP, so before this step's phones
@@ -1149,7 +1172,8 @@ exten => s,1,Gosub(linx-wake,s,1(${ARG1}))
 ; one redundant push (the app ties it to the invitation that follows), while
 ; the other way round is a phone that never rings at all.
 [linx-wake]
-exten => s,1,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
+exten => s,1,Set(WAKELIST=)
+ same => n,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
  same => n,GotoIf($[${ODBCROWS} < 1]?done)
  same => n,GotoIf($["${WAKEAORS}" = ""]?done)
  same => n,GotoIf($[${WAKEMS} < 1]?done)
@@ -1163,7 +1187,8 @@ exten => s,1,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
  same => n(next),Set(WAKEI=$[${WAKEI} + 1])
  same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?scan)
  same => n,GotoIf($["${WAKELIST}" = ""]?done)
- same => n,UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN})
+ same => n,Set(WAKEVIDEO=${CHANNEL(videonativeformat)})
+ same => n,UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF($["${WAKEVIDEO}" != "" & "${WAKEVIDEO}" != "(nothing)"]?yes:no)})
  same => n,GotoIf($["${CHANNEL(state)}" = "Up"]?wait)
  same => n,Ringing()
  same => n(wait),Set(WAKEUNTIL=$[${EPOCH} + (${WAKEMS} + 999) / 1000])
@@ -1178,6 +1203,23 @@ exten => s,1,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
  same => n,Goto(done)
  same => n(notyet),GotoIf($[${EPOCH} < ${WAKEUNTIL}]?again)
  same => n(done),Return()
+; late: after a Dial that could ring nobody, waits until one of the
+; phones woken above arrives or the epoch ARG1 passes; WAKECAME says which.
+exten => late,1,Set(WAKECAME=0)
+ same => n,GotoIf($["${DIALSTATUS}" != "CHANUNAVAIL"]?out)
+ same => n,GotoIf($["${WAKELIST}" = ""]?out)
+ same => n(again),GotoIf($[${EPOCH} >= ${ARG1}]?out)
+ same => n,Wait(0.25)
+ same => n,Set(WAKEN=${FIELDQTY(WAKELIST,&)})
+ same => n,Set(WAKEI=1)
+ same => n(check),Set(WAKEONE=${CUT(WAKELIST,&,${WAKEI})})
+ same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
+ same => n,GotoIf($["${WAKESTATE}" != "" & "${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?came)
+ same => n,Set(WAKEI=$[${WAKEI} + 1])
+ same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?check)
+ same => n,Goto(again)
+ same => n(came),Set(WAKECAME=1)
+ same => n(out),Return()
 
 ; Leaving a voicemail (ADR-069) in the box linx_route named (a uuid it
 ; checked): the greeting (LABEL "closed": the we're-closed one; the box's

@@ -140,6 +140,8 @@ type Call struct {
 	ID   string
 	From string
 	At   time.Time
+	// Video is a video call, which the phone shows as one while it rings.
+	Video bool
 }
 
 // Store is the database access the gateway needs (internal/store

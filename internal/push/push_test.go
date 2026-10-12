@@ -212,7 +212,7 @@ func TestWakeSendsOneVoIPPush(t *testing.T) {
 	e := newEnv(t)
 	d := e.phone("aabbccdd", "")
 	e.gateway.Wake(context.Background(), []string{d.SIPUsername}, push.Call{
-		ID: "1759500000.7", From: "+971500000001", At: e.now})
+		ID: "1759500000.7", From: "+971500000001", At: e.now, Video: true})
 
 	sent := e.apple.sent()
 	if len(sent) != 1 {
@@ -231,12 +231,12 @@ func TestWakeSendsOneVoIPPush(t *testing.T) {
 		t.Errorf("priority %q, expiration %q", got.Priority, got.Expires)
 	}
 	linx, _ := got.Body["linx"].(map[string]any)
-	if linx["call"] != "1759500000.7" || linx["from"] != "+971500000001" {
+	if linx["call"] != "1759500000.7" || linx["from"] != "+971500000001" || linx["video"] != true {
 		t.Errorf("payload = %v", got.Body)
 	}
 	// Nothing else is ever told to Apple: no name, no token, no extension.
-	if len(linx) != 3 {
-		t.Errorf("the wake push carries more than the call, the caller and the time: %v", linx)
+	if len(linx) != 4 {
+		t.Errorf("the wake push carries more than the call, the caller, the time and video: %v", linx)
 	}
 	// The provider token is a signed JWT with the key's id on it.
 	header, _, ok := strings.Cut(strings.TrimPrefix(got.Bearer, "bearer "), ".")

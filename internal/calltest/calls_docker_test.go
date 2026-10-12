@@ -266,10 +266,33 @@ func TestCallsDocker(t *testing.T) {
 		// To is the step's own number, which is "s" for one person's
 		// phones and a ring group's number for a group.
 		ev := wokenSoFar()[before]
-		if ev["Aors"] != ivy.dev.SIPUsername || ev["From"] != "101" {
-			t.Errorf("wake event = %v, want Ivy's phone %q from 101", ev, ivy.dev.SIPUsername)
+		if ev["Aors"] != ivy.dev.SIPUsername || ev["From"] != "101" || ev["Video"] != "no" {
+			t.Errorf("wake event = %v, want Ivy's phone %q from 101, a voice call", ev, ivy.dev.SIPUsername)
 		}
 		e.wait(caller)
+
+		// A woken phone that arrives after the wait is still rung: the step
+		// waits for it for the rest of its ring time and dials it again
+		// (on 5G an iPhone took 11.4 s against a 10 s wait, 2026-10-12).
+		before = len(wokenSoFar())
+		late := e.sipp("wake-late", "call-message.xml", alice, "-s", "110")
+		eventually(t, "the second wake event", 20*time.Second,
+			func() bool { return len(wokenSoFar()) > before })
+		time.Sleep(4 * time.Second) // past the 2 s wait: the first Dial found nobody
+		// The second Dial of linx-ring is only ever reached by a late arrival.
+		redial := "@linx-ring:8] Dial(\"PJSIP/"
+		arrives := e.wsphone("ivy-late", ivy, "-hold", "8s")
+		deadline := time.Now().Add(15 * time.Second)
+		for !strings.Contains(e.asteriskLogs(), redial) {
+			if time.Now().After(deadline) {
+				logs, _ := exec.Command("docker", "logs", arrives).CombinedOutput()
+				t.Fatalf("Ivy not rung once her phone arrived late; her phone said:\n%s\n--- Asterisk:\n%s",
+					logs, e.asteriskLogs())
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		e.waitWS(arrives)
+		e.wait(late)
 
 		// Nothing waits for a phone that can't be woken: with the key gone
 		// the same call goes straight to the step.
@@ -706,7 +729,7 @@ func TestCallsDocker(t *testing.T) {
 		web := e.asteriskCLI("pjsip show endpoint " + dana.dev.SIPUsername)
 		for _, want := range []string{`transport\s*:\s*transport-wss`, `media_encryption\s*:\s*dtls`, `ice_support\s*:\s*true`,
 			`use_avpf\s*:\s*true`, `rtcp_mux\s*:\s*true`, `dtls_verify\s*:\s*Fingerprint`, `dtls_setup\s*:\s*actpass`,
-			`allow\s*:\s*\(opus\|g722\|ulaw\|h264\|vp8\)`, `max_video_streams\s*:\s*1`} {
+			`allow\s*:\s*\(opus\|g722\|ulaw\|h264\|vp8\)`, `max_video_streams\s*:\s*1`, `bundle\s*:\s*true`} {
 			if !regexp.MustCompile(want).MatchString(web) {
 				t.Errorf("web endpoint doesn't match %s:\n%s", want, web)
 			}

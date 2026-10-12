@@ -316,7 +316,7 @@ func TestRenderARI(t *testing.T) {
 		// database says who can be woken, the dialplan leaves out the ones
 		// already here, and the call waits for the rest.
 		"[linx-wake]", "Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})",
-		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN})",
+		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF(", "Set(WAKEVIDEO=${CHANNEL(videonativeformat)})", "exten => late,1,Set(WAKECAME=0)",
 		"Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})",
 		// A device state Asterisk couldn't answer means wake the phone: the
 		// wrong way round is a phone that never rings (the whole of row 2.4
@@ -512,7 +512,7 @@ func TestRenderICE(t *testing.T) {
 	if err := c.Render(); err != nil {
 		t.Fatal(err)
 	}
-	want := "strictrtp=yes\nicesupport=yes\n; Only the addresses below are offered to browsers.\n" +
+	want := "strictrtp=yes\nrtcpinterval=1000\nicesupport=yes\n; Only the addresses below are offered to browsers.\n" +
 		"ice_deny=0.0.0.0/0\nice_deny=::/0\nice_permit=172.23.0.2/32\nice_permit=192.168.1.20/32\n" +
 		"\n[ice_host_candidates]\n172.20.0.5 => 192.168.1.20\n"
 	if got := read(t, c, "rtp.conf"); !strings.HasSuffix(got, want) {

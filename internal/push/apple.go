@@ -116,11 +116,12 @@ type notice struct {
 }
 
 // wakePayload is what a woken app is told: the call's id, the caller's
-// number and the time. No name, no token, nothing else (docs/PHASE2.md §5).
+// number, the time, and whether it is a video call. No name, no token,
+// nothing else (docs/PHASE2.md §5).
 func wakePayload(c Call) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"aps":  map[string]any{},
-		"linx": map[string]any{"call": c.ID, "from": c.From, "at": c.At.Unix()},
+		"linx": map[string]any{"call": c.ID, "from": c.From, "at": c.At.Unix(), "video": c.Video},
 	})
 }
 
