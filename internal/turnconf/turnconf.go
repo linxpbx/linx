@@ -53,7 +53,9 @@ const (
 	// on, on a network where the relay was the only way through (2026-10-05).
 	// This is twice what a video call needs and still nowhere near enough to
 	// use the relay for moving data about, which is what the cap is for.
-	MaxBPS = 160000
+	// Raised from 160 kB/s on 2026-10-12 so a relayed picture can reach 720p
+	// (1.5 Mbit/s) when the person turns HD on; at 160 it stopped at 540p.
+	MaxBPS = 240000
 )
 
 // Config is linx-coturn's configuration.
