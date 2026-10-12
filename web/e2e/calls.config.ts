@@ -6,7 +6,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch: "calls.spec.ts",
-  timeout: 240_000,
+  timeout: 420_000,
   expect: { timeout: 20_000 },
   reporter: [["list"]],
   workers: 1,

@@ -1,5 +1,5 @@
 // Settings (WEB_SCREENS_PHASE1C.md §7): this browser's microphone, speaker,
-// ring volume and a test call to the echo test.
+// camera, ring volume and a test call to the echo test.
 import { useEffect, useState } from "react";
 import { Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -87,6 +87,10 @@ export function SettingsScreen() {
         {canSetSpeaker && (
           <DeviceSelect id="speaker" label="Speaker" kind="audiooutput" value={s.speakerId} devices={devices}
             onChange={(v) => update({ speakerId: v })} />
+        )}
+        {devices.some((d) => d.kind === "videoinput") && (
+          <DeviceSelect id="camera" label="Camera" kind="videoinput" value={s.cameraId} devices={devices}
+            onChange={(v) => update({ cameraId: v })} />
         )}
         <div className="grid gap-2 sm:grid-cols-[10rem_1fr] sm:items-center">
           <Label htmlFor="ring-volume">Ringtone volume</Label>

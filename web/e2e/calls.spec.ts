@@ -29,7 +29,7 @@ async function launch(extraArgs: string[] = []): Promise<Browser> {
 const pages: Page[] = [];
 
 async function signIn(browser: Browser, token: string): Promise<Page> {
-  const context = await browser.newContext({ baseURL: base, permissions: ["microphone"] });
+  const context = await browser.newContext({ baseURL: base, permissions: ["microphone", "camera"] });
   // Keep every RTCPeerConnection the page makes, to explain a failure.
   await context.addInitScript(() => {
     const Original = window.RTCPeerConnection;
@@ -178,12 +178,88 @@ test("browsers call each other, one with UDP blocked", async () => {
   await aisha.getByRole("button", { name: "End call" }).click();
   for (const p of [aisha, omar]) await expect(p.getByTestId("call-panel")).toHaveCount(0);
 
+  // A video call (ADR-087): it rings as one, and the pictures go straight
+  // between the two browsers over the call link — Omar's through the relay
+  // over TLS, since he has no UDP — while the sound goes through Linx as
+  // before. Either side turns their camera off and on again mid-call.
+  await aisha.getByRole("button", { name: "Video call Omar Khalil" }).click();
+  await expect(omar.getByTestId("incoming-call")).toContainText("Incoming video call");
+  await omar.getByRole("button", { name: "Answer" }).click();
+  try {
+    for (const p of [aisha, omar]) {
+      await expect(p.getByTestId("pictures")).toHaveAttribute("data-theirs", "true", { timeout: 30_000 });
+      await expect(p.getByTestId("pictures")).toHaveAttribute("data-mine", "true");
+      await expect.poll(() => p.getByTestId("pictures").locator("video").first()
+        .evaluate((v) => (v as HTMLVideoElement).videoWidth), { timeout: 15_000 }).toBeGreaterThan(0);
+    }
+  } catch (e) {
+    const said = await Promise.all([aisha, omar].map(async (p) => {
+      const link = await p.getByTestId("call-panel").getAttribute("data-picture").catch(() => "?");
+      const text = await p.getByTestId("call-panel").innerText().catch(() => "?");
+      const states = await p.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs
+        .map((pc) => `${pc.connectionState}/${pc.signalingState}/${pc.getTransceivers().map((t) => `${t.receiver.track.kind}:${t.currentDirection}`).join(",")}`)
+        .join(" | ")).catch(() => "?");
+      return `link said "${link}", connections ${states}, panel: ${text.replace(/\s+/g, " ")}`;
+    }));
+    throw new Error(`the pictures didn't arrive (Aisha: ${said[0]}; Omar: ${said[1]}): ${String(e)}`);
+  }
+  await hearsAudio(aisha);
+  await omar.getByRole("button", { name: "Turn camera off" }).click();
+  await expect(aisha.getByTestId("pictures")).toHaveAttribute("data-theirs", "false", { timeout: 15_000 });
+  await expect(omar.getByTestId("pictures")).toHaveAttribute("data-mine", "false");
+  await omar.getByRole("button", { name: "Turn camera on" }).click();
+  await expect(aisha.getByTestId("pictures")).toHaveAttribute("data-theirs", "true", { timeout: 15_000 });
+  await hearsAudio(omar);
+  await aisha.getByRole("button", { name: "End call" }).click();
+  for (const p of [aisha, omar]) await expect(p.getByTestId("call-panel")).toHaveCount(0);
+
+  // Add person (ADR-088): Aisha video-calls Omar, then adds Layla. The call
+  // moves onto Linx's video server — both of them over the call link, Layla
+  // rung through the phone system as an invitation — and everyone sees the
+  // others. Then each leaves on their own, and the rest carry on.
+  const c = await launch();
+  const layla = await signIn(c, process.env.LINX_SETUP_C ?? "");
+  await aisha.getByRole("button", { name: "Video call Omar Khalil" }).click();
+  await omar.getByRole("button", { name: "Answer" }).click();
+  await expect(aisha.getByTestId("pictures")).toHaveAttribute("data-theirs", "true", { timeout: 30_000 });
+  await aisha.getByRole("button", { name: "Add person" }).click();
+  await aisha.getByLabel("Add someone to this call").fill("Layla");
+  await aisha.getByRole("dialog").getByRole("button", { name: /Layla Haddad/ }).click();
+  try {
+    await expect(layla.getByTestId("incoming-call")).toContainText("Invites you to a group call", { timeout: 30_000 });
+    await layla.getByRole("button", { name: "Answer" }).click();
+    for (const p of [aisha, omar, layla]) {
+      await expect(p.getByTestId("group-person")).toHaveCount(3, { timeout: 30_000 });
+    }
+    // The two cameras that were on in the call stay on in the group call.
+    for (const p of [aisha, omar, layla]) {
+      await expect(p.locator('[data-testid="group-person"][data-me="false"][data-video="true"]').first())
+        .toBeVisible({ timeout: 20_000 });
+    }
+  } catch (e) {
+    throw new Error(`the group call didn't come together: ${String(e)}`);
+  }
+  // Omar leaves: his phone call to Aisha ends with him, and the group call
+  // carries on for the two still in it.
+  await omar.getByRole("button", { name: "End call" }).click();
+  await expect(omar.getByTestId("call-panel")).toHaveCount(0);
+  for (const p of [aisha, layla]) await expect(p.getByTestId("group-person")).toHaveCount(2, { timeout: 30_000 });
+  await layla.getByRole("button", { name: "End call" }).click();
+  await aisha.getByRole("button", { name: "End call" }).click();
+  for (const p of [aisha, layla]) await expect(p.getByTestId("call-panel")).toHaveCount(0);
+  await c.close();
+
   // A browser calls the softphone on 103 (SIPp over TLS on the LAN side).
   await aisha.goto("/");
   await expect(aisha.getByTestId("account-menu")).toContainText("Available", { timeout: 30_000 });
   await aisha.getByLabel("Name, extension or number").fill("103");
-  await aisha.getByRole("button", { name: "Call", exact: true }).click();
+  // As a video call: a desk phone can't show a picture, so it goes on as
+  // an ordinary call and the camera button stays off.
+  await aisha.getByRole("button", { name: "Video call", exact: true }).click();
   await expect(aisha.getByTestId("call-panel")).toHaveAttribute("data-phase", "active");
+  await expect(aisha.getByTestId("call-panel")).toHaveAttribute("data-picture", "false", { timeout: 15_000 });
+  await expect(aisha.getByRole("button", { name: "Turn camera on" })).toBeDisabled();
+  await expect(aisha.getByTestId("pictures")).toHaveCount(0);
   await aisha.getByRole("button", { name: "End call" }).click();
   await expect(aisha.getByTestId("call-panel")).toHaveCount(0);
 

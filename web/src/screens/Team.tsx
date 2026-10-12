@@ -87,11 +87,9 @@ export function TeamScreen({ members, query }: { members: TeamMember[] | null; q
                           className="inline-flex size-9 items-center justify-center rounded-full text-call hover:bg-call/10 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40">
                           <Phone className="size-5" />
                         </button>
-                        {/* Video calls from the browser are coming (owner, 2026-10-12);
-                            the iPhone and iPad app makes them today. */}
-                        <button type="button" aria-label={`Video call ${m.name} (coming soon)`} disabled
-                          title="Video calls from the browser are coming soon. The iPhone and iPad app can make them now."
-                          className="inline-flex size-9 items-center justify-center rounded-full text-primary disabled:opacity-40">
+                        <button type="button" aria-label={`Video call ${m.name}`} disabled={!canCall}
+                          onClick={() => line.call(m.extension, m.name, true)}
+                          className="inline-flex size-9 items-center justify-center rounded-full text-primary hover:bg-primary/10 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40">
                           <Video className="size-5" />
                         </button>
                       </div>

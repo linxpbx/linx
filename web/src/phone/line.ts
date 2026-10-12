@@ -5,11 +5,14 @@
 import * as JsSIP from "jssip";
 import type { RTCSession } from "jssip/lib/RTCSession";
 import type { RTCSessionEvent, UA } from "jssip/lib/UA";
+import type { IncomingRequest, OutgoingRequest } from "jssip/lib/SIPMessage";
 import type { DTMF_TRANSPORT } from "jssip/lib/Constants";
 import { api, type TurnCredentials, type WebPhone } from "@/api/client";
 import { capAudioSend, preferOpusFecDtx } from "./sdp";
 import { Ringtone } from "./ringtone";
 import { loadAudioSettings, type AudioSettings } from "./settings";
+import { DirectPicture, type PictureState } from "./picture";
+import { GroupCall, type GroupJoin, type GroupState } from "./group";
 
 /** "elsewhere": another tab of this browser holds the phone line (phone/tabs.ts). */
 export type LineStatus = "starting" | "ready" | "reconnecting" | "unavailable" | "elsewhere";
@@ -36,6 +39,14 @@ export interface Call {
   answeredAt?: number;
   muted: boolean;
   connection?: Connection;
+  /** Rang as a video call (X-Linx-Video): cameras go on as it's answered. */
+  videoCall: boolean;
+  /** The picture, once the call is answered (phone/picture.ts). */
+  picture?: PictureState;
+  /** The call has become a group call (phone/group.ts, ADR-088). */
+  group?: GroupState;
+  /** Ringing to invite this browser into a group call. */
+  invitation?: boolean;
 }
 
 export interface RecentCall {
@@ -77,6 +88,11 @@ export class PhoneLine {
   private stopped = false;
   private directory: (number: string) => string | undefined = () => undefined;
   private retriedCredentials = false;
+  private picture: DirectPicture | null = null;
+  private group: GroupCall | null = null;
+  /** Each session's SIP Call-ID, whether it rang as a video call, and
+   * whether it is an invitation to a group call (X-Linx-Room). */
+  private sessions = new WeakMap<RTCSession, { callId: string; video: boolean; invitation?: boolean }>();
 
   constructor() {
     this.audio = document.createElement("audio");
@@ -168,7 +184,17 @@ export class PhoneLine {
       this.set({ status: "unavailable", problem: "Your phone line couldn't sign in. Reload the page to try again." });
     });
     ua.on("newRTCSession", (e: RTCSessionEvent) => {
-      if (e.originator === "remote") this.incoming(e.session);
+      if (e.originator === "remote") {
+        const req = e.request as IncomingRequest;
+        this.sessions.set(e.session, {
+          callId: req.getHeader("Call-ID"),
+          video: req.getHeader("X-Linx-Video") === "yes",
+          invitation: !!req.getHeader("X-Linx-Room"),
+        });
+        this.incoming(e.session);
+        return;
+      }
+      this.sessions.set(e.session, { callId: (e.request as OutgoingRequest).call_id, video: this.callingWithVideo });
     });
     ua.start();
   }
@@ -232,22 +258,126 @@ export class PhoneLine {
 
   // --- Calls ---
 
-  call(number: string, name?: string) {
+  /** Set while ua.call runs, for newRTCSession to read. */
+  private callingWithVideo = false;
+
+  /**
+   * Calls number. A video call says so in X-Linx-Video (ADR-087): the
+   * INVITE carries sound only, and the picture goes straight between the
+   * two devices once it's answered.
+   */
+  call(number: string, name?: string, video = false) {
     const target = number.trim();
     if (!this.ua || this.state.status !== "ready" || this.session || !target) return;
     const peer = { name: name ?? (target === ECHO_TEST ? "Test sound" : target), number: target };
     let session: RTCSession;
+    this.callingWithVideo = video;
     try {
       session = this.ua.call(`sip:${target}@${this.domain}`, {
         mediaConstraints: this.mediaConstraints(),
         pcConfig: this.pcConfig(),
+        extraHeaders: video ? ["X-Linx-Video: yes"] : [],
       });
     } catch {
       this.set({ problem: "That call couldn't start. Reload the page and try again." });
       return;
+    } finally {
+      this.callingWithVideo = false;
     }
     this.track(session, "outgoing", peer);
-    this.setCall({ id: session.id, direction: "outgoing", peer, phase: "calling", muted: false });
+    this.setCall({ id: session.id, direction: "outgoing", peer, phase: "calling", muted: false, videoCall: video });
+  }
+
+  /** Turns this browser's camera on or off in the call. */
+  toggleVideo() {
+    const g = this.group;
+    if (g) {
+      void g.setCamera(!g.state.camera);
+      return;
+    }
+    const p = this.picture;
+    if (!p || !p.state.available) return;
+    void p.setCamera(!p.state.mine);
+  }
+
+  /** The pictures to show: this browser's camera and theirs. */
+  pictureStreams(): { mine: MediaStream | null; theirs: MediaStream | null } {
+    return { mine: this.picture?.myStream ?? null, theirs: this.picture?.theirStream ?? null };
+  }
+
+  /**
+   * Add person (ADR-088): rings someone into this call, which becomes a
+   * group call on Linx's video server if it isn't one already. Words for the
+   * screen if it couldn't, or undefined.
+   */
+  async addPerson(extension: string): Promise<string | undefined> {
+    const group = this.group;
+    if (group) {
+      const { error } = await api.POST("/api/v1/group-calls/{room}/people", {
+        params: { path: { room: group.state.room } }, body: { extension },
+      });
+      return error ? (("detail" in error && error.detail) || "Linx couldn't add them.") : undefined;
+    }
+    const s = this.session;
+    const known = s ? this.sessions.get(s) : undefined;
+    if (!s || !known) return "There's no call to add them to.";
+    const { data, error } = await api.POST("/api/v1/group-calls", { body: { call: known.callId, extension } });
+    if (!data) return (error && "detail" in error && error.detail) || "Linx couldn't add them.";
+    this.joinGroup(data);
+    return undefined;
+  }
+
+  /** Moves this call onto the video server: the group call takes over the
+   * sound and the picture, and the phone call's own sound goes quiet. */
+  private joinGroup(join: GroupJoin) {
+    if (this.group) return;
+    const camera = this.picture?.state.mine ?? false;
+    this.picture?.stop();
+    this.picture = null;
+    this.session?.mute({ audio: true });
+    this.audio.muted = true;
+    const group = new GroupCall(join, {
+      iceServers: this.pcConfig().iceServers ?? [],
+      microphoneId: this.settings.microphoneId,
+      cameraId: this.settings.cameraId,
+      speakerId: this.settings.speakerId,
+      camera,
+      onChange: () => {
+        if (this.group === group && this.state.call) this.setCall({ group: { ...group.state } });
+      },
+    });
+    this.group = group;
+    this.setCall({ group: { ...group.state }, picture: undefined });
+    void group.start();
+  }
+
+  /** Attaches a group call person's picture to a video element. */
+  attachGroupVideo(id: string, el: HTMLVideoElement | null) {
+    this.group?.attach(id, el);
+  }
+
+  private startPicture(session: RTCSession, videoCall: boolean, peer: Peer) {
+    this.picture?.stop();
+    this.picture = null;
+    const known = this.sessions.get(session);
+    if (!known || peer.number === ECHO_TEST) return;
+    if (known.invitation) {
+      void this.joinInvitation(known.callId);
+      return;
+    }
+    const picture = new DirectPicture({
+      callId: known.callId,
+      iceServers: this.pcConfig().iceServers ?? [],
+      cameraId: this.settings.cameraId,
+      cameraFirst: videoCall,
+      onChange: () => {
+        if (this.picture === picture && this.state.call) this.setCall({ picture: { ...picture.state } });
+      },
+      onMove: (join) => this.joinGroup(join),
+    });
+    this.picture = picture;
+    this.setCall({ picture: { ...picture.state } });
+    picture.start();
   }
 
   private incoming(session: RTCSession) {
@@ -258,7 +388,11 @@ export class PhoneLine {
     const id = session.remote_identity;
     const peer = { name: this.directory(id.uri.user) || id.display_name || id.uri.user, number: id.uri.user };
     this.track(session, "incoming", peer);
-    this.setCall({ id: session.id, direction: "incoming", peer, phase: "ringing", muted: false });
+    const known = this.sessions.get(session);
+    this.setCall({
+      id: session.id, direction: "incoming", peer, phase: "ringing", muted: false,
+      videoCall: known?.video ?? false, invitation: known?.invitation ?? false,
+    });
     this.ringtone.start();
   }
 
@@ -274,12 +408,42 @@ export class PhoneLine {
     this.session?.terminate({ status_code: 486, reason_phrase: "Busy Here" });
   }
 
+  /** An answered invitation: the server says which group call it was. */
+  private async joinInvitation(callId: string) {
+    const { data } = await api.POST("/api/v1/group-calls/join", { body: { call: callId } });
+    if (data) this.joinGroup(data);
+    else this.set({ problem: "Linx couldn't join the group call." });
+  }
+
   hangUp() {
     this.ringtone.stop();
+    if (this.group) {
+      this.leaveGroup();
+      return;
+    }
     this.session?.terminate();
   }
 
+  /** Leaves the group call: the phone call goes too, if it's still up. */
+  private leaveGroup() {
+    const group = this.group;
+    this.group = null;
+    void group?.leave();
+    this.audio.muted = false;
+    const s = this.session;
+    if (s && !s.isEnded()) {
+      s.terminate();
+      return;
+    }
+    this.setCall(null);
+  }
+
   toggleMute() {
+    const g = this.group;
+    if (g) {
+      void g.setMuted(!g.state.muted).then(() => this.setCall({ muted: g.state.muted }));
+      return;
+    }
     const s = this.session;
     if (!s || this.state.call?.phase === "calling" || this.state.call?.phase === "ringing") return;
     if (s.isMuted().audio) s.unmute({ audio: true });
@@ -333,13 +497,21 @@ export class PhoneLine {
       this.ringtone.stop();
       this.setCall({ phase: "active", answeredAt: Date.now() });
       this.startStats();
+      this.startPicture(session, this.state.call?.videoCall ?? false, peer);
     });
     const finish = (missed: boolean) => {
       this.ringtone.stop();
       window.clearInterval(this.statsTimer);
       window.clearTimeout(this.reconnectTimer);
-      if (this.session === session) this.session = null;
+      if (this.session === session) {
+        this.session = null;
+        this.picture?.stop();
+        this.picture = null;
+      }
       this.audio.srcObject = null;
+      // In a group call the phone call is only what rang: the other person
+      // hanging up their side ends it, and the group call carries on.
+      if (this.group) return;
       const kind: RecentCall["kind"] = direction === "outgoing" ? "outgoing" : missed ? "missed" : "incoming";
       if (peer.number !== ECHO_TEST) {
         this.set({ recent: [{ id: session.id, peer, kind, at: Date.now() }, ...this.state.recent].slice(0, 20) });
@@ -435,6 +607,10 @@ export class PhoneLine {
     window.clearTimeout(this.reconnectTimer);
     window.removeEventListener("online", this.onOnline);
     window.removeEventListener("pagehide", this.onUnload);
+    this.picture?.stop();
+    this.picture = null;
+    void this.group?.leave();
+    this.group = null;
     this.session?.terminate();
     this.ua?.stop();
     this.ua = null;

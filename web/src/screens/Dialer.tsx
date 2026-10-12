@@ -34,15 +34,15 @@ export function DialerScreen({ members, stamp }: { members: TeamMember[] | null;
   const [value, setValue] = useState("");
   const matches = matchTeam(members, value, extension);
   const canCall = status === "ready" && !call;
-  const dial = (e?: FormEvent) => {
+  const dial = (e?: FormEvent, video = false) => {
     e?.preventDefault();
     const target = value.trim();
     if (!canCall || !target) return;
     if (DIALABLE.test(target)) {
       const who = members?.find((m) => m.extension === target);
-      line.call(target, who?.name);
+      line.call(target, who?.name, video);
     } else if (matches[0]) {
-      line.call(matches[0].extension, matches[0].name);
+      line.call(matches[0].extension, matches[0].name, video);
     } else {
       return;
     }
@@ -85,21 +85,17 @@ export function DialerScreen({ members, stamp }: { members: TeamMember[] | null;
       <div className="mt-8">
         <Keypad onKey={(k) => setValue((v) => v + k)} />
       </div>
-      {/* Call in green, Video call in Cobalt (owner, 2026-10-12). Video from
-          the browser is coming; the iPhone and iPad app makes video calls now. */}
+      {/* Call in green, Video call in Cobalt (owner, 2026-10-12). A video
+          call to a desk phone or an outside number goes on as sound. */}
       <div className="mt-8 flex items-start gap-6">
         <button type="button" onClick={() => dial()} disabled={!canCall || !value.trim()} aria-label="Call"
           className="inline-flex size-18 items-center justify-center rounded-full bg-call text-call-foreground shadow-md transition-colors hover:bg-call/90 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40">
           <Phone className="size-7" />
         </button>
-        <div className="flex flex-col items-center gap-1">
-          <button type="button" disabled aria-label="Video call (coming soon)"
-            title="Video calls from the browser are coming soon. The iPhone and iPad app can make them now."
-            className="inline-flex size-18 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md disabled:opacity-40">
-            <Video className="size-7" />
-          </button>
-          <span className="text-xs text-muted-foreground">Coming soon</span>
-        </div>
+        <button type="button" onClick={() => dial(undefined, true)} disabled={!canCall || !value.trim()} aria-label="Video call"
+          className="inline-flex size-18 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition-colors hover:bg-primary/90 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40">
+          <Video className="size-7" />
+        </button>
       </div>
 
       <section className="mt-10 w-full" aria-labelledby="recent-title">

@@ -368,8 +368,8 @@ export function Shell({ me, screen, members, presence, voicemailNew = 0, callsMi
         <div className="flex min-h-0 flex-1">
           <main className="min-w-0 flex-1 overflow-y-auto">{children(query)}</main>
           {call && !ringing && (
-            <aside aria-label="Call" className="border-s bg-card p-4 max-lg:fixed max-lg:inset-0 max-lg:z-40 max-lg:flex max-lg:items-center max-lg:justify-center max-lg:bg-sidebar/60 lg:w-96 lg:shrink-0">
-              <div className="w-full max-w-sm">
+            <aside aria-label="Call" className={cn("border-s bg-card p-4 max-lg:fixed max-lg:inset-0 max-lg:z-40 max-lg:flex max-lg:items-center max-lg:justify-center max-lg:bg-sidebar/60 lg:shrink-0", call.group || call.picture?.mine || call.picture?.theirs ? "lg:w-[36rem]" : "lg:w-96")}>
+              <div className={cn("w-full", call.group || call.picture?.mine || call.picture?.theirs ? "max-w-xl" : "max-w-sm")}>
                 <CallPanel call={call} />
               </div>
             </aside>

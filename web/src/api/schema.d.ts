@@ -2888,6 +2888,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/call-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The call link (websocket)
+         * @description A websocket (subprotocol `linx.call.v1`) a Linx device opens once its call is answered, so the two devices of one call can set up the direct link their picture travels on (ADR-087, docs/VIDEO_CALLS.md §3.1). `call` is the device's own SIP Call-ID for the call; the server finds that device's channel through Asterisk and the channel it is bridged to, and refuses anything else (404 `no_such_call`). Messages to the device: `peer` (the other end is here, `video` true, with its `polite` role; or `video` false: the other end can't do a picture), `signal` (what the other end sent), `peer-gone`. From the device: `signal` with any JSON `data`, at most 64 KB a message and 50 a second, passed on unread. The same two callers as `/api/v1/team/live`. Served by a hand-written handler (excluded from code generation).
+         */
+        get: operations["openCallLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/group-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a person to a call (it becomes a group call)
+         * @description Add person in a call between two Linx devices (ADR-088, docs/VIDEO_CALLS.md §4). `call` is the asking device's own SIP Call-ID; the server checks through Asterisk that the device is in that call and that the other side is a Linx device with its call link open (409 `not_linx` otherwise), makes a room on the video server, sends the other side a `move` message over the call link, rings `extension` into the room, and answers with the asker's own way in. The same two callers as the call link. Hand-written (excluded from code generation).
+         */
+        post: operations["startGroupCall"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/group-calls/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join the group call this call was an invitation to
+         * @description For a device that has just answered a call carrying `X-Linx-Room`: the server reads the room from that device's own channel in Asterisk (only the server's own invitation sets it) and answers with the way in. 404 `no_group_call` for any other call. Hand-written (excluded from code generation).
+         */
+        post: operations["joinGroupCall"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/group-calls/{room}/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ring one more person into a group call
+         * @description Only for a device the video server shows in `room` (403 `not_in_call` otherwise); a group call holds 8 people (409 `group_call_full`). Hand-written (excluded from code generation).
+         */
+        post: operations["addGroupCallPerson"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/voicemail": {
         parameters: {
             query?: never;
@@ -3566,6 +3646,12 @@ export interface webhooks {
 }
 export interface components {
     schemas: {
+        /** @description The way into a group call on the video server (ADR-088): its room, a ten-minute LiveKit token for this device alone, and the path on this server where LiveKit's signalling is (`/livekit/`). */
+        GroupCallJoin: {
+            room: string;
+            token: string;
+            url: string;
+        };
         CallHistoryParty: {
             /** @description An outside number (E.164 when Linx could tell), a person's extension, or what was dialled; "" when withheld. */
             number: string;
@@ -10777,6 +10863,109 @@ export interface operations {
         responses: {
             /** @description Switching to the websocket. */
             101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    openCallLink: {
+        parameters: {
+            query: {
+                call: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching to the websocket. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    startGroupCall: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    call: string;
+                    extension: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Where to join, and the token to join with. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupCallJoin"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    joinGroupCall: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    call: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Where to join, and the token to join with. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupCallJoin"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    addGroupCallPerson: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                room: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    extension: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Their phones are ringing. */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
