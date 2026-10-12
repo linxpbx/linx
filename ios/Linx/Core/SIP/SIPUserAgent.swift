@@ -807,6 +807,9 @@ struct AudioRoute: Equatable, Sendable {
                 ok.body = answer
                 self.send(ok)
             } catch {
+                // Why, in the call record: a refused change leaves the two
+                // ends disagreeing about the call (2026-10-12).
+                current.media.mark("Refused Linx's change: \(error)")
                 self.send(.response(488, "Not Acceptable Here", to: invite).withTag(current.localTag))
             }
         }

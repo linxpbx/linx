@@ -727,7 +727,12 @@ import UIKit
             current.routeFoundAt = now
             call = current
         }
-        if connection.audioBytesIn > current.bytesInLastSeen {
+        // Any change is sound arriving. A count that went *down* is a new
+        // stream from Linx (a picture added or taken away gives the sound a
+        // fresh count), not silence: build 21 read it as three seconds of
+        // nothing and moved both ends of a video call onto the relay at
+        // once, which broke the call (2026-10-12).
+        if connection.audioBytesIn != current.bytesInLastSeen {
             current.bytesInLastSeen = connection.audioBytesIn
             current.soundLastArrived = now
             call = current

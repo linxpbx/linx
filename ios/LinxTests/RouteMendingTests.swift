@@ -194,6 +194,22 @@ struct RouteMendingTests {
         #expect(phone.problem == nil)
     }
 
+    @Test("a fresh count of the sound, as when a picture is added, is not silence (2026-10-12)")
+    func soundCountStartingAgain() async throws {
+        let (phone, _, media) = try await inACall()
+        let start = Date()
+        let reading = { (bytes: Int) in
+            MediaConnection(route: .relayed, roundTripMs: 12, relayProtocol: "udp", audioBytesIn: bytes)
+        }
+        media.onConnection?(reading(4_000))
+        try await Task.sleep(for: .milliseconds(1_500))
+        // The picture arrives: the sound's count starts again, lower.
+        media.onConnection?(reading(600))
+        phone.mendIfSilent(at: start.addingTimeInterval(3.2))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(media.relayMoves == 0)
+    }
+
     @Test("sound that is arriving leaves the call alone")
     func soundArriving() async throws {
         let (phone, _, media) = try await inACall()

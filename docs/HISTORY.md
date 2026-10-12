@@ -155,4 +155,7 @@ The CLAUDE.md "Now" notes as they stood when Demo B was approved (2026-10-03), w
 - **Sound at the moment of answering (2026-10-11, build 21, `docs/PHASE2.md` "Sound at the moment…").** Measured from the call records and Asterisk's ICE log:
   - Large messages from a phone on mobile data stalled. The front door now clamps MSS to 1300, also written into Linx's front-door steps and help guide.
   - The relay was reserved only after the call arrived. The app now reserves it ahead.
-  - The phone started encryption before Asterisk was ready and was dropped. Asterisk now starts it.
+  - The phone started encryption before Asterisk was ready and was dropped. Asterisk now starts it.- **Video broke the call (2026-10-12, build 22).** Steps 4 (except overnight) and 5 of the Phase 2 demo passed, AirPods included. The first video call then fell apart, and the call records from both ends showed why:
+  - Adding a picture gives the sound a fresh count on the phone. The "has the sound stopped?" check (build 15) only counted a number going *up*, so it read the fresh count as three seconds of silence. Both ends moved the call onto the relay at the same moment and then tried every route again: about a dozen changes in 40 s. The iPhone refused two of them (488), and the call was left with no way through. Now any change in the count is sound arriving.
+  - The phone now writes down in the call record why it refused a change from Linx.
+  - The relay's per-person limit was reached (486) by those route searches: two allocations per phone, plus two more for every search. Raised from 10 to 20.
