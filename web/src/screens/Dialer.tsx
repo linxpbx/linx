@@ -1,6 +1,6 @@
 // The Dialer (WEB_SCREENS_PHASE1C.md §3).
 import { useEffect, useState, type FormEvent } from "react";
-import { Delete, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing } from "lucide-react";
+import { Delete, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Video } from "lucide-react";
 import { api, type TeamMember } from "@/api/client";
 import { Keypad } from "@/components/Keypad";
 import { Avatar, StatusDot, statusLabel } from "@/components/presence";
@@ -85,10 +85,22 @@ export function DialerScreen({ members, stamp }: { members: TeamMember[] | null;
       <div className="mt-8">
         <Keypad onKey={(k) => setValue((v) => v + k)} />
       </div>
-      <button type="button" onClick={() => dial()} disabled={!canCall || !value.trim()} aria-label="Call"
-        className="mt-8 inline-flex size-18 items-center justify-center rounded-full bg-call text-call-foreground shadow-md transition-colors hover:bg-call/90 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40">
-        <Phone className="size-7" />
-      </button>
+      {/* Call in green, Video call in Cobalt (owner, 2026-10-12). Video from
+          the browser is coming; the iPhone and iPad app makes video calls now. */}
+      <div className="mt-8 flex items-start gap-6">
+        <button type="button" onClick={() => dial()} disabled={!canCall || !value.trim()} aria-label="Call"
+          className="inline-flex size-18 items-center justify-center rounded-full bg-call text-call-foreground shadow-md transition-colors hover:bg-call/90 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40">
+          <Phone className="size-7" />
+        </button>
+        <div className="flex flex-col items-center gap-1">
+          <button type="button" disabled aria-label="Video call (coming soon)"
+            title="Video calls from the browser are coming soon. The iPhone and iPad app can make them now."
+            className="inline-flex size-18 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md disabled:opacity-40">
+            <Video className="size-7" />
+          </button>
+          <span className="text-xs text-muted-foreground">Coming soon</span>
+        </div>
+      </div>
 
       <section className="mt-10 w-full" aria-labelledby="recent-title">
         <h2 id="recent-title" className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Recent</h2>

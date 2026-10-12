@@ -1400,7 +1400,7 @@ test.describe("phone width", () => {
     await lineReady(page);
     await expect(page.getByTestId("team-1042")).toBeVisible();
     await shot(page, "phone-team");
-    await page.getByRole("button", { name: "Call Aisha Rahman" }).click();
+    await page.getByRole("button", { name: "Call Aisha Rahman", exact: true }).click();
     await sip.answer();
     await expect(page.getByTestId("call-panel")).toHaveAttribute("data-phase", "active");
     await shot(page, "phone-active-call");

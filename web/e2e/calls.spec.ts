@@ -152,7 +152,7 @@ test("browsers call each other, one with UDP blocked", async () => {
   await expect(aisha.getByTestId("team-102")).toHaveAttribute("data-status", "available");
 
   // Aisha calls Omar; he answers.
-  await aisha.getByRole("button", { name: "Call Omar Khalil" }).click();
+  await aisha.getByRole("button", { name: "Call Omar Khalil", exact: true }).click();
   await expect(omar.getByTestId("incoming-call")).toBeVisible();
   await expect(omar.getByTestId("incoming-call")).toContainText("Aisha Rahman");
   await expect(aisha.getByTestId("team-102")).toHaveAttribute("data-status", "ringing");

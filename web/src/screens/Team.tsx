@@ -1,6 +1,6 @@
 // The Team list (WEB_SCREENS_PHASE1C.md §6): one flat list by name, with
 // live status.
-import { Phone } from "lucide-react";
+import { Phone, Video } from "lucide-react";
 import type { TeamMember } from "@/api/client";
 import { Avatar, statusLabel, useElapsed } from "@/components/presence";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
@@ -81,11 +81,20 @@ export function TeamScreen({ members, query }: { members: TeamMember[] | null; q
                   <td className="hidden px-2 py-2.5 text-muted-foreground sm:table-cell"><StatusText m={m} /></td>
                   <td className="py-2.5 pe-3 text-end">
                     {!self && (
-                      <button type="button" aria-label={`Call ${m.name}`} disabled={!canCall}
-                        onClick={() => line.call(m.extension, m.name)}
-                        className="inline-flex size-9 items-center justify-center rounded-full text-call hover:bg-call/10 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40">
-                        <Phone className="size-5" />
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        <button type="button" aria-label={`Call ${m.name}`} disabled={!canCall}
+                          onClick={() => line.call(m.extension, m.name)}
+                          className="inline-flex size-9 items-center justify-center rounded-full text-call hover:bg-call/10 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-40">
+                          <Phone className="size-5" />
+                        </button>
+                        {/* Video calls from the browser are coming (owner, 2026-10-12);
+                            the iPhone and iPad app makes them today. */}
+                        <button type="button" aria-label={`Video call ${m.name} (coming soon)`} disabled
+                          title="Video calls from the browser are coming soon. The iPhone and iPad app can make them now."
+                          className="inline-flex size-9 items-center justify-center rounded-full text-primary disabled:opacity-40">
+                          <Video className="size-5" />
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>

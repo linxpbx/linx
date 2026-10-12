@@ -13,7 +13,7 @@ Linx is a phone in your browser. Keep the page open to get calls.
 
 ## Making a call
 
-In the **Dialer**, type a name, extension or number, then press the call button. Or search at the top of any page (**Search people or dial a number**), or press **Call** next to someone in [Team](team-and-presence).
+In the **Dialer**, type a name, extension or number, then press the green call button. The blue video button beside it is marked *Coming soon*: video calls from the browser are on the way, and the iPhone and iPad app makes them today. Someone who video-calls you while you're in the browser rings as an ordinary call. Or search at the top of any page (**Search people or dial a number**), or press **Call** next to someone in [Team](team-and-presence).
 
 The first time, your browser asks to use the microphone. Allow it.
 
