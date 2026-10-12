@@ -43,6 +43,8 @@ import UIKit
         var answeredAt: Date?
         var muted = false
         var speaker = false
+        /// The **HD** button on the video screen, off at the start of every call.
+        var hd = false
         /// Their phone is ringing (Asterisk said so).
         var ringingThere = false
         /// Whose camera is on. A call is sound until somebody presses the
@@ -571,6 +573,15 @@ import UIKit
     var canSwapPictures: Bool {
         guard let call else { return false }
         return call.video.mine && call.video.theirs
+    }
+
+    /// The **HD** button: lets this phone's picture reach 720p, or holds it at
+    /// 540p to spend less data (owner, 2026-10-12).
+    func toggleHD() {
+        guard var current = call else { return }
+        current.hd.toggle()
+        call = current
+        agent?.useHD(current.hd)
     }
 
     /// The camera facing the person, or the one facing what they can see.

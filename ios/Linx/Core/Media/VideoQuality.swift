@@ -96,6 +96,14 @@ enum VideoQuality: Int, CaseIterable, Comparable, Sendable {
         let room = budget * 85 / 100 - SDPTweaks.opusMaxBitrate * 2
         return allCases.last { $0.bitrate <= room } ?? .thin
     }
+
+    /// The same, with the person's **HD** button (owner, 2026-10-12): off,
+    /// which is how every call starts, a picture stops at 540p whatever the
+    /// route could carry; on, it may reach 720p where the route allows.
+    static func ceiling(route: MediaConnection.Route, relay budget: Int?, hd: Bool) -> VideoQuality {
+        let most = ceiling(route: route, relay: budget)
+        return hd ? most : min(most, .high)
+    }
 }
 
 /// Which step a call is on, and when to move. It keeps no WebRTC in it at all,

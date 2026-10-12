@@ -282,6 +282,7 @@ private struct Who: View {
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
             ConnectionWords(call: call)
+            if call.video.mine { HDButton(on: call.hd) }
             if theirCameraOff {
                 Text("Their camera is off. This is yours — they can see you.")
                     .font(.caption)
@@ -293,6 +294,41 @@ private struct Who: View {
         .padding(.horizontal, LinxSpace.s3)
         .padding(.vertical, LinxSpace.s2)
         .background(big ? Color.clear : LinxColor.surfaceDark.opacity(0.45), in: .rect(cornerRadius: LinxRadius.md))
+    }
+}
+
+/// The **HD** button (owner, 2026-10-12): bold slanted letters in a
+/// rounded badge. On is solid and bright; off is an outline, dimmed, so the
+/// two can be told apart at a glance in a bright room or a dark one.
+private struct HDButton: View {
+    @Environment(PhoneModel.self) private var phone
+    let on: Bool
+
+    var body: some View {
+        Button {
+            phone.toggleHD()
+        } label: {
+            Text("HD")
+                .font(.system(size: 15, weight: .black).italic())
+                .foregroundStyle(on ? LinxColor.surfaceDark : LinxColor.onSurfaceDark.opacity(0.55))
+                .padding(.horizontal, LinxSpace.s2)
+                .padding(.vertical, 2)
+                .background {
+                    let badge = RoundedRectangle(cornerRadius: 5)
+                    if on {
+                        badge.fill(LinxColor.onSurfaceDark)
+                    } else {
+                        badge.stroke(LinxColor.onSurfaceDark.opacity(0.55), lineWidth: 1.5)
+                    }
+                }
+                .transformEffect(CGAffineTransform(a: 1, b: 0, c: -0.18, d: 1, tx: 3, ty: 0))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("HD")
+        .accessibilityValue(on ? "On" : "Off")
+        .accessibilityHint(on ? "Holds your picture at 540p to use less data" : "Lets your picture reach 720p")
     }
 }
 

@@ -110,6 +110,8 @@ import Testing
     }
 
     func switchCamera() { cameraSwitched += 1 }
+    var hd: [Bool] = []
+    func useHD(_ on: Bool) { hd.append(on) }
 
     private(set) var relayMoves = 0
     private(set) var steps: [String] = []

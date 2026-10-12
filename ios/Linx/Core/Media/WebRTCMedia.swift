@@ -224,6 +224,9 @@ struct PictureWatch {
     private var tooThin = 0
     /// Which step of picture quality this call is on (ADR-081).
     private var ladder = VideoLadder()
+    /// The person's **HD** button. Off at the start of every call, so a call
+    /// never spends the data 720p costs unless someone chose it.
+    private var hd = false
     private var gathered: CheckedContinuation<Void, Never>?
     private var gatheringLimit: Task<Void, Never>?
     private var watch: Task<Void, Never>?
@@ -457,6 +460,15 @@ struct PictureWatch {
 
     /// The front camera or the back one.
     func switchCamera() { camera?.flip() }
+
+    /// The **HD** button. Turned off, the picture comes down to 540p at the
+    /// next reading of the link (three seconds at most); turned on, it climbs
+    /// to 720p the usual way, once the link has shown it has the room.
+    func useHD(_ on: Bool) {
+        guard hd != on else { return }
+        hd = on
+        mark(on ? "HD on" : "HD off")
+    }
 
     /// Newer relay credentials. The old ones last an hour and a phone is
     /// signed in for days, so these arrive before the old ones run out and
@@ -1102,7 +1114,7 @@ struct PictureWatch {
             if ladder.quality != .standard { ladder = VideoLadder() }
             return
         }
-        let ceiling = VideoQuality.ceiling(route: connection.route, relay: turn?.maxBitrateBps)
+        let ceiling = VideoQuality.ceiling(route: connection.route, relay: turn?.maxBitrateBps, hd: hd)
         guard let step = ladder.reading(spare: connection.outgoingBitrate, ceiling: ceiling) else { return }
         capWhatThisPhoneSends()
         note { $0.picture = step.words }

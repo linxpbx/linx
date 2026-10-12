@@ -159,3 +159,7 @@ The CLAUDE.md "Now" notes as they stood when Demo B was approved (2026-10-03), w
   - Adding a picture gives the sound a fresh count on the phone. The "has the sound stopped?" check (build 15) only counted a number going *up*, so it read the fresh count as three seconds of silence. Both ends moved the call onto the relay at the same moment and then tried every route again: about a dozen changes in 40 s. The iPhone refused two of them (488), and the call was left with no way through. Now any change in the count is sound arriving.
   - The phone now writes down in the call record why it refused a change from Linx.
   - The relay's per-person limit was reached (486) by those route searches: two allocations per phone, plus two more for every search. Raised from 10 to 20.
+- **HD and Center Stage (2026-10-12, build 23, owner's asks).** Video worked on build 22 (demo 6.1), at 540p away from home because the relay held each call to 160 kB/s.
+  - The relay now allows **240 kB/s** a call, enough for 720p (server change).
+  - An **HD** badge on the video screen, under the caller's name: off at the start of every call (540p at most, about 7 MB a minute), on lets the picture reach 720p (about 12 MB a minute) wherever the route allows. Solid when on, an outline when off; the owner's own picture was stock art with a watermark, so the app draws the badge in that style itself.
+  - **Center Stage** on the iPad's front camera: the app picks a camera and format that can do it and turns it on once, cooperatively, so switching it off in Control Center holds.

@@ -98,6 +98,17 @@ struct SoundOnTheRoadTests {
         #expect(VideoQuality.ceiling(route: .relayed, relay: nil) == .standard)
     }
 
+    @Test("HD off holds the picture at 540p; on, a relay of 240 kB/s carries 720p (2026-10-12)")
+    func theHDButton() {
+        #expect(VideoQuality.ceiling(route: .relayed, relay: 1_920_000) == .hd)
+        #expect(VideoQuality.ceiling(route: .relayed, relay: 1_920_000, hd: true) == .hd)
+        #expect(VideoQuality.ceiling(route: .relayed, relay: 1_920_000, hd: false) == .high)
+        #expect(VideoQuality.ceiling(route: .direct, relay: nil, hd: false) == .high)
+        // HD never lifts a picture above what the route allows.
+        #expect(VideoQuality.ceiling(route: .relayed, relay: 512_000, hd: true) == .low)
+        #expect(VideoQuality.ceiling(route: .relayed, relay: 512_000, hd: false) == .low)
+    }
+
     @Test("a picture just switched on isn't made worse while the link is still being measured")
     func theLadderSettles() {
         var ladder = VideoLadder()

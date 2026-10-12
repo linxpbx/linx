@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UIKit
 @preconcurrency import WebRTC
 
 // This phone's camera, for a 1:1 video call (docs/PHASE2.md §7). It runs
@@ -105,6 +106,7 @@ enum CameraTrouble: Error {
         try await capturer.startCapture(with: device, format: format, fps: fps(format))
         running = true
         captured = quality
+        Self.centerStageOnce(device)
     }
 
     /// Follow the link to a new step. Coming down, and going up to anything the
@@ -166,14 +168,46 @@ enum CameraTrouble: Error {
 
     private static func device(front: Bool) -> AVCaptureDevice? {
         let wanted: AVCaptureDevice.Position = front ? .front : .back
+        if front, centerStageWanted, let stage = centerStageCamera() { return stage }
         let cameras = RTCCameraVideoCapturer.captureDevices()
         return cameras.first { $0.position == wanted } ?? cameras.first
+    }
+
+    // MARK: - Center Stage (owner, 2026-10-12)
+
+    /// On an iPad the front camera keeps the person in the middle of the
+    /// picture as they move (Center Stage), on from the first video call.
+    /// The person can still switch it off in Control Center → Video Effects,
+    /// and that choice holds: the app turns it on once, not at every start.
+    private static var centerStageWanted: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+    private static var centerStageTurnedOn = false
+
+    /// The front camera that can do Center Stage. WebRTC's own list has only
+    /// the wide-angle cameras, and on an iPad the one that can is often the
+    /// ultra-wide.
+    private static func centerStageCamera() -> AVCaptureDevice? {
+        AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTrueDepthCamera],
+            mediaType: .video, position: .front
+        ).devices.first { device in device.formats.contains(where: \.isCenterStageSupported) }
+    }
+
+    private static func centerStageOnce(_ device: AVCaptureDevice) {
+        guard centerStageWanted, !centerStageTurnedOn, device.position == .front,
+            device.activeFormat.isCenterStageSupported
+        else { return }
+        centerStageTurnedOn = true
+        AVCaptureDevice.centerStageControlMode = .cooperative
+        AVCaptureDevice.isCenterStageEnabled = true
     }
 
     /// The smallest format that is still at least what this step asks for, so
     /// the camera itself does the shrinking rather than the processor.
     private static func format(for device: AVCaptureDevice, at quality: VideoQuality) -> AVCaptureDevice.Format? {
-        let formats = RTCCameraVideoCapturer.supportedFormats(for: device)
+        var formats = RTCCameraVideoCapturer.supportedFormats(for: device)
+        // Only a format that can do Center Stage, on a camera that has one.
+        let stage = formats.filter(\.isCenterStageSupported)
+        if centerStageWanted, device.position == .front, !stage.isEmpty { formats = stage }
         let sizes = formats.map { format -> (AVCaptureDevice.Format, Int32, Int32) in
             let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             return (format, dimensions.width, dimensions.height)

@@ -97,6 +97,8 @@ struct AudioRoute: Equatable, Sendable {
     /// Nobody is sending a picture any more.
     var onPictureGone: (() -> Void)? { get set }
     func switchCamera()
+    /// The **HD** button: whether this phone's picture may go above 540p.
+    func useHD(_ on: Bool)
     /// Moves a call that is up onto Linx's relay (an ICE restart that allows
     /// only the relay) and answers with the offer that tells the other side.
     func moveToRelay() async throws -> String
@@ -444,6 +446,9 @@ struct AudioRoute: Equatable, Sendable {
 
     /// Hands the camera over to the one on the other side of the phone.
     func switchCamera() { call?.media.switchCamera() }
+
+    /// The **HD** button, for the picture this phone sends.
+    func useHD(_ on: Bool) { call?.media.useHD(on) }
 
     private func sendReinvite(_ offer: String, of current: Call) {
         guard call?.id == current.id else { return }
