@@ -93,7 +93,7 @@ struct SignedInView: View {
                 }
 
                 Button("Sign out of this phone") {
-                    Task { await model.signOut() }
+                    Task { await model.signOut(from: "This phone's line → Sign out of this phone") }
                 }
                 .buttonStyle(.linxSecondary)
                 .padding(.top, LinxSpace.s2)
@@ -136,7 +136,7 @@ struct SetUpAgainView: View {
                 .font(.body)
                 .foregroundStyle(LinxColor.textMuted)
             Button("Start again") {
-                Task { await model.signOut() }
+                Task { await model.signOut(from: "Set this phone up again → Start again") }
             }
             .buttonStyle(.linxPrimary)
             Spacer(minLength: 0)

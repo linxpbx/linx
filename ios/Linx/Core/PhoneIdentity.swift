@@ -67,6 +67,12 @@ protocol PhoneStorage: Sendable {
     @discardableResult func save(_ data: Data, as account: String) -> Bool
     func read(_ account: String) -> Data?
     func delete(_ account: String)
+    /// How a read of this went: found, not there, or locked.
+    func status(_ account: String) -> OSStatus
+}
+
+extension PhoneStorage {
+    func status(_ account: String) -> OSStatus { read(account) == nil ? errSecItemNotFound : errSecSuccess }
 }
 
 /// The Keychain, with only what this app puts in it. Everything is
@@ -105,6 +111,14 @@ struct Keychain: PhoneStorage, Sendable {
 
     func delete(_ account: String) {
         SecItemDelete(query(account) as CFDictionary)
+    }
+
+    func status(_ account: String) -> OSStatus {
+        var attributes = query(account)
+        attributes[kSecReturnData as String] = true
+        attributes[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        return SecItemCopyMatching(attributes as CFDictionary, &item)
     }
 }
 

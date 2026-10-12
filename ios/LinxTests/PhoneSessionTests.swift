@@ -193,6 +193,20 @@ final class FakeLinx: URLProtocol, @unchecked Sendable {
         #expect(store.read(PhoneStore.keyAccount) == nil)
     }
 
+    @Test("a phone that finds its sign-in missing says what it found (2026-10-12)")
+    func missingSignInIsWrittenDown() async {
+        let session = PhoneSession(keychain: FakeStore())
+        let missing = await session.restore()
+        #expect(missing?.identity == errSecItemNotFound)
+        #expect(missing?.locked == false)
+        SignInTrail.setUp()
+        let note = SignInTrail.missing(identity: errSecItemNotFound, key: errSecInteractionNotAllowed, why: "test")
+        #expect(note?.contains("key: locked") == true)
+        #expect(SignInTrail.pending?.kind == .crash)
+        SignInTrail.signedOut(from: "a test")
+        #expect(SignInTrail.missing(identity: errSecItemNotFound, key: errSecItemNotFound, why: "test") == nil)
+    }
+
     @Test("a phone Linx no longer knows is told to be set up again")
     func stoppedPhone() async throws {
         FakeLinx.reset()

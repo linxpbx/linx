@@ -31,6 +31,13 @@ import MetricKit
         waiting += Self.reports(from: MXMetricManager.shared.pastDiagnosticPayloads)
     }
 
+    /// A record that isn't one of iOS's (`SignInTrail`), sent the same way.
+    func add(_ report: CallReport) {
+        guard !waiting.contains(report) else { return }
+        waiting.append(report)
+        Task { await sendWhatIsWaiting() }
+    }
+
     private func sendWhatIsWaiting() async {
         guard let send, !sending else { return }
         sending = true

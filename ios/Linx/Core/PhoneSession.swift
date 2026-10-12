@@ -32,11 +32,30 @@ actor PhoneSession {
         self.now = now
     }
 
-    /// restore picks up where the app left off, if this phone has been set up.
-    func restore() {
-        guard let (identity, key) = PhoneStore.load(from: keychain) else { return }
+    /// How restoring went, when nothing was restored.
+    struct Missing: Sendable {
+        var identity: OSStatus
+        var key: OSStatus
+        /// The phone hasn't been unlocked since it started, so the Keychain
+        /// can't be read yet: it is worth waiting, not setting up again.
+        var locked: Bool { identity == errSecInteractionNotAllowed || key == errSecInteractionNotAllowed }
+        var why: String {
+            if identity == errSecSuccess && key == errSecSuccess { return "both there, but one wouldn't load" }
+            return "sign-in \(SignInTrail.words(identity)), key \(SignInTrail.words(key))"
+        }
+    }
+
+    /// restore picks up where the app left off, if this phone has been set
+    /// up, and says what it found when it couldn't.
+    @discardableResult
+    func restore() -> Missing? {
+        guard let (identity, key) = PhoneStore.load(from: keychain) else {
+            return Missing(
+                identity: keychain.status(PhoneStore.identityAccount), key: keychain.status(PhoneStore.keyAccount))
+        }
         self.identity = identity
         self.key = key
+        return nil
     }
 
     /// setUp is the one-time part: make the key, ask for a certificate with

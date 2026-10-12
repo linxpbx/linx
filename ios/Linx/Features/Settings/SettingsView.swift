@@ -140,7 +140,7 @@ struct SettingsView: View {
             "Sign out of this phone?", isPresented: $signingOut, titleVisibility: .visible
         ) {
             Button("Sign out", role: .destructive) {
-                Task { await model.signOut() }
+                Task { await model.signOut(from: "Settings → Sign out of this phone") }
             }
             Button("Keep me signed in", role: .cancel) {}
         } message: {

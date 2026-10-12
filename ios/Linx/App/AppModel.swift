@@ -120,6 +120,7 @@ import SwiftUI
     private func sendCrashReportsFromNowOn() {
         guard let identity else { return }
         let session = self.session
+        if let note = SignInTrail.pending { CrashReports.shared.add(note) }
         CrashReports.shared.send = { report in
             do {
                 let token = try await session.accessToken()
@@ -161,11 +162,38 @@ import SwiftUI
     /// start runs once, as the app opens: if this phone is set up, it signs
     /// itself in and asks for its phone line. Nothing is typed, ever.
     func start() async {
-        await session.restore()
+        if let missing = await session.restore() {
+            // Locked storage is a phone woken before its first unlock: wait
+            // for the unlock instead of asking to be set up again.
+            if missing.locked {
+                state = .working("Waiting for this iPhone to be unlocked…")
+                for await _ in NotificationCenter.default.notifications(
+                    named: UIApplication.protectedDataDidBecomeAvailableNotification)
+                {
+                    break
+                }
+                await start()
+                return
+            }
+            if SignInTrail.missing(identity: missing.identity, key: missing.key, why: missing.why) != nil {
+                // Read the storage once more before giving up on it.
+                try? await Task.sleep(for: .seconds(2))
+                if await session.restore() == nil, let identity = await session.identity {
+                    SignInTrail.setUp()
+                    self.identity = identity
+                    state = .working("Signing in…")
+                    await signIn()
+                    return
+                }
+            }
+            state = .setUp
+            return
+        }
         guard let identity = await session.identity else {
             state = .setUp
             return
         }
+        SignInTrail.setUp()
         self.identity = identity
         state = .working("Signing in…")
         await signIn()
@@ -178,6 +206,7 @@ import SwiftUI
         state = .working("Setting up this phone…")
         do {
             identity = try await session.setUp(with: code)
+            SignInTrail.setUp()
             await signIn()
         } catch let error as LinxError {
             problem = error.words
@@ -253,7 +282,8 @@ import SwiftUI
     /// signOut forgets this phone's key and certificate. Stopping the phone
     /// at Linx's end is My phones → "I've lost it" in the web app, which is
     /// what to use for a phone someone else has.
-    func signOut() async {
+    func signOut(from button: String) async {
+        SignInTrail.signedOut(from: button)
         phone.stop()
         home.stop()
         home = HomeModel(access: nil)
