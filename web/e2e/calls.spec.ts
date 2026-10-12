@@ -237,7 +237,12 @@ test("browsers call each other, one with UDP blocked", async () => {
         .toBeVisible({ timeout: 20_000 });
     }
   } catch (e) {
-    throw new Error(`the group call didn't come together: ${String(e)}`);
+    const tiles = await Promise.all([aisha, omar, layla].map((p) => p.locator('[data-testid="group-person"]')
+      .evaluateAll((els) => els.map((el) => `${el.getAttribute("data-me")}/${el.getAttribute("data-video")}`).join(","))
+      .catch(() => "?")));
+    const ice = await Promise.all([aisha, omar, layla].map((p) => iceReport(p)));
+    throw new Error(`the group call didn't come together (tiles me/video: Aisha ${tiles[0]}; Omar ${tiles[1]}; ` +
+      `Layla ${tiles[2]}): ${String(e)}\n--- Layla's connections:\n${ice[2]}`);
   }
   // Omar leaves: his phone call to Aisha ends with him, and the group call
   // carries on for the two still in it.
