@@ -59,14 +59,14 @@ make ios-build-device   # ends with "ios device build: ok"
 
 This is the heart of Phase 2. Each one: have the web client call your extension.
 
-- [ ] **4.1 App open.** It rings, you answer, you can both hear each other.
-- [ ] **4.2 Phone locked.** It rings on the lock screen like any call, and answers from there.
-- [ ] **4.3 App in the background.** Rings.
-- [ ] **4.4 App force-quit** (swipe it away in the app switcher). **It still rings.** *This is the one that failed at build 13's predecessor and was fixed in the Asterisk image — if it fails now, stop and say so.*
-- [ ] **4.5 Low Power Mode on.** Rings.
-- [ ] **4.6 On mobile data**, Wi-Fi off. Rings, and the call has sound both ways.
+- [x] **4.1 App open.** It rings, you answer, you can both hear each other.
+- [x] **4.2 Phone locked.** It rings on the lock screen like any call, and answers from there.
+- [x] **4.3 App in the background.** Rings.
+- [x] **4.4 App force-quit** (swipe it away in the app switcher). **It still rings.** *This is the one that failed at build 13's predecessor and was fixed in the Asterisk image — if it fails now, stop and say so.*
+- [x] **4.5 Low Power Mode on.** Rings.
+- [x] **4.6 On mobile data**, Wi-Fi off. Rings, and the call has sound both ways.
 - [ ] **4.7 Overnight.** Leave the phone untouched for a few hours, then call it. Rings. (Do this last — start it and check in the morning.)
-- [ ] **4.8 The caller gives up** before you answer: the phone stops ringing and the call shows as missed in **Calls**, with a badge.
+- [x] **4.8 The caller gives up** before you answer: the phone stops ringing and the call shows as missed in **Calls**, with a badge.
 
 **How fast did it ring?** System → Settings → **Calls to the app** on the website counts every push and how long each phone took.
 
@@ -74,11 +74,11 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 
 ## 5. Calls that sound right
 
-- [ ] **5.1** A call from outside your network (mobile data) has sound **both ways**.
-- [ ] **5.2** On a network that blocks UDP, a call still works. The **Encrypted · …** line says **Relayed**.
-- [ ] **5.3** Tap that line → **Call details**: route, round trip, sound in and out all look sensible.
-- [ ] **5.4** The **loudspeaker** button works, and AirPods connected mid-call take the sound.
-- [ ] **5.5** `*43` on the keypad — the sound test — plays your own voice back.
+- [x] **5.1** A call from outside your network (mobile data) has sound **both ways**.
+- [x] **5.2** On a network that blocks UDP, a call still works. The **Encrypted · …** line says **Relayed**.
+- [x] **5.3** Tap that line → **Call details**: route, round trip, sound in and out all look sensible.
+- [x] **5.4** The **loudspeaker** button works, and AirPods connected mid-call take the sound.
+- [x] **5.5** `*43` on the keypad — the sound test — plays your own voice back.
 
 ## 6. Video (ADR-079, ADR-081)
 
