@@ -1,6 +1,6 @@
 # Linx — video calls that work: one to one, and adding people
 
-*Owner's go-ahead 2026-10-12 ("Do one to one and add people as well"), after build 26's video call between their iPad and iPhone was poor: one-way picture, no sound from the iPad, slow to start, never smooth. ADR-087 and ADR-088 record the decisions; this file is the design and the build order.*
+*Owner's go-ahead 2026-10-12 ("Do one to one and add people as well"), after build 26's video call between their iPad and iPhone was poor: one-way picture, no sound from the iPad, slow to start, never smooth. ADR-087 and ADR-088 record the decisions; this file is the design and the build order. **Built 2026-10-13: §9.***
 
 ## 1. In plain words
 - **Calls still ring exactly as they do now:** push, the lock screen, CallKit, Answer, the browser's ring. Desk phones and outside numbers are untouched.
@@ -71,3 +71,13 @@ Nothing new for a 1:1 call: the picture no longer passes through Asterisk at all
 - Moving the sound onto the direct link too (lip sync, one less hop) if measurement says so.
 - Desk phones and outside numbers in a group call: Phase 3, `livekit-sip`.
 - The 4.5 s between the iPhone sending its answer and Asterisk receiving it on the 22:29 call: looked at in step 3.
+
+## 9. As built (2026-10-13)
+
+- **Server:** `internal/calllink` (the hub, and the ARI resolver: `protocol_id`, `BRIDGEPEER`, `LINXROOM`, the originate), `services/control-plane/calllink.go`, `groupcall.go` (`POST /api/v1/group-calls`, `/join`, `/{room}/people`) and `livekit.go` (the `/livekit/` websocket relay, `/rtc` and `/rtc/validate` only: a plain reverse proxy would have been cut by the server's 30-second timeouts); `internal/livekit` (configuration, HS256 tokens, `ListParticipants` over Twirp); `services/livekit-entrypoint` and `deploy/docker/livekit.Dockerfile` (the official v1.13.9 binary on distroless as nonroot; LiveKit's key reaches it through the environment because it refuses a key file that isn't 0600). Migration 0052; the dialplan's `linx-headers` and `linx-room-invite`; coturn's three peers; `linx doctor`, System → Status, CI and the release workflow know `linx-livekit`. `Permissions-Policy` now allows this origin's camera.
+- **LiveKit's network:** it advertises **one address, its own on `linx-media`**, and publishes no port at all. Every device reaches it through coturn, over UDP where the network allows and TLS 443 where it doesn't — the same path browsers have always used to reach Asterisk from outside. LiveKit's own TURN and outside-address lookups are off.
+- **Browser:** `web/src/phone/picture.ts` (the direct picture, perfect negotiation), `web/src/phone/group.ts` (`livekit-client`, loaded only when a group call starts: simulcast, dynacast, adaptive stream), the call panel's pictures, camera button, **Add person** and group grid; a camera choice in Settings.
+- **App:** `DirectPicture` (the direct picture and `CallLinkSocket`), `LiveKitWire` (the protobuf messages, by hand from LiveKit's `livekit_rtc.proto`, protocol 12) and `GroupCall` (publisher and subscriber connections on the call's own WebRTC factory, one camera layer at 540p), `GroupCallView` and `AddPersonSheet`. SIP's video code, the quality ladder and the frame watch are gone.
+- **Proved here:** the call suite (the call link finds each device's own leg on the real Asterisk); the coturn suite (one device's relay reaches another's); the browser suite (a browser video call with the cameras going off and on, a video call to a desk phone falling back to sound, a three-person group call with Add person, an invitation, everyone seeing everyone, and people leaving one by one); the app's tests (SIP never carries a picture; a group call survives the phone call underneath it) and `LiveKitLiveTests` against a real LiveKit server.
+- **Not proved until the owner's phones:** the app's picture and group call over real networks — the browser and the app speak the same call link and LiveKit, but only a real iPhone and iPad show the camera, the audio session under CallKit and 5G together.
+- **Left for later:** presence for people in a group call (they show as on a call only while the phone call underneath lasts), simulcast from the app, and desk phones in group calls (Phase 3, `livekit-sip`).

@@ -623,9 +623,11 @@ import UIKit
     /// The group call's room, once this call is one.
     private var groupRoom: String?
 
-    private func joinGroup(_ join: GroupJoin) {
+    /// `camera`: whether this phone's camera goes on in the group call — on
+    /// if it was on in the call, or for an invitation from a video call.
+    private func joinGroup(_ join: GroupJoin, camera: Bool? = nil) {
         guard group == nil, let media = liveMedia, let line = lineInUse else { return }
-        guard let people = media.joinGroup(join, server: line.server) else {
+        guard let people = media.joinGroup(join, server: line.server, camera: camera ?? media.video.mine) else {
             problem = "Linx couldn't join the group call."
             return
         }
@@ -642,7 +644,7 @@ import UIKit
         guard let line = lineInUse, let callID = agent?.callID else { return }
         do {
             let join = try await LinxClient(server: line.server).joinGroupCall(call: callID, token: line.token)
-            joinGroup(join)
+            joinGroup(join, camera: call?.videoCall ?? false)
         } catch {
             problem = "Linx couldn't join the group call."
         }

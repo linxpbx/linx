@@ -329,9 +329,8 @@ export class PhoneLine {
 
   /** Moves this call onto the video server: the group call takes over the
    * sound and the picture, and the phone call's own sound goes quiet. */
-  private joinGroup(join: GroupJoin) {
+  private joinGroup(join: GroupJoin, camera = this.picture?.state.mine ?? false) {
     if (this.group) return;
-    const camera = this.picture?.state.mine ?? false;
     this.picture?.stop();
     this.picture = null;
     this.session?.mute({ audio: true });
@@ -411,7 +410,9 @@ export class PhoneLine {
   /** An answered invitation: the server says which group call it was. */
   private async joinInvitation(callId: string) {
     const { data } = await api.POST("/api/v1/group-calls/join", { body: { call: callId } });
-    if (data) this.joinGroup(data);
+    // Invited from a video call: the camera comes on, as answering any
+    // video call turns it on.
+    if (data) this.joinGroup(data, this.state.call?.videoCall ?? false);
     else this.set({ problem: "Linx couldn't join the group call." });
   }
 

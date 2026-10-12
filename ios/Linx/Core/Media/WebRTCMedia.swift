@@ -401,10 +401,9 @@ struct CallDiagnostics: Equatable, Sendable {
     /// takes over the sound and the pictures, and this call's own sound
     /// goes quiet both ways — the phone call stays only so the call is
     /// still a call, for the system, the Team list and history.
-    func joinGroup(_ join: GroupJoin, server: URL) -> GroupPeople? {
+    func joinGroup(_ join: GroupJoin, server: URL, camera: Bool) -> GroupPeople? {
         if let group { return group.state }
         guard let socket = GroupCall.socket(server: server, join: join) else { return nil }
-        let camera = video.mine
         picture?.stop()
         picture = nil
         audio?.isEnabled = false

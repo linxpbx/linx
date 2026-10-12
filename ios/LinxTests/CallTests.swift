@@ -109,8 +109,11 @@ import Testing
     /// The group calls this call was moved into.
     private(set) var groupsJoined: [GroupJoin] = []
     var inGroup: Bool { !groupsJoined.isEmpty && !stopped }
-    func joinGroup(_ join: GroupJoin, server: URL) -> GroupPeople? {
+    /// Whether each group call was joined with the camera on.
+    private(set) var groupCameras: [Bool] = []
+    func joinGroup(_ join: GroupJoin, server: URL, camera: Bool) -> GroupPeople? {
         groupsJoined.append(join)
+        groupCameras.append(camera)
         return GroupPeople()
     }
     var hd: [Bool] = []

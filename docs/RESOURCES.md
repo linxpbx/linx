@@ -157,6 +157,15 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 - **On the phone:** one WebRTC connection held while the app is in front, or from a wake-up push until the call: one relay allocation over UDP and one over TLS, which WebRTC refreshes every few minutes (a few hundred bytes each time). Released the moment the app goes to the background.
 - **On the server:** coturn keeps those one or two allocations per phone in use. That's well under a kilobyte of memory each, and no traffic while idle beyond the refreshes. Nothing new runs on the server.
 
+## 3g. Video calls and group calls (2026-10-13, ADR-087 and ADR-088)
+
+- **One-to-one pictures cost the server nothing.** They go device to device; Asterisk no longer carries video at all (migration 0052). When both devices can only reach the relay, coturn carries the picture between their two allocations, as it already carried relayed calls. The call link is one small websocket per device in a call, idle apart from the few setup messages (a few KB per call), held in the control plane's memory and nothing stored.
+- **`linx-livekit` is the one new service.** Image 125 MB unpacked (arm64; the LiveKit binary is 76 MB of it, unchanged from upstream, on distroless). **Idle: about 60 MB of memory and 0.3% of a core**, measured 2026-10-13 with nothing in it; `mem_limit` 128 MB, `GOMEMLIMIT` 96 MiB. It runs all the time because starting it on demand would need Docker control the control plane must never have. No published port, no route out, logs at warn.
+- **A group call, per person:** what they send once (their camera, at most 900 kbit/s at 540p, and Opus), and what they receive from each other person. The server forwards; it never mixes or re-encodes, so its processor cost grows with the number of streams forwarded, not with the picture size. Group calls hold 8 people at most.
+- **The browser:** `livekit-client` is 146 KB compressed and loads only when a group call starts; the rest of the web app is unchanged. The one-to-one picture code is a few KB in the phone line.
+- **The app:** no new framework. LiveKit's signalling is written into the app (`LiveKitWire`, `GroupCall`) on the WebRTC it already has, so the app's size barely moves.
+- **The Asterisk image** gains `res_pjsip_header_funcs` and stays 263 MB.
+
 ## 4. Minimum and recommended hardware (as built)
 
 | | Minimum (setup refuses less) | Recommended |

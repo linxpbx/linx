@@ -13,21 +13,31 @@ Linx is a phone in your browser. Keep the page open to get calls.
 
 ## Making a call
 
-In the **Dialer**, type a name, extension or number, then press the green call button. The blue video button beside it is marked *Coming soon*: video calls from the browser are on the way, and the iPhone and iPad app makes them today. Someone who video-calls you while you're in the browser rings as an ordinary call. Or search at the top of any page (**Search people or dial a number**), or press **Call** next to someone in [Team](team-and-presence).
+In the **Dialer**, type a name, extension or number, then press the green call button, or the blue **Video call** button beside it for a video call. Or search at the top of any page (**Search people or dial a number**), or press **Call** or **Video call** next to someone in [Team](team-and-presence).
 
-The first time, your browser asks to use the microphone. Allow it.
+The first time, your browser asks to use the microphone, and for a video call the camera. Allow them.
 
 ## Getting a call
 
-The call appears with the caller's name or number. Press **Answer** or **Decline**. If you have Linx open in several tabs, only one of them rings.
+The call appears with the caller's name or number, and says so when it's a video call or an invitation to a group call. Press **Answer** or **Decline**. Answering a video call turns your camera on. If you have Linx open in several tabs, only one of them rings.
 
 ## During a call
 
 - **Mute** and **Unmute** your microphone.
 - **Keypad** for menus that ask you to press a number.
+- **Turn camera on** and **Turn camera off**, at any time: the call carries on either way. **Full screen** makes the pictures fill the screen.
+- **Add person** brings someone else into the call (below).
 - **End call** to hang up.
 
-Audio is encrypted all the way between your browser and Linx.
+Sound and pictures are encrypted on their way.
+
+## Video calls
+
+Between two people using Linx — in a browser or the iPhone and iPad app — the picture goes straight from one to the other, and either of you can turn your camera off or on whenever you like. You see them large and yourself in the corner. A desk phone or an outside number can't show a picture, so a video call to one is an ordinary call and the camera button stays off. Choose which camera to use in **Settings**.
+
+## Group calls
+
+In a call with someone else using Linx, press **Add person** and pick someone from the list: their phones ring with an invitation to a group call, and when they answer, everyone sees and hears everyone. You can add more, up to 8 people. Each person leaves with **End call** and the others carry on. Desk phones and outside numbers can't join a group call yet.
 
 ## The echo test
 

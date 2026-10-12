@@ -585,3 +585,17 @@ Every country (ADR-085) and the list of countries calls abroad may reach.
 - **Extension clashes.** In North America extensions can't start with 1 and 911 is reserved; the existing clash check (national prefix, international prefix, emergency and service numbers) is country-driven and needed no change; the wizard's suggested ranges now avoid the prefix up front.
 - **Busy tone.** A country without a known tone isn't listened for; a wrong tone is never heard. Neither can end a call early.
 
+
+## Video calls and group calls review (2026-10-13, ADR-087, ADR-088)
+
+| Threat (STRIDE) | Where | Mitigation |
+|---|---|---|
+| Spoofing: a device links its picture to a call it isn't in | `GET /api/v1/call-link` | The server finds the asking device's own channel through ARI, by its SIP Call-ID **and** its own endpoint, and pairs it only with that channel's `BRIDGEPEER`. Nothing the device says about the other side is used. |
+| Information disclosure: a direct link shows a device's addresses to the other person | the picture's WebRTC connection | As in any WebRTC call app. Only the other party of an answered call ever receives them, over the call link. |
+| Denial of service: a device floods the call link | the hub | 64 KB per message, 50 a second with a second's burst, 64 queued before a slow reader is cut off; the link closes with the call (checked every 15 s) and with the session or the phone. |
+| Elevation: coturn as a way into the server | `allowed-peer-ip` | Three addresses on `linx-media`, all Linx's: Asterisk, LiveKit and coturn's own relay address. TURN permissions still stop anyone sending to an allocation that didn't ask for them. `linx doctor` fails on any other peer or any other container on that network. |
+| Spoofing: joining a group call one wasn't asked into | `POST /api/v1/group-calls`, `/join`, `/{room}/people` | Tokens are minted only by the control plane: for the two devices Asterisk shows bridged in the call (and only when both call links are open), for a device whose own channel carries `LINXROOM` (set only by the control plane's originate), or for one LiveKit already lists in the room. Room names are random and remembered for 12 hours; 8 people at most. |
+| Information disclosure: LiveKit reachable from outside | `/livekit/` | Only `/rtc` and `/rtc/validate` are passed on; LiveKit's API stays on `linx-private`. A connection still needs a token signed with the key only the control plane and LiveKit hold (Docker secret `linx_livekit_secret`, 0440 root:65532). |
+| Information disclosure: group-call media | LiveKit | DTLS-SRTP to the server, as calls through Asterisk are. Not end-to-end encrypted: that stays Phase 3's meetings (ADR-002). |
+| Tampering: a page using the camera | `Permissions-Policy` | `camera=(self)`: this origin only, as the microphone has been since Phase 1C. |
+| Elevation: the control plane writing to Asterisk | ARI | One more write (ADR-088): an originate into `linx-room-invite`, which rings an extension the way a call to it does. Still read-write over the same authenticated, internal ARI link. |

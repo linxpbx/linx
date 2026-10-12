@@ -2,7 +2,7 @@
 
 **What this file is for.** The first thing to read when a session starts (or after `/clear`), and the last thing to update before one ends. It carries only what a fresh session needs to pick the work up: where we are, what is in play, what has already been tried and failed, and what comes next. The long record lives in `docs/HISTORY.md`; the rules live in `CLAUDE.md`. If this file and those disagree, `CLAUDE.md` and `docs/HISTORY.md` win and this file should be corrected.
 
-Last updated: **2026-10-09** (see §6 "2026-10-09 — start here"); before that **2026-10-05 (late)**, after Phase 2 was built out to **step 10**, **TestFlight build 14** was uploaded, **release management** was settled (ADR-084), and a **full pre-production security pass** was done — static review, fuzzing, image scans, and active testing against a local throwaway — with every finding fixed. The next move is the owner's: update `home.mym.ae`, run the Phase 2 close-out demo, then tag **1.0.0** and go live.
+Last updated: **2026-10-13** (see §6 "2026-10-13 — start here": video calls device to device, group calls on LiveKit, build 27); before that **2026-10-09**; before that **2026-10-05 (late)**, after Phase 2 was built out to **step 10**, **TestFlight build 14** was uploaded, **release management** was settled (ADR-084), and a **full pre-production security pass** was done — static review, fuzzing, image scans, and active testing against a local throwaway — with every finding fixed. The next move is the owner's: update `home.mym.ae`, run the Phase 2 close-out demo, then tag **1.0.0** and go live.
 
 ---
 
@@ -100,6 +100,10 @@ Phase by phase, each finished with a demo the owner approved. **Every step's det
 
 ## 5. Failed attempts (the whole project)
 
+- **Video through Asterisk (2026-10-04 to 2026-10-12, builds 7–26).** Asterisk relays video without the feedback two WebRTC ends need (loss, bandwidth, "send a fresh picture"), and a camera change was a re-INVITE through it to each side in turn, so pictures stuttered, HD did nothing, and a change could leave one side without the other's picture. Fixed by taking the picture off Asterisk altogether (ADR-087); don't put video back through it.
+- **A plain reverse proxy for a long-lived websocket** through the control plane: the server's 30-second read/write timeouts stay on the hijacked connection. Relay the messages instead (`/livekit/`, like `/sip`).
+- **LiveKit's app kit in the iPhone app:** a second copy of WebRTC that fights the first for the audio session CallKit owns. The app speaks LiveKit's protocol itself (`LiveKitWire`) on its one WebRTC.
+
 - **A long batch of commits can hide a red CI (2026-10-07).** A new npm advisory turned the security job red on a docs/website commit, and later pushes cancelled that run before anyone looked. Check `gh run list` for *failure*, not just the newest run's status. Also: `make security` didn't cover `site/` until that day.
 - **Astro 7 doesn't run remark plugins by default** (its new Markdown engine). It needs `@astrojs/markdown-remark` installed, or the build stops at config time.
 - **A context7 version can lag.** It gave Astro 6.3.1 when 7.3.6 was current. Check `npm view <pkg> version` before pinning.
@@ -176,6 +180,8 @@ The useful half of the record: **do not try these again.**
 ---
 
 ## 6. Next step
+
+**▶ 2026-10-13 — start here.** Owner's go (2026-10-12): *"Do one to one and add people as well."* Built and committed locally: ADR-087 (one-to-one pictures device to device over the call link; Asterisk sound only, migration 0052), ADR-088 (Add person → group call on `linx-livekit`), the browser's video and group calls, the app's (`DirectPicture`, `LiveKitWire`, `GroupCall`), **build 27**. Proved: call suite, coturn suite, browser suite on linx-443 (browser video both ways with camera off/on; video call to a desk phone; a three-person group call), app tests, and the app's LiveKit code against a real LiveKit (`LiveKitLiveTests`). **Next:** push, CI green on all five front doors, upload build 27, then the owner updates home.mym.ae (back up first; new service `linx-livekit` and its secret come with `linx setup`; no new ports) and tries: an iPad↔iPhone video call (answer while waking, camera off/on, HD), a browser↔app video call, and Add person with three people. Read People → Call records if anything is off. The old iPhone device entry still needs removing.
 
 **▶ 1.0.0 re-released 2026-10-07 (owner's decision: replace it while unused).** Downloads showed only Claude's own test fetches, so the old `v1.0.0` release was deleted and re-cut at **`2ff6506`** (every country, ADR-085; help guides on the website; coming-soon labels). Every Release job succeeded, including the first run of the new **`changelog`** job, which committed `99022ea Changelog: Linx 1.0.0`; linxpbx.com/changelog shows it. The GitHub release uses `docs/release-notes/v1.0.0.md`. **The next release is 1.1.0 or a patch:** write `docs/release-notes/<tag>.md` first (`docs/ops/RELEASES.md`). The owner's fresh install of 1.0.0 (step 3 below) is still to do.
 

@@ -101,7 +101,7 @@ struct AudioRoute: Equatable, Sendable {
     var onGroupEnded: ((String) -> Void)? { get set }
     /// Moves the call onto the video server: its sound and pictures go
     /// there, and the phone call's own sound goes quiet. Nil if it can't.
-    func joinGroup(_ join: GroupJoin, server: URL) -> GroupPeople?
+    func joinGroup(_ join: GroupJoin, server: URL, camera: Bool) -> GroupPeople?
     /// In a group call: the phone call may end without the call ending.
     var inGroup: Bool { get }
     /// The **HD** button: whether this phone's picture may go above 540p.

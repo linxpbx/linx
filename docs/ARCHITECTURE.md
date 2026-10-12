@@ -54,8 +54,8 @@ flowchart LR
 |---|---|---|
 | `linx-control-plane` | REST API (OpenAPI 3.1) and webhooks. Handles auth (OIDC, local + TOTP/WebAuthn), RBAC, tenants, users, extensions, devices, enrollment, meetings/guest tokens, presence hub, push gateway (APNs now, FCM interface), directory, CDR ingestion, routing wizard compiler, and ARI Stasis app | Go |
 | `linx-asterisk` | Call control and media anchor for PBX calls: WSS/TLS transports, queues, voicemail, MOH, park, recording | Asterisk 22 LTS |
-| `linx-livekit` / `linx-livekit-sip` | Meetings (SFU with E2EE) and SIP dial-in bridge | LiveKit |
-| `linx-coturn` | STUN/TURN on UDP 443 and TLS 443 (3478/5349 in the container; the front door maps 443), with time-limited REST credentials, relaying only to Asterisk on `linx-media` | coturn (official image + Linx entrypoint) |
+| `linx-livekit` | Group calls (ADR-088): a call between Linx devices becomes a room when someone presses Add person. No published port: signalling through the control plane at `/livekit/`, media through coturn on `linx-media`. Phase 3 adds meetings with E2EE, and `linx-livekit-sip` for desk phones and dial-in | LiveKit (official binary on distroless + Linx entrypoint) |
+| `linx-coturn` | STUN/TURN on UDP 443 and TLS 443 (3478/5349 in the container; the front door maps 443), with time-limited REST credentials, relaying only to Linx's own addresses on `linx-media`: Asterisk, LiveKit, and its own (two relayed devices' direct picture, ADR-087) | coturn (official image + Linx entrypoint) |
 | `linx-web` | Static PWA: user app, admin console, separate guest entry (under 300 KB) | React/Vite, served by a minimal static server |
 | `linx-certd` | Public ACME certificates, renewal, deployment, expiry metrics | Go + lego |
 | `linx-step-ca` | Internal PKI (service mTLS, device certificates) | step-ca |
