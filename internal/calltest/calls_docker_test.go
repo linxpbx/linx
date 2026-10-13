@@ -779,6 +779,15 @@ func TestCallsDocker(t *testing.T) {
 				t.Errorf("web endpoint doesn't match %s:\n%s", want, web)
 			}
 		}
+		// A browser or an app gets ten seconds to answer "are you there?":
+		// a phone woken on mobile data took more than Asterisk's three, and
+		// was then not rung (migration 0053). Desk phones keep three.
+		if aor := e.asteriskCLI("pjsip show aor " + dana.dev.SIPUsername); !regexp.MustCompile(`qualify_timeout\s*:\s*10(\.0+)?\s`).MatchString(aor) {
+			t.Errorf("web phone's AOR should wait 10 s for an answer:\n%s", aor)
+		}
+		if aor := e.asteriskCLI("pjsip show aor " + bob.dev.SIPUsername); !regexp.MustCompile(`qualify_timeout\s*:\s*3(\.0+)?\s`).MatchString(aor) {
+			t.Errorf("desk phone's AOR should keep 3 s:\n%s", aor)
+		}
 		phone := e.asteriskCLI("pjsip show endpoint " + bob.dev.SIPUsername)
 		for _, want := range []string{`transport\s*:\s*transport-tls`, `media_encryption\s*:\s*sdes`, `ice_support\s*:\s*false`,
 			`allow\s*:\s*\(opus\|g722\|ulaw\)`} {

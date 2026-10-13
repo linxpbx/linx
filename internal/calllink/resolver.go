@@ -23,7 +23,10 @@ type Resolver struct {
 	// Linx reports whether a SIP username is an app's or a browser's.
 	Linx func(ctx context.Context, sipUsername string) (bool, error)
 	// Settle is how long to wait for a just-answered call's bridge to show
-	// (zero: two seconds).
+	// (zero: fifteen seconds). The answering phone asks for its link the
+	// moment it answers, and on a phone just woken on mobile data that
+	// answer took 7 s to reach Asterisk (2026-10-13); with two seconds the
+	// link was refused and the picture never started.
 	Settle time.Duration
 
 	mu   sync.Mutex
@@ -125,7 +128,7 @@ func (r *Resolver) Resolve(ctx context.Context, sipUsername, callID string) (Leg
 	}
 	settle := r.Settle
 	if settle == 0 {
-		settle = 2 * time.Second
+		settle = 15 * time.Second
 	}
 	// Answered a moment ago, the bridge may not be there yet.
 	until := time.Now().Add(settle)
