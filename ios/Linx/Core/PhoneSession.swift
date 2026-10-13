@@ -86,6 +86,20 @@ actor PhoneSession {
         if let token, token.expiresAt.timeIntervalSince(now()) > 60 {
             return token.token
         }
+        // One request at a time: everything that wants a token while one is
+        // on its way waits for that one. Two at once, each renewing the
+        // certificate, left the phone holding one Linx no longer knew, and
+        // Linx asked for it to be set up again (2026-10-13).
+        if let inFlight { return try await inFlight.value }
+        let request = Task { try await self.fetchToken() }
+        inFlight = request
+        defer { inFlight = nil }
+        return try await request.value
+    }
+
+    private var inFlight: Task<String, Error>?
+
+    private func fetchToken() async throws -> String {
         guard var identity = identity, let key, let certificate = identity.certificateDER else {
             throw LinxError.server(
                 status: 401, code: "device_inactive",

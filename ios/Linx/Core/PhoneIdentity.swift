@@ -39,10 +39,12 @@ struct PhoneIdentity: Codable, Equatable, Sendable {
     /// wants with every proof.
     var certificateDER: Data? { PEM.first(in: certificate) }
 
-    /// renewSoon is true once the certificate has less than a month left:
+    /// renewSoon is true once the certificate has less than three days left:
     /// the app renews it on its next token, long before it could run out.
+    /// Linx's certificates for phones last a week, so a month's margin (as
+    /// it was) meant a new certificate at every token (2026-10-13).
     func renewSoon(now: Date = Date()) -> Bool {
-        certNotAfter.timeIntervalSince(now) < 30 * 24 * 60 * 60
+        certNotAfter.timeIntervalSince(now) < 3 * 24 * 60 * 60
     }
 }
 

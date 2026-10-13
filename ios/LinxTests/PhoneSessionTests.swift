@@ -193,6 +193,41 @@ final class FakeLinx: URLProtocol, @unchecked Sendable {
         #expect(store.read(PhoneStore.keyAccount) == nil)
     }
 
+    @Test("tokens asked for at once make one request, and renew only near the end (2026-10-13)")
+    func oneTokenRequestAtATime() async throws {
+        FakeLinx.reset()
+        let certificate = Self.certificate.replacingOccurrences(of: "\n", with: "\\n")
+        FakeLinx.answers["/v1/enroll"] = (
+            201,
+            """
+            {"device_id":"\(Self.deviceID)","device_name":"Sara's iPhone","person_name":"Sara Haddad",
+             "extension":"101","certificate":"\(certificate)",
+             "ca":"-----BEGIN CERTIFICATE-----\\nca\\n-----END CERTIFICATE-----\\n",
+             "cert_not_after":"2026-10-20T00:00:00Z","set_up_again":"2027-04-03T00:00:00Z"}
+            """
+        )
+        FakeLinx.answers["/v1/device-token"] = (
+            200,
+            """
+            {"token":"a-device-token","expires_at":"2099-01-01T00:00:00Z","device_id":"\(Self.deviceID)",
+             "cert_not_after":"2026-10-20T00:00:00Z","set_up_again":"2027-04-03T00:00:00Z"}
+            """
+        )
+        // A week-long certificate with six days left is not renewed.
+        let monday = ISO8601DateFormatter().date(from: "2026-10-14T00:00:00Z")!
+        let phone = PhoneSession(
+            keychain: FakeStore(), client: { LinxClient(server: $0, session: FakeLinx.session) }, now: { monday })
+        _ = try await phone.setUp(with: try #require(SetupCode.link("https://pbx.example.com/set-up-phone#t")))
+        async let first = phone.accessToken()
+        async let second = phone.accessToken()
+        async let third = phone.accessToken()
+        let tokens = try await [first, second, third]
+        #expect(Set(tokens) == ["a-device-token"])
+        let asked = FakeLinx.asked.filter { $0.path == "/v1/device-token" }
+        #expect(asked.count == 1)
+        #expect(asked.first?.body["csr"] == nil)
+    }
+
     @Test("a phone that finds its sign-in missing says what it found (2026-10-12)")
     func missingSignInIsWrittenDown() async {
         let session = PhoneSession(keychain: FakeStore())

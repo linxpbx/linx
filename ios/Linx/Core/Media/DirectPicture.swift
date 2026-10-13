@@ -86,6 +86,8 @@ struct CallLinkMessage: Decodable, Sendable {
     private var wantCamera: Bool
     private var hd = false
     private var stopped = false
+    private var linkTries = 0
+    private static let linkTriesAllowed = 15
     private var watch: Task<Void, Never>?
     private var framesSeen = 0
     private var quietReadings = 0
@@ -192,6 +194,7 @@ struct CallLinkMessage: Decodable, Sendable {
                 return
             }
             polite = message.polite ?? false
+            linkTries = 0
             connect()
             onMark?("Picture link ready")
             said(available: true)
@@ -212,9 +215,24 @@ struct CallLinkMessage: Decodable, Sendable {
         }
     }
 
+    /// The link closed or was refused. Linx refuses it until it has seen
+    /// the answer, which on a phone just woken on mobile data can take
+    /// seconds to arrive (2026-10-13: 7 s), so it is tried again while the
+    /// call lasts, every two seconds for half a minute.
     private func linkClosed() {
         guard !stopped else { return }
-        if video.available == nil { said(available: false) }
+        linkTries += 1
+        guard linkTries <= Self.linkTriesAllowed else {
+            onMark?("Picture link couldn't be opened")
+            if video.available == nil { said(available: false) }
+            return
+        }
+        if linkTries == 1 { onMark?("Picture link not ready yet; trying again") }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !self.stopped else { return }
+            self.link.start()
+        }
     }
 
     private func send(_ signal: PictureSignal) {
@@ -519,7 +537,11 @@ extension DirectPicture: RTCPeerConnectionDelegate {
         self.token = token
     }
 
+    /// Opens the link; again after it closed, as a new connection.
     func start() {
+        task?.cancel(with: .goingAway, reason: nil)
+        session?.invalidateAndCancel()
+        closed = false
         var request = URLRequest(url: url)
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         request.setValue(Self.subprotocol, forHTTPHeaderField: "Sec-WebSocket-Protocol")
@@ -548,9 +570,11 @@ extension DirectPicture: RTCPeerConnectionDelegate {
     }
 
     private func receive() {
-        task?.receive { [weak self] result in
+        guard let task else { return }
+        task.receive { [weak self] result in
             Task { @MainActor in
-                guard let self, !self.closed else { return }
+                // A connection replaced by a newer one says nothing more.
+                guard let self, !self.closed, task === self.task else { return }
                 switch result {
                 case .success(.string(let text)):
                     self.onMessage?(Data(text.utf8))
