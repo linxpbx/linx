@@ -109,6 +109,13 @@ struct AudioRoute: Equatable, Sendable {
     /// Moves a call that is up onto Linx's relay (an ICE restart that allows
     /// only the relay) and answers with the offer that tells the other side.
     func moveToRelay() async throws -> String
+    /// The sound's route has gone — a network change cut it — and stayed
+    /// gone: the user agent looks for a new one (`restartRoute`).
+    var onRouteLost: (() -> Void)? { get set }
+    /// Looks for routes afresh (an ICE restart, every route allowed, the
+    /// relay's credentials renewed) and answers with the offer that tells
+    /// the other side.
+    func restartRoute() async throws -> String
     /// One step of setting the call up, for the timeline on Call details.
     func mark(_ what: String)
     /// When the person asked for the call: the timeline counts from there.
@@ -157,11 +164,13 @@ struct AudioRoute: Equatable, Sendable {
     /// keep-alives are left out; nothing but the first line ever is.
     var onTrace: ((String) -> Void)?
 
-    private let account: Account
-    private let transport: any SIPTransport
+    /// Who this phone is on the line. A new connection after a dropped one
+    /// brings a new password (`reattach`), never a new username.
+    private var account: Account
+    private var transport: any SIPTransport
     private let makeMedia: @MainActor () -> any SIPCallMedia
     /// The call link for a call's SIP Call-ID (`CallLinkSocket`).
-    private let makeLink: @MainActor (String) -> (any PictureLink)?
+    private let customLink: (@MainActor (String) -> (any PictureLink)?)?
     /// A host that is this phone and nowhere else: .invalid is reserved for
     /// exactly this (RFC 2606), and the websocket, not the address, is what
     /// Asterisk answers on.
@@ -188,16 +197,67 @@ struct AudioRoute: Equatable, Sendable {
     init(
         account: Account, transport: any SIPTransport,
         media: @escaping @MainActor () -> any SIPCallMedia,
-        link: (@MainActor (String) -> (any PictureLink)?)? = nil
+        link: (@MainActor (String) -> (any PictureLink)?)? = nil,
+        holdFor: Duration = SIPUserAgent.holdTheCallFor
     ) {
+        self.holdFor = holdFor
         self.account = account
         self.transport = transport
         self.makeMedia = media
-        self.makeLink =
-            link ?? { [account] callID in CallLinkSocket(sip: account.websocket, token: account.token, callID: callID) }
+        self.customLink = link
+        listen(to: transport)
+    }
+
+    private func listen(to transport: any SIPTransport) {
         transport.onOpen = { [weak self] in self?.register() }
         transport.onText = { [weak self] text in self?.read(text) }
         transport.onClose = { [weak self] why in self?.closed(why) }
+    }
+
+    /// The call link for a call, with this line's current token.
+    private func makeLink(_ callID: String) -> (any PictureLink)? {
+        if let customLink { return customLink(callID) }
+        return CallLinkSocket(sip: account.websocket, token: account.token, callID: callID)
+    }
+
+    // MARK: - A dropped connection (a phone between networks)
+
+    /// How long a call is held while its line to Linx comes back. The sound
+    /// and the picture don't travel on that line, so they go on meanwhile;
+    /// what can't happen until it is back is hanging up or changing the call.
+    static let holdTheCallFor: Duration = .seconds(30)
+    private let holdFor: Duration
+
+    /// Whether a call is being held for the line to come back, so the phone
+    /// gives this agent its new connection (`reattach`) instead of starting
+    /// a new one, which would end the call.
+    var holdingACall: Bool { call?.lineLost == true }
+
+    /// The line is back on a new connection: the same phone, a fresh
+    /// password and token. Once it has signed in again, the call is told
+    /// where this phone is now (`refreshTheCall`).
+    func reattach(account: Account, transport: any SIPTransport) {
+        self.transport.onOpen = nil
+        self.transport.onText = nil
+        self.transport.onClose = nil
+        self.transport.stop()
+        self.account = account
+        self.transport = transport
+        registration.credentials = nil
+        registration.attempts = 0
+        listen(to: transport)
+        start()
+    }
+
+    /// An UPDATE in the call (RFC 3311), with no change to the sound: it
+    /// refreshes the call's target, so Asterisk sends what it has for this
+    /// call down the new connection.
+    private func refreshTheCall() {
+        guard let current = call, current.lineLost else { return }
+        var message = inDialog("UPDATE", of: current)
+        message.add("Contact", contact)
+        call?.refreshing = message.cseq?.number
+        send(message)
     }
 
     // MARK: - Signing in
@@ -275,6 +335,7 @@ struct AudioRoute: Equatable, Sendable {
     private func registered(_ response: SIPMessage) {
         registration.attempts = 0
         onStatus?(.ready)
+        refreshTheCall()
         // Sign in again halfway through, as a desk phone does: it keeps the
         // line alive and the websocket with it.
         let seconds = Int(response.first("Expires") ?? "") ?? Self.registerSeconds
@@ -298,6 +359,8 @@ struct AudioRoute: Equatable, Sendable {
             id: SIPRandom.token(16) + "@" + localHost, localTag: SIPRandom.token(10),
             peer: peer, incoming: false, media: makeMedia())
         outgoing.media.began(at: startedAt)
+        let outgoingID = outgoing.id
+        outgoing.media.onRouteLost = { [weak self] in self?.routeLost(outgoingID) }
         outgoing.remoteURI = "sip:\(target)@\(account.domain)"
         outgoing.remoteTarget = outgoing.remoteURI
         // A video call says so in a header (ADR-087): the INVITE carries the
@@ -490,7 +553,32 @@ struct AudioRoute: Equatable, Sendable {
         call?.reinviting = true
         call?.reinviteOffer = offer
         call?.reinviteRequest = message
+        call?.reinviteTimeout?.cancel()
+        let id = current.id
+        let number = message.cseq?.number
+        call?.reinviteTimeout = Task { [weak self] in
+            // Unanswered: it went down a connection that dropped.
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled, let self, self.call?.id == id, self.call?.reinviting == true,
+                self.call?.reinviteRequest?.cseq?.number == number
+            else { return }
+            self.forgetTheLostChange()
+            self.restartIfWanted()
+        }
         send(message)
+    }
+
+    /// A change of this phone's that will never be answered: the call goes
+    /// back to how it was, and a route that is still wanted is asked again.
+    private func forgetTheLostChange() {
+        guard let current = call else { return }
+        call?.reinviting = false
+        call?.reinviteOffer = nil
+        call?.reinviteRequest = nil
+        call?.reinviteForRelay = false
+        call?.reinviteTimeout?.cancel()
+        call?.restartWanted = true
+        Task { await current.media.rollbackOffer() }
     }
 
     /// The ACK for a re-INVITE that was refused or challenged. It belongs to
@@ -531,6 +619,10 @@ struct AudioRoute: Equatable, Sendable {
         guard let status = message.status, let cseq = message.cseq else { return }
         if cseq.method == "REGISTER" {
             registerResponse(message, status: status)
+            return
+        }
+        if cseq.method == "UPDATE" {
+            refreshed(message, status: status, number: cseq.number)
             return
         }
         guard cseq.method == "INVITE" else { return }
@@ -584,6 +676,16 @@ struct AudioRoute: Equatable, Sendable {
             call = current
             sendInvite()
         case 200..<300:
+            if current.established {
+                // The same answer again: Asterisk sends it until this
+                // phone's ACK reaches it, which on a slow link is after the
+                // second copy left. It is acknowledged again and nothing
+                // else — taking it for a new answer used the sound's answer
+                // twice, failed, and hung up a call that was fine (the
+                // phone bench, 300 ms and 2% loss, 2026-10-13).
+                send(ack2xx(for: message, of: current))
+                return
+            }
             current.remoteTag = message.toTag
             current.remoteTarget = SIPMessage.uri(in: message.first("Contact") ?? current.remoteURI)
             current.routeSet = message.all("Record-Route").reversed()
@@ -663,6 +765,8 @@ struct AudioRoute: Equatable, Sendable {
             call?.reinviteOffer = nil
             call?.reinviteRequest = nil
             call?.reinviteAttempts = 0
+            call?.reinviteTimeout?.cancel()
+            defer { restartIfWanted() }
             var ack = SIPMessage.request("ACK", current.remoteTarget)
             ack.add("Via", via(branch: SIPRandom.branch()))
             ack.add("Max-Forwards", "70")
@@ -786,6 +890,67 @@ struct AudioRoute: Equatable, Sendable {
         }
     }
 
+    /// The sound's route went and didn't come back by itself: a fresh look
+    /// for routes, told to Asterisk with a re-INVITE — as soon as the line
+    /// to Linx is there to carry it, and once whatever change is out has
+    /// been answered.
+    private func routeLost(_ id: String) {
+        guard let current = call, current.id == id, current.established else { return }
+        if current.lineLost || current.reinviting || current.changing {
+            call?.restartWanted = true
+            return
+        }
+        call?.restartWanted = false
+        call?.changing = true
+        Task { [weak self] in
+            let offer = try? await current.media.restartRoute()
+            guard let self, self.call?.id == id else { return }
+            self.call?.changing = false
+            guard let offer else {
+                // Nothing to offer yet: the network that would carry it isn't
+                // back. Look again shortly, for as long as the call lasts.
+                self.call?.restartWanted = true
+                try? await Task.sleep(for: .seconds(2))
+                self.restartIfWanted()
+                return
+            }
+            guard !(self.call?.reinviting ?? false) else {
+                self.call?.restartWanted = true
+                return
+            }
+            self.sendReinvite(offer, of: current)
+        }
+    }
+
+    /// A restart that had to wait goes now.
+    private func restartIfWanted() {
+        guard let current = call, current.restartWanted, !current.lineLost, !current.reinviting else { return }
+        routeLost(current.id)
+    }
+
+    /// Asterisk's answer to `refreshTheCall`.
+    private func refreshed(_ message: SIPMessage, status: Int, number: Int) {
+        guard let current = call, message.callID == current.id, current.refreshing == number, status >= 200
+        else { return }
+        call?.refreshing = nil
+        if status < 300 {
+            let away = current.lineLostSince.map { String(format: "%.1f", Date().timeIntervalSince($0)) } ?? "?"
+            current.media.mark("Line to Linx back after \(away) s; the call goes on")
+            call?.lineLost = false
+            call?.lineLostSince = nil
+            call?.giveUp?.cancel()
+            call?.giveUp = nil
+            // A re-INVITE sent down the old connection was lost with it.
+            if current.reinviting { forgetTheLostChange() }
+            restartIfWanted()
+        } else if status == 481 || status == 408 {
+            // Asterisk no longer has the call.
+            end(current, why: .failed("The call dropped: this phone lost touch with Linx."))
+        } else {
+            current.media.mark("Linx answered the line's return with \(status)")
+        }
+    }
+
     private func invited(_ invite: SIPMessage) {
         send(.response(100, "Trying", to: invite))
         // One call at a time in this slice: a second caller is told the phone
@@ -801,6 +966,8 @@ struct AudioRoute: Equatable, Sendable {
             id: invite.callID ?? SIPRandom.token(16), localTag: SIPRandom.token(10), peer: peer,
             incoming: true, media: makeMedia())
         incoming.invite = invite
+        let incomingID = incoming.id
+        incoming.media.onRouteLost = { [weak self] in self?.routeLost(incomingID) }
         incoming.remoteTag = invite.fromTag
         incoming.remoteURI = SIPMessage.uri(in: from)
         incoming.remoteTarget = SIPMessage.uri(in: invite.first("Contact") ?? from)
@@ -844,7 +1011,23 @@ struct AudioRoute: Equatable, Sendable {
         registerTimer?.cancel()
         registerTimer = nil
         if let current = call {
-            end(current, why: .failed("The call dropped: this phone lost touch with Linx."))
+            if current.established, !leaving, !(why ?? "").hasPrefix(WebSocketTransport.closedByLinx) {
+                // The sound and the picture have their own routes: keep the
+                // call while the line comes back, as any phone does when it
+                // moves between networks.
+                current.media.mark("Line to Linx lost (\(why ?? "closed")); holding the call")
+                call?.lineLost = true
+                call?.lineLostSince = Date()
+                call?.giveUp?.cancel()
+                call?.giveUp = Task { [weak self] in
+                    try? await Task.sleep(for: self?.holdFor ?? Self.holdTheCallFor)
+                    guard !Task.isCancelled, let self, let held = self.call, held.id == current.id, held.lineLost
+                    else { return }
+                    self.end(held, why: .failed("The call dropped: this phone lost touch with Linx."))
+                }
+            } else {
+                end(current, why: .failed("The call dropped: this phone lost touch with Linx."))
+            }
         }
         onStatus?(.reconnecting)
     }
@@ -944,6 +1127,8 @@ struct AudioRoute: Equatable, Sendable {
     private func end(_ current: Call, why: SIPEnded, tell: Bool = true) {
         guard call?.id == current.id else { return }
         call?.timeout?.cancel()
+        call?.giveUp?.cancel()
+        call?.reinviteTimeout?.cancel()
         call?.preparing?.cancel()
         // In a group call the phone call was only what rang: its sound is
         // the video server's now, and the phone model ends it.
@@ -1030,6 +1215,18 @@ struct AudioRoute: Equatable, Sendable {
         var invitation = false
         /// The call has been moved onto the relay once already.
         var movedToRelay = false
+        /// The line to Linx dropped during the call, and the call is held
+        /// for it to come back (`closed`, `reattach`).
+        var lineLost = false
+        var lineLostSince: Date?
+        var giveUp: Task<Void, Never>?
+        /// The sequence number of the UPDATE telling Asterisk where the
+        /// phone is now.
+        var refreshing: Int?
+        /// The sound's route needs looking for again once nothing is in
+        /// the way (the line back, the change that is out answered).
+        var restartWanted = false
+        var reinviteTimeout: Task<Void, Never>?
         var ringingMarked = false
         var timeout: Task<Void, Never>?
     }

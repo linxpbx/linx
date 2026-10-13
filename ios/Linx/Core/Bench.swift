@@ -1,0 +1,50 @@
+import Foundation
+
+// The test bench (ios/tools/bench.sh): two simulators that set themselves
+// up, call each other and hang up with nobody touching them, under the
+// networks a phone really meets — Linx's relay only, no UDP at all (China).
+// Every switch is a launch argument, read in debug builds only; a release
+// build has none of them.
+
+enum Bench {
+    #if DEBUG
+        private static var defaults: UserDefaults { .standard }
+
+        /// A setup link to redeem when the app starts with no phone set up.
+        static var setupLink: String? { defaults.string(forKey: "LinxBenchSetup") }
+        /// A number to call once the line is up, once.
+        static var call: String? { defaults.string(forKey: "LinxBenchCall") }
+        /// Whether that call is a video call.
+        static var video: Bool { defaults.bool(forKey: "LinxBenchVideo") }
+        /// Answer whatever rings, a second after it starts.
+        static var answer: Bool { defaults.bool(forKey: "LinxBenchAnswer") }
+        /// Hang up this many seconds after the call is answered (0: never).
+        static var hangUpAfter: Int { defaults.integer(forKey: "LinxBenchHangUpAfter") }
+        /// Every route through Linx's relay, as on a mobile network.
+        static var relayOnly: Bool { defaults.bool(forKey: "LinxBenchRelayOnly") }
+        /// No UDP at all: the relay over TLS on 443 only, as in China.
+        static var noUDP: Bool { defaults.bool(forKey: "LinxBenchNoUDP") }
+        /// Ring and answer through CallKit, as an iPhone outside China does;
+        /// without it the bench takes China's in-app path (ADR-078).
+        static var callKit: Bool { defaults.bool(forKey: "LinxBenchCallKit") }
+
+        static var on: Bool { setupLink != nil || call != nil || answer }
+    #else
+        static let setupLink: String? = nil
+        static let call: String? = nil
+        static let video = false
+        static let answer = false
+        static let hangUpAfter = 0
+        static let relayOnly = false
+        static let noUDP = false
+        static let callKit = false
+        static let on = false
+    #endif
+
+    /// The relay's addresses as the bench wants them: without the UDP ones
+    /// when there is no UDP.
+    static func relayURLs(_ urls: [String]) -> [String] {
+        guard noUDP else { return urls }
+        return urls.filter { $0.hasPrefix("turns:") }
+    }
+}

@@ -187,16 +187,25 @@ import SwiftUI
                 }
             }
             state = .setUp
+            await setUpForTheBench()
             return
         }
         guard let identity = await session.identity else {
             state = .setUp
+            await setUpForTheBench()
             return
         }
         SignInTrail.setUp()
         self.identity = identity
         state = .working("Signing in…")
         await signIn()
+    }
+
+    /// The test bench sets itself up from the link it was started with
+    /// (`Bench`); nothing happens in an ordinary run.
+    private func setUpForTheBench() async {
+        guard let link = Bench.setupLink, let code = SetupCode.link(link) else { return }
+        await setUp(with: code)
     }
 
     /// setUp redeems a setup code: one key, one certificate, and the phone is

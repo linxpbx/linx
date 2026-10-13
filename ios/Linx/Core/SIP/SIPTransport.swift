@@ -116,6 +116,10 @@ import Foundation
         }
     }
 
+    /// How a close Linx's relay meant begins (`internal/siprelay`'s
+    /// policy-violation closes: signed out, not your line, ...).
+    static let closedByLinx = "Linx closed this phone's line: "
+
     /// The subprotocol RFC 7118 gives SIP, which the relay requires.
     static let subprotocol = "sip"
 }
@@ -143,6 +147,13 @@ extension WebSocketTransport: URLSessionWebSocketDelegate {
         let why = reason.flatMap { $0.isEmpty ? nil : String(decoding: $0, as: UTF8.self) }
         let code = closeCode
         Task { @MainActor in
+            // Linx closed the line on purpose (the phone was stopped, its
+            // person signed out or disabled): said so, so a call isn't held
+            // for a line that won't come back.
+            if code == .policyViolation {
+                self.finish(Self.closedByLinx + (why ?? ""))
+                return
+            }
             self.finish(why ?? "The connection to Linx closed (\(code.rawValue)).")
         }
     }

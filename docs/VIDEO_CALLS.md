@@ -81,3 +81,30 @@ Nothing new for a 1:1 call: the picture no longer passes through Asterisk at all
 - **Proved here:** the call suite (the call link finds each device's own leg on the real Asterisk); the coturn suite (one device's relay reaches another's); the browser suite (a browser video call with the cameras going off and on, a video call to a desk phone falling back to sound, a three-person group call with Add person, an invitation, everyone seeing everyone, and people leaving one by one); the app's tests (SIP never carries a picture; a group call survives the phone call underneath it) and `LiveKitLiveTests` against a real LiveKit server.
 - **Not proved until the owner's phones:** the app's picture and group call over real networks — the browser and the app speak the same call link and LiveKit, but only a real iPhone and iPad show the camera, the audio session under CallKit and 5G together.
 - **Left for later:** presence for people in a group call (they show as on a call only while the phone call underneath lasts), simulcast from the app, and desk phones in group calls (Phase 3, `livekit-sip`).
+
+## 10. The phone bench, and what it found (2026-10-13)
+
+Builds 27–29 each failed on the owner's two devices on 5G (no picture either way; a call that dropped by itself; a slow start), and each fix was a guess. From now on **no app build or server update goes to the owner until `make test-phones` passes** (owner, 2026-10-13: "never do anything unless you are 100% it works").
+
+**The bench** (`internal/browsertest/phonebench_docker_test.go`, `ios/tools/bench.sh`, `ios/Linx/Core/Bench.swift`): the whole stack in Docker behind `linx-sni`, the app in two simulators that set themselves up from a setup link, call each other as a **video call**, answer and hang up with nobody touching them (launch arguments, debug builds only). The domain is `linx.127.0.0.1.nip.io`, so the simulators use real names and TLS against this Mac's published ports; a simulator has no camera, so `Camera` sends a moving test picture there. A call passes only if both phones' own records say: connected, sound arrived both ways, **the other side's picture arrived** (frame counts), and the call ended because it was hung up. Scenarios:
+
+| Scenario | How |
+|---|---|
+| Mobile network | every route through the relay (`iceTransportPolicy = relay`) |
+| China | no UDP: the relay over TLS on 443 only |
+| China, connection cut mid-call | every connection to port 443 reset and refused for 4 s, 15 s into the call (`iptables` in `linx-sni`'s namespace) |
+| Poor mobile link | 300 ms round trip, 2% loss, on what Linx sends the phones (`tc netem`, the phone-facing side only) |
+| China on a poor link | the same, 1% loss, TLS only |
+
+CallKit is not on the bench: a simulator's own call service ends an app's outgoing CallKit call about a second in (`callservicesd` asks for the `CXEndCallAction` itself), so the bench takes the in-app path China uses (ADR-078). CallKit stays a check on a real phone.
+
+**What it found, all fixed and proved by it:**
+1. **No picture on any app-to-app video call.** Both cameras go on when a video call is answered, so both sides offer at once. The polite side must roll its own offer back first; a browser does that by itself, **WebRTC for iOS does not**, so their offer was refused and neither picture ever came. Browser-to-browser always worked, which is why the browser suite never caught it. Now: explicit rollback; no offer of its own while theirs is being used; its camera put into *their* offer's slot (a browser reuses its slot by itself, iOS doesn't); and the polite side waits 1.5 s for the other's offer before offering its own, which saves the collision altogether.
+2. **A call hung up by itself on a slow link.** Asterisk resends its 200 OK until the phone's ACK arrives; the app took the copy for a new answer, failed to apply it, and sent BYE. A repeated answer is now acknowledged again and nothing else.
+3. **A dropped connection ended the call.** The line to Linx (the `/sip` websocket) closing — a phone moving between networks — ended the call at once, though sound and picture travel elsewhere. Now the call is **held for 30 s**, the phone reconnects every second, and on its new line sends an **UPDATE** (RFC 3311, a target refresh) so Asterisk sends the call's requests down the new connection (`SIPUserAgent.reattach`, `refreshTheCall`).
+4. **Sound never came back after a cut.** The sound's ICE state was watched and nothing acted on it. A route that fails, or drops for 3 s, is now looked for again (an ICE restart sent as a re-INVITE) once the line is back, retried until there is a network to offer, and a re-INVITE lost with a dropped connection is given up after 8 s.
+5. **The picture's link after a reconnect.** Each pairing now has a number (`session` on `peer`, `internal/calllink`); both ends stamp what they send with it and drop what belongs to an earlier pairing (an old offer landing on the new connection jammed it). A rebuilt link turns the camera back on.
+6. **China on a slow link.** The relay over TLS takes more than 3 s to set up on a 300 ms link, and an offer without it had nowhere for the sound to go: the phone now waits up to 10 s for its first route. Over TCP or TLS the picture is kept at **360p (350 kbit/s)** and the other side is told to do the same (`slowRoute`): 540p built up more than a second of delay there. A thin link steps the picture down (360p, then 240p) and back up when there is room, and only a link too thin even for 240p switches the camera off.
+7. The picture's relay route is prepared while the link opens, not after it: on a clean network the picture now arrives about 2 s after the answer, about 8 s on a 300 ms / 2% link.
+
+Not on the bench, and so still for a real phone: CallKit, a PushKit wake, a real camera and microphone, and 5G itself.

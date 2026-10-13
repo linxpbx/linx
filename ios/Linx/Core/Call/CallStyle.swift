@@ -20,7 +20,11 @@ enum CallStyle {
     /// The regions where a call stays inside the app.
     static let noCallKit: Set<String> = ["CN"]
 
-    static var usesCallKit: Bool { !noCallKit.contains(region) }
+    static var usesCallKit: Bool {
+        // The test bench takes the in-app path unless it is told to use
+        // CallKit (`Bench`).
+        !noCallKit.contains(region) && (!Bench.on || Bench.callKit)
+    }
 
     /// What the phone is set to, not where it happens to be: a visitor's
     /// phone keeps working the way it does at home.

@@ -139,6 +139,10 @@ struct CallDiagnostics: Equatable, Sendable {
     var onConnection: ((MediaConnection) -> Void)?
     /// The sound dropped, or came back.
     var onTrouble: ((Bool) -> Void)?
+    var onRouteLost: (() -> Void)?
+    /// When the route dropped, while it hasn't come back.
+    private var droppedSince: Date?
+    private var restartingRoute = false
     /// Where the sound is coming out, read from the session itself every
     /// time it moves — so the button follows the sound rather than the
     /// other way round.
@@ -203,6 +207,8 @@ struct CallDiagnostics: Equatable, Sendable {
     /// (`moveToRelay`). Three seconds is the most anyone waits.
     private static let gatherLimit: Duration = .seconds(3)
     private static let afterRelayCandidate: Duration = .milliseconds(300)
+    /// The most anyone waits when there is no route at all yet.
+    private static let firstRouteLimit: TimeInterval = 10
     private static let readRouteEvery: Duration = .seconds(5)
     /// How long the readings come a second apart: from when the call's
     /// sound starts, and again from the answer (a call through a phone line
@@ -345,6 +351,10 @@ struct CallDiagnostics: Equatable, Sendable {
         if movingToRelay {
             movingToRelay = false
             mark(relayOnly ? "On the relay" : "Every route allowed again")
+        }
+        if restartingRoute {
+            restartingRoute = false
+            mark("Sound route restarted")
         }
         capWhatThisPhoneSends()
         startWatching()
@@ -720,13 +730,14 @@ struct CallDiagnostics: Equatable, Sendable {
         if let relay, !relay.urls.isEmpty {
             // By address where iOS looked the name up, each server still
             // carrying its name for TLS (SNI and the certificate check).
-            configuration.iceServers = RelayAddresses.servers(for: relay.urls, addresses: addresses).map {
-                RTCIceServer(
-                    urlStrings: $0.urls, username: relay.username, credential: relay.credential,
-                    tlsCertPolicy: .secure, hostname: $0.hostname)
-            }
+            configuration.iceServers = RelayAddresses.servers(for: Bench.relayURLs(relay.urls), addresses: addresses)
+                .map {
+                    RTCIceServer(
+                        urlStrings: $0.urls, username: relay.username, credential: relay.credential,
+                        tlsCertPolicy: .secure, hostname: $0.hostname)
+                }
         }
-        if relayOnly { configuration.iceTransportPolicy = .relay }
+        if relayOnly || Bench.relayOnly || Bench.noUDP { configuration.iceTransportPolicy = .relay }
         configuration.sdpSemantics = .unifiedPlan
         // Not "maxBundle": Asterisk's offers carry no BUNDLE group, and a
         // call is one stream of sound, so nothing is lost by it.
@@ -894,6 +905,19 @@ struct CallDiagnostics: Equatable, Sendable {
         guard connection?.iceGatheringState != .complete else { return }
         gatheringLimit = Task { [weak self] in
             try? await Task.sleep(for: Self.gatherLimit)
+            // No route at all yet — the relay over TLS on a slow link, which
+            // is the only way in where UDP is blocked, takes a TLS handshake
+            // and an allocation: on a 300 ms link with some loss that is
+            // more than three seconds, and an offer without it has nowhere
+            // for the sound to go (the phone bench, China on a poor link,
+            // 2026-10-13). Wait for the first route, up to the old ten.
+            let until = Date().addingTimeInterval(
+                Self.firstRouteLimit - TimeInterval(Self.gatherLimit.components.seconds))
+            while !Task.isCancelled, let self, Date() < until,
+                !SDPTweaks.everyStreamHasRoutes(self.connection?.localDescription?.sdp ?? "")
+            {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
             guard !Task.isCancelled else { return }
             self?.doneGathering()
         }
@@ -1218,9 +1242,46 @@ extension WebRTCMedia: RTCPeerConnectionDelegate {
         }
         Task { @MainActor in
             self.note { $0.ice = words }
+            self.routeChanged(state)
             guard let trouble else { return }
             self.onTrouble?(trouble)
         }
+    }
+
+    /// A route that failed, or dropped and didn't come back within a few
+    /// seconds, is looked for again (`onRouteLost`): a phone moving between
+    /// networks, or a connection to the relay cut, leaves the call silent
+    /// otherwise.
+    private func routeChanged(_ state: RTCIceConnectionState) {
+        switch state {
+        case .failed:
+            droppedSince = nil
+            mark("Sound route failed")
+            onRouteLost?()
+        case .disconnected:
+            let since = Date()
+            droppedSince = since
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, self.droppedSince == since else { return }
+                self.droppedSince = nil
+                self.mark("Sound route dropped")
+                self.onRouteLost?()
+            }
+        case .connected, .completed:
+            droppedSince = nil
+        default:
+            break
+        }
+    }
+
+    func restartRoute() async throws -> String {
+        guard let connection else { throw MediaTrouble.noOffer }
+        restartingRoute = true
+        mark("Looking for a new route for the sound")
+        connection.setConfiguration(configuration())
+        connection.restartIce()
+        return try await offer()
     }
 
     private nonisolated static func words(for state: RTCIceConnectionState) -> String {

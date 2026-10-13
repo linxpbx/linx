@@ -98,6 +98,16 @@ enum CameraTrouble: Error {
     /// and throws what the person needs to be told.
     func start() async throws {
         guard !running else { return }
+        #if targetEnvironment(simulator)
+            // A simulator has no camera: a moving test picture stands in,
+            // so two simulators can prove a video call end to end
+            // (ios/tools/bench.sh).
+            testPicture = TestPicture(source: source, quality: Self.capturedAt)
+            testPicture?.start()
+            running = true
+            use(quality)
+            return
+        #endif
         guard await Self.allowed() else { throw CameraTrouble.notAllowed }
         guard let device = Self.device(front: front), let format = Self.format(for: device, at: Self.capturedAt)
         else {
@@ -130,8 +140,17 @@ enum CameraTrouble: Error {
     func stop() {
         guard running else { return }
         running = false
+        #if targetEnvironment(simulator)
+            testPicture?.stop()
+            testPicture = nil
+            return
+        #endif
         capturer.stopCapture()
     }
+
+    #if targetEnvironment(simulator)
+        private var testPicture: TestPicture?
+    #endif
 
     /// The other camera: the one looking at the person, or the one looking
     /// at what they are looking at.
@@ -216,3 +235,63 @@ enum CameraTrouble: Error {
         return pick?.0
     }
 }
+
+#if targetEnvironment(simulator)
+    /// What a simulator sends instead of a camera: a frame whose colour moves
+    /// on every tick, at the size and rate a camera would give.
+    @MainActor final class TestPicture {
+        private let source: RTCVideoSource
+        private let feeder: RTCVideoCapturer
+        private let width: Int
+        private let height: Int
+        private let fps: Int
+        private var timer: Timer?
+        private var tick = 0
+
+        init(source: RTCVideoSource, quality: VideoQuality) {
+            self.source = source
+            feeder = RTCVideoCapturer(delegate: source)
+            width = quality.width
+            height = quality.height
+            fps = 15
+        }
+
+        func start() {
+            timer = Timer.scheduledTimer(withTimeInterval: 1 / Double(fps), repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.frame() }
+            }
+        }
+
+        func stop() {
+            timer?.invalidate()
+            timer = nil
+        }
+
+        private func frame() {
+            var buffer: CVPixelBuffer?
+            CVPixelBufferCreate(
+                kCFAllocatorDefault, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+                [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &buffer)
+            guard let buffer else { return }
+            tick += 1
+            CVPixelBufferLockBaseAddress(buffer, [])
+            for plane in 0..<2 {
+                guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, plane) else { continue }
+                let rows = CVPixelBufferGetHeightOfPlane(buffer, plane)
+                let stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, plane)
+                let value = UInt8(truncatingIfNeeded: plane == 0 ? (tick * 4) : (128 + tick))
+                memset(base, Int32(value), rows * stride)
+                // A bar that moves, so the encoder has something to send.
+                if plane == 0 {
+                    let x = (tick * 8) % max(1, stride - 40)
+                    for row in 0..<rows { memset(base + row * stride + x, 255, 40) }
+                }
+            }
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            let frame = RTCVideoFrame(
+                buffer: RTCCVPixelBuffer(pixelBuffer: buffer), rotation: ._0,
+                timeStampNs: Int64(DispatchTime.now().uptimeNanoseconds))
+            source.capturer(feeder, didCapture: frame)
+        }
+    }
+#endif

@@ -42,6 +42,11 @@ struct PictureSignal: Codable, Equatable, Sendable {
     }
     var description: Description?
     var candidate: Candidate?
+    /// The pairing it belongs to (`CallLinkMessage.session`).
+    var session: UInt64?
+    /// The sender's picture goes through the relay over TCP or TLS
+    /// (`DirectPicture.overTCP`), so the other side keeps its own small too.
+    var slowRoute: Bool?
 }
 
 /// One message from the server.
@@ -49,6 +54,8 @@ struct CallLinkMessage: Decodable, Sendable {
     var type: String
     var video: Bool?
     var polite: Bool?
+    /// "peer": this pairing of the two ends; what is sent is stamped with it.
+    var session: UInt64?
     var data: PictureSignal?
     /// "move": the call became a group call, and this is the way in.
     var room: String?
@@ -78,11 +85,16 @@ struct CallLinkMessage: Decodable, Sendable {
     /// (2026-10-13), while the sound beside it was fine.
     private let verifier: RTCSSLCertificateVerifier?
     private var connection: RTCPeerConnection?
-    private var routeShown = false
     private var camera: Camera?
     private var polite = false
     private var makingOffer = false
     private var ignoreOffer = false
+    /// Their frames on earlier connections of this call's link.
+    private var framesBefore = 0
+    /// This pairing of the two ends, from the server's "peer" (`calllink`).
+    private var session: UInt64?
+    /// Their description is being used (`signalled`): no offer of this side's now.
+    private var usingTheirs = false
     private var wantCamera: Bool
     private var hd = false
     private var stopped = false
@@ -122,6 +134,10 @@ struct CallLinkMessage: Decodable, Sendable {
     }
 
     func start() {
+        // The connection is made now, while the link opens, so its route
+        // through the relay (a TLS handshake and an allocation, seconds on
+        // a slow link) is ready by the time the other side is.
+        connect()
         link.start()
     }
 
@@ -136,13 +152,44 @@ struct CallLinkMessage: Decodable, Sendable {
             return
         }
         guard let connection, !video.mine else { return }
-        let camera = self.camera ?? Camera(factory: factory, quality: hd ? Self.withHD : Self.standard)
+        let camera = self.camera ?? Camera(factory: factory, quality: quality)
         try await camera.start()
         guard !stopped, self.connection === connection, wantCamera else {
             camera.stop()
             return
         }
         self.camera = camera
+        if polite, connection.remoteDescription == nil, !waitedForTheirOffer {
+            // The polite side lets the other offer first, and its camera
+            // goes in their offer's slot (`carryMyCamera`): offering at the
+            // same moment costs a round of taking one back, seconds on a
+            // slow link. If no offer comes (their camera is off), it offers
+            // after all.
+            tracks.local = camera.track
+            onMark?("Camera on (waiting for their offer)")
+            said(mine: true)
+            Task { [weak self] in
+                try? await Task.sleep(for: Self.waitForTheirOffer)
+                guard let self, self.connection === connection, connection.remoteDescription == nil,
+                    let camera = self.camera, !self.stopped
+                else { return }
+                self.waitedForTheirOffer = true
+                self.addMyCamera(camera, to: connection)
+            }
+            return
+        }
+        addMyCamera(camera, to: connection)
+        tracks.local = camera.track
+        onMark?("Camera on")
+        said(mine: true)
+    }
+
+    /// How long the polite side waits for the other side's offer before
+    /// offering its own picture.
+    static let waitForTheirOffer: Duration = .milliseconds(1500)
+    private var waitedForTheirOffer = false
+
+    private func addMyCamera(_ camera: Camera, to connection: RTCPeerConnection) {
         if let transceiver = connection.transceivers.first(where: { $0.mediaType == .video }) {
             transceiver.sender.track = camera.track
             transceiver.setDirection(.sendRecv, error: nil)
@@ -152,10 +199,7 @@ struct CallLinkMessage: Decodable, Sendable {
             setup.streamIds = ["linx"]
             connection.addTransceiver(with: camera.track, init: setup)
         }
-        tracks.local = camera.track
         capWhatThisPhoneSends()
-        onMark?("Camera on")
-        said(mine: true)
     }
 
     func switchCamera() { camera?.flip() }
@@ -163,7 +207,7 @@ struct CallLinkMessage: Decodable, Sendable {
     func useHD(_ on: Bool) {
         guard hd != on else { return }
         hd = on
-        camera?.use(on ? Self.withHD : Self.standard)
+        camera?.use(quality)
         capWhatThisPhoneSends()
         onMark?(on ? "HD on" : "HD off")
     }
@@ -171,6 +215,7 @@ struct CallLinkMessage: Decodable, Sendable {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        onMark?("Their picture: \(framesBefore + framesMost) frames")
         watch?.cancel()
         watch = nil
         camera?.stop()
@@ -194,8 +239,14 @@ struct CallLinkMessage: Decodable, Sendable {
                 return
             }
             polite = message.polite ?? false
+            session = message.session
             linkTries = 0
-            connect()
+            // A connection nothing has been said on yet is kept (made at
+            // `start`, its relay route already found); otherwise this is a
+            // new pairing and it starts afresh.
+            if connection == nil || connection?.localDescription != nil || connection?.remoteDescription != nil {
+                connect()
+            }
             onMark?("Picture link ready")
             said(available: true)
             if wantCamera { try? await setCamera(true) }
@@ -205,6 +256,8 @@ struct CallLinkMessage: Decodable, Sendable {
             closeConnection()
             said(mine: false, theirs: false, theirPicture: false)
         case "signal":
+            // From an earlier pairing of the two ends: its connection is gone.
+            if let theirs = message.data?.session, let session, theirs != session { return }
             if let signal = message.data { await signalled(signal) }
         case "move":
             if let room = message.room, let token = message.token, let url = message.url {
@@ -240,6 +293,8 @@ struct CallLinkMessage: Decodable, Sendable {
             var type = "signal"
             var data: PictureSignal
         }
+        var signal = signal
+        signal.session = session
         guard let data = try? JSONEncoder().encode(Out(data: signal)) else { return }
         link.send(data)
     }
@@ -247,9 +302,10 @@ struct CallLinkMessage: Decodable, Sendable {
     private func connect() {
         closeConnection()
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        configuration.iceCandidatePoolSize = 1
         connection = factory.peerConnection(
             with: configuration, constraints: constraints, verifier: verifier, delegate: self)
-        routeShown = false
+        routeNow = nil
         startWatching()
     }
 
@@ -264,34 +320,84 @@ struct CallLinkMessage: Decodable, Sendable {
         connection = nil
         makingOffer = false
         ignoreOffer = false
+        framesBefore += framesMost
+        framesMost = 0
+        framesSeen = 0
+        squeezed = nil
+        roomyReadings = 0
+        overTCP = false
+        theirsOverTCP = false
+        waitedForTheirOffer = false
+        quietReadings = 0
+        // Nothing is being sent or shown on a link that is gone: a new one
+        // starts from nothing, and the camera goes on again if it is
+        // wanted (it stayed off after the link came back, 2026-10-13).
+        if video.mine || video.theirs || video.theirPicture {
+            said(mine: false, theirs: false, theirPicture: false)
+        }
     }
 
     private func negotiate(_ connection: RTCPeerConnection) async {
-        guard connection === self.connection else { return }
+        // Not while their description is being used, and only from a
+        // settled state: WebRTC asks again once it is back there if there is
+        // still something to say. Offering in between is what refused their
+        // offer after this side had given way.
+        guard connection === self.connection, !usingTheirs, connection.signalingState == .stable else { return }
         makingOffer = true
         defer { makingOffer = false }
         let ok = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             connection.setLocalDescriptionWithCompletionHandler { error in done.resume(returning: error == nil) }
         }
-        guard ok, let local = connection.localDescription else { return }
+        guard ok, let local = connection.localDescription else {
+            onMark?("Picture offer couldn't be made")
+            return
+        }
+        onMark?("Picture \(RTCSessionDescription.string(for: local.type)) sent")
         send(PictureSignal(description: .init(type: RTCSessionDescription.string(for: local.type), sdp: local.sdp)))
     }
 
     private func signalled(_ signal: PictureSignal) async {
         guard let connection else { return }
+        if let slow = signal.slowRoute, slow != theirsOverTCP {
+            theirsOverTCP = slow
+            onMark?(
+                slow
+                    ? "Their picture is over TCP: mine kept at \(Self.overTCPStep.height)p" : "Their picture is off TCP"
+            )
+            useQuality()
+        }
         if let description = signal.description {
+            usingTheirs = true
+            defer { usingTheirs = false }
             let type = RTCSessionDescription.type(for: description.type)
             let collision = type == .offer && (makingOffer || connection.signalingState != .stable)
             ignoreOffer = !polite && collision
+            onMark?("Picture \(description.type) arrived\(ignoreOffer ? " (ignored: both offered)" : "")")
             if ignoreOffer { return }
+            if collision, connection.signalingState == .haveLocalOffer {
+                // The polite side gives way: its own offer is taken back
+                // before theirs is used. A browser does this by itself when
+                // an offer arrives; WebRTC for iOS does not, and without it
+                // their offer was refused and neither picture ever came
+                // (both cameras go on together when a video call is
+                // answered, so this was every app-to-app video call).
+                let rolledBack = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                    connection.setLocalDescription(RTCSessionDescription(type: .rollback, sdp: "")) { error in
+                        done.resume(returning: error == nil)
+                    }
+                }
+                onMark?(rolledBack ? "Picture: gave way to their offer" : "Picture: couldn't take my offer back")
+            }
             let remote = RTCSessionDescription(type: type, sdp: description.sdp)
             let ok = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 connection.setRemoteDescription(remote) { error in done.resume(returning: error == nil) }
             }
             guard ok, connection === self.connection else {
+                onMark?("Picture \(description.type) refused")
                 connection.restartIce()
                 return
             }
+            if type == .offer { carryMyCamera(on: connection) }
             if type == .offer {
                 let answered = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                     connection.setLocalDescriptionWithCompletionHandler { error in
@@ -299,6 +405,7 @@ struct CallLinkMessage: Decodable, Sendable {
                     }
                 }
                 if answered, let local = connection.localDescription {
+                    onMark?("Picture answer sent")
                     send(
                         PictureSignal(
                             description: .init(type: RTCSessionDescription.string(for: local.type), sdp: local.sdp)))
@@ -306,6 +413,7 @@ struct CallLinkMessage: Decodable, Sendable {
             }
             capWhatThisPhoneSends()
             readTheirDirection()
+            offerIfStillNeeded(connection)
         } else if let candidate = signal.candidate {
             let ice = RTCIceCandidate(
                 sdp: candidate.candidate, sdpMLineIndex: candidate.sdpMLineIndex ?? 0, sdpMid: candidate.sdpMid)
@@ -315,6 +423,36 @@ struct CallLinkMessage: Decodable, Sendable {
                 // puts it right.
             }
         }
+    }
+
+    /// Their offer has a slot for the picture; this phone's camera goes in
+    /// it, so the answer sends as well as receives. Its own slot, made for
+    /// an offer it then took back, would otherwise keep the camera and the
+    /// other side would never be told about it: a browser reuses its slot by
+    /// itself, WebRTC for iOS doesn't (one side's picture never came,
+    /// 2026-10-13, on the phone bench).
+    private func carryMyCamera(on connection: RTCPeerConnection) {
+        guard let camera, wantCamera else { return }
+        let video = connection.transceivers.filter { $0.mediaType == .video && !$0.isStopped }
+        guard let theirs = video.first(where: { !$0.mid.isEmpty }), theirs.sender.track == nil else { return }
+        for orphan in video where orphan !== theirs && orphan.mid.isEmpty {
+            orphan.sender.track = nil
+            orphan.stopInternal()
+        }
+        theirs.sender.track = camera.track
+        theirs.setDirection(.sendRecv, error: nil)
+    }
+
+    /// WebRTC asks for a new offer while their description is being used,
+    /// when this side may not make one (`negotiate`); it doesn't always ask
+    /// again afterwards, so this side looks for itself once it may.
+    private func offerIfStillNeeded(_ connection: RTCPeerConnection) {
+        guard connection === self.connection, connection.signalingState == .stable else { return }
+        let unsaid = connection.transceivers.contains {
+            $0.mediaType == .video && !$0.isStopped && $0.sender.track != nil && $0.mid.isEmpty
+        }
+        guard unsaid else { return }
+        Task { [weak self] in await self?.negotiate(connection) }
     }
 
     // MARK: - The pictures
@@ -359,8 +497,50 @@ struct CallLinkMessage: Decodable, Sendable {
         said(mine: false)
     }
 
+    /// What the picture may use now: 360p where either side's picture
+    /// goes through the relay over TCP or TLS (`overTCP`), else the usual.
+    private var quality: VideoQuality {
+        guard let squeezed, squeezed.rawValue < unsqueezed.rawValue else { return unsqueezed }
+        return squeezed
+    }
+
+    /// Over TCP — the relay on 443, which is the only way through where UDP
+    /// is blocked (China) — a lost packet holds up everything behind it,
+    /// and 540p over a link with 300 ms and 1% loss built up more than a
+    /// second of delay until the camera switched itself off (the phone
+    /// bench, 2026-10-13). Video apps send less on such a route; 360p at
+    /// 350 kbit/s fits it.
+    static let overTCPStep = VideoQuality.low
+    private var overTCP = false
+    private var theirsOverTCP = false
+
+    /// The picture's route is known, or has changed: a TCP or TLS relay
+    /// keeps it small, and the other side is told so it does the same. On a
+    /// lossy link the first route to answer can be the relay over TLS even
+    /// where UDP works, and WebRTC moves to the better one later: the size
+    /// follows it back up (the phone bench, 2026-10-13).
+    private func routeFound(_ route: String) {
+        let tcp = route.hasPrefix("relay/tls") || route.hasPrefix("relay/tcp")
+        guard tcp != overTCP else { return }
+        overTCP = tcp
+        onMark?(
+            tcp
+                ? "Picture over TCP: kept at \(Self.overTCPStep.height)p"
+                : "Picture off TCP: back to \(unsqueezed.height)p")
+        send(PictureSignal(slowRoute: tcp))
+        useQuality()
+    }
+
+    /// The picture's route as last read.
+    private var routeNow: String?
+
+    private func useQuality() {
+        camera?.use(quality)
+        capWhatThisPhoneSends()
+    }
+
     private func capWhatThisPhoneSends() {
-        let most = (hd ? Self.withHD : Self.standard).bitrate
+        let most = quality.bitrate
         for sender in connection?.senders ?? [] where sender.track?.kind == kRTCMediaStreamTrackKindVideo {
             let parameters = sender.parameters
             for encoding in parameters.encodings { encoding.maxBitrateBps = NSNumber(value: most) }
@@ -388,9 +568,10 @@ struct CallLinkMessage: Decodable, Sendable {
     private func read(_ report: RTCStatisticsReport) {
         var frames = 0
         var room: Int?
-        if !routeShown, let route = Self.route(in: report) {
-            routeShown = true
-            onMark?("Picture route: \(route)")
+        if let route = Self.route(in: report), route != routeNow {
+            onMark?(routeNow == nil ? "Picture route: \(route)" : "Picture route now: \(route)")
+            routeNow = route
+            routeFound(route)
         }
         for statistic in report.statistics.values {
             if statistic.type == "inbound-rtp", statistic.values["kind"] as? String == "video" {
@@ -411,17 +592,64 @@ struct CallLinkMessage: Decodable, Sendable {
                 if quietReadings >= 2 { said(theirPicture: false) }
             }
         }
+        if framesSeen == 0, frames > 0 { onMark?("Their picture arrived") }
         framesSeen = frames
-        if video.mine, let room, room < Self.tooThin {
+        framesMost = max(framesMost, frames)
+        if video.mine, let room { follow(room: room) }
+    }
+
+    /// A thin link takes the picture down a step at a time — 360p, then
+    /// 240p — and only a link too thin even for that switches the camera
+    /// off, so the sound keeps what it needs. Switching off at the first
+    /// thin stretch lost the picture on a slow TLS route that could carry a
+    /// small one (the phone bench, China on a poor link, 2026-10-13). Room
+    /// to spare for a while brings it back up a step.
+    private func follow(room: Int) {
+        if room < Self.tooThin {
+            roomyReadings = 0
             thinReadings += 1
-            if thinReadings >= Self.thinReadingsAllowed {
-                thinReadings = 0
+            guard thinReadings >= Self.thinReadingsAllowed else { return }
+            thinReadings = 0
+            let now = quality
+            if let smaller = VideoQuality(rawValue: now.rawValue - 1), now != .thin {
+                squeezed = smaller
+                onMark?("Picture down to \(smaller.height)p: the link is thin")
+                useQuality()
+            } else if room < Self.tooThinEvenSmall {
                 onTooExpensive?()
             }
-        } else {
-            thinReadings = 0
+            return
         }
+        thinReadings = 0
+        guard let squeezed, let bigger = VideoQuality(rawValue: squeezed.rawValue + 1),
+            room > bigger.bitrate * 3 / 2
+        else {
+            roomyReadings = 0
+            return
+        }
+        roomyReadings += 1
+        guard roomyReadings >= Self.roomyReadingsWanted else { return }
+        roomyReadings = 0
+        self.squeezed = bigger.rawValue >= unsqueezed.rawValue ? nil : bigger
+        onMark?("Picture back up to \(quality.height)p")
+        useQuality()
     }
+
+    /// The step before any squeezing.
+    private var unsqueezed: VideoQuality {
+        if overTCP || theirsOverTCP { return Self.overTCPStep }
+        return hd ? Self.withHD : Self.standard
+    }
+
+    /// The step a thin link has taken the picture down to, if any.
+    private var squeezed: VideoQuality?
+    private var roomyReadings = 0
+    /// Below this even the smallest step goes off (bits a second).
+    private static let tooThinEvenSmall = 30_000
+    /// Readings (two seconds apart) with room to spare before a step up.
+    private static let roomyReadingsWanted = 5
+    /// The most of their frames decoded on this connection.
+    private var framesMost = 0
 
     /// The picture's route in the call's own words ("relay/udp → relay/udp"),
     /// once it has one.

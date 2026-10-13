@@ -85,6 +85,15 @@ test-browser: ## Browser call suite: the real stack + headless Chromiums (needs 
 		echo "--- the test's own lines (service logs left out):"; echo "$$out" | grep -v '^=== ' | grep -Ev '^ {8}([^|]|$$)' | tail -100; \
 		echo "browser suite: FAILED"; exit 1; fi
 
+.PHONY: test-phones
+test-phones: ios-deps ## Phone bench: the app in two simulators calling itself through the real stack, mobile and China networks (macOS + Xcode; make image for control-plane, asterisk, coturn, livekit)
+	@if out=$$(LINX_PHONE_BENCH=1 go test -count=1 -v -timeout 60m -run TestPhoneBenchDocker ./internal/browsertest/ 2>&1); then \
+		if echo "$$out" | grep -q -- "--- SKIP"; then echo "$$out" | grep -A2 -- "--- SKIP"; echo "phone bench: SKIPPED"; exit 1; fi; \
+		echo "$$out" | grep -E -- "--- (PASS|FAIL)"; echo "phone bench: ok"; \
+	else echo "$$out" | grep -E -- "--- (PASS|FAIL)|phonebench_docker_test.go:[0-9]+: [^-]"; \
+		echo "--- the phones' records:"; echo "$$out" | grep -v '^=== ' | grep -Ev 'VERBOSE|^ +[{[]' | tail -150; \
+		echo "phone bench: FAILED"; exit 1; fi
+
 .PHONY: prompts
 prompts: ## Make the call messages from tools/prompts/prompts.tsv (kristin voice) into deploy/docker/asterisk/prompts
 	@docker build -q -t linx-prompts-tool tools/prompts >/dev/null

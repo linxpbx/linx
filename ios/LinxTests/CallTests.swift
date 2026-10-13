@@ -33,6 +33,9 @@ import Testing
 
     func stop() { started = false }
 
+    /// The connection drops under the phone (it moved between networks).
+    func drop() { onClose?("The network connection was lost.") }
+
     /// Asterisk says something.
     func asterisk(_ message: SIPMessage) { onText?(message.text) }
 
@@ -126,6 +129,12 @@ import Testing
         relayMoves += 1
         return Self.relayOffer
     }
+    var onRouteLost: (() -> Void)?
+    private(set) var routeRestarts = 0
+    func restartRoute() async throws -> String {
+        routeRestarts += 1
+        return Self.relayOffer
+    }
     func mark(_ what: String) { steps.append(what) }
     func began(at: Date) { steps.insert("began", at: 0) }
 
@@ -140,7 +149,13 @@ import Testing
     static let soundOffer = "v=0\r\na=linx-offer\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendrecv\r\n"
     static let soundAnswer = "v=0\r\na=linx-answer\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendrecv\r\n"
 
-    func accept(answer: String) async throws { acceptedAnswer = answer }
+    private(set) var answersAccepted = 0
+    func accept(answer: String) async throws {
+        acceptedAnswer = answer
+        answersAccepted += 1
+    }
+    /// The sound's route went, as WebRTC would say it.
+    func loseTheRoute() { onRouteLost?() }
     func setMuted(_ muted: Bool) { self.muted = muted }
     func setSpeaker(_ on: Bool) {
         speaker = on
@@ -433,19 +448,40 @@ struct CallTests {
         agent.stop()
     }
 
-    @Test("losing the connection ends the call and says the line is coming back")
+    @Test("losing the connection holds the call, and ends it if the line doesn't come back in time")
     func dropped() async throws {
-        let (agent, transport, media, box) = await signedIn()
+        let transport = FakeTransport()
+        let media = FakeMedia()
+        let box = Box()
+        let agent = SIPUserAgent(
+            account: Self.account, transport: transport, media: { media }, holdFor: .milliseconds(100))
+        agent.onStatus = { box.status = $0 }
+        agent.onEnded = { box.ended = $0 }
+        agent.start()
+        transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
         transport.asterisk(Self.incomingInvite())
         await agent.answer()
         transport.onClose?("the network went away")
         #expect(box.status == .reconnecting)
+        #expect(!media.stopped)
+        #expect(box.ended == nil)
+        #expect(await eventually { box.ended != nil })
         #expect(media.stopped)
         if case .failed(let said) = box.ended {
             #expect(said.contains("lost touch"))
         } else {
             Issue.record("the call should have ended")
         }
+        agent.stop()
+    }
+
+    @Test("losing the connection before the call is answered ends it")
+    func droppedWhileRinging() async throws {
+        let (agent, transport, media, box) = await signedIn()
+        transport.asterisk(Self.incomingInvite())
+        transport.onClose?("the network went away")
+        #expect(media.stopped)
+        if case .failed = box.ended {} else { Issue.record("the call should have ended") }
         agent.stop()
     }
 
@@ -460,5 +496,116 @@ struct CallTests {
         invite.add("Content-Type", "application/sdp")
         invite.body = "v=0\r\ntheir-offer\r\n"
         return invite
+    }
+}
+
+// A phone between networks (2026-10-13, found on the phone bench): the
+// answer repeated on a slow link, the line to Linx dropping in the middle of
+// a call, and the sound's route lost with it.
+extension CallTests {
+    /// A call out, answered and up.
+    private func callUp() async throws -> (SIPUserAgent, FakeTransport, FakeMedia, Box, SIPMessage) {
+        let (agent, transport, media, box) = await signedIn()
+        await agent.call("1024")
+        let invite = try #require(transport.last("INVITE"))
+        var ok = SIPMessage.response(200, "OK", to: invite).withTag("theirs")
+        ok.add("Contact", "<sip:1024@1.2.3.4:8089;transport=ws>")
+        ok.body = "v=0\r\ntheir-answer\r\n"
+        transport.asterisk(ok)
+        #expect(await eventually { box.established })
+        return (agent, transport, media, box, ok)
+    }
+
+    @Test("the same answer arriving twice is acknowledged twice and changes nothing")
+    func repeatedAnswer() async throws {
+        let (agent, transport, media, box, ok) = try await callUp()
+        transport.asterisk(ok)
+        #expect(await eventually { transport.count("ACK") == 2 })
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(media.answersAccepted == 1)
+        #expect(transport.count("BYE") == 0)
+        #expect(box.ended == nil)
+        agent.stop()
+    }
+
+    @Test("a dropped line holds the call, and the new one tells Asterisk where the phone is")
+    func lineComesBack() async throws {
+        let (agent, transport, media, box, _) = try await callUp()
+        transport.drop()
+        #expect(box.ended == nil)
+        #expect(agent.holdingACall)
+        #expect(box.status == .reconnecting)
+        #expect(!media.stopped)
+
+        let fresh = FakeTransport()
+        agent.reattach(account: Self.account, transport: fresh)
+        let register = try #require(fresh.last("REGISTER"))
+        fresh.asterisk(SIPMessage.response(200, "OK", to: register))
+        let update = try #require(fresh.last("UPDATE"))
+        #expect(update.callID == transport.last("INVITE")?.callID)
+        #expect(update.requestURI == "sip:1024@1.2.3.4:8089;transport=ws")
+        #expect(update.first("Contact")?.contains("transport=ws") == true)
+        #expect(update.body.isEmpty)
+        fresh.asterisk(SIPMessage.response(200, "OK", to: update))
+        #expect(!agent.holdingACall)
+
+        agent.hangUp()
+        #expect(fresh.last("BYE") != nil)
+        #expect(box.ended == .hungUp)
+        agent.stop()
+    }
+
+    @Test("a line Linx closed on purpose ends the call at once: a stopped phone isn't held")
+    func lineClosedByLinx() async throws {
+        let (agent, transport, media, box, _) = try await callUp()
+        transport.onClose?(WebSocketTransport.closedByLinx + "signed out")
+        #expect(!agent.holdingACall)
+        if case .failed = box.ended {} else { Issue.record("the call should have ended") }
+        #expect(media.stopped)
+        agent.stop()
+    }
+
+    @Test("a call Asterisk no longer has ends when the line comes back")
+    func lineComesBackTooLate() async throws {
+        let (agent, transport, _, box, _) = try await callUp()
+        transport.drop()
+        let fresh = FakeTransport()
+        agent.reattach(account: Self.account, transport: fresh)
+        fresh.asterisk(SIPMessage.response(200, "OK", to: try #require(fresh.last("REGISTER"))))
+        fresh.asterisk(
+            SIPMessage.response(481, "Call/Transaction Does Not Exist", to: try #require(fresh.last("UPDATE"))))
+        if case .failed = box.ended {
+        } else {
+            Issue.record("the call should have ended, not \(String(describing: box.ended))")
+        }
+        agent.stop()
+    }
+
+    @Test("a lost sound route is looked for again once the line is back")
+    func routeRestartsAfterTheLine() async throws {
+        let (agent, transport, media, _, _) = try await callUp()
+        transport.drop()
+        media.loseTheRoute()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(media.routeRestarts == 0)
+        #expect(transport.count("INVITE") == 1)
+
+        let fresh = FakeTransport()
+        agent.reattach(account: Self.account, transport: fresh)
+        fresh.asterisk(SIPMessage.response(200, "OK", to: try #require(fresh.last("REGISTER"))))
+        fresh.asterisk(SIPMessage.response(200, "OK", to: try #require(fresh.last("UPDATE"))))
+        #expect(await eventually { media.routeRestarts == 1 })
+        #expect(await eventually { fresh.last("INVITE") != nil })
+        #expect(fresh.last("INVITE")?.body == FakeMedia.relayOffer)
+        agent.stop()
+    }
+
+    @Test("a lost sound route on a line that is up is looked for again at once")
+    func routeRestarts() async throws {
+        let (agent, transport, media, _, _) = try await callUp()
+        media.loseTheRoute()
+        #expect(await eventually { media.routeRestarts == 1 })
+        #expect(await eventually { transport.count("INVITE") == 2 })
+        agent.stop()
     }
 }

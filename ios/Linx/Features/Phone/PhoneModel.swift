@@ -347,6 +347,16 @@ import UIKit
     var busy: Bool { call != nil || !waking.isEmpty }
 
     private func connect(to line: Line) {
+        // A call held while the line came back keeps its agent: it is given
+        // the new connection, and the call goes on (`SIPUserAgent.reattach`).
+        if let agent, agent.holdingACall, let account = Self.account(for: line) {
+            lineInUse = line
+            relay = line.line.turn
+            keepTheRelayFresh(for: line)
+            status = .starting
+            agent.reattach(account: account, transport: makeTransport(account))
+            return
+        }
         agent?.stop()
         lineInUse = line
         guard let account = Self.account(for: line) else {
@@ -410,6 +420,7 @@ import UIKit
             problem = nil
             waitLessForWhatWasWoken()
             reserveTheRelayIfWanted()
+            callForTheBench()
         case .reconnecting:
             self.status = .reconnecting
             retryLater()
@@ -427,7 +438,9 @@ import UIKit
     private func retryLater() {
         guard !stopped, reconnect == nil else { return }
         attempts += 1
-        let wait = min(30, Int(pow(2.0, Double(min(attempts, 5)))))
+        // A call is waiting for the line: try again every second while it
+        // is held (`SIPUserAgent.holdTheCallFor`).
+        let wait = agent?.holdingACall == true ? 1 : min(30, Int(pow(2.0, Double(min(attempts, 5)))))
         reconnect = Task { [weak self] in
             try? await Task.sleep(for: .seconds(wait))
             guard !Task.isCancelled, let self, !self.stopped else { return }
@@ -1075,6 +1088,30 @@ import UIKit
         if call != nil { agent?.hangUp() }
     }
 
+    // MARK: - The test bench (`Bench`)
+
+    private var benchCalled = false
+
+    /// The bench's one call, once the line is first up.
+    private func callForTheBench() {
+        guard let number = Bench.call, !benchCalled else { return }
+        benchCalled = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            self?.callNumber(number, withVideo: Bench.video)
+        }
+    }
+
+    private func hangUpForTheBench() {
+        let seconds = Bench.hangUpAfter
+        guard seconds > 0, let id = call?.id else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard let self, self.call?.id == id else { return }
+            self.hangUp()
+        }
+    }
+
     // MARK: - What the line tells the app
 
     private func incoming(_ peer: SIPPeer, video: Bool) {
@@ -1100,6 +1137,12 @@ import UIKit
         let id = UUID()
         call = Call(id: id, peer: peer, incoming: true, phase: .ringing, videoCall: video)
         ringInTheApp()
+        if Bench.answer {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(1))
+                self?.answer()
+            }
+        }
         Task { [weak self] in
             guard let self else { return }
             guard await self.calls.reportIncoming(id: id, from: peer, video: video) else {
@@ -1161,6 +1204,7 @@ import UIKit
 
     private func answered() {
         ringer.stop()
+        hangUpForTheBench()
         defer { theScreenDuringTheCall() }
         guard var current = call else { return }
         current.phase = .active

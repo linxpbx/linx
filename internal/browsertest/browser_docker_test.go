@@ -36,7 +36,6 @@ import (
 
 const (
 	project = "linx-browser-test"
-	domain  = "linx.test"
 	// Names this test gives what compose.yaml names for a real install, so
 	// it never touches one's volumes or networks. (Container names are
 	// kept: services find each other by them, so this test can't run on a
@@ -57,6 +56,10 @@ const (
 	// shell, to copy the test certificate into the certs volume.
 	shellImage = "postgres:18@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae"
 )
+
+// domain is the stack's name. The phone bench changes it to one that public
+// DNS points at this machine (the simulators can't use Docker's names).
+var domain = "linx.test"
 
 // Front doors the suite runs behind (docs/WEB.md §3), each with its own
 // stack: Pangolin's Traefik with the file linx setup generates, nginx,
@@ -98,6 +101,11 @@ const (
 // coturn's own 5349 behind an HTTP-only proxy); UDP straight to coturn (at
 // home, the router's UDP 443 forward).
 func relayURLs(door string) string {
+	if domain == benchDomain {
+		// The simulators: coturn's UDP port and linx-sni's 443, both
+		// published on this machine.
+		return "turn:turn." + domain + ":3478?transport=udp,turns:turn." + domain + ":443?transport=tcp"
+	}
 	switch door {
 	case installer.FrontDoorHTTPProxy:
 		return "turn:coturn:3478?transport=udp,turns:turn.linx.test:5349?transport=tcp"
@@ -225,6 +233,9 @@ type harness struct {
 	api     string
 	client  *http.Client
 	key     string
+	// bench is the phone bench (phonebench_docker_test.go): the phones
+	// reach the stack through this machine's published ports.
+	bench bool
 }
 
 func (h *harness) docker(args ...string) string {
@@ -572,11 +583,12 @@ func (h *harness) call(method, path string, body any, out any) {
 	}
 }
 
-var (
-	keyRe = regexp.MustCompile(`linx_[A-Za-z0-9_-]{20,}`)
-	// With the public port when it isn't 443 (https://linx.test:8443/setup/…).
-	linkRe = regexp.MustCompile(`https://` + regexp.QuoteMeta(domain) + `(?::\d+)?/setup/([A-Za-z0-9_-]+)`)
-)
+var keyRe = regexp.MustCompile(`linx_[A-Za-z0-9_-]{20,}`)
+
+// linkRe finds a set-password link (with the public port when it isn't 443).
+func linkRe() *regexp.Regexp {
+	return regexp.MustCompile(`https://` + regexp.QuoteMeta(domain) + `(?::\d+)?/setup/([A-Za-z0-9_-]+)`)
+}
 
 func (h *harness) provision(t *testing.T) {
 	out := h.docker("exec", "linx-control-plane", "/usr/local/bin/service", "api-key", "create",
@@ -613,7 +625,7 @@ func (h *harness) provision(t *testing.T) {
 		args := append([]string{"exec", "linx-control-plane", "/usr/local/bin/service", "user", "create",
 			"--email", email, "--name", name, "--role", role}, extra...)
 		out := h.docker(args...)
-		m := linkRe.FindStringSubmatch(out)
+		m := linkRe().FindStringSubmatch(out)
 		if m == nil || !strings.HasPrefix(m[0], baseURL(h.door)+"/") {
 			t.Fatalf("no set-password link at %s in:\n%s", baseURL(h.door), out)
 		}
@@ -792,7 +804,7 @@ const softphoneCallMarker = "LINX-TEST: softphone, call 101 now"
 const (
 	providerTrunkUser = "browsertrunk"
 	providerTrunkPass = "p;ss w0rd-x7"
-	providerHost      = "provider." + domain
+	providerHost      = "provider.linx.test"
 )
 
 // providerTrunk sets up a phone-line provider (docs/TRUNKS.md), the same
