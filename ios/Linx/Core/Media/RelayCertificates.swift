@@ -74,3 +74,19 @@ final class RelayCertificates: NSObject, RTCSSLCertificateVerifier {
         return out
     }
 }
+
+extension RTCPeerConnectionFactory {
+    /// A connection whose relay certificate is checked by `verifier` when
+    /// there is one: every connection that may use Linx's relay over TLS
+    /// needs it — the call's sound, its picture and a group call.
+    func peerConnection(
+        with configuration: RTCConfiguration, constraints: RTCMediaConstraints,
+        verifier: RTCSSLCertificateVerifier?, delegate: RTCPeerConnectionDelegate
+    ) -> RTCPeerConnection? {
+        guard let verifier else {
+            return peerConnection(with: configuration, constraints: constraints, delegate: delegate)
+        }
+        return peerConnection(
+            with: configuration, constraints: constraints, certificateVerifier: verifier, delegate: delegate)
+    }
+}

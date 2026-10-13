@@ -72,7 +72,13 @@ struct CallLinkMessage: Decodable, Sendable {
     private let link: any PictureLink
     private let configuration: RTCConfiguration
     private let factory: RTCPeerConnectionFactory
+    /// Who says the relay's TLS certificate is good: iOS, as for the call's
+    /// sound (`RelayCertificates`). Without it a picture between two phones
+    /// on mobile data had no route at all where only TLS reached the relay
+    /// (2026-10-13), while the sound beside it was fine.
+    private let verifier: RTCSSLCertificateVerifier?
     private var connection: RTCPeerConnection?
+    private var routeShown = false
     private var camera: Camera?
     private var polite = false
     private var makingOffer = false
@@ -97,11 +103,12 @@ struct CallLinkMessage: Decodable, Sendable {
 
     init(
         link: any PictureLink, configuration: RTCConfiguration, factory: RTCPeerConnectionFactory,
-        tracks: VideoTracks, cameraFirst: Bool
+        tracks: VideoTracks, cameraFirst: Bool, verifier: RTCSSLCertificateVerifier? = nil
     ) {
         self.link = link
         self.configuration = configuration
         self.factory = factory
+        self.verifier = verifier
         self.tracks = tracks
         self.wantCamera = cameraFirst
         super.init()
@@ -222,7 +229,9 @@ struct CallLinkMessage: Decodable, Sendable {
     private func connect() {
         closeConnection()
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        connection = factory.peerConnection(with: configuration, constraints: constraints, delegate: self)
+        connection = factory.peerConnection(
+            with: configuration, constraints: constraints, verifier: verifier, delegate: self)
+        routeShown = false
         startWatching()
     }
 
@@ -361,6 +370,10 @@ struct CallLinkMessage: Decodable, Sendable {
     private func read(_ report: RTCStatisticsReport) {
         var frames = 0
         var room: Int?
+        if !routeShown, let route = Self.route(in: report) {
+            routeShown = true
+            onMark?("Picture route: \(route)")
+        }
         for statistic in report.statistics.values {
             if statistic.type == "inbound-rtp", statistic.values["kind"] as? String == "video" {
                 frames += (statistic.values["framesDecoded"] as? NSNumber)?.intValue ?? 0
@@ -390,6 +403,27 @@ struct CallLinkMessage: Decodable, Sendable {
         } else {
             thinReadings = 0
         }
+    }
+
+    /// The picture's route in the call's own words ("relay/udp → relay/udp"),
+    /// once it has one.
+    private static func route(in report: RTCStatisticsReport) -> String? {
+        let all = report.statistics
+        guard
+            let pair = all.values.first(where: {
+                $0.type == "candidate-pair" && $0.values["nominated"] as? Bool == true
+                    && $0.values["state"] as? String == "succeeded"
+            }),
+            let localID = pair.values["localCandidateId"] as? String,
+            let remoteID = pair.values["remoteCandidateId"] as? String,
+            let local = all[localID], let remote = all[remoteID]
+        else { return nil }
+        func words(_ candidate: RTCStatistics) -> String {
+            let type = candidate.values["candidateType"] as? String ?? "?"
+            let way = candidate.values["relayProtocol"] as? String ?? candidate.values["protocol"] as? String ?? "?"
+            return "\(type)/\(way)"
+        }
+        return "\(words(local)) → \(words(remote))"
     }
 
     private func said(
@@ -422,6 +456,12 @@ extension DirectPicture: RTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_ connection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+        if newState == .checking {
+            Task { @MainActor [weak self] in
+                guard let self, connection === self.connection else { return }
+                self.onMark?("Picture looking for a route")
+            }
+        }
         guard newState == .failed else { return }
         Task { @MainActor [weak self] in
             guard let self, connection === self.connection else { return }

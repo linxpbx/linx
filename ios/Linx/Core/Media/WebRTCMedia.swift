@@ -366,7 +366,7 @@ struct CallDiagnostics: Equatable, Sendable {
         guard picture == nil, !stopped else { return }
         let picture = DirectPicture(
             link: link, configuration: configuration(), factory: Self.factory, tracks: tracks,
-            cameraFirst: cameraFirst)
+            cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn))
         picture.onMark = { [weak self] what in self?.mark(what) }
         picture.onTooExpensive = { [weak self] in self?.onVideoTooExpensive?() }
         picture.onMove = { [weak self] join in self?.onGroupMove?(join) }
@@ -410,7 +410,9 @@ struct CallDiagnostics: Equatable, Sendable {
         for receiver in connection?.receivers ?? [] where receiver.track?.kind == kRTCMediaStreamTrackKindAudio {
             receiver.track?.isEnabled = false
         }
-        let group = GroupCall(socket: socket, configuration: configuration(), factory: Self.factory, camera: camera)
+        let group = GroupCall(
+            socket: socket, configuration: configuration(), factory: Self.factory, camera: camera,
+            verifier: RelayCertificates(relay: turn))
         group.onMark = { [weak self] what in self?.mark(what) }
         group.onEnded = { [weak self] why in self?.onGroupEnded?(why) }
         self.group = group

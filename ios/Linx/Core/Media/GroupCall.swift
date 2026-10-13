@@ -61,6 +61,10 @@ struct GroupPerson: Identifiable, Equatable, Sendable {
     private let socket: any GroupSocket
     private let configuration: RTCConfiguration
     private let factory: RTCPeerConnectionFactory
+    /// iOS checks the relay's TLS certificate, as for a call's sound
+    /// (`RelayCertificates`): a group call on mobile data reaches LiveKit
+    /// through the relay.
+    private let verifier: RTCSSLCertificateVerifier?
     private var publisher: RTCPeerConnection?
     private var subscriber: RTCPeerConnection?
     private var mySID = ""
@@ -100,11 +104,12 @@ struct GroupPerson: Identifiable, Equatable, Sendable {
 
     init(
         socket: any GroupSocket, configuration: RTCConfiguration, factory: RTCPeerConnectionFactory,
-        camera: Bool
+        camera: Bool, verifier: RTCSSLCertificateVerifier? = nil
     ) {
         self.socket = socket
         self.configuration = configuration
         self.factory = factory
+        self.verifier = verifier
         super.init()
         configuration.bundlePolicy = .maxBundle
         configuration.rtcpMuxPolicy = .require
@@ -251,8 +256,10 @@ struct GroupPerson: Identifiable, Equatable, Sendable {
 
     private func connect() {
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        publisher = factory.peerConnection(with: configuration, constraints: constraints, delegate: self)
-        subscriber = factory.peerConnection(with: configuration, constraints: constraints, delegate: self)
+        publisher = factory.peerConnection(
+            with: configuration, constraints: constraints, verifier: verifier, delegate: self)
+        subscriber = factory.peerConnection(
+            with: configuration, constraints: constraints, verifier: verifier, delegate: self)
     }
 
     private func publishMicrophone() {
