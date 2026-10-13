@@ -80,8 +80,10 @@ func TestAReconnectReplacesTheOldLinkAndPairsAgain(t *testing.T) {
 	var h Hub
 	a := h.Join(Leg{Channel: "A", Peer: "B", PeerLinx: true})
 	b := h.Join(Leg{Channel: "B", Peer: "A", PeerLinx: true})
-	next(t, a)
-	next(t, b)
+	first := next(t, a)
+	if fb := next(t, b); first["session"] == nil || fb["session"] != first["session"] {
+		t.Fatalf("the two ends of one pairing have different sessions: %v %v", first, fb)
+	}
 	a2 := h.Join(Leg{Channel: "A", Peer: "B", PeerLinx: true})
 	if _, ok := <-a.Out; ok {
 		// drain the one queued before close, if any
@@ -94,8 +96,14 @@ func TestAReconnectReplacesTheOldLinkAndPairsAgain(t *testing.T) {
 	if p := next(t, b); p["type"] != "peer" {
 		t.Fatalf("b re-paired %v", p)
 	}
-	if p := next(t, a2); p["type"] != "peer" {
-		t.Fatalf("a2 %v", p)
+	p2 := next(t, a2)
+	if p2["type"] != "peer" {
+		t.Fatalf("a2 %v", p2)
+	}
+	// A new pairing has a new number, so what was said on the old one is
+	// dropped by the devices (ADR-087, docs/VIDEO_CALLS.md §10).
+	if p2["session"] == first["session"] {
+		t.Fatalf("the new pairing kept the old session %v", p2["session"])
 	}
 }
 

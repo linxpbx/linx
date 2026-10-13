@@ -28,10 +28,17 @@ type (
 	// PeerMessage says the other end is here (Video true) or will never
 	// be (Video false: not a Linx device). Polite is the WebRTC "perfect
 	// negotiation" role: the polite side gives way when both offer at once.
+	//
+	// Session numbers this pairing of the two ends. A device stamps what it
+	// sends with it and drops what arrives stamped with another: an end that
+	// reconnects is paired again, and a description from the pairing before
+	// must not land on the new connection (the picture never came back after
+	// a dropped connection, 2026-10-13).
 	PeerMessage struct {
-		Type   string `json:"type"` // "peer"
-		Video  bool   `json:"video"`
-		Polite bool   `json:"polite,omitempty"`
+		Type    string `json:"type"` // "peer"
+		Video   bool   `json:"video"`
+		Polite  bool   `json:"polite,omitempty"`
+		Session uint64 `json:"session,omitempty"`
 	}
 	// SignalMessage carries what the other end sent, as it sent it.
 	SignalMessage struct {
@@ -62,6 +69,8 @@ type Member struct {
 type Hub struct {
 	mu      sync.Mutex
 	members map[string]*Member // by Channel
+	// pairings counts the pairings made, for PeerMessage.Session.
+	pairings uint64
 }
 
 // Join opens a link for leg. A link already open for the same channel (the
@@ -83,9 +92,10 @@ func (h *Hub) Join(leg Leg) *Member {
 	}
 	if other := h.members[leg.Peer]; other != nil && other.Peer == leg.Channel && other.peer == nil {
 		m.peer, other.peer = other, m
+		h.pairings++
 		// Either rule would do as long as both ends agree on it.
-		h.sendLocked(m, PeerMessage{Type: "peer", Video: true, Polite: m.Channel < other.Channel})
-		h.sendLocked(other, PeerMessage{Type: "peer", Video: true, Polite: other.Channel < m.Channel})
+		h.sendLocked(m, PeerMessage{Type: "peer", Video: true, Polite: m.Channel < other.Channel, Session: h.pairings})
+		h.sendLocked(other, PeerMessage{Type: "peer", Video: true, Polite: other.Channel < m.Channel, Session: h.pairings})
 	}
 	return m
 }

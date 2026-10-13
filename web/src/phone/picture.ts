@@ -45,6 +45,8 @@ export interface PictureOptions {
 
 /** Most a picture may use, bits a second: ADR-081's 720p step. */
 const MAX_BITRATE = 1_500_000;
+/** Most it may use when the other side's picture goes over TCP: ADR-081's 360p step. */
+const OVER_TCP_BITRATE = 350_000;
 
 export class DirectPicture {
   state: PictureState = { available: null, mine: false, theirs: false, starting: false };
@@ -54,6 +56,10 @@ export class DirectPicture {
   private ws: WebSocket | null = null;
   private pc: RTCPeerConnection | null = null;
   private polite = false;
+  /** The other side's picture goes through the relay over TCP or TLS. */
+  private theirsOverTCP = false;
+  /** This pairing of the two ends, from the server's "peer". */
+  private session?: number;
   private makingOffer = false;
   private ignoreOffer = false;
   private stopped = false;
@@ -143,7 +149,12 @@ export class DirectPicture {
       if (s.track?.kind !== "video") continue;
       const p = s.getParameters();
       if (!p.encodings?.length) continue;
-      p.encodings[0]!.maxBitrate = MAX_BITRATE;
+      // Kept small when the other side's picture goes through the relay
+      // over TCP or TLS (it says so): a lost packet holds up everything
+      // behind it there, and the app keeps its own at 360p for the same
+      // reason (DirectPicture.overTCPStep).
+      p.encodings[0]!.maxBitrate = this.theirsOverTCP ? OVER_TCP_BITRATE : MAX_BITRATE;
+      if (this.theirsOverTCP) p.encodings[0]!.scaleResolutionDownBy = 1.5;
       void s.setParameters(p).catch(() => undefined);
     }
   }
@@ -154,11 +165,13 @@ export class DirectPicture {
   }
 
   private send(data: Signal) {
-    this.ws?.send(JSON.stringify({ type: "signal", data }));
+    // Stamped with this pairing (the server's "peer" session), so the other
+    // end drops it if it has been paired again since.
+    this.ws?.send(JSON.stringify({ type: "signal", data: this.session ? { ...data, session: this.session } : data }));
   }
 
   private async onMessage(raw: string) {
-    let msg: { type?: string; video?: boolean; polite?: boolean; data?: Signal; room?: string; token?: string; url?: string };
+    let msg: { type?: string; video?: boolean; polite?: boolean; session?: number; data?: Signal & { session?: number }; room?: string; token?: string; url?: string };
     try {
       msg = JSON.parse(raw);
     } catch {
@@ -171,6 +184,7 @@ export class DirectPicture {
           return;
         }
         this.polite = !!msg.polite;
+        this.session = msg.session;
         this.connect();
         this.set({ available: true });
         if (this.wantCamera) await this.setCamera(true);
@@ -187,6 +201,8 @@ export class DirectPicture {
         this.set({ mine: false, theirs: false });
         return;
       case "signal":
+        // From an earlier pairing: its connection is gone.
+        if (msg.data?.session !== undefined && this.session !== undefined && msg.data.session !== this.session) return;
         if (msg.data) await this.onSignal(msg.data);
         return;
       case "move":
@@ -196,6 +212,7 @@ export class DirectPicture {
 
   private connect() {
     this.pc?.close();
+    this.theirsOverTCP = false;
     const pc = new RTCPeerConnection({ iceServers: this.opts.iceServers, bundlePolicy: "max-bundle", rtcpMuxPolicy: "require" });
     this.pc = pc;
     pc.onnegotiationneeded = async () => {
@@ -227,9 +244,13 @@ export class DirectPicture {
     };
   }
 
-  private async onSignal({ description, candidate }: Signal) {
+  private async onSignal({ description, candidate, slowRoute }: Signal & { slowRoute?: boolean }) {
     const pc = this.pc;
     if (!pc) return;
+    if (slowRoute && !this.theirsOverTCP) {
+      this.theirsOverTCP = true;
+      this.capBitrate();
+    }
     try {
       if (description) {
         const collision = description.type === "offer" && (this.makingOffer || pc.signalingState !== "stable");
