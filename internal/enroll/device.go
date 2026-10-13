@@ -249,6 +249,7 @@ func (s *Service) DeviceToken(ctx context.Context, req TokenRequest) (TokenResul
 		if err != nil {
 			return TokenResult{}, err
 		}
+		update.Previous = fingerprint(cert.Raw)
 		renewed, out.Certificate, out.CertNotAfter = update, pem, notAfter
 	}
 	if err := s.Store.TouchIdentity(ctx, device.ID, renewed, clean(req.AppVersion), clean(req.OSVersion),

@@ -386,6 +386,23 @@ phone (ADR-073, ADR-076, ADR-077, ADR-079, ADR-080, ADR-082,
 `docs/PHASE2.md` §4, §7, §9, §10). The push gateway and ringing have their
 own review above, and are not repeated here.
 
+**Changed 2026-10-13 — the certificate before the newest still counts.**
+Each renewal used to forget the phone's old certificate at once, so a
+renewal whose answer was lost (mobile data, two requests at once) left the
+phone holding a certificate Linx no longer knew, and it was told to be set
+up again; it happened to the owner's iPhone and iPad four times. Linx now
+also accepts the one certificate the phone signed in with at its last
+renewal (`prev_cert_fingerprint`, migration 0053), and the app makes one
+token request at a time and renews only in the last three days. **No
+weaker:** a certificate is only ever presented alongside a single-use
+proof signed by the Secure Enclave key it was issued for, so an old copy
+is worth nothing on its own, and every check of the device (revoked,
+disabled, expired, its person and extension) applies to either. Two
+renewals on, the older certificate is refused (tested). Setup also now
+restarts a running CA after setting the phone certificate lifetime: until
+then home.mym.ae's went on signing week-long certificates, not six-month
+ones (ADR-077), which is why every token renewed.
+
 **Checked and sound:**
 - *Setting one up.* A ticket is good for 10 minutes, for one phone, for one
   named person's extension, and is redeemed exactly once: the token's `jti`

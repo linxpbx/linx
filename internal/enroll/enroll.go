@@ -144,6 +144,10 @@ type CertUpdate struct {
 	Serial      string
 	Fingerprint []byte
 	NotAfter    time.Time
+	// Previous is the certificate the phone signed in with, which stays
+	// good until the next renewal: if the answer carrying the new one never
+	// reaches the phone, it still has a certificate Linx knows (2026-10-13).
+	Previous []byte
 }
 
 // Store is the database access this package needs (internal/store).
@@ -164,6 +168,8 @@ type Store interface {
 	// ticket used, all in one transaction. ErrNotFound if the ticket is no
 	// longer open (someone else got there first).
 	RedeemEnrollment(ctx context.Context, ticket uuid.UUID, d pbx.Device, identity Identity, audit auth.AuditEntry) error
+	// IdentityByFingerprint finds a phone by its certificate, its newest
+	// or the one before (CertUpdate.Previous).
 	IdentityByFingerprint(ctx context.Context, fingerprint []byte) (Identity, pbx.Device, error)
 	IdentityByDevice(ctx context.Context, device uuid.UUID) (Identity, pbx.Device, error)
 	// TouchIdentity records that the phone was in touch (and its new

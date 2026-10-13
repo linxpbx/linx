@@ -20,6 +20,8 @@ const (
 	// StepCAVolume holds the CA's config, certificates, intermediate key and
 	// database. compose.yaml refers to it as an external volume.
 	StepCAVolume = "linx-step-ca"
+	// StepCAContainer is the CA's container (compose.yaml's container_name).
+	StepCAContainer = "linx-step-ca"
 	// stepGID is the "step" group in the step-ca image. CA secrets are
 	// root-owned and readable by this group only.
 	stepGID = 1000
@@ -76,7 +78,7 @@ func PKIPlan(exists bool) PKISetup {
 		s.Plan = append(s.Plan, st)
 	}
 	if exists {
-		s.Plan = append(s.Plan, caCertsReadableStep(), devicesProvisionerStep())
+		s.Plan = append(s.Plan, caCertsReadableStep(), devicesProvisionerStep(), caReloadStep())
 		return s
 	}
 
@@ -126,6 +128,17 @@ func devicesProvisionerStep() Step {
 		"--volume", StepCAVolume+":/home/step", "--entrypoint", "step", StepCAImage,
 		"ca", "provisioner", "update", "linx-devices", "--ca-config", "/home/step/config/ca.json",
 		"--x509-min-dur", "5m", "--x509-max-dur", devicesCertDuration, "--x509-default-dur", devicesCertDuration, "--ssh=false")
+}
+
+// caReloadStep restarts a running CA so it reads its settings again (a few
+// seconds; the services retry). Without it the lifetime above waited for the CA's next
+// restart: home.mym.ae's ran for days still signing phones for a week, so
+// each phone renewed at every token, and a renewal whose answer was lost
+// left it with a certificate Linx no longer knew (2026-10-13). Nothing to do
+// when the CA isn't running yet; it starts with the new settings.
+func caReloadStep() Step {
+	return cmdStep("Have the internal certificate authority read its settings again",
+		"sh", "-c", `if [ "$(docker inspect -f '{{.State.Running}}' `+StepCAContainer+` 2>/dev/null)" = true ]; then docker restart `+StepCAContainer+` >/dev/null; fi`)
 }
 
 // devicesCertDuration is the inactivity window of ADR-077 in step-ca's

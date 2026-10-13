@@ -28,13 +28,15 @@ type fakeStore struct {
 	audits     []auth.AuditEntry
 	// dead makes DevicePrincipalFor refuse, as a disabled person would.
 	dead map[uuid.UUID]bool
+	// previous is each phone's certificate before its newest.
+	previous map[uuid.UUID][]byte
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		targets: map[uuid.UUID]Target{}, tickets: map[uuid.UUID]*Ticket{},
 		identities: map[uuid.UUID]*Identity{}, devices: map[uuid.UUID]*pbx.Device{},
-		proofs: map[uuid.UUID]bool{}, dead: map[uuid.UUID]bool{},
+		proofs: map[uuid.UUID]bool{}, dead: map[uuid.UUID]bool{}, previous: map[uuid.UUID][]byte{},
 	}
 }
 
@@ -115,7 +117,7 @@ func (f *fakeStore) RedeemEnrollment(_ context.Context, ticket uuid.UUID, d pbx.
 
 func (f *fakeStore) IdentityByFingerprint(_ context.Context, fp []byte) (Identity, pbx.Device, error) {
 	for id, i := range f.identities {
-		if bytes.Equal(i.CertFingerprint, fp) {
+		if bytes.Equal(i.CertFingerprint, fp) || (f.previous[id] != nil && bytes.Equal(f.previous[id], fp)) {
 			return *i, *f.devices[id], nil
 		}
 	}
@@ -138,6 +140,7 @@ func (f *fakeStore) TouchIdentity(_ context.Context, device uuid.UUID, cert *Cer
 	i.LastSeenAt, i.ExpiresAt, i.AppVersion, i.OSVersion = seen, expires, app, os
 	if cert != nil {
 		i.CertSerial, i.CertFingerprint, i.CertNotAfter, i.ExpiredAt = cert.Serial, cert.Fingerprint, cert.NotAfter, nil
+		f.previous[device] = cert.Previous
 	}
 	return nil
 }

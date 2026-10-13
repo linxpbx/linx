@@ -196,7 +196,7 @@ func scanIdentity(row pgx.Row) (enroll.Identity, pbx.Device, error) {
 func (s *Store) IdentityByFingerprint(ctx context.Context, fingerprint []byte) (enroll.Identity, pbx.Device, error) {
 	return scanIdentity(s.pool.QueryRow(ctx, `SELECT `+identityColumns+`, `+deviceColumnsQualified+`
 		FROM device_identity i JOIN device d ON d.id = i.device_id
-		WHERE i.cert_fingerprint = $1`, fingerprint))
+		WHERE i.cert_fingerprint = $1 OR i.prev_cert_fingerprint = $1`, fingerprint))
 }
 
 func (s *Store) IdentityByDevice(ctx context.Context, device uuid.UUID) (enroll.Identity, pbx.Device, error) {
@@ -210,8 +210,9 @@ func (s *Store) IdentityByDevice(ctx context.Context, device uuid.UUID) (enroll.
 func (s *Store) TouchIdentity(ctx context.Context, device uuid.UUID, cert *enroll.CertUpdate, app, os string, seen, expires time.Time) error {
 	if cert != nil {
 		_, err := s.pool.Exec(ctx, `UPDATE device_identity SET last_seen_at = $2, expires_at = $3, expired_at = NULL,
-			cert_serial = $4, cert_fingerprint = $5, cert_not_after = $6, app_version = $7, os_version = $8
-			WHERE device_id = $1`, device, seen, expires, cert.Serial, cert.Fingerprint, cert.NotAfter, app, os)
+			cert_serial = $4, cert_fingerprint = $5, cert_not_after = $6, app_version = $7, os_version = $8,
+			prev_cert_fingerprint = $9
+			WHERE device_id = $1`, device, seen, expires, cert.Serial, cert.Fingerprint, cert.NotAfter, app, os, cert.Previous)
 		return err
 	}
 	_, err := s.pool.Exec(ctx, `UPDATE device_identity SET last_seen_at = $2, expires_at = $3,

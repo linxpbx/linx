@@ -341,15 +341,28 @@ func TestRenewAndExpire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The old certificate is no longer the phone's.
-	if _, err := f.svc.DeviceToken(context.Background(), TokenRequest{
-		Certificate: p.cert.Raw, Proof: p.proof(t, out.DeviceID, f.now)}); status(err) != http.StatusUnauthorized {
-		t.Errorf("the replaced certificate still works: %v", err)
+	// The answer carrying the new certificate may never reach the phone (a
+	// reply lost on mobile data): the one it signed in with still works,
+	// and may renew again (2026-10-13: phones were told to set up again).
+	first := p.cert
+	res, err = f.svc.DeviceToken(context.Background(), TokenRequest{
+		Certificate: first.Raw, Proof: p.proof(t, out.DeviceID, f.now), CSR: p.csr(t, CertName)})
+	if err != nil || res.Certificate == "" {
+		t.Fatalf("the certificate before the newest: %+v, %v", res, err)
+	}
+	renewed, err = x509.ParseCertificate(certDER(t, res.Certificate))
+	if err != nil {
+		t.Fatal(err)
 	}
 	p.cert = renewed
 	if _, err := f.svc.DeviceToken(context.Background(), TokenRequest{
-		Certificate: p.cert.Raw, Proof: p.proof(t, out.DeviceID, f.now)}); err != nil {
+		Certificate: p.cert.Raw, Proof: p.proof(t, out.DeviceID, f.now), CSR: p.csr(t, CertName)}); err != nil {
 		t.Fatalf("with the renewed certificate: %v", err)
+	}
+	// Two renewals on, the first is no longer the phone's.
+	if _, err := f.svc.DeviceToken(context.Background(), TokenRequest{
+		Certificate: first.Raw, Proof: p.proof(t, out.DeviceID, f.now)}); status(err) != http.StatusUnauthorized {
+		t.Errorf("a certificate two renewals old still works: %v", err)
 	}
 
 	// A different key is not that phone.

@@ -47,8 +47,8 @@ func TestPKIPlanBootstrap(t *testing.T) {
 
 func TestPKIPlanExistingCA(t *testing.T) {
 	s := PKIPlan(true)
-	if s.Passphrase != "" || len(s.Plan) != 5 {
-		t.Errorf("existing CA: passphrase %q, %d steps; want the 3 secrets, the certificate permissions and the devices provisioner",
+	if s.Passphrase != "" || len(s.Plan) != 6 {
+		t.Errorf("existing CA: passphrase %q, %d steps; want the 3 secrets, the certificate permissions, the devices provisioner and the reload",
 			s.Passphrase, len(s.Plan))
 	}
 	for _, st := range s.Plan[:3] {
@@ -64,10 +64,16 @@ func TestPKIPlanExistingCA(t *testing.T) {
 	// A CA made before 2026-10-03 signed phones' certificates for 7 days;
 	// the idle window is now six months, so setup brings it up to date
 	// (ADR-077).
+	devices := s.Plan[len(s.Plan)-2]
+	if devices.Cmd == nil || !strings.Contains(devices.Cmd.String(), "ca provisioner update linx-devices") ||
+		!strings.Contains(devices.Cmd.String(), "--x509-max-dur "+devicesCertDuration) {
+		t.Errorf("step 5 should keep a phone's certificate as long as the idle window: %+v", devices)
+	}
+	// ...and a running CA has to read that again: until it restarted, it
+	// went on signing for a week (2026-10-13).
 	last := s.Plan[len(s.Plan)-1]
-	if last.Cmd == nil || !strings.Contains(last.Cmd.String(), "ca provisioner update linx-devices") ||
-		!strings.Contains(last.Cmd.String(), "--x509-max-dur "+devicesCertDuration) {
-		t.Errorf("last step should keep a phone's certificate as long as the idle window: %+v", last)
+	if last.Cmd == nil || !strings.Contains(last.Cmd.String(), "docker restart "+StepCAContainer) {
+		t.Errorf("last step should have the running CA reload: %+v", last)
 	}
 }
 
