@@ -562,9 +562,18 @@ struct CallDiagnostics: Equatable, Sendable {
         do {
             try session.overrideOutputAudioPort(on ? .speaker : .none)
         } catch {
-            // Say so rather than leave the button lit with the sound still
-            // in the earpiece.
-            onRouteTrouble?("This phone wouldn't move the sound. The call carries on.")
+            // iOS can refuse the override where it changes nothing — an
+            // iPad has no earpiece, so its sound is on the loudspeaker
+            // already — and that refusal showed the owner a red line on
+            // every video call (2026-10-14). Written down either way; said
+            // on the screen only when the sound really isn't where the
+            // person asked for it, which is what the line is for: a button
+            // lit with the sound still in the earpiece.
+            mark("Speaker: iOS said \((error as NSError).code)")
+            let now = Self.route(of: AVAudioSession.sharedInstance().currentRoute)
+            if now.builtIn, now.speaker != on {
+                onRouteTrouble?("This phone wouldn't move the sound. The call carries on.")
+            }
         }
         session.unlockForConfiguration()
         Self.tellTheRoute()

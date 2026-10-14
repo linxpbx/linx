@@ -544,7 +544,15 @@ struct CallLinkMessage: Decodable, Sendable {
         for sender in connection?.senders ?? [] where sender.track?.kind == kRTCMediaStreamTrackKindVideo {
             let parameters = sender.parameters
             for encoding in parameters.encodings { encoding.maxBitrateBps = NSNumber(value: most) }
-            parameters.degradationPreference = NSNumber(value: RTCDegradationPreference.balanced.rawValue)
+            // The size is Linx's to choose (`follow(room:)` steps it down on
+            // a thin link and back up): left to WebRTC's own "balanced"
+            // scaling, a direct call with 2 Mbit/s of room started at 180p
+            // and took 28 s to climb to 720p after HD (the owner's 5G call
+            // and the phone bench, 2026-10-14). Holding the size means a
+            // short squeeze costs frames, not sharpness, until the ladder
+            // steps down.
+            parameters.degradationPreference = NSNumber(
+                value: RTCDegradationPreference.maintainResolution.rawValue)
             sender.parameters = parameters
         }
     }
@@ -567,8 +575,14 @@ struct CallLinkMessage: Decodable, Sendable {
 
     private func read(_ report: RTCStatisticsReport) {
         var frames = 0
-        var room: Int?
-        if let route = Self.route(in: report), route != routeNow {
+        // The room to send in is the pair WebRTC is really using: several
+        // pairs can be marked nominated at once, and reading whichever came
+        // first gave a different route and a different room every few
+        // seconds — the picture stepped down for nothing and HD took up to
+        // 50 s to arrive (the owner's 5G call, 2026-10-14).
+        let pair = Self.pairInUse(in: report)
+        let room = (pair?.values["availableOutgoingBitrate"] as? NSNumber)?.intValue
+        if let route = Self.route(of: pair, in: report), route != routeNow {
             onMark?(routeNow == nil ? "Picture route: \(route)" : "Picture route now: \(route)")
             routeNow = route
             routeFound(route)
@@ -577,15 +591,10 @@ struct CallLinkMessage: Decodable, Sendable {
             if statistic.type == "outbound-rtp", statistic.values["kind"] as? String == "video",
                 let height = (statistic.values["frameHeight"] as? NSNumber)?.intValue, height > 0
             {
-                sending(height)
+                sending(height, room: room)
             }
             if statistic.type == "inbound-rtp", statistic.values["kind"] as? String == "video" {
                 frames += (statistic.values["framesDecoded"] as? NSNumber)?.intValue ?? 0
-            }
-            if statistic.type == "candidate-pair", statistic.values["nominated"] as? Bool == true,
-                let available = (statistic.values["availableOutgoingBitrate"] as? NSNumber)?.intValue
-            {
-                room = available
             }
         }
         if video.theirs {
@@ -646,7 +655,7 @@ struct CallLinkMessage: Decodable, Sendable {
     /// "clicking on HD doesn't change anything"). Marked when it settles on a
     /// new size, two readings running, so a size passed through on the way
     /// up isn't written down.
-    private func sending(_ height: Int) {
+    private func sending(_ height: Int, room: Int?) {
         guard height != sendingHeight else {
             sendingCandidate = nil
             return
@@ -658,7 +667,9 @@ struct CallLinkMessage: Decodable, Sendable {
         sendingCandidate = nil
         sendingHeight = height
         sizeMarks += 1
-        if sizeMarks <= Self.mostSizeMarks { onMark?("Sending \(height)p") }
+        if sizeMarks <= Self.mostSizeMarks {
+            onMark?("Sending \(height)p" + (room.map { " (room \($0 / 1000) kbit/s)" } ?? ""))
+        }
         onSending?(height)
     }
 
@@ -689,13 +700,23 @@ struct CallLinkMessage: Decodable, Sendable {
 
     /// The picture's route in the call's own words ("relay/udp → relay/udp"),
     /// once it has one.
-    private static func route(in report: RTCStatisticsReport) -> String? {
+    /// The candidate pair the picture is going over: the one its transport
+    /// has selected, not whichever pair says it was nominated.
+    static func pairInUse(in report: RTCStatisticsReport) -> RTCStatistics? {
+        let all = report.statistics
+        for statistic in all.values where statistic.type == "transport" {
+            if let id = statistic.values["selectedCandidatePairId"] as? String, let pair = all[id] {
+                return pair
+            }
+        }
+        return nil
+    }
+
+    private static func route(of pair: RTCStatistics?, in report: RTCStatisticsReport) -> String? {
         let all = report.statistics
         guard
-            let pair = all.values.first(where: {
-                $0.type == "candidate-pair" && $0.values["nominated"] as? Bool == true
-                    && $0.values["state"] as? String == "succeeded"
-            }),
+            let pair,
+            pair.values["state"] as? String == "succeeded",
             let localID = pair.values["localCandidateId"] as? String,
             let remoteID = pair.values["remoteCandidateId"] as? String,
             let local = all[localID], let remote = all[remoteID]

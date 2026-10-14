@@ -53,6 +53,11 @@ var benchScenarios = []benchScenario{
 	// cap (turnconf.MaxBPS). The owner pressed it and saw no change
 	// (2026-10-14), so the picture's real size is what is checked.
 	{name: "mobile network with HD on", flags: []string{"relay-only", "hd"}, hd: true},
+	// Phone to phone with no relay forced: several routes work at once, as
+	// on the owner's 5G call where the picture went straight between the
+	// two (2026-10-14). Reading whichever pair said "nominated" made the
+	// route seem to change every few seconds and squeezed the picture.
+	{name: "direct between the phones, HD on", flags: []string{"hd"}, hd: true},
 	{name: "China: no UDP, the relay over TLS on 443", flags: []string{"no-udp"}, relay: "tls"},
 	{name: "China, and the connection cut mid-call", flags: []string{"no-udp"}, relay: "tls", cut: true},
 	{name: "poor mobile link: 300 ms round trip, 2% loss", flags: []string{"relay-only"}, slow: "delay 300ms 20ms loss 2%"},
@@ -256,6 +261,19 @@ var (
 	routeRe   = regexp.MustCompile(`route: relayed \((\w+)\)`)
 )
 
+var markRe = regexp.MustCompile(`\+([0-9.]+) s (.+)`)
+
+// markAt is when a phone's record first says what (seconds into the call).
+func markAt(r, what string) (float64, bool) {
+	for _, m := range markRe.FindAllStringSubmatch(r, -1) {
+		if strings.HasPrefix(m[2], what) {
+			at, _ := strconv.ParseFloat(m[1], 64)
+			return at, true
+		}
+	}
+	return 0, false
+}
+
 // benchCheck holds one phone's record of the call to what a good call is.
 func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 	t.Helper()
@@ -296,8 +314,18 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			fail("the sound's route was lost and never restarted")
 		}
 	}
-	if sc.hd && !strings.Contains(r, "Sending 720p") {
-		fail("HD was on and the picture never went out at 720p")
+	if sc.hd {
+		on, ok := markAt(r, "HD on")
+		at, sent := markAt(r, "Sending 720p")
+		switch {
+		case !sent:
+			fail("HD was on and the picture never went out at 720p")
+		case ok && at-on > 20:
+			fail(fmt.Sprintf("HD took %.0f s to reach 720p", at-on))
+		}
+	}
+	if !sc.cut && strings.Count(r, "Picture route now") > 2 {
+		fail(fmt.Sprintf("the picture's route changed %d times", strings.Count(r, "Picture route now")))
 	}
 	if sc.relay != "" {
 		if m := routeRe.FindStringSubmatch(r); m == nil || m[1] != sc.relay {
