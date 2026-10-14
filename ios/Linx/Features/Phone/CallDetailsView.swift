@@ -10,7 +10,7 @@ import UIKit
 /// Linx's relay, whether anything is coming in, whether anything is going
 /// out, and what Linx's relay said if it wouldn't have this phone.
 ///
-/// It is reached by tapping the "Encrypted · …" line during a call, and
+/// It is reached by tapping **Encrypted ⓘ** during a call, and
 /// **Copy these details** puts the lot on the clipboard, which is what makes a
 /// silent call on somebody else's network something they can report rather
 /// than something that has to be guessed at.

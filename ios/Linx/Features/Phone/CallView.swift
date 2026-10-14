@@ -76,14 +76,9 @@ struct CallView: View {
     private var sound: some View {
         VStack(spacing: LinxSpace.s5) {
             HStack {
-                Button {
-                    phone.callDetailsAreOpen = true
-                } label: {
-                    ConnectionPill(call: call)
-                }
-                .accessibilityLabel("Call details")
+                EncryptedInfo()
                 Spacer()
-                AddPersonButton()
+                CallMoreMenu()
             }
             if let warning = warning {
                 Button {
@@ -288,34 +283,6 @@ private struct CallWarning: View {
         .padding(.vertical, LinxSpace.s2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(LinxColor.end, in: .rect(cornerRadius: LinxRadius.md))
-    }
-}
-
-/// Encrypted, and how the sound is getting through.
-private struct ConnectionPill: View {
-    let call: PhoneModel.Call
-
-    var body: some View {
-        HStack(spacing: LinxSpace.s2) {
-            Image(systemName: "lock.fill")
-                .font(.caption)
-                .accessibilityHidden(true)
-            Text(words)
-                .font(.caption.weight(.medium))
-        }
-        .foregroundStyle(LinxColor.onSurfaceDark)
-        .padding(.horizontal, LinxSpace.s3)
-        .padding(.vertical, LinxSpace.s2)
-        .background(LinxColor.surface.opacity(0.18), in: .capsule)
-    }
-
-    /// Every Linx call is encrypted end to end over DTLS-SRTP; the rest says
-    /// whether it is going straight there or through Linx's relay.
-    private var words: String {
-        guard let connection = call.connection else { return "Encrypted" }
-        var out = "Encrypted · " + (connection.route == .direct ? "Direct" : "Relayed")
-        if let rtt = connection.roundTripMs { out += " · \(rtt) ms" }
-        return out
     }
 }
 

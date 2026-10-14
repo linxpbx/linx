@@ -7,9 +7,11 @@
 #   bench.sh build                       # once: the app, signed to run locally
 #   bench.sh prepare CA_PEM              # trust the test CA, fresh app on both
 #   bench.sh call CALLER_LINK ANSWERER_LINK NUMBER SECONDS [flags…]
+#   bench.sh shot DIR NAME               # both screens, mid-call, into DIR
 #
 # flags: relay-only, no-udp (China: the relay over TLS on 443 only), audio,
-# callkit (ring and answer through CallKit, as an iPhone outside China).
+# callkit (ring and answer through CallKit, as an iPhone outside China),
+# hd (both phones press HD five seconds in).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -32,6 +34,12 @@ build)
     CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= \
     >"$dd.log" 2>&1 || { grep -E "error:" "$dd.log" | sort -u | head -20; exit 1; }
   echo "bench: built"
+  ;;
+shot)
+  dir=${2:?DIR}
+  mkdir -p "$dir"
+  xcrun simctl io "$caller" screenshot --type=png "$dir/caller-${3:?NAME}.png" >/dev/null 2>&1
+  xcrun simctl io "$answerer" screenshot --type=png "$dir/answerer-$3.png" >/dev/null 2>&1
   ;;
 prepare)
   ca=${2:?CA_PEM}
@@ -56,6 +64,7 @@ call)
     no-udp) flags+=(-LinxBenchNoUDP YES) ;;
     audio) video=NO ;;
     callkit) flags+=(-LinxBenchCallKit YES) ;;
+    hd) flags+=(-LinxBenchHD YES) ;;
     *) echo "bench: unknown flag $f" >&2; exit 2 ;;
     esac
   done

@@ -23,7 +23,11 @@ private struct CallAlongside: ViewModifier {
 
     func body(content: Content) -> some View {
         GeometryReader { screen in
-            let beside = CallLayout.callFitsBeside(size: screen.size, horizontal: horizontal)
+            // A video call takes the whole screen (owner, 2026-10-14): the
+            // picture is the point of it. Only a folding phone opened out
+            // keeps it on its own leaf, beside the app, off the crease.
+            let video = phone.call?.video.on == true && crease == nil
+            let beside = CallLayout.callFitsBeside(size: screen.size, horizontal: horizontal) && !video
             // The app itself stays in the same place in this layout whether
             // a call is up or not. Moving it between two containers would
             // build it again from scratch every time the phone rang, and

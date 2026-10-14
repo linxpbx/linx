@@ -379,10 +379,11 @@ struct CallDiagnostics: Equatable, Sendable {
             cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn))
         picture.onMark = { [weak self] what in self?.mark(what) }
         picture.onTooExpensive = { [weak self] in self?.onVideoTooExpensive?() }
+        picture.onSending = { [weak self] height in self?.note { $0.picture = "\(height)p" } }
         picture.onMove = { [weak self] join in self?.onGroupMove?(join) }
         picture.onVideoChanged = { [weak self] video in
             guard let self else { return }
-            self.note { $0.picture = video.mine ? (self.hd ? "720p" : "540p") : nil }
+            if !video.mine { self.note { $0.picture = nil } }
             self.onVideoChanged?(video)
         }
         self.picture = picture

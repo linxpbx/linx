@@ -574,6 +574,11 @@ struct CallLinkMessage: Decodable, Sendable {
             routeFound(route)
         }
         for statistic in report.statistics.values {
+            if statistic.type == "outbound-rtp", statistic.values["kind"] as? String == "video",
+                let height = (statistic.values["frameHeight"] as? NSNumber)?.intValue, height > 0
+            {
+                sending(height)
+            }
             if statistic.type == "inbound-rtp", statistic.values["kind"] as? String == "video" {
                 frames += (statistic.values["framesDecoded"] as? NSNumber)?.intValue ?? 0
             }
@@ -634,6 +639,37 @@ struct CallLinkMessage: Decodable, Sendable {
         onMark?("Picture back up to \(quality.height)p")
         useQuality()
     }
+
+    /// The size this phone's picture is really going out at, which is what
+    /// WebRTC makes of the step asked for and the link it finds: **HD** asks
+    /// for 720p, and only this says whether it got there (owner, 2026-10-14:
+    /// "clicking on HD doesn't change anything"). Marked when it settles on a
+    /// new size, two readings running, so a size passed through on the way
+    /// up isn't written down.
+    private func sending(_ height: Int) {
+        guard height != sendingHeight else {
+            sendingCandidate = nil
+            return
+        }
+        guard sendingCandidate == height else {
+            sendingCandidate = height
+            return
+        }
+        sendingCandidate = nil
+        sendingHeight = height
+        sizeMarks += 1
+        if sizeMarks <= Self.mostSizeMarks { onMark?("Sending \(height)p") }
+        onSending?(height)
+    }
+
+    private var sendingHeight = 0
+    private var sendingCandidate: Int?
+    private var sizeMarks = 0
+    /// A call that wanders between sizes all its life fills its report with
+    /// nothing else; the first few say what is needed.
+    private static let mostSizeMarks = 12
+    /// The size this phone's picture is going out at, for Call details.
+    var onSending: ((Int) -> Void)?
 
     /// The step before any squeezing.
     private var unsqueezed: VideoQuality {

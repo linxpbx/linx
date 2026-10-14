@@ -6,8 +6,12 @@ import SwiftUI
 /// screen — with video added to it, so turning the camera off leaves an
 /// ordinary phone call behind rather than ending anything.
 ///
-/// The layout follows the screen, not the device (`CallLayout`): upright, on
-/// its side, an iPad, and an iPhone Duo folded and unfolded.
+/// **The picture is the screen** (owner, 2026-10-14). Whoever has the big
+/// picture fills it, on a phone and an iPad alike; who it is, the buttons and
+/// the **…** sit over it and go away by themselves after a few seconds, and a
+/// tap on the picture brings them back. A tap on the small picture swaps the
+/// two over. Only a folding phone opened out still divides the call into two
+/// panels, because nothing may be laid over its crease (`CallLayout`).
 struct VideoCallView: View {
     @Environment(PhoneModel.self) private var phone
     @Environment(\.horizontalSizeClass) private var horizontal
@@ -16,9 +20,17 @@ struct VideoCallView: View {
     let call: PhoneModel.Call
     let now: Date
 
+    /// Whether the controls are over the picture. They go after
+    /// `controlsStay` with nobody touching the screen.
+    @State private var controlsShown = true
+    /// Counts touches, so each one starts the wait to hide them again.
+    @State private var touches = 0
+
+    static let controlsStay: Duration = .seconds(5)
+
     var body: some View {
         GeometryReader { geometry in
-            let shape = CallLayout.shape(size: geometry.size, horizontal: horizontal, crease: crease)
+            let shape = CallLayout.videoShape(size: geometry.size, horizontal: horizontal, crease: crease)
             Group {
                 switch shape {
                 case .tall, .wide:
@@ -30,6 +42,37 @@ struct VideoCallView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(LinxColor.surfaceDark.ignoresSafeArea())
+        .task(id: touches) {
+            try? await Task.sleep(for: Self.controlsStay)
+            guard !Task.isCancelled, mayHideControls else { return }
+            withAnimation(.easeOut(duration: 0.3)) { controlsShown = false }
+        }
+    }
+
+    /// The controls only go while there is a picture to look at instead,
+    /// and nothing on top of the call is waiting for an answer.
+    private var mayHideControls: Bool {
+        showsAPicture && !phone.callDetailsAreOpen && !phone.addingPerson && phone.askAboutTheirVideo == nil
+    }
+
+    private var showsAPicture: Bool {
+        switch big {
+        case .mine: return call.video.mine
+        case .theirs: return call.video.theirs && call.video.theirPicture
+        }
+    }
+
+    private func touched() {
+        touches += 1
+        if !controlsShown { withAnimation(.easeOut(duration: 0.2)) { controlsShown = true } }
+    }
+
+    private func tappedThePicture() {
+        if controlsShown, mayHideControls {
+            withAnimation(.easeOut(duration: 0.2)) { controlsShown = false }
+        } else {
+            touched()
+        }
     }
 
     /// Who has the big screen. The other person by default — they are who you
@@ -49,77 +92,111 @@ struct VideoCallView: View {
         return big == .theirs ? .mine : .theirs
     }
 
-    private func swap() { phone.swapPictures() }
-
-    // MARK: - A phone: the picture fills the screen
-
-    /// Upright, the buttons lie along the bottom; on its side they stand in
-    /// a column down the trailing edge, so they never cross the middle of
-    /// somebody's face and never sit under a notch.
-    private func overlaid(shape: CallLayout.Shape, size: CGSize) -> some View {
-        ZStack(alignment: shape == .wide ? .topLeading : .top) {
-            Picture(whose: big, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo, fills: true)
-                .ignoresSafeArea()
-                .onTapGesture(perform: swap)
-                .accessibilityAddTraits(phone.canSwapPictures ? .isButton : [])
-                .accessibilityHint(phone.canSwapPictures ? "Swaps the two pictures over" : "")
-
-            VStack(spacing: LinxSpace.s2) {
-                Who(call: call, now: now, big: false, theirCameraOff: !call.video.theirs && call.video.mine)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, LinxSpace.s5)
-            .padding(.top, LinxSpace.s3)
-            .frame(maxWidth: shape == .wide ? size.width * 0.5 : .infinity, alignment: .leading)
-
-            if shape == .wide {
-                HStack(alignment: .bottom) {
-                    if let tile {
-                        SmallPicture(
-                            whose: tile, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo,
-                            tap: swap
-                        )
-                        .frame(width: CallLayout.selfViewWidth(for: shape, size: size))
-                    }
-                    Spacer(minLength: 0)
-                    Buttons(call: call, across: false)
-                }
-                .padding(LinxSpace.s4)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            } else {
-                VStack(spacing: 0) {
-                    HStack {
-                        Spacer(minLength: 0)
-                        if let tile {
-                            SmallPicture(
-                                whose: tile, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo,
-                                tap: swap
-                            )
-                            .frame(width: CallLayout.selfViewWidth(for: shape, size: size))
-                        }
-                    }
-                    .padding(.top, LinxSpace.s10)
-                    .padding(.horizontal, LinxSpace.s4)
-                    Spacer(minLength: 0)
-                    Buttons(call: call, across: true)
-                        .padding(.bottom, LinxSpace.s6)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+    /// The camera switch rides on this phone's own picture; when that is
+    /// the big one, it goes in the top bar instead.
+    private var bigFlip: (() -> Void)? {
+        guard big == .mine, call.video.mine else { return nil }
+        return {
+            phone.switchCamera()
+            touched()
         }
     }
 
-    // MARK: - An iPad, or a Duo opened out: two panels
+    private func swap() {
+        phone.swapPictures()
+        touched()
+    }
+
+    private func smallPicture(_ whose: Whose, width: CGFloat) -> some View {
+        SmallPicture(
+            whose: whose, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo,
+            flip: whose == .mine && call.video.mine
+                ? {
+                    phone.switchCamera(); touched()
+                } : nil,
+            tap: swap
+        )
+        .frame(width: width)
+    }
+
+    // MARK: - The picture fills the screen
+
+    /// The person and the **…** along the top; the buttons along the bottom
+    /// upright, or down the trailing edge on its side so they never cross
+    /// somebody's face. The small picture stays where it is when the rest
+    /// goes, as it does in every video call app.
+    private func overlaid(shape: CallLayout.Shape, size: CGSize) -> some View {
+        let tileWidth = CallLayout.selfViewWidth(for: shape, size: size)
+        return ZStack {
+            Picture(whose: big, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo, fills: true)
+                .ignoresSafeArea()
+                .contentShape(.rect)
+                .onTapGesture(perform: tappedThePicture)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint(controlsShown ? "Hides the call's buttons" : "Shows the call's buttons")
+
+            if controlsShown {
+                // A soft shade at the top and bottom keeps white words and
+                // buttons readable over a bright picture, with no box round
+                // them.
+                VStack(spacing: 0) {
+                    LinearGradient(
+                        colors: [LinxColor.surfaceDark.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: 180)
+                    Spacer(minLength: 0)
+                    LinearGradient(
+                        colors: [.clear, LinxColor.surfaceDark.opacity(0.6)], startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: 200)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+
+            VStack(spacing: LinxSpace.s3) {
+                if controlsShown {
+                    TopBar(
+                        call: call, now: now, theirCameraOff: !call.video.theirs && call.video.mine,
+                        flip: bigFlip
+                    )
+                    .transition(.opacity)
+                }
+                HStack(alignment: .top) {
+                    Spacer(minLength: 0)
+                    if let tile { smallPicture(tile, width: tileWidth) }
+                }
+                Spacer(minLength: 0)
+                if controlsShown, shape == .tall {
+                    Buttons(call: call, across: true)
+                        .padding(.bottom, LinxSpace.s4)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, LinxSpace.s4)
+            .padding(.top, LinxSpace.s2)
+
+            if controlsShown, shape == .wide {
+                Buttons(call: call, across: false)
+                    .padding(LinxSpace.s4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .simultaneousGesture(TapGesture().onEnded { if controlsShown { touched() } })
+    }
+
+    // MARK: - A folding phone opened out: two panels
 
     private func split(sideBySide: Bool, size: CGSize) -> some View {
         let panel = VStack(spacing: LinxSpace.s5) {
-            Who(call: call, now: now, big: true, theirCameraOff: !call.video.theirs && call.video.mine)
+            TopBar(
+                call: call, now: now, theirCameraOff: !call.video.theirs && call.video.mine, flip: bigFlip)
             if let tile {
-                SmallPicture(
-                    whose: tile, call: call, tracks: phone.tracks, mirrored: phone.mirrorsMyVideo, tap: swap
-                )
-                .frame(width: CallLayout.selfViewWidth(for: .split(sideBySide: sideBySide), size: size))
+                smallPicture(tile, width: CallLayout.selfViewWidth(for: .split(sideBySide: sideBySide), size: size))
             }
+            Spacer(minLength: 0)
             Buttons(call: call, across: true)
         }
         .padding(LinxSpace.s6)
@@ -227,29 +304,35 @@ private struct SmallPicture: View {
     let call: PhoneModel.Call
     let tracks: VideoTracks
     let mirrored: Bool
+    /// This phone's own picture carries the front/back camera switch.
+    let flip: (() -> Void)?
     let tap: () -> Void
 
     var body: some View {
-        Button(action: tap) {
-            ZStack {
-                LinxColor.surface.opacity(0.25)
-                if let track = showing {
-                    VideoPicture(track: track, fills: true, mirrored: whose == .mine && mirrored)
-                } else {
-                    Image(systemName: "video.slash")
-                        .font(.title3)
-                        .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
+        ZStack(alignment: .bottomTrailing) {
+            Button(action: tap) {
+                ZStack {
+                    LinxColor.surface.opacity(0.25)
+                    if let track = showing {
+                        VideoPicture(track: track, fills: true, mirrored: whose == .mine && mirrored)
+                    } else {
+                        Image(systemName: "video.slash")
+                            .font(.title3)
+                            .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
+                    }
+                }
+                .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                .clipShape(.rect(cornerRadius: LinxRadius.md))
+                .overlay {
+                    RoundedRectangle(cornerRadius: LinxRadius.md)
+                        .strokeBorder(LinxColor.onSurfaceDark.opacity(0.25))
                 }
             }
-            .aspectRatio(3.0 / 4.0, contentMode: .fit)
-            .clipShape(.rect(cornerRadius: LinxRadius.md))
-            .overlay {
-                RoundedRectangle(cornerRadius: LinxRadius.md)
-                    .strokeBorder(LinxColor.onSurfaceDark.opacity(0.25))
-            }
+            .accessibilityLabel(Picture.label(whose, call: call, showing: showing != nil))
+            .accessibilityHint("Puts this picture on the big screen")
+
+            if let flip { SwitchCameraButton(press: flip, small: true) }
         }
-        .accessibilityLabel(Picture.label(whose, call: call, showing: showing != nil))
-        .accessibilityHint("Puts this picture on the big screen")
     }
 
     private var showing: RTCVideoTrack? {
@@ -260,47 +343,76 @@ private struct SmallPicture: View {
     }
 }
 
-/// Who it is, how long it has been going, and how the call is getting
-/// through — the same three facts the sound-only screen shows.
-private struct Who: View {
+/// The front or the back camera (owner, 2026-10-14): on this phone's own
+/// picture, as in every video call app.
+private struct SwitchCameraButton: View {
+    let press: () -> Void
+    var small = false
+
+    var body: some View {
+        Button(action: press) {
+            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                .font(small ? .footnote.weight(.semibold) : .body.weight(.semibold))
+                .foregroundStyle(LinxColor.onSurfaceDark)
+                .frame(width: small ? 30 : 36, height: small ? 30 : 36)
+                .background(LinxColor.surfaceDark.opacity(0.55), in: .circle)
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Switch camera")
+        .accessibilityHint("Changes between the front and back camera")
+    }
+}
+
+/// Who it is and how long it has been going on the left, with **Encrypted ⓘ**
+/// under them; **HD** and the **…** on the right (owner, 2026-10-14).
+private struct TopBar: View {
     let call: PhoneModel.Call
     let now: Date
-    let big: Bool
     /// This phone's camera is on and theirs isn't, so the big picture is this
     /// phone's own: say whose it is, or a person would think they were
     /// looking at a call that had gone wrong.
     var theirCameraOff = false
+    /// The camera switch, when this phone's own picture is the big one and
+    /// so has no small tile to carry it.
+    var flip: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: big ? .center : .leading, spacing: LinxSpace.s1) {
-            Text(call.peer.name)
-                .font(big ? .largeTitle.weight(.bold) : .headline)
-                .foregroundStyle(LinxColor.onSurfaceDark)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
-            Text(CallView.length(since: call.answeredAt, to: now))
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
-            ConnectionWords(call: call)
-            if call.video.mine { HDButton(on: call.hd) }
-            AddPersonButton()
+        VStack(alignment: .leading, spacing: LinxSpace.s1) {
+            HStack(alignment: .top, spacing: LinxSpace.s2) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(call.peer.name)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(LinxColor.onSurfaceDark)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text(CallView.length(since: call.answeredAt, to: now))
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.85))
+                    EncryptedInfo(tight: true)
+                }
+                .shadow(color: LinxColor.surfaceDark.opacity(0.5), radius: 3)
+                Spacer(minLength: 0)
+                if call.video.mine { HDButton(on: call.hd) }
+                if let flip { SwitchCameraButton(press: flip) }
+                CallMoreMenu()
+            }
             if theirCameraOff {
                 Text("Their camera is off. This is yours — they can see you.")
                     .font(.caption)
-                    .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
-                    .multilineTextAlignment(big ? .center : .leading)
+                    .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.85))
+                    .shadow(color: LinxColor.surfaceDark.opacity(0.5), radius: 3)
             }
         }
-        .frame(maxWidth: .infinity, alignment: big ? .center : .leading)
-        .padding(.horizontal, LinxSpace.s3)
-        .padding(.vertical, LinxSpace.s2)
-        .background(big ? Color.clear : LinxColor.surfaceDark.opacity(0.45), in: .rect(cornerRadius: LinxRadius.md))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// The **HD** button (owner, 2026-10-12): bold slanted letters in a
-/// rounded badge. On is solid and bright; off is an outline, dimmed, so the
-/// two can be told apart at a glance in a bright room or a dark one.
+/// The **HD** button (owner, 2026-10-12; made smaller 2026-10-14): bold
+/// slanted letters in a rounded badge. On is solid and bright; off is an
+/// outline, dimmed, so the two can be told apart at a glance in a bright
+/// room or a dark one.
 private struct HDButton: View {
     @Environment(PhoneModel.self) private var phone
     let on: Bool
@@ -310,19 +422,19 @@ private struct HDButton: View {
             phone.toggleHD()
         } label: {
             Text("HD")
-                .font(.system(size: 15, weight: .black).italic())
-                .foregroundStyle(on ? LinxColor.surfaceDark : LinxColor.onSurfaceDark.opacity(0.55))
-                .padding(.horizontal, LinxSpace.s2)
-                .padding(.vertical, 2)
+                .font(.system(size: 11, weight: .black).italic())
+                .foregroundStyle(on ? LinxColor.surfaceDark : LinxColor.onSurfaceDark.opacity(0.7))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
                 .background {
-                    let badge = RoundedRectangle(cornerRadius: 5)
+                    let badge = RoundedRectangle(cornerRadius: 4)
                     if on {
                         badge.fill(LinxColor.onSurfaceDark)
                     } else {
-                        badge.stroke(LinxColor.onSurfaceDark.opacity(0.55), lineWidth: 1.5)
+                        badge.stroke(LinxColor.onSurfaceDark.opacity(0.7), lineWidth: 1.2)
                     }
                 }
-                .transformEffect(CGAffineTransform(a: 1, b: 0, c: -0.18, d: 1, tx: 3, ty: 0))
+                .transformEffect(CGAffineTransform(a: 1, b: 0, c: -0.18, d: 1, tx: 2, ty: 0))
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(.rect)
         }
@@ -330,25 +442,6 @@ private struct HDButton: View {
         .accessibilityLabel("HD")
         .accessibilityValue(on ? "On" : "Off")
         .accessibilityHint(on ? "Holds your picture at 540p to use less data" : "Lets your picture reach 720p")
-    }
-}
-
-private struct ConnectionWords: View {
-    let call: PhoneModel.Call
-
-    var body: some View {
-        HStack(spacing: LinxSpace.s1) {
-            Image(systemName: "lock.fill").font(.caption2).accessibilityHidden(true)
-            Text(words).font(.caption)
-        }
-        .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.8))
-    }
-
-    private var words: String {
-        guard let connection = call.connection else { return "Encrypted" }
-        var out = "Encrypted · " + (connection.route == .direct ? "Direct" : "Relayed")
-        if let rtt = connection.roundTripMs { out += " · \(rtt) ms" }
-        return out
     }
 }
 
@@ -371,11 +464,6 @@ private struct Buttons: View {
                 waiting: phone.changingVideo
             ) { phone.toggleVideo() }
             .disabled(phone.changingVideo)
-            CallCircle(symbol: "arrow.trianglehead.2.clockwise.rotate.90.camera", words: "Flip camera", on: false) {
-                phone.switchCamera()
-            }
-            .disabled(!call.video.mine)
-            .opacity(call.video.mine ? 1 : 0.4)
             CallCircle(
                 symbol: call.speaker ? "speaker.wave.3.fill" : "speaker.fill", words: "Speaker",
                 on: call.speaker
@@ -392,7 +480,7 @@ private struct Buttons: View {
                 VStack(spacing: LinxSpace.s4) { buttons }
             }
         }
-        .padding(across ? LinxSpace.s3 : LinxSpace.s3)
+        .padding(LinxSpace.s3)
         .background(LinxColor.surfaceDark.opacity(0.45), in: .capsule)
     }
 }

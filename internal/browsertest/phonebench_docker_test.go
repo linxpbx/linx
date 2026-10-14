@@ -43,10 +43,16 @@ type benchScenario struct {
 	// slow is a poor mobile link for the whole call: tc netem's settings
 	// on the way in and out of Linx's front door and relay.
 	slow string
+	// hd is both phones pressing HD: each must then send 720p.
+	hd bool
 }
 
 var benchScenarios = []benchScenario{
 	{name: "mobile network: everything through the relay", flags: []string{"relay-only"}},
+	// HD on a relayed call: 720p has to go through the relay's per-call
+	// cap (turnconf.MaxBPS). The owner pressed it and saw no change
+	// (2026-10-14), so the picture's real size is what is checked.
+	{name: "mobile network with HD on", flags: []string{"relay-only", "hd"}, hd: true},
 	{name: "China: no UDP, the relay over TLS on 443", flags: []string{"no-udp"}, relay: "tls"},
 	{name: "China, and the connection cut mid-call", flags: []string{"no-udp"}, relay: "tls", cut: true},
 	{name: "poor mobile link: 300 ms round trip, 2% loss", flags: []string{"relay-only"}, slow: "delay 300ms 20ms loss 2%"},
@@ -145,6 +151,19 @@ func TestPhoneBenchDocker(t *testing.T) {
 				defer h.slowDown("", udp)
 			}
 			bench(append([]string{"call", caller, answerer, "202", strconv.Itoa(benchCallSeconds)}, sc.flags...)...)
+			// LINX_BENCH_SHOTS=DIR: both screens at moments through the
+			// call, to look at what a person holding them would see.
+			if dir := os.Getenv("LINX_BENCH_SHOTS"); dir != "" {
+				name := strings.Fields(sc.name)[0]
+				go func() {
+					start := time.Now()
+					for _, at := range []time.Duration{8, 12, 18, 30} {
+						time.Sleep(time.Until(start.Add(at * time.Second)))
+						_ = exec.Command("../../ios/tools/bench.sh", "shot", dir,
+							fmt.Sprintf("%s-%02ds", strings.TrimSuffix(name, ":"), at)).Run()
+					}
+				}()
+			}
 			if sc.cut {
 				// About fifteen seconds into the answered call.
 				time.Sleep(20 * time.Second)
@@ -276,6 +295,9 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			!strings.HasPrefix(r[lost:], "Sound route restarted") {
 			fail("the sound's route was lost and never restarted")
 		}
+	}
+	if sc.hd && !strings.Contains(r, "Sending 720p") {
+		fail("HD was on and the picture never went out at 720p")
 	}
 	if sc.relay != "" {
 		if m := routeRe.FindStringSubmatch(r); m == nil || m[1] != sc.relay {

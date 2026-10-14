@@ -158,24 +158,3 @@ struct AddPersonSheet: View {
         if problem == nil { done() }
     }
 }
-
-/// Add person on a call between two Linx devices (ADR-088): on a call to a
-/// desk phone or an outside number there is nobody it could add.
-struct AddPersonButton: View {
-    @Environment(PhoneModel.self) private var phone
-
-    var body: some View {
-        if phone.canAddPeople {
-            Button {
-                phone.addingPerson = true
-            } label: {
-                Label("Add person", systemImage: "person.badge.plus")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(LinxColor.onSurfaceDark)
-                    .padding(.horizontal, LinxSpace.s3)
-                    .padding(.vertical, LinxSpace.s2)
-                    .background(LinxColor.surface.opacity(0.22), in: .capsule)
-            }
-        }
-    }
-}

@@ -1103,6 +1103,13 @@ import UIKit
     }
 
     private func hangUpForTheBench() {
+        if Bench.hd, let id = call?.id {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                guard let self, self.call?.id == id, self.call?.hd == false else { return }
+                self.toggleHD()
+            }
+        }
         let seconds = Bench.hangUpAfter
         guard seconds > 0, let id = call?.id else { return }
         Task { [weak self] in

@@ -306,4 +306,12 @@ struct CallLayoutTests {
         #expect(phone < 130)
         #expect(pad > phone)
     }
+
+    @Test("a video call fills the screen on an iPad too, and splits only at a fold")
+    func videoFillsTheScreen() {
+        #expect(CallLayout.videoShape(size: CGSize(width: 1032, height: 1376), horizontal: .regular) == .tall)
+        #expect(CallLayout.videoShape(size: CGSize(width: 1376, height: 1032), horizontal: .regular) == .wide)
+        #expect(CallLayout.videoShape(size: CGSize(width: 393, height: 852), horizontal: .compact) == .tall)
+        #expect(CallLayout.selfViewWidth(for: .tall, size: CGSize(width: 1032, height: 1376)) <= 200)
+    }
 }

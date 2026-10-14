@@ -57,6 +57,17 @@ enum CallLayout {
         return size.height > size.width ? .tall : .wide
     }
 
+    /// A video call: the picture fills the screen on a phone and an iPad
+    /// alike (owner, 2026-10-14), and only a fold the phone has told us
+    /// about divides it into two panels, because nothing may be laid over a
+    /// crease.
+    static func videoShape(size: CGSize, horizontal: UserInterfaceSizeClass?, crease: Crease? = nil) -> Shape {
+        if let crease, crease.share(of: size) != nil {
+            return .split(sideBySide: crease.runsDown)
+        }
+        return size.height > size.width ? .tall : .wide
+    }
+
     /// How much of the screen the picture's panel takes. The fold decides it
     /// when there is one, so the join and the crease are the same line;
     /// otherwise the picture takes the larger share, because it is what
@@ -94,7 +105,7 @@ enum CallLayout {
     /// right way, not to watch yourself.
     static func selfViewWidth(for shape: Shape, size: CGSize) -> CGFloat {
         switch shape {
-        case .tall, .wide: return min(size.width, size.height) * 0.28
+        case .tall, .wide: return min(min(size.width, size.height) * 0.28, 200)
         case .split: return min(size.width, size.height) * 0.34
         }
     }

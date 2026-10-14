@@ -27,6 +27,8 @@ enum Bench {
         /// Ring and answer through CallKit, as an iPhone outside China does;
         /// without it the bench takes China's in-app path (ADR-078).
         static var callKit: Bool { defaults.bool(forKey: "LinxBenchCallKit") }
+        /// Press **HD** five seconds into the call.
+        static var hd: Bool { defaults.bool(forKey: "LinxBenchHD") }
 
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
@@ -38,6 +40,7 @@ enum Bench {
         static let relayOnly = false
         static let noUDP = false
         static let callKit = false
+        static let hd = false
         static let on = false
     #endif
 
