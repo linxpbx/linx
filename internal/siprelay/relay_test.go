@@ -2,6 +2,7 @@ package siprelay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -483,8 +484,8 @@ func TestPhoneLineCarriesSideMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.CloseNow()
-	if resp.Header.Get(SideHeader) != "1" {
-		t.Errorf("a phone's line doesn't say it carries call links")
+	if resp.Header.Get(SideHeader) != "1" || resp.Header.Get(SideSIPHeader) != "1" {
+		t.Errorf("a phone's line doesn't say it carries call links, and SIP in them")
 	}
 	send(t, c, `{"call":"c1","open":true}`)
 	if b := <-got; b != `{"call":"c1","open":true}` {
@@ -518,9 +519,61 @@ func TestBrowserLineHasNoSide(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.CloseNow()
-	if resp.Header.Get(SideHeader) != "" {
+	if resp.Header.Get(SideHeader) != "" || resp.Header.Get(SideSIPHeader) != "" {
 		t.Error("a browser's line says it carries call links")
 	}
 	send(t, c, `{"call":"c1","open":true}`)
 	wantClosed(t, c, websocket.StatusPolicyViolation, ReasonMalformed)
+}
+
+// A side message can carry a SIP message: it goes to Asterisk first, under
+// the same checks as one sent on its own, and the side message after it.
+// The app answers a call this way with the picture's answer in the same
+// message, so neither waits on the other (a phone's network holds a small
+// second write until the first is acknowledged, 3 s on the phone bench's
+// just-opened slow line).
+func TestSideMessageCarriesSIP(t *testing.T) {
+	got := make(chan string, 4)
+	h := newHarness(t, func(r *Relay) {
+		r.Side = func(ctx context.Context, line Line, send func([]byte) error) func([]byte) {
+			return func(b []byte) { got <- string(b) }
+		}
+	})
+	h.line.SessionID, h.line.DeviceID = uuid.Nil, uuid.New()
+	dial := func() *websocket.Conn {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(h.srv.URL, "http"), &websocket.DialOptions{Subprotocols: []string{"sip"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	frame := func(sip string) string {
+		b, err := json.Marshal(map[string]any{"call": "c1", "msg": map[string]string{"type": "signal"}, "sip": sip})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	c := dial()
+	defer c.CloseNow()
+	send(t, c, frame(request("OPTIONS", me, "linx")))
+	if b := <-got; !strings.Contains(b, `"msg":{"type":"signal"}`) {
+		t.Errorf("side got %q", b)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(h.ast.received()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r := h.ast.received(); len(r) != 1 || !strings.HasPrefix(r[0], "OPTIONS") {
+		t.Errorf("Asterisk got %q", r)
+	}
+
+	// Someone else's SIP inside a side message ends the line, as on its own.
+	other := dial()
+	defer other.CloseNow()
+	send(t, other, frame(request("OPTIONS", "d_Someone99", "linx")))
+	wantClosed(t, other, websocket.StatusPolicyViolation, ReasonNotYourLine)
 }

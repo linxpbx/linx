@@ -21,7 +21,10 @@ import (
 // 17–24 s a message, and the picture came 45 s after the answer.
 //
 // From the phone: {"call":ID,"open":true}, {"call":ID,"msg":M} with M what
-// it would send on the call link, and {"call":ID,"close":true}. To it:
+// it would send on the call link, and {"call":ID,"close":true}. A phone
+// that sets its picture up while the call rings (calllink's early.go) opens
+// with "early":true as well, and is sent {"type":"early",...} while it
+// rings. To it:
 // {"call":ID,"msg":M} with M what the call link would send, and
 // {"call":ID,"closed":"why"} when Linx ends the link. The line is the
 // phone's identity, rechecked by the relay; who it is talking to is
@@ -30,9 +33,23 @@ import (
 // lineLinksMax is how many calls' links one line may have open at once.
 const lineLinksMax = 4
 
+// Limits on what a phone may say on a link before it is paired, kept until
+// it is (lineLink.pending).
+const (
+	linePending      = 32
+	linePendingBytes = 64 << 10
+)
+
+// lineResolver is callResolver and, for setting a picture up while the
+// call rings, which call a ringing device's is (calllink.Resolver.Origin).
+type lineResolver interface {
+	callResolver
+	Origin(ctx context.Context, sipUsername, callID string) (own, origin string, err error)
+}
+
 type lineLinks struct {
 	ctx      context.Context
-	resolver callResolver
+	resolver lineResolver
 	hub      *calllink.Hub
 	username string
 	send     func([]byte) error
@@ -43,11 +60,24 @@ type lineLinks struct {
 
 type lineLink struct {
 	cancel context.CancelFunc
+	// early is a phone that sets its picture up while the call rings.
+	early bool
+
 	mu     sync.Mutex
 	member *calllink.Member
+	// caller is, while a call this phone made rings, its channel's ID: what
+	// the phone says goes to the devices being rung (Hub.EarlySend).
+	caller string
+	// session is the ringing exchange's this phone had, if any.
+	session uint64
+	// pending is what the phone said that nobody could be given yet: a
+	// ringing phone's answer, sent the moment its person answers, which is
+	// before Linx has seen the call answered.
+	pending      []json.RawMessage
+	pendingBytes int
 }
 
-func newLineLinks(ctx context.Context, resolver callResolver, hub *calllink.Hub, username string, send func([]byte) error) *lineLinks {
+func newLineLinks(ctx context.Context, resolver lineResolver, hub *calllink.Hub, username string, send func([]byte) error) *lineLinks {
 	return &lineLinks{ctx: ctx, resolver: resolver, hub: hub, username: username, send: send, links: map[string]*lineLink{}}
 }
 
@@ -57,6 +87,7 @@ func (l *lineLinks) received(b []byte) {
 	var in struct {
 		Call  string          `json:"call"`
 		Open  bool            `json:"open"`
+		Early bool            `json:"early"`
 		Close bool            `json:"close"`
 		Msg   json.RawMessage `json:"msg"`
 	}
@@ -65,7 +96,7 @@ func (l *lineLinks) received(b []byte) {
 	}
 	switch {
 	case in.Open:
-		l.open(in.Call)
+		l.open(in.Call, in.Early)
 	case in.Close:
 		l.close(in.Call)
 	case len(in.Msg) > 0:
@@ -73,7 +104,7 @@ func (l *lineLinks) received(b []byte) {
 	}
 }
 
-func (l *lineLinks) open(call string) {
+func (l *lineLinks) open(call string, early bool) {
 	l.mu.Lock()
 	if old := l.links[call]; old != nil {
 		old.cancel()
@@ -85,7 +116,7 @@ func (l *lineLinks) open(call string) {
 		return
 	}
 	ctx, cancel := context.WithCancel(l.ctx)
-	link := &lineLink{cancel: cancel}
+	link := &lineLink{cancel: cancel, early: early}
 	l.links[call] = link
 	l.mu.Unlock()
 	go l.run(ctx, call, link)
@@ -107,17 +138,70 @@ func (l *lineLinks) relay(call string, msg json.RawMessage) {
 	if link == nil {
 		return
 	}
-	link.mu.Lock()
-	m := link.member
-	link.mu.Unlock()
 	var in struct {
 		Type string          `json:"type"`
 		Data json.RawMessage `json:"data"`
 	}
-	if m == nil || json.Unmarshal(msg, &in) != nil || in.Type != "signal" || len(in.Data) == 0 {
+	if json.Unmarshal(msg, &in) != nil || in.Type != "signal" || len(in.Data) == 0 {
 		return
 	}
-	l.hub.Relay(m, in.Data)
+	link.mu.Lock()
+	defer link.mu.Unlock()
+	// Behind anything still pending, never ahead of it: a route before the
+	// answer it belongs to is refused.
+	if m := link.member; m != nil && len(link.pending) == 0 && l.hub.Relay(m, in.Data) {
+		return
+	}
+	if link.member == nil && link.caller != "" && l.hub.EarlySend(link.caller, in.Data) {
+		return
+	}
+	if link.early && len(link.pending) < linePending && link.pendingBytes+len(in.Data) <= linePendingBytes {
+		link.pending = append(link.pending, in.Data)
+		link.pendingBytes += len(in.Data)
+	}
+}
+
+// ringing is a link held while its call rings, for a phone that sets its
+// picture up meanwhile: the caller's is told to offer, a ringing device's is
+// given that offer. It returns what ends that once the wait is over.
+func (l *lineLinks) ringing(ctx context.Context, call string, link *lineLink) func() {
+	own, origin, err := l.resolver.Origin(ctx, l.username, call)
+	if err != nil {
+		return func() {}
+	}
+	if own == origin {
+		session := l.hub.EarlyCaller(own)
+		link.mu.Lock()
+		link.caller, link.session = own, session
+		link.mu.Unlock()
+		_ = l.say(call, "msg", calllink.EarlyMessage{Type: "early", Session: session, Offer: true})
+		return func() {
+			link.mu.Lock()
+			link.caller = ""
+			link.mu.Unlock()
+			l.hub.EarlyEnd(own)
+		}
+	}
+	listener := l.hub.EarlyListen(origin)
+	if listener == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for b := range listener.Out {
+			if l.say(call, "msg", json.RawMessage(b)) != nil {
+				return
+			}
+		}
+	}()
+	return func() {
+		l.hub.EarlyLeave(listener)
+		<-done
+		link.mu.Lock()
+		link.session = l.hub.Session(listener)
+		link.mu.Unlock()
+	}
 }
 
 // run is one call's link: held while the call rings, paired once it is
@@ -134,9 +218,14 @@ func (l *lineLinks) run(ctx context.Context, call string, link *lineLink) {
 	leg, err := l.resolver.Resolve(ctx, l.username, call)
 	if errors.Is(err, calllink.ErrNotAnswered) {
 		l.say(call, "msg", json.RawMessage(`{"type":"wait"}`))
+		stop := func() {}
+		if link.early {
+			stop = l.ringing(ctx, call, link)
+		}
 		wctx, cancel := context.WithTimeout(ctx, callLinkRinging)
 		leg, err = l.resolver.WaitAnswered(wctx, l.username, call, callLinkWaiting, func() error { return nil })
 		cancel()
+		stop()
 	}
 	if err != nil {
 		if ctx.Err() == nil {
@@ -148,11 +237,11 @@ func (l *lineLinks) run(ctx context.Context, call string, link *lineLink) {
 		}
 		return
 	}
-	m := l.hub.Join(leg)
-	defer l.hub.Leave(m)
 	link.mu.Lock()
+	m := l.hub.JoinEarly(leg, link.session)
 	link.member = m
 	link.mu.Unlock()
+	defer l.hub.Leave(m)
 
 	check := time.NewTicker(callLinkCheck)
 	defer check.Stop()
@@ -168,12 +257,34 @@ func (l *lineLinks) run(ctx context.Context, call string, link *lineLink) {
 			if l.say(call, "msg", json.RawMessage(b)) != nil {
 				return
 			}
+			l.paired(link, b)
 		case <-check.C:
 			if !l.resolver.Alive(ctx, leg.ChannelID) {
 				l.say(call, "closed", "the call has ended")
 				return
 			}
 		}
+	}
+}
+
+// paired is told each message the hub gives the phone: at its "peer",
+// what the phone said before it was paired goes to the other end if the
+// pairing goes on from their ringing exchange, and is dropped if not (the
+// phone starts afresh, and so does what it says).
+func (l *lineLinks) paired(link *lineLink, b []byte) {
+	var peer calllink.PeerMessage
+	if json.Unmarshal(b, &peer) != nil || peer.Type != "peer" {
+		return
+	}
+	link.mu.Lock()
+	defer link.mu.Unlock()
+	pending := link.pending
+	link.pending, link.pendingBytes = nil, 0
+	if !peer.Early {
+		return
+	}
+	for _, data := range pending {
+		l.hub.Relay(link.member, data)
 	}
 }
 

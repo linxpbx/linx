@@ -59,6 +59,7 @@ call)
   shift 5
   flags=()
   video=YES
+  late=
   for f in "$@"; do
     case $f in
     relay-only) flags+=(-LinxBenchRelayOnly YES) ;;
@@ -67,16 +68,31 @@ call)
     callkit) flags+=(-LinxBenchCallKit YES) ;;
     hd) flags+=(-LinxBenchHD YES) ;;
     ring=*) flags+=(-LinxBenchRingFor "${f#ring=}") ;;
+    late-answerer) late=1 ;;
+    no-early) flags+=(-LinxBenchNoEarly YES) ;;
     *) echo "bench: unknown flag $f" >&2; exit 2 ;;
     esac
   done
   for d in "$caller" "$answerer"; do xcrun simctl terminate "$d" "$bundle" >/dev/null 2>&1 || true; done
-  xcrun simctl launch "$answerer" "$bundle" -LinxBenchSetup "$answerer_link" -LinxBenchAnswer YES \
-    ${flags[@]+"${flags[@]}"} >/dev/null
-  # The answerer's line first, so the call finds it.
-  sleep 8
-  xcrun simctl launch "$caller" "$bundle" -LinxBenchSetup "$caller_link" -LinxBenchCall "$number" \
-    -LinxBenchVideo "$video" -LinxBenchHangUpAfter "$seconds" ${flags[@]+"${flags[@]}"} >/dev/null
+  answerer_up() {
+    xcrun simctl launch "$answerer" "$bundle" -LinxBenchSetup "$answerer_link" -LinxBenchAnswer YES \
+      ${flags[@]+"${flags[@]}"} >/dev/null
+  }
+  if [ -n "$late" ]; then
+    # The phone being rung starts after the caller, its line only just open
+    # when the call comes: a phone woken for the call. The caller waits for it.
+    xcrun simctl launch "$caller" "$bundle" -LinxBenchSetup "$caller_link" -LinxBenchCall "$number" \
+      -LinxBenchVideo "$video" -LinxBenchHangUpAfter "$seconds" -LinxBenchCallAfter 12 \
+      ${flags[@]+"${flags[@]}"} >/dev/null
+    sleep 8
+    answerer_up
+  else
+    answerer_up
+    # The answerer's line first, so the call finds it.
+    sleep 8
+    xcrun simctl launch "$caller" "$bundle" -LinxBenchSetup "$caller_link" -LinxBenchCall "$number" \
+      -LinxBenchVideo "$video" -LinxBenchHangUpAfter "$seconds" ${flags[@]+"${flags[@]}"} >/dev/null
+  fi
   echo "bench: calling"
   ;;
 esac

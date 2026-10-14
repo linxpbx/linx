@@ -1097,7 +1097,7 @@ import UIKit
         guard let number = Bench.call, !benchCalled else { return }
         benchCalled = true
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(Bench.callAfter))
             self?.callNumber(number, withVideo: Bench.video)
         }
     }

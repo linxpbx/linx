@@ -395,6 +395,12 @@ struct CallDiagnostics: Equatable, Sendable {
         picture.start(ringing: ringing)
     }
 
+    /// The answer to a picture offer held while the call rang, made now to
+    /// go with the call's 200 OK (`DirectPicture.answerWithTheCall`).
+    func pictureAnswerWithTheCall() async -> Data? {
+        await picture?.answerWithTheCall()
+    }
+
     /// This phone's camera, on or off. The call's sound is never touched.
     func setCamera(_ on: Bool) async throws {
         if let group {

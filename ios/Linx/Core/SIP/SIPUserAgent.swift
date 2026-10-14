@@ -53,6 +53,10 @@ struct AudioRoute: Equatable, Sendable {
 
 /// The sound of a call, from the user agent's side. WebRTCMedia is the real
 /// one; the tests use a stand-in.
+extension SIPCallMedia {
+    func pictureAnswerWithTheCall() async -> Data? { nil }
+}
+
 @MainActor protocol SIPCallMedia: AnyObject {
     /// How the sound is getting through, read every few seconds while a call
     /// is up: direct, or through Linx's relay.
@@ -93,6 +97,9 @@ struct AudioRoute: Equatable, Sendable {
     /// answer; `cameraFirst` turns this phone's camera on as soon as the
     /// other side is there (a video call).
     func startPicture(link: any PictureLink, cameraFirst: Bool, ringing: Bool)
+    /// The answer to a picture offer held while the call rang, made now to
+    /// go in the same message as the call's 200 OK; nil if there is none.
+    func pictureAnswerWithTheCall() async -> Data?
     /// This phone's camera, on or off. Nothing about the call's sound
     /// changes, and nothing goes through the phone system.
     func setCamera(_ on: Bool) async throws
@@ -244,7 +251,7 @@ struct AudioRoute: Equatable, Sendable {
             return
         }
         lineLinks[link.callID] = link
-        transport.send(LineLink.frame(link.callID, "open", true))
+        transport.send(Bench.noEarly ? LineLink.frame(link.callID, "open", true) : LineLink.opening(link.callID))
     }
 
     /// What `link` sends the other device.
@@ -499,7 +506,19 @@ struct AudioRoute: Equatable, Sendable {
         addCommonHeaders(&ok)
         ok.add("Content-Type", "application/sdp")
         ok.body = answer
-        send(ok)
+        // On a line that carries call links, the picture's answer goes in
+        // the same message: sent after the 200 OK, a phone's network held it
+        // until the 200 OK was acknowledged — seconds on a just-opened slow
+        // line (DirectPicture.answerWithTheCall).
+        if transport.carriesSIPInLinks, lineIsOpen, lineLinks[incoming.id] != nil,
+            let picture = await incoming.media.pictureAnswerWithTheCall(), call?.id == incoming.id
+        {
+            if let words = Self.traceWords(ok) { onTrace?("→ \(words)") }
+            transport.send(LineLink.frame(incoming.id, msg: picture, sip: ok.text))
+        } else {
+            guard call?.id == incoming.id else { return }
+            send(ok)
+        }
         incoming.established = true
         call = incoming
         startPicture(of: incoming)

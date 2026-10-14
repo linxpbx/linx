@@ -18,6 +18,7 @@ import Testing
     private(set) var keepAlives = 0
     /// Linx said the line carries call links; what went to them.
     var carriesCallLinks = false
+    var carriesSIPInLinks = false
     private(set) var side: [String] = []
     private(set) var started = false
 
@@ -95,6 +96,11 @@ import Testing
         answeredOffer = offer
         return Self.soundAnswer
     }
+
+    /// The answer to a picture offer held while ringing, if there is one.
+    var pictureAnswer: Data?
+
+    func pictureAnswerWithTheCall() async -> Data? { pictureAnswer }
 
     func startPicture(link: any PictureLink, cameraFirst: Bool, ringing: Bool) {
         if pictureLink == nil { pictureLink = link }
@@ -361,6 +367,47 @@ struct CallTests {
         // Asterisk's final word still arrives, and is acknowledged.
         transport.asterisk(SIPMessage.response(487, "Request Terminated", to: invite).withTag("theirs"))
         #expect(transport.count("ACK") == 1)
+        agent.stop()
+    }
+
+    @Test("on a line whose call links take SIP, the picture's answer goes in the 200 OK's own message")
+    func answerCarriesThePicture() async throws {
+        let (agent, transport, media, box) = await signedIn()
+        transport.carriesCallLinks = true
+        transport.carriesSIPInLinks = true
+        var invite = Self.incomingInvite()
+        invite.add("X-Linx-Video", "yes")
+        transport.asterisk(invite)
+        let link = try #require(media.pictureLink as? LineLink)
+        link.start()
+        media.pictureAnswer = Data(#"{"type":"signal","data":{"session":7}}"#.utf8)
+
+        await agent.answer()
+        #expect(!transport.sent.contains { $0.status == 200 })
+        let both = try #require(transport.side.last)
+        let parts = try #require(
+            try JSONSerialization.jsonObject(with: Data(both.utf8)) as? [String: Any])
+        #expect(parts["call"] as? String == "call-in-1")
+        #expect((parts["msg"] as? [String: Any])?["type"] as? String == "signal")
+        let sip = try #require(parts["sip"] as? String)
+        let ok = try #require(SIPMessage(text: sip))
+        #expect(ok.status == 200)
+        #expect(ok.body.contains("linx-answer"))
+        #expect(box.established)
+        agent.stop()
+    }
+
+    @Test("a line whose call links don't take SIP sends the 200 OK on its own")
+    func answerAloneOnOlderServers() async throws {
+        let (agent, transport, media, _) = await signedIn()
+        transport.carriesCallLinks = true
+        transport.asterisk(Self.incomingInvite())
+        let link = try #require(media.pictureLink as? LineLink)
+        link.start()
+        media.pictureAnswer = Data(#"{"type":"signal","data":{}}"#.utf8)
+        await agent.answer()
+        #expect(transport.sent.contains { $0.status == 200 })
+        #expect(!transport.side.contains { $0.contains("\"sip\"") })
         agent.stop()
     }
 

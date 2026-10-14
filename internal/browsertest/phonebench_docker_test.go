@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,7 +61,26 @@ type benchScenario struct {
 	// opened for the call took 17–24 s a message and the picture came 45 s
 	// after the answer.
 	newSlow bool
+	// newLine is the owner's 5G call of 2026-10-14 20:53: the phone being
+	// rung had only just opened its line (woken for the call), and what
+	// Linx sent on it arrived seconds late — 5 s for the picture link's
+	// first word, 6–7 s for the picture's answer — from the ringing until
+	// some seconds after the answer, while what it sent arrived in good
+	// time. Its picture came 11 s after the answer and the caller's 9 s.
+	newLine bool
 }
+
+// newLineDelay is how late what Linx sends on a just-opened line arrives
+// (newLine).
+const newLineDelay = 3 * time.Second
+
+// newLineFor is how long it stays that slow from the ringing: through the
+// four seconds' ringing and ten seconds past the answer.
+const newLineFor = 14 * time.Second
+
+// benchPictureAfterAnswer is the most, in seconds, from the answer to the
+// other phone's picture on a bad mobile link (badStart, newSlow, newLine).
+const benchPictureAfterAnswer = 3
 
 // badStartFor is how long a bad start turns new connections away.
 const badStartFor = 12 * time.Second
@@ -85,6 +105,8 @@ var benchScenarios = []benchScenario{
 		flags: []string{"relay-only", "ring=6"}, badStart: true},
 	{name: "a mobile link whose new connections are slow for their first part",
 		flags: []string{"relay-only", "ring=6"}, newSlow: true},
+	{name: "the phone being rung has just opened its line, and it is slow",
+		flags: []string{"relay-only", "ring=4", "late-answerer"}, newLine: true},
 	// CallKit isn't here: a simulator's own call service ends an app's
 	// outgoing CallKit call about a second in (callservicesd asks for the
 	// CXEndCallAction itself, 2026-10-13), so it is checked on a phone.
@@ -177,6 +199,43 @@ func (h *harness) newConnectionsSlow(window time.Duration) func() {
 	}
 }
 
+// newLineSlow marks the connections opened from now for `window` (the
+// answerer's line, as its app starts: newLine). The first func returned
+// makes what Linx sends on them arrive newLineDelay late from then on;
+// the second undoes it all.
+func (h *harness) newLineSlow(t *testing.T, window time.Duration) (slow, undo func()) {
+	prefix := strings.TrimSuffix(publicSubnet, "0/24")
+	iface := `i=$(ip -o -4 addr show | awk -v p="$1" 'index($4, p) == 1 {print $2; exit}'); [ -n "$i" ] || exit 1; `
+	mark := `iptables -t mangle -A PREROUTING -p tcp --dport 443 -m conntrack --ctstate NEW -j CONNMARK --set-mark 7`
+	on := iface + fmt.Sprintf(`tc qdisc add dev $i root handle 1: prio bands 3 priomap 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 && `+
+		`tc qdisc add dev $i parent 1:3 handle 30: netem delay %dms limit 100000 && `+
+		`tc filter add dev $i parent 1:0 protocol ip handle 7 fw flowid 1:3 && `, newLineDelay.Milliseconds()) + mark
+	delay := `iptables -t mangle -A OUTPUT -p tcp --sport 443 -m connmark --mark 7 ` + os.Getenv("LINX_BENCH_SLOW_MATCH") + ` -j MARK --set-mark 7`
+	off := iface + `iptables -t mangle -F OUTPUT; ` + strings.Replace(mark, "-A", "-D", 1) + ` 2>/dev/null; ` +
+		`tc qdisc del dev $i root 2>/dev/null; true`
+	run := func(script string) string {
+		return h.docker("run", "--rm", "--network", "container:linx-sni", "--cap-add", "NET_ADMIN",
+			"nicolaka/netshoot", "sh", "-c", script, "slow", prefix)
+	}
+	run(on)
+	t.Logf("slow line: marking from %s", time.Now().Format("15:04:05.0"))
+	stop := time.AfterFunc(window, func() {
+		run(strings.Replace(mark, "-A", "-D", 1))
+		t.Logf("slow line: marking stopped %s", time.Now().Format("15:04:05.0"))
+	})
+	var once sync.Once
+	return func() {
+			run(delay)
+			t.Logf("slow line: delaying from %s", time.Now().Format("15:04:05.0"))
+		}, func() {
+			once.Do(func() {
+				stop.Stop()
+				t.Logf("slow line, at the end:\n%s\n%s", run("iptables -t mangle -L -v -n; conntrack -L -m 7 2>&1 | head"), time.Now().Format("15:04:05.0"))
+				run(off)
+			})
+		}
+}
+
 // whenRinging returns once Asterisk has a channel ringing.
 func (h *harness) whenRinging(t *testing.T, within time.Duration) {
 	t.Helper()
@@ -251,7 +310,37 @@ func TestPhoneBenchDocker(t *testing.T) {
 				}()
 				defer func() { (<-undone)() }()
 			}
-			bench(append([]string{"call", caller, answerer, "202", strconv.Itoa(benchCallSeconds)}, sc.flags...)...)
+			var slowLine func()
+			if sc.newLine {
+				// The answerer's app starts eight seconds after the caller's
+				// (late-answerer): its line is what opens around then.
+				type model struct{ slow, undo func() }
+				marked := make(chan model, 1)
+				go func() {
+					time.Sleep(6 * time.Second)
+					slow, undo := h.newLineSlow(t, 6*time.Second)
+					marked <- model{slow, undo}
+				}()
+				var m model
+				got := func() model {
+					if m.slow == nil {
+						m = <-marked
+					}
+					return m
+				}
+				defer func() { got().undo() }()
+				slowLine = func() {
+					got().slow()
+					time.AfterFunc(newLineFor, got().undo)
+				}
+			}
+			// LINX_BENCH_FLAGS: more bench.sh flags for every call, to
+			// measure against (no-early: the picture set up after the
+			// answer, as before build 35).
+			flags := append(slices.Clone(sc.flags), strings.Fields(os.Getenv("LINX_BENCH_FLAGS"))...)
+			t.Logf("bench call from %s", time.Now().Format("15:04:05.0"))
+			bench(append([]string{"call", caller, answerer, "202", strconv.Itoa(benchCallSeconds)}, flags...)...)
+			t.Logf("bench call launched %s", time.Now().Format("15:04:05.0"))
 			// LINX_BENCH_SHOTS=DIR: both screens at moments through the
 			// call, to look at what a person holding them would see.
 			if dir := os.Getenv("LINX_BENCH_SHOTS"); dir != "" {
@@ -264,6 +353,11 @@ func TestPhoneBenchDocker(t *testing.T) {
 							fmt.Sprintf("%s-%02ds", strings.TrimSuffix(name, ":"), at)).Run()
 					}
 				}()
+			}
+			if sc.newLine {
+				// Slow from the ringing until ten seconds after the answer.
+				h.whenRinging(t, 60*time.Second)
+				slowLine()
 			}
 			if sc.badStart {
 				// Two and a half seconds into the ringing: what the phones
@@ -428,21 +522,20 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			fail(fmt.Sprintf("HD took %.0f s to reach 720p", at-on))
 		}
 	}
-	if sc.badStart || sc.newSlow {
+	if sc.badStart || sc.newSlow || sc.newLine {
 		answered, ok := markAt(r, "Answered")
 		if !ok {
 			answered, ok = markAt(r, "→ 200 OK (INVITE)")
 		}
-		ready, linked := markAt(r, "Picture link ready")
 		arrived, shown := markAt(r, "Their picture arrived")
 		switch {
 		case !strings.Contains(r, "Picture link open, waiting for the answer"):
 			fail("the picture link wasn't open before the answer")
-		case !ok || !linked || !shown:
-			fail("no answer, picture link or picture in the record")
-		case ready-answered > 3:
-			fail(fmt.Sprintf("the picture link was ready %.1f s after the answer", ready-answered))
-		case arrived-answered > 8:
+		case !strings.Contains(r, "while ringing"):
+			fail("the picture wasn't set up while the call rang")
+		case !ok || !shown:
+			fail("no answer or picture in the record")
+		case arrived-answered > benchPictureAfterAnswer:
 			fail(fmt.Sprintf("their picture arrived %.1f s after the answer", arrived-answered))
 		}
 	}

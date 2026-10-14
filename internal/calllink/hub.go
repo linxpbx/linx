@@ -34,11 +34,25 @@ type (
 	// reconnects is paired again, and a description from the pairing before
 	// must not land on the new connection (the picture never came back after
 	// a dropped connection, 2026-10-13).
+	//
+	// Early is a pairing that goes on from the two ends' exchange while the
+	// call rang (EarlyMessage): its Session is that exchange's, and what was
+	// said in it stands.
 	PeerMessage struct {
 		Type    string `json:"type"` // "peer"
 		Video   bool   `json:"video"`
 		Polite  bool   `json:"polite,omitempty"`
 		Session uint64 `json:"session,omitempty"`
+		Early   bool   `json:"early,omitempty"`
+	}
+	// EarlyMessage opens the exchange of a call that is still ringing
+	// (Hub.EarlyCaller): the caller is told to offer (Offer), and each of
+	// the devices ringing for it gets that offer as it comes, to answer
+	// the moment its person does. Session stamps it, as PeerMessage's.
+	EarlyMessage struct {
+		Type    string `json:"type"` // "early"
+		Session uint64 `json:"session"`
+		Offer   bool   `json:"offer,omitempty"`
 	}
 	// SignalMessage carries what the other end sent, as it sent it.
 	SignalMessage struct {
@@ -63,20 +77,32 @@ type Member struct {
 	Out    chan []byte
 	peer   *Member
 	closed bool
+	// early is the session of the exchange this end had while the call
+	// rang, if it had one.
+	early uint64
 }
 
 // Hub pairs links by their channels.
 type Hub struct {
 	mu      sync.Mutex
 	members map[string]*Member // by Channel
-	// pairings counts the pairings made, for PeerMessage.Session.
+	// pairings counts the pairings made, for PeerMessage.Session, and the
+	// early exchanges begun (EarlyMessage.Session), so the two never meet.
 	pairings uint64
+	// early is the exchanges of calls still ringing, by the caller's
+	// channel ID.
+	early map[string]*earlyCall
 }
 
 // Join opens a link for leg. A link already open for the same channel (the
 // device reconnected) is closed in its favour.
-func (h *Hub) Join(leg Leg) *Member {
-	m := &Member{Leg: leg, Out: make(chan []byte, Outbox)}
+func (h *Hub) Join(leg Leg) *Member { return h.JoinEarly(leg, 0) }
+
+// JoinEarly is Join for an end that had the exchange whose session is early
+// while the call rang (0: none). Paired with the other end of the same
+// exchange, the pairing goes on from it (PeerMessage.Early).
+func (h *Hub) JoinEarly(leg Leg, early uint64) *Member {
+	m := &Member{Leg: leg, Out: make(chan []byte, Outbox), early: early}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.members == nil {
@@ -92,10 +118,14 @@ func (h *Hub) Join(leg Leg) *Member {
 	}
 	if other := h.members[leg.Peer]; other != nil && other.Peer == leg.Channel && other.peer == nil {
 		m.peer, other.peer = other, m
-		h.pairings++
+		session, early := m.early, m.early != 0 && m.early == other.early
+		if !early {
+			h.pairings++
+			session = h.pairings
+		}
 		// Either rule would do as long as both ends agree on it.
-		h.sendLocked(m, PeerMessage{Type: "peer", Video: true, Polite: m.Channel < other.Channel, Session: h.pairings})
-		h.sendLocked(other, PeerMessage{Type: "peer", Video: true, Polite: other.Channel < m.Channel, Session: h.pairings})
+		h.sendLocked(m, PeerMessage{Type: "peer", Video: true, Polite: m.Channel < other.Channel, Session: session, Early: early})
+		h.sendLocked(other, PeerMessage{Type: "peer", Video: true, Polite: other.Channel < m.Channel, Session: session, Early: early})
 	}
 	return m
 }

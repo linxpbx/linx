@@ -121,6 +121,37 @@ func (r *Resolver) own(ctx context.Context, c *ari.Conn, sipUsername, callID str
 	return nil, ErrNoCall
 }
 
+// Origin is, for a call of sipUsername's whose SIP Call-ID is callID, in
+// any state, the ID of the device's own channel and of the channel the call
+// began on (Asterisk's linkedid, which every channel of one call shares):
+// the same two for the device that made the call, and for a device being
+// rung, the caller's. It is how a ringing device is given its caller's
+// early offer (Hub.EarlyListen) on Asterisk's word alone.
+func (r *Resolver) Origin(ctx context.Context, sipUsername, callID string) (own, origin string, err error) {
+	c := r.current()
+	if c == nil {
+		return "", "", ErrNoAsterisk
+	}
+	var chans []ari.Channel
+	if err := c.Get(ctx, "channels", &chans); err != nil {
+		return "", "", err
+	}
+	for _, ch := range chans {
+		if ch.ProtocolID != callID || ch.Endpoint() != sipUsername {
+			continue
+		}
+		origin, err := variable(ctx, c, ch.ID, "CHANNEL(linkedid)")
+		if err != nil {
+			return "", "", err
+		}
+		if origin == "" {
+			return "", "", ErrNoCall
+		}
+		return ch.ID, origin, nil
+	}
+	return "", "", ErrNoCall
+}
+
 // Room is the group call sipUsername's call callID was an invitation to
 // (X-Linx-Room, ADR-088), from the channel's own variable — which only the
 // control plane's own invitation sets — or "" for any other call.

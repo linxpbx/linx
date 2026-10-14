@@ -16,6 +16,12 @@ enum Bench {
         static var call: String? { defaults.string(forKey: "LinxBenchCall") }
         /// Whether that call is a video call.
         static var video: Bool { defaults.bool(forKey: "LinxBenchVideo") }
+        /// How long after the line is up that call is made, in seconds
+        /// (0: two): longer when the phone it rings starts after this one.
+        static var callAfter: Int {
+            let after = defaults.integer(forKey: "LinxBenchCallAfter")
+            return after > 0 ? after : 2
+        }
         /// Answer whatever rings, a second after it starts.
         static var answer: Bool { defaults.bool(forKey: "LinxBenchAnswer") }
         /// How long it rings before that answer, in seconds (0: one).
@@ -31,12 +37,17 @@ enum Bench {
         static var callKit: Bool { defaults.bool(forKey: "LinxBenchCallKit") }
         /// Press **HD** five seconds into the call.
         static var hd: Bool { defaults.bool(forKey: "LinxBenchHD") }
+        /// The picture set up only after the answer, as before build 35:
+        /// what the bench's slow links are measured against.
+        static var noEarly: Bool { defaults.bool(forKey: "LinxBenchNoEarly") }
 
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
         static let setupLink: String? = nil
         static let call: String? = nil
         static let video = false
+        static let callAfter = 2
+        static let noEarly = false
         static let answer = false
         static let ringFor = 1
         static let hangUpAfter = 0

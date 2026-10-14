@@ -16,6 +16,9 @@ import Foundation
     /// The line also carries this phone's call links (`LineLink`): Linx
     /// said so as it opened (`internal/siprelay`'s SideHeader).
     var carriesCallLinks: Bool { get }
+    /// A call link's message may carry a SIP message with it
+    /// (`LineLink.frame(_:msg:sip:)`): Linx said so as it opened.
+    var carriesSIPInLinks: Bool { get }
 
     func start()
     func send(_ text: String)
@@ -24,6 +27,7 @@ import Foundation
 
 extension SIPTransport {
     var carriesCallLinks: Bool { false }
+    var carriesSIPInLinks: Bool { false }
 }
 
 /// The websocket to Linx's /sip relay.
@@ -39,6 +43,7 @@ extension SIPTransport {
     private var keepAlive: Task<Void, Never>?
     private var closed = false
     private(set) var carriesCallLinks = false
+    private(set) var carriesSIPInLinks = false
 
     /// Every 30 seconds the app sends a blank frame and Asterisk sends one
     /// back (RFC 5626 §3.5.1): enough to keep a phone's connection open
@@ -131,6 +136,8 @@ extension SIPTransport {
 
     /// Linx's word that this line carries call links too.
     nonisolated static let callLinksHeader = "Linx-Call-Links"
+    /// And that a call link's message may carry a SIP message.
+    nonisolated static let sipInLinksHeader = "Linx-Call-Links-SIP"
 
     /// The subprotocol RFC 7118 gives SIP, which the relay requires.
     static let subprotocol = "sip"
@@ -142,13 +149,16 @@ extension WebSocketTransport: URLSessionWebSocketDelegate {
         didOpenWithProtocol protocolName: String?
     ) {
         let agreed = protocolName
-        let links = (webSocketTask.response as? HTTPURLResponse)?.value(forHTTPHeaderField: Self.callLinksHeader) == "1"
+        let response = webSocketTask.response as? HTTPURLResponse
+        let links = response?.value(forHTTPHeaderField: Self.callLinksHeader) == "1"
+        let sip = links && response?.value(forHTTPHeaderField: Self.sipInLinksHeader) == "1"
         Task { @MainActor in
             guard agreed == Self.subprotocol else {
                 self.finish("Linx didn't agree to speak SIP on that connection.")
                 return
             }
             self.carriesCallLinks = links
+            self.carriesSIPInLinks = sip
             self.startKeepAlive()
             self.onOpen?()
         }

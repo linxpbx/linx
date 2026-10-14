@@ -55,7 +55,12 @@ struct CallLinkMessage: Decodable, Sendable {
     var video: Bool?
     var polite: Bool?
     /// "peer": this pairing of the two ends; what is sent is stamped with it.
+    /// "early": the exchange while the call rings, likewise.
     var session: UInt64?
+    /// "peer": the pairing goes on from the exchange while the call rang.
+    var early: Bool?
+    /// "early": this phone made the call, and offers now.
+    var offer: Bool?
     var data: PictureSignal?
     /// "move": the call became a group call, and this is the way in.
     var room: String?
@@ -105,12 +110,22 @@ struct CallLinkMessage: Decodable, Sendable {
     private var saidWaiting = false
     private static let linkTriesAllowed = 15
     private var watch: Task<Void, Never>?
+    /// The exchange while the call rings (`calllink`'s early.go), if this
+    /// connection is having one.
+    private var earlySession: UInt64?
+    /// Their offer came while this phone rang: it is answered when the
+    /// person answers, not before, so nothing of this phone's goes to the
+    /// caller until then.
+    private var heldOffer = false
+    /// Their routes that came before their description, added after it.
+    private var earlyRoutes: [RTCIceCandidate] = []
     private var framesSeen = 0
     private var quietReadings = 0
     private var thinReadings = 0
 
     /// Room enough for the voice and a thin picture; below it for three
-    /// readings the camera goes off (ADR-079's rule, unchanged).
+    /// readings the picture goes to its smallest step, and below
+    /// `tooThinEvenSmall` there the camera goes off (ADR-079's rule).
     private static let tooThin = 150_000
     private static let thinReadingsAllowed = 3
     /// What the picture may use: 540p normally, 720p with **HD** on
@@ -153,6 +168,7 @@ struct CallLinkMessage: Decodable, Sendable {
         guard !callUp else { return }
         callUp = true
         linkTries = 0
+        if heldOffer { Task { await answerHeldOffer() } }
     }
 
     var mirrored: Bool { camera?.mirrored ?? true }
@@ -230,6 +246,9 @@ struct CallLinkMessage: Decodable, Sendable {
         guard !stopped else { return }
         stopped = true
         onMark?("Their picture: \(framesBefore + framesMost) frames")
+        if let freezes = theirFreezes {
+            onMark?("Their picture stopped \(freezes.count) times, \(String(format: "%.1f", freezes.seconds)) s in all")
+        }
         watch?.cancel()
         watch = nil
         camera?.stop()
@@ -249,21 +268,29 @@ struct CallLinkMessage: Decodable, Sendable {
         case "peer":
             guard message.video == true else {
                 onMark?("Their phone can't show a picture")
+                // Its camera went on as the call rang, for a Linx device
+                // that might have answered.
+                if video.mine { stopCamera() }
                 said(available: false)
                 return
             }
             polite = message.polite ?? false
-            session = message.session
             linkTries = 0
+            let goesOn = message.early == true && earlySession != nil && message.session == earlySession
+            session = message.session
             // A connection nothing has been said on yet is kept (made at
-            // `start`, its relay route already found); otherwise this is a
-            // new pairing and it starts afresh.
-            if connection == nil || connection?.localDescription != nil || connection?.remoteDescription != nil {
+            // `start`, its relay route already found), and so is one set up
+            // while the call rang if the pairing goes on from it; otherwise
+            // this is a new pairing and it starts afresh.
+            if !goesOn,
+                connection == nil || connection?.localDescription != nil || connection?.remoteDescription != nil
+            {
                 connect()
             }
-            onMark?("Picture link ready")
+            earlySession = nil
+            onMark?(goesOn ? "Picture link ready (set up while ringing)" : "Picture link ready")
             said(available: true)
-            if wantCamera { try? await setCamera(true) }
+            if wantCamera, !heldOffer { try? await setCamera(true) }
         case "peer-gone":
             // The other side's link went: it reconnects, or the call is
             // ending. A new "peer" starts afresh.
@@ -273,6 +300,8 @@ struct CallLinkMessage: Decodable, Sendable {
             // From an earlier pairing of the two ends: its connection is gone.
             if let theirs = message.data?.session, let session, theirs != session { return }
             if let signal = message.data { await signalled(signal) }
+        case "early":
+            await ringingExchange(session: message.session, offer: message.offer == true)
         case "wait":
             // Open while the call rings; Linx sends "peer" at the answer.
             if !saidWaiting {
@@ -316,15 +345,100 @@ struct CallLinkMessage: Decodable, Sendable {
         }
     }
 
+    /// The call rings and Linx has opened its exchange: the caller offers
+    /// now — its camera in the offer on a video call — and the phone being
+    /// rung takes that offer and holds it (`heldOffer`).
+    private func ringingExchange(session new: UInt64?, offer: Bool) async {
+        guard let new, !callUp else { return }
+        if earlySession != nil, earlySession != new { connect() }
+        earlySession = new
+        session = new
+        guard offer, let connection else {
+            onMark?("Picture link open while ringing")
+            return
+        }
+        onMark?("Picture offered while ringing")
+        if wantCamera {
+            try? await setCamera(true)
+        }
+        // No camera of this phone's (or it couldn't start): the offer asks
+        // for theirs alone.
+        if self.connection === connection, !connection.transceivers.contains(where: { $0.mediaType == .video }) {
+            let setup = RTCRtpTransceiverInit()
+            setup.direction = .recvOnly
+            connection.addTransceiver(of: .video, init: setup)
+        }
+    }
+
+    /// The person answered a call whose offer this phone was holding: the
+    /// camera goes in its slot and the answer goes at once.
+    private func answerHeldOffer() async {
+        if let answer = await makeHeldAnswer() { send(answer) }
+    }
+
+    /// The held offer's answer made now, for the phone line to send in the
+    /// same message as the call's 200 OK (`SIPUserAgent.answer`): sent after
+    /// it, the phone's network held it until the 200 OK was acknowledged,
+    /// three seconds on the bench's slow, just-opened line. Nil when no
+    /// offer is held.
+    func answerWithTheCall() async -> Data? {
+        guard let answer = await makeHeldAnswer() else { return nil }
+        return encoded(answer)
+    }
+
+    /// The camera goes in the held offer's slot and the answer is made; the
+    /// camera starts behind it, so the answer isn't held up by it.
+    private func makeHeldAnswer() async -> PictureSignal? {
+        guard heldOffer, let connection, connection.signalingState == .haveRemoteOffer else { return nil }
+        heldOffer = false
+        var starting: Camera?
+        if wantCamera, camera == nil {
+            let camera = Camera(factory: factory, quality: quality)
+            self.camera = camera
+            carryMyCamera(on: connection)
+            tracks.local = camera.track
+            onMark?("Camera on")
+            said(mine: true)
+            starting = camera
+        }
+        let answered = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            connection.setLocalDescriptionWithCompletionHandler { error in done.resume(returning: error == nil) }
+        }
+        guard connection === self.connection else { return nil }
+        if let starting {
+            Task { [weak self] in
+                do {
+                    try await starting.start()
+                } catch {
+                    guard let self, self.camera === starting else { return }
+                    self.stopCamera()
+                }
+            }
+        }
+        capWhatThisPhoneSends()
+        readTheirDirection()
+        guard answered, let local = connection.localDescription else {
+            onMark?("Picture answer couldn't be made")
+            return nil
+        }
+        onMark?("Picture answer sent")
+        return PictureSignal(description: .init(type: RTCSessionDescription.string(for: local.type), sdp: local.sdp))
+    }
+
     private func send(_ signal: PictureSignal) {
+        guard let data = encoded(signal) else { return }
+        link.send(data)
+    }
+
+    /// What goes on the link for `signal`, stamped with this pairing.
+    private func encoded(_ signal: PictureSignal) -> Data? {
         struct Out: Encodable {
             var type = "signal"
             var data: PictureSignal
         }
         var signal = signal
         signal.session = session
-        guard let data = try? JSONEncoder().encode(Out(data: signal)) else { return }
-        link.send(data)
+        return try? JSONEncoder().encode(Out(data: signal))
     }
 
     private func connect() {
@@ -348,11 +462,14 @@ struct CallLinkMessage: Decodable, Sendable {
         connection = nil
         makingOffer = false
         ignoreOffer = false
+        heldOffer = false
+        earlyRoutes = []
         framesBefore += framesMost
         framesMost = 0
         framesSeen = 0
         squeezed = nil
         roomyReadings = 0
+        tightReadings = 0
         overTCP = false
         theirsOverTCP = false
         waitedForTheirOffer = false
@@ -428,6 +545,22 @@ struct CallLinkMessage: Decodable, Sendable {
                 connection.restartIce()
                 return
             }
+            for route in earlyRoutes { connection.add(route) { _ in } }
+            earlyRoutes = []
+            if type == .offer, earlySession != nil {
+                heldOffer = true
+                guard callUp else {
+                    onMark?("Picture offer held until the call is answered")
+                    return
+                }
+                // Answered before the caller's offer got here (a slow link):
+                // answered at once, with the camera in it, as a held one is.
+                // Answered without it, the camera came after in a second
+                // round that crossed the other side's (the bench's poor
+                // link, 2026-10-14: 4–7 s to the picture).
+                await answerHeldOffer()
+                return
+            }
             if type == .offer { carryMyCamera(on: connection) }
             if type == .offer {
                 let answered = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
@@ -448,6 +581,12 @@ struct CallLinkMessage: Decodable, Sendable {
         } else if let candidate = signal.candidate {
             let ice = RTCIceCandidate(
                 sdp: candidate.candidate, sdpMLineIndex: candidate.sdpMLineIndex ?? 0, sdpMid: candidate.sdpMid)
+            // A route can overtake the description it belongs to while that
+            // is being set: it waits for it.
+            guard connection.remoteDescription != nil else {
+                if earlyRoutes.count < 64 { earlyRoutes.append(ice) }
+                return
+            }
             connection.add(ice) { _ in
                 // A route for an offer this side ignored is refused, which
                 // is expected; any other is out of step and the next change
@@ -632,6 +771,7 @@ struct CallLinkMessage: Decodable, Sendable {
 
     private func read(_ report: RTCStatisticsReport) {
         var frames = 0
+        var how = PictureReading()
         // The room to send in is the pair WebRTC is really using: several
         // pairs can be marked nominated at once, and reading whichever came
         // first gave a different route and a different room every few
@@ -650,8 +790,12 @@ struct CallLinkMessage: Decodable, Sendable {
             {
                 sending(height, room: room)
             }
+            if statistic.type == "outbound-rtp", statistic.values["kind"] as? String == "video" {
+                how.mine(statistic.values)
+            }
             if statistic.type == "inbound-rtp", statistic.values["kind"] as? String == "video" {
                 frames += (statistic.values["framesDecoded"] as? NSNumber)?.intValue ?? 0
+                how.theirs(statistic.values)
             }
         }
         if video.theirs {
@@ -670,24 +814,50 @@ struct CallLinkMessage: Decodable, Sendable {
         framesSeen = frames
         framesMost = max(framesMost, frames)
         if video.mine, let room { follow(room: room) }
+        how.room = room
+        tell(how)
     }
 
-    /// A thin link takes the picture down a step at a time — 360p, then
-    /// 240p — and only a link too thin even for that switches the camera
-    /// off, so the sound keeps what it needs. Switching off at the first
-    /// thin stretch lost the picture on a slow TLS route that could carry a
-    /// small one (the phone bench, China on a poor link, 2026-10-13). Room
-    /// to spare for a while brings it back up a step.
+    /// Every ten seconds, for the first minute of a picture: how each way
+    /// is going, in the call's report. "Stopping and starting" and "went
+    /// back to low res" are what a person sees; these say which way and why.
+    private func tell(_ how: PictureReading) {
+        guard how.any else { return }
+        readings += 1
+        if let freezes = how.freezes { theirFreezes = freezes }
+        guard readings % Self.readingsBetweenTold == 1, told < Self.mostTold else { return }
+        told += 1
+        onMark?(how.words)
+    }
+
+    private var readings = 0
+    private var told = 0
+    /// Their picture's stops (WebRTC's "freezes") and how long, at the last reading.
+    private var theirFreezes: (count: Int, seconds: Double)?
+    private static let readingsBetweenTold = 5
+    private static let mostTold = 6
+
+    /// The picture's size follows the room the link has. A thin stretch
+    /// takes it straight down to the step that fits; room for the next
+    /// step up, for a few readings, takes it up one; and only a link too
+    /// thin even for the smallest switches the camera off, so the sound
+    /// keeps what it needs.
+    ///
+    /// Only the last of these used to move it: a picture held at 720p on a
+    /// link with room for 160–400 kbit/s sent a few frames a second, soft
+    /// and stopping and starting, for the rest of the call (the owner's 5G
+    /// call after HD, 2026-10-14). The size is Linx's to hold
+    /// (`capWhatThisPhoneSends`), so it must be Linx that brings it down.
     private func follow(room: Int) {
         if room < Self.tooThin {
             roomyReadings = 0
+            tightReadings = 0
             thinReadings += 1
             guard thinReadings >= Self.thinReadingsAllowed else { return }
             thinReadings = 0
-            let now = quality
-            if let smaller = VideoQuality(rawValue: now.rawValue - 1), now != .thin {
-                squeezed = smaller
-                onMark?("Picture down to \(smaller.height)p: the link is thin")
+            if quality != .thin {
+                squeezed = .thin
+                onMark?("Picture down to \(VideoQuality.thin.height)p: room for \(room / 1000) kbit/s")
                 useQuality()
             } else if room < Self.tooThinEvenSmall {
                 onTooExpensive?()
@@ -695,8 +865,20 @@ struct CallLinkMessage: Decodable, Sendable {
             return
         }
         thinReadings = 0
+        let fits = Self.step(for: room, under: unsqueezed)
+        if fits < quality {
+            roomyReadings = 0
+            tightReadings += 1
+            guard tightReadings >= Self.tightReadingsAllowed else { return }
+            tightReadings = 0
+            squeezed = fits
+            onMark?("Picture down to \(fits.height)p: room for \(room / 1000) kbit/s")
+            useQuality()
+            return
+        }
+        tightReadings = 0
         guard let squeezed, let bigger = VideoQuality(rawValue: squeezed.rawValue + 1),
-            room > bigger.bitrate * 3 / 2
+            room >= bigger.bitrate * 13 / 20
         else {
             roomyReadings = 0
             return
@@ -705,8 +887,20 @@ struct CallLinkMessage: Decodable, Sendable {
         guard roomyReadings >= Self.roomyReadingsWanted else { return }
         roomyReadings = 0
         self.squeezed = bigger.rawValue >= unsqueezed.rawValue ? nil : bigger
-        onMark?("Picture back up to \(quality.height)p")
+        onMark?("Picture back up to \(quality.height)p: room for \(room / 1000) kbit/s")
         useQuality()
+    }
+
+    /// The biggest step, no bigger than `top`, that a link with `room` bits
+    /// a second to spare can carry: one whose most is no more than twice
+    /// the room. The encoder works below a step's most when it has to;
+    /// further below than that, a bigger picture is a worse one.
+    static func step(for room: Int, under top: VideoQuality) -> VideoQuality {
+        var step = top
+        while step.bitrate / 2 > room, let smaller = VideoQuality(rawValue: step.rawValue - 1) {
+            step = smaller
+        }
+        return step
     }
 
     /// The size this phone's picture is really going out at, which is what
@@ -751,10 +945,16 @@ struct CallLinkMessage: Decodable, Sendable {
     /// The step a thin link has taken the picture down to, if any.
     private var squeezed: VideoQuality?
     private var roomyReadings = 0
+    private var tightReadings = 0
+    /// Readings (two seconds apart) too tight for the size before it comes
+    /// down to the one that fits.
+    private static let tightReadingsAllowed = 2
     /// Below this even the smallest step goes off (bits a second).
     private static let tooThinEvenSmall = 30_000
-    /// Readings (two seconds apart) with room to spare before a step up.
-    private static let roomyReadingsWanted = 5
+    /// Readings (two seconds apart) with room for the next step before a
+    /// step up: the link's room grows with what is sent, so the next step
+    /// is wanted at about two thirds of its most, not at all of it.
+    private static let roomyReadingsWanted = 3
     /// The most of their frames decoded on this connection.
     private var framesMost = 0
     /// Their first frame's watcher, on the track it watches.
@@ -953,10 +1153,25 @@ final class FirstFrame: NSObject, RTCVideoRenderer, @unchecked Sendable {
         return "{\"call\":\(id),\"\(key)\":\(value)}"
     }
 
+    /// {"call":ID,"open":true,"early":true}: opens the link, and says this
+    /// phone sets its picture up while the call rings.
+    static func opening(_ callID: String) -> String {
+        let id = String(decoding: (try? JSONEncoder().encode(callID)) ?? Data("\"\"".utf8), as: UTF8.self)
+        return "{\"call\":\(id),\"open\":true,\"early\":true}"
+    }
+
     /// {"call":ID,"msg":<data>}: data is already JSON, sent as it is.
     static func frame(_ callID: String, msg data: Data) -> String {
         let id = String(decoding: (try? JSONEncoder().encode(callID)) ?? Data("\"\"".utf8), as: UTF8.self)
         return "{\"call\":\(id),\"msg\":" + String(decoding: data, as: UTF8.self) + "}"
+    }
+
+    /// {"call":ID,"msg":<data>,"sip":"<message>"}: a SIP message and a side
+    /// message in one, so neither waits on the other (`siprelay`).
+    static func frame(_ callID: String, msg data: Data, sip: String) -> String {
+        let id = String(decoding: (try? JSONEncoder().encode(callID)) ?? Data("\"\"".utf8), as: UTF8.self)
+        let text = String(decoding: (try? JSONEncoder().encode(sip)) ?? Data("\"\"".utf8), as: UTF8.self)
+        return "{\"call\":\(id),\"msg\":" + String(decoding: data, as: UTF8.self) + ",\"sip\":" + text + "}"
     }
 
     /// A side message from Linx: which call, and what for it.
@@ -1050,5 +1265,40 @@ final class FirstFrame: NSObject, RTCVideoRenderer, @unchecked Sendable {
                 }
             }
         }
+    }
+}
+
+/// One reading of the picture both ways, for the call's report.
+struct PictureReading {
+    var sentHeight: Int?
+    var sentFPS: Double?
+    var gotHeight: Int?
+    var gotFPS: Double?
+    var room: Int?
+    var freezes: (count: Int, seconds: Double)?
+
+    var any: Bool { sentHeight != nil || gotHeight != nil }
+
+    mutating func mine(_ values: [String: NSObject]) {
+        sentHeight = (values["frameHeight"] as? NSNumber)?.intValue
+        sentFPS = (values["framesPerSecond"] as? NSNumber)?.doubleValue
+    }
+
+    mutating func theirs(_ values: [String: NSObject]) {
+        gotHeight = (values["frameHeight"] as? NSNumber)?.intValue
+        gotFPS = (values["framesPerSecond"] as? NSNumber)?.doubleValue
+        if let count = (values["freezeCount"] as? NSNumber)?.intValue {
+            freezes = (count, (values["totalFreezesDuration"] as? NSNumber)?.doubleValue ?? 0)
+        }
+    }
+
+    var words: String {
+        func way(_ height: Int?, _ fps: Double?) -> String {
+            guard let height else { return "none" }
+            return "\(height)p \(Int((fps ?? 0).rounded())) fps"
+        }
+        var line = "Picture: sending \(way(sentHeight, sentFPS)), getting \(way(gotHeight, gotFPS))"
+        if let room { line += ", room \(room / 1000) kbit/s" }
+        return line
     }
 }

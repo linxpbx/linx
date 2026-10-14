@@ -22,6 +22,7 @@ package siprelay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -78,6 +79,11 @@ const Subprotocol = "sip"
 // call links too (Side): an app that doesn't see it opens its own call-link
 // websocket instead, and never sends the line anything but SIP.
 const SideHeader = "Linx-Call-Links"
+
+// SideSIPHeader is beside SideHeader when a side message may carry a SIP
+// message for Asterisk ("sip"): an app that doesn't see it sends its SIP on
+// its own, since an older relay would hand the whole message to the side.
+const SideSIPHeader = "Linx-Call-Links-SIP"
 
 // Side messages a phone may send a second, over a second's burst: the
 // call link's own rate (an offer, an answer and their routes).
@@ -192,6 +198,7 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, line Line) {
 	side := r.Side != nil && line.Phone()
 	if side {
 		w.Header().Set(SideHeader, "1")
+		w.Header().Set(SideSIPHeader, "1")
 	}
 	down, err := websocket.Accept(w, req, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
 	if err != nil {
@@ -343,31 +350,47 @@ func (s *session) fromBrowser(ctx context.Context) error {
 			if !s.sideLimiter.Allow() {
 				return refused(ReasonTooMany)
 			}
+			// A side message may carry a SIP message with it ("sip"), which
+			// goes to Asterisk first, as if sent on its own.
+			var carried struct {
+				SIP string `json:"sip"`
+			}
+			if json.Unmarshal(b, &carried) == nil && carried.SIP != "" {
+				if err := s.toAsterisk(websocket.MessageText, []byte(carried.SIP)); err != nil {
+					return err
+				}
+			}
 			s.side(b)
 			continue
 		}
-		if !s.limiter.Allow() {
-			return refused(ReasonTooMany)
-		}
-		m, err := parseMessage(b)
-		if err != nil {
-			return refused(ReasonMalformed)
-		}
-		if m.keepAlive {
-			continue
-		}
-		if err := checkFraming(b); err != nil {
-			return refused(ReasonMalformed)
-		}
-		if m.request {
-			if reason := s.checkRequest(m); reason != "" {
-				return refused(reason)
-			}
-		}
-		if err := write(s.up, typ, b); err != nil {
+		if err := s.toAsterisk(typ, b); err != nil {
 			return err
 		}
 	}
+}
+
+// toAsterisk checks one SIP message from the phone or browser and passes
+// it on: a keep-alive is dropped, anything the line may not send ends it.
+func (s *session) toAsterisk(typ websocket.MessageType, b []byte) error {
+	if !s.limiter.Allow() {
+		return refused(ReasonTooMany)
+	}
+	m, err := parseMessage(b)
+	if err != nil {
+		return refused(ReasonMalformed)
+	}
+	if m.keepAlive {
+		return nil
+	}
+	if err := checkFraming(b); err != nil {
+		return refused(ReasonMalformed)
+	}
+	if m.request {
+		if reason := s.checkRequest(m); reason != "" {
+			return refused(reason)
+		}
+	}
+	return write(s.up, typ, b)
 }
 
 // checkRequest returns why the browser may not send m, or "".
