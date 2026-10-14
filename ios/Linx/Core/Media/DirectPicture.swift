@@ -357,6 +357,9 @@ struct CallLinkMessage: Decodable, Sendable {
         theirsOverTCP = false
         waitedForTheirOffer = false
         quietReadings = 0
+        if let first = firstFrame { first.track.remove(first.watcher) }
+        firstFrame = nil
+        theirPictureMarked = false
         // Nothing is being sent or shown on a link that is gone: a new one
         // starts from nothing, and the camera goes on again if it is
         // wanted (it stayed off after the link came back, 2026-10-13).
@@ -495,6 +498,7 @@ struct CallLinkMessage: Decodable, Sendable {
             if transceiver.currentDirection(&current), current == .sendRecv || current == .recvOnly {
                 theirs = true
                 tracks.remote = transceiver.receiver.track as? RTCVideoTrack
+                if let track = tracks.remote { waitForTheirFirstFrame(on: track) }
             }
         }
         if !theirs {
@@ -502,6 +506,31 @@ struct CallLinkMessage: Decodable, Sendable {
             quietReadings = 0
         }
         said(theirs: theirs, theirPicture: theirs && video.theirPicture)
+    }
+
+    /// Their picture goes up on the screen the moment its first frame is
+    /// decoded. The two-second reading (`read`) used to decide it, which
+    /// put up to two seconds on every call's first picture.
+    private func waitForTheirFirstFrame(on track: RTCVideoTrack) {
+        guard firstFrame?.track !== track else { return }
+        if let old = firstFrame { old.track.remove(old.watcher) }
+        let watcher = FirstFrame { [weak self] in
+            Task { @MainActor in self?.theirFirstFrame(on: track) }
+        }
+        firstFrame = (track, watcher)
+        track.add(watcher)
+    }
+
+    private func theirFirstFrame(on track: RTCVideoTrack) {
+        guard let first = firstFrame, first.track === track else { return }
+        track.remove(first.watcher)
+        guard !stopped, tracks.remote === track else { return }
+        if !theirPictureMarked {
+            theirPictureMarked = true
+            onMark?("Their picture arrived")
+        }
+        quietReadings = 0
+        said(theirs: true, theirPicture: true)
     }
 
     private func stopCamera() {
@@ -634,7 +663,10 @@ struct CallLinkMessage: Decodable, Sendable {
                 if quietReadings >= 2 { said(theirPicture: false) }
             }
         }
-        if framesSeen == 0, frames > 0 { onMark?("Their picture arrived") }
+        if framesSeen == 0, frames > 0, !theirPictureMarked {
+            theirPictureMarked = true
+            onMark?("Their picture arrived")
+        }
         framesSeen = frames
         framesMost = max(framesMost, frames)
         if video.mine, let room { follow(room: room) }
@@ -725,6 +757,9 @@ struct CallLinkMessage: Decodable, Sendable {
     private static let roomyReadingsWanted = 5
     /// The most of their frames decoded on this connection.
     private var framesMost = 0
+    /// Their first frame's watcher, on the track it watches.
+    private var firstFrame: (track: RTCVideoTrack, watcher: FirstFrame)?
+    private var theirPictureMarked = false
 
     /// The picture's route in the call's own words ("relay/udp → relay/udp"),
     /// once it has one.
@@ -787,6 +822,18 @@ extension DirectPicture: RTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_ connection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+        if newState == .connected {
+            // The route is read now rather than at the next two-second
+            // reading: what it is decides the picture's size.
+            Task { @MainActor [weak self] in
+                guard let self, connection === self.connection else { return }
+                let report = await withCheckedContinuation { (done: CheckedContinuation<RTCStatisticsReport, Never>) in
+                    connection.statistics { done.resume(returning: $0) }
+                }
+                guard connection === self.connection else { return }
+                self.read(report)
+            }
+        }
         if newState == .checking {
             Task { @MainActor [weak self] in
                 guard let self, connection === self.connection else { return }
@@ -823,6 +870,106 @@ extension DirectPicture: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_ connection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
     nonisolated func peerConnection(_ connection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     nonisolated func peerConnection(_ connection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+}
+
+/// Says once, from WebRTC's own thread, that a track's first frame has
+/// been decoded.
+final class FirstFrame: NSObject, RTCVideoRenderer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    private let then: @Sendable () -> Void
+
+    init(then: @escaping @Sendable () -> Void) {
+        self.then = then
+    }
+
+    func setSize(_ size: CGSize) {}
+
+    func renderFrame(_ frame: RTCVideoFrame?) {
+        guard frame != nil else { return }
+        lock.lock()
+        let first = !fired
+        fired = true
+        lock.unlock()
+        if first { then() }
+    }
+}
+
+/// A call's link on the phone's own line (`internal/siprelay`'s Side):
+/// the call link's messages, carried on the websocket the app has had open
+/// since it signed in. On the owner's iPhone on Etisalat 5G (2026-10-14)
+/// every newly opened connection was slow for its first 20–30 s, while the
+/// line answered in a tenth of a second; a call link of its own took 17–24 s
+/// a message, and the picture came 45 s after the answer.
+@MainActor final class LineLink: PictureLink {
+    var onMessage: ((Data) -> Void)?
+    var onClose: (() -> Void)?
+
+    let callID: String
+    private weak var line: SIPUserAgent?
+    private var open = false
+
+    init(callID: String, line: SIPUserAgent) {
+        self.callID = callID
+        self.line = line
+    }
+
+    func start() {
+        open = true
+        guard let line else {
+            Task { @MainActor in self.lineClosed() }
+            return
+        }
+        line.open(self)
+    }
+
+    func send(_ data: Data) { line?.send(data, on: self) }
+
+    func stop() {
+        open = false
+        line?.close(self)
+    }
+
+    func received(_ data: Data) {
+        guard open else { return }
+        onMessage?(data)
+    }
+
+    /// Linx closed the link, or the line went.
+    func lineClosed() {
+        guard open else { return }
+        open = false
+        onClose?()
+    }
+
+    enum Message: Equatable {
+        case message(Data)
+        case closed
+    }
+
+    /// {"call":ID,<key>:value} for the line.
+    static func frame(_ callID: String, _ key: String, _ value: Bool) -> String {
+        let id = String(decoding: (try? JSONEncoder().encode(callID)) ?? Data("\"\"".utf8), as: UTF8.self)
+        return "{\"call\":\(id),\"\(key)\":\(value)}"
+    }
+
+    /// {"call":ID,"msg":<data>}: data is already JSON, sent as it is.
+    static func frame(_ callID: String, msg data: Data) -> String {
+        let id = String(decoding: (try? JSONEncoder().encode(callID)) ?? Data("\"\"".utf8), as: UTF8.self)
+        return "{\"call\":\(id),\"msg\":" + String(decoding: data, as: UTF8.self) + "}"
+    }
+
+    /// A side message from Linx: which call, and what for it.
+    static func parse(_ text: String) -> (String, Message)? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+            let callID = object["call"] as? String
+        else { return nil }
+        if object["closed"] != nil { return (callID, .closed) }
+        guard let msg = object["msg"], JSONSerialization.isValidJSONObject(msg),
+            let data = try? JSONSerialization.data(withJSONObject: msg)
+        else { return nil }
+        return (callID, .message(data))
+    }
 }
 
 /// The call link's websocket: wss to this phone's Linx, with its device

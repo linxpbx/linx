@@ -57,6 +57,7 @@ import (
 	"linxpbx.com/linx/internal/safehttp"
 	"linxpbx.com/linx/internal/server"
 	"linxpbx.com/linx/internal/settings"
+	"linxpbx.com/linx/internal/siprelay"
 	"linxpbx.com/linx/internal/sso"
 	"linxpbx.com/linx/internal/store"
 	"linxpbx.com/linx/internal/trunk"
@@ -468,6 +469,10 @@ func main() {
 		return d.Kind == "web" || d.Kind == "ios", err
 	}}
 	callHub := &calllink.Hub{}
+	// A phone's call links travel on its own line (ADR-087).
+	relay.Side = func(ctx context.Context, line siprelay.Line, send func([]byte) error) func([]byte) {
+		return newLineLinks(ctx, callResolver, callHub, line.Username, send).received
+	}
 	// A link opened while its call rings waits for these to be answered.
 	tracker.OnChange = func() {
 		hub.Changed()

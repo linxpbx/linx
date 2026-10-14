@@ -211,15 +211,72 @@ struct AudioRoute: Equatable, Sendable {
     }
 
     private func listen(to transport: any SIPTransport) {
-        transport.onOpen = { [weak self] in self?.register() }
+        transport.onOpen = { [weak self] in
+            self?.lineIsOpen = true
+            self?.register()
+        }
         transport.onText = { [weak self] text in self?.read(text) }
         transport.onClose = { [weak self] why in self?.closed(why) }
     }
 
-    /// The call link for a call, with this line's current token.
+    /// The call link for a call. On a line that carries call links it
+    /// travels on the line (`LineLink`), which has been open since the app
+    /// signed in; otherwise it is a websocket of its own, with this line's
+    /// current token.
     private func makeLink(_ callID: String) -> (any PictureLink)? {
         if let customLink { return customLink(callID) }
+        if transport.carriesCallLinks { return LineLink(callID: callID, line: self) }
         return CallLinkSocket(sip: account.websocket, token: account.token, callID: callID)
+    }
+
+    // MARK: - Call links on the line (ADR-087)
+
+    /// The line is open now (its websocket, whether or not signed in yet).
+    private var lineIsOpen = false
+    /// The call links on this line, by SIP Call-ID.
+    private var lineLinks: [String: LineLink] = [:]
+
+    /// Opens `link` on the line, or tells it the line isn't there to open
+    /// on: it tries again, as a call link's websocket does.
+    func open(_ link: LineLink) {
+        guard lineIsOpen, transport.carriesCallLinks else {
+            Task { @MainActor in link.lineClosed() }
+            return
+        }
+        lineLinks[link.callID] = link
+        transport.send(LineLink.frame(link.callID, "open", true))
+    }
+
+    /// What `link` sends the other device.
+    func send(_ data: Data, on link: LineLink) {
+        guard lineIsOpen, lineLinks[link.callID] === link else { return }
+        transport.send(LineLink.frame(link.callID, msg: data))
+    }
+
+    func close(_ link: LineLink) {
+        guard lineLinks[link.callID] === link else { return }
+        lineLinks[link.callID] = nil
+        if lineIsOpen { transport.send(LineLink.frame(link.callID, "close", true)) }
+    }
+
+    /// A side message from Linx: one of this line's call links.
+    private func readLink(_ text: String) {
+        guard let (callID, message) = LineLink.parse(text), let link = lineLinks[callID] else { return }
+        switch message {
+        case .message(let data): link.received(data)
+        case .closed:
+            lineLinks[callID] = nil
+            link.lineClosed()
+        }
+    }
+
+    /// The line went: every link on it with it. Each tries again, and is
+    /// opened on the line that comes back.
+    private func lineGone() {
+        lineIsOpen = false
+        let links = lineLinks.values
+        lineLinks = [:]
+        for link in links { link.lineClosed() }
     }
 
     // MARK: - A dropped connection (a phone between networks)
@@ -239,6 +296,7 @@ struct AudioRoute: Equatable, Sendable {
     /// password and token. Once it has signed in again, the call is told
     /// where this phone is now (`refreshTheCall`).
     func reattach(account: Account, transport: any SIPTransport) {
+        lineGone()
         self.transport.onOpen = nil
         self.transport.onText = nil
         self.transport.onClose = nil
@@ -612,6 +670,10 @@ struct AudioRoute: Equatable, Sendable {
     // MARK: - What comes back
 
     private func read(_ text: String) {
+        if text.first == "{" {
+            readLink(text)
+            return
+        }
         guard let message = SIPMessage(text: text) else { return }
         if let words = Self.traceWords(message) { onTrace?("← \(words)") }
         if message.status != nil {
@@ -1016,6 +1078,7 @@ struct AudioRoute: Equatable, Sendable {
     }
 
     private func closed(_ why: String?) {
+        lineGone()
         registerTimer?.cancel()
         registerTimer = nil
         if let current = call {

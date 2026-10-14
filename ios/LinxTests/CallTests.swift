@@ -16,6 +16,9 @@ import Testing
 
     private(set) var sent: [SIPMessage] = []
     private(set) var keepAlives = 0
+    /// Linx said the line carries call links; what went to them.
+    var carriesCallLinks = false
+    private(set) var side: [String] = []
     private(set) var started = false
 
     func start() {
@@ -24,6 +27,10 @@ import Testing
     }
 
     func send(_ text: String) {
+        if text.first == "{" {
+            side.append(text)
+            return
+        }
         guard let message = SIPMessage(text: text) else {
             keepAlives += 1
             return
@@ -76,6 +83,8 @@ import Testing
     /// Told the call is up (the link opens, or learns it at the answer).
     private(set) var pictureLinks = 0
     private(set) var pictureLinksWhileRinging = 0
+    /// The first link it was given.
+    private(set) var pictureLink: (any PictureLink)?
     private(set) var pictureCameraFirst: Bool?
     /// Every on and off asked of the camera.
     private(set) var cameraCalls: [Bool] = []
@@ -88,6 +97,7 @@ import Testing
     }
 
     func startPicture(link: any PictureLink, cameraFirst: Bool, ringing: Bool) {
+        if pictureLink == nil { pictureLink = link }
         if ringing {
             pictureLinksWhileRinging += 1
         } else {

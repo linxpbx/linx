@@ -90,6 +90,64 @@ struct VideoTests {
         #expect(media.pictureLinks == 1)
     }
 
+    @Test("on a line that carries call links, the picture's messages go on the line")
+    func theLinkGoesOnTheLine() async throws {
+        let transport = FakeTransport()
+        transport.carriesCallLinks = true
+        let media = FakeMedia()
+        let phone = PhoneModel(
+            line: { Self.line() }, transport: { _ in transport }, media: { _ in media },
+            calls: FakeSystemCalls())
+        await phone.start()
+        transport.asterisk(SIPMessage.response(200, "OK", to: try #require(transport.last("REGISTER"))))
+        phone.callNumber("1024", name: "Omar Khalil", withVideo: true)
+        #expect(await eventually { transport.last("INVITE") != nil })
+        let invite = try #require(transport.last("INVITE"))
+        let callID = try #require(invite.callID)
+        transport.asterisk(SIPMessage.response(180, "Ringing", to: invite).withTag("theirs"))
+        #expect(await eventually { media.pictureLink != nil })
+        let link = try #require(media.pictureLink as? LineLink)
+
+        var heard: [String] = []
+        var closed = 0
+        link.onMessage = { heard.append(String(decoding: $0, as: UTF8.self)) }
+        link.onClose = { closed += 1 }
+        link.start()
+        let open = try #require(transport.side.last)
+        #expect(open == "{\"call\":\"\(callID)\",\"open\":true}")
+
+        // Linx says to wait, then pairs it; what the picture sends goes on the line.
+        transport.onText?("{\"call\":\"\(callID)\",\"msg\":{\"type\":\"wait\"}}")
+        #expect(heard.count == 1 && heard[0].contains("wait"))
+        link.send(Data("{\"type\":\"signal\",\"data\":{\"candidate\":null}}".utf8))
+        let sent = "{\"call\":\"\(callID)\",\"msg\":{\"type\":\"signal\",\"data\":{\"candidate\":null}}}"
+        #expect(transport.side.last == sent)
+        // Another call's message isn't this link's.
+        transport.onText?("{\"call\":\"someone-else\",\"msg\":{\"type\":\"peer\"}}")
+        #expect(heard.count == 1)
+        // The line drops: the link is told, to try again on the next one.
+        transport.drop()
+        #expect(closed == 1)
+    }
+
+    @Test("a line Linx didn't say carries call links keeps the link's own websocket")
+    func oldServersKeepTheirWebsocket() async throws {
+        let transport = FakeTransport()
+        let media = FakeMedia()
+        let phone = PhoneModel(
+            line: { Self.line() }, transport: { _ in transport }, media: { _ in media },
+            calls: FakeSystemCalls())
+        await phone.start()
+        transport.asterisk(SIPMessage.response(200, "OK", to: try #require(transport.last("REGISTER"))))
+        phone.callNumber("1024", name: "Omar Khalil")
+        #expect(await eventually { transport.last("INVITE") != nil })
+        let invite = try #require(transport.last("INVITE"))
+        transport.asterisk(SIPMessage.response(180, "Ringing", to: invite).withTag("theirs"))
+        #expect(await eventually { media.pictureLink != nil })
+        #expect(media.pictureLink is CallLinkSocket)
+        #expect(transport.side.isEmpty)
+    }
+
     @Test("a call ringing here opens its picture link before it is answered")
     func theLinkOpensWhileRingingIn() async throws {
         let transport = FakeTransport()

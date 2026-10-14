@@ -460,3 +460,67 @@ func eventually(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// A phone's line carries its call links as side messages (Side): they go to
+// the side and its answers come back down the line, never through Asterisk.
+// A browser's line has no side, so the same message closes it as not SIP.
+func TestPhoneLineCarriesSideMessages(t *testing.T) {
+	got := make(chan string, 4)
+	h := newHarness(t, func(r *Relay) {
+		r.Side = func(ctx context.Context, line Line, send func([]byte) error) func([]byte) {
+			return func(b []byte) {
+				got <- string(b)
+				send([]byte(`{"call":"c1","msg":{"type":"wait"}}`))
+			}
+		}
+	})
+	h.line.SessionID, h.line.DeviceID = uuid.Nil, uuid.New()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, resp, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(h.srv.URL, "http"), &websocket.DialOptions{Subprotocols: []string{"sip"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	if resp.Header.Get(SideHeader) != "1" {
+		t.Errorf("a phone's line doesn't say it carries call links")
+	}
+	send(t, c, `{"call":"c1","open":true}`)
+	if b := <-got; b != `{"call":"c1","open":true}` {
+		t.Errorf("side got %q", b)
+	}
+	if b, err := read(t, c); err != nil || b != `{"call":"c1","msg":{"type":"wait"}}` {
+		t.Errorf("phone got %q, %v", b, err)
+	}
+	// SIP still goes to Asterisk, and nothing else did.
+	send(t, c, request("OPTIONS", me, "linx"))
+	deadline := time.Now().Add(5 * time.Second)
+	for len(h.ast.received()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r := h.ast.received(); len(r) != 1 || !strings.HasPrefix(r[0], "OPTIONS") {
+		t.Errorf("Asterisk got %q", r)
+	}
+}
+
+func TestBrowserLineHasNoSide(t *testing.T) {
+	h := newHarness(t, func(r *Relay) {
+		r.Side = func(context.Context, Line, func([]byte) error) func([]byte) {
+			t.Error("a browser's line was given a side")
+			return func([]byte) {}
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, resp, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(h.srv.URL, "http"), &websocket.DialOptions{Subprotocols: []string{"sip"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	if resp.Header.Get(SideHeader) != "" {
+		t.Error("a browser's line says it carries call links")
+	}
+	send(t, c, `{"call":"c1","open":true}`)
+	wantClosed(t, c, websocket.StatusPolicyViolation, ReasonMalformed)
+}

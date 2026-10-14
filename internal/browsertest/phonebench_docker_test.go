@@ -52,6 +52,14 @@ type benchScenario struct {
 	// back 30 s. The answerer rings for six seconds, and the picture must
 	// still be there soon after the answer.
 	badStart bool
+	// newSlow is a mobile link on which, for every connection opened from
+	// the moment the call starts, what Linx sends over its first forty
+	// packets arrives two seconds late, while connections open before
+	// carry on untouched: the owner's iPhone on Etisalat 5G (2026-10-14),
+	// whose phone line answered in a tenth of a second while a call link
+	// opened for the call took 17–24 s a message and the picture came 45 s
+	// after the answer.
+	newSlow bool
 }
 
 // badStartFor is how long a bad start turns new connections away.
@@ -75,6 +83,8 @@ var benchScenarios = []benchScenario{
 		slow: "delay 300ms 20ms loss 1%"},
 	{name: "a mobile link that opens no new connection as the call is answered",
 		flags: []string{"relay-only", "ring=6"}, badStart: true},
+	{name: "a mobile link whose new connections are slow for their first part",
+		flags: []string{"relay-only", "ring=6"}, newSlow: true},
 	// CallKit isn't here: a simulator's own call service ends an app's
 	// outgoing CallKit call about a second in (callservicesd asks for the
 	// CXEndCallAction itself, 2026-10-13), so it is checked on a phone.
@@ -131,6 +141,42 @@ func (h *harness) noNewConnectionsFor(d time.Duration) {
 	run("-D")
 }
 
+// newConnectionsSlow marks every connection to linx-sni's port 443 opened
+// in the next while, and makes what Linx sends over a marked connection's
+// first forty packets arrive two seconds late. Connections already open
+// aren't touched. The returned func takes it all off again.
+func (h *harness) newConnectionsSlow(window time.Duration) func() {
+	prefix := strings.TrimSuffix(publicSubnet, "0/24")
+	on := `i=$(ip -o -4 addr show | awk -v p="$1" 'index($4, p) == 1 {print $2; exit}'); [ -n "$i" ] || exit 1; ` +
+		`tc qdisc add dev $i root handle 1: prio bands 3 priomap 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 && ` +
+		`tc qdisc add dev $i parent 1:3 handle 30: netem delay 2000ms limit 100000 && ` +
+		`tc filter add dev $i parent 1:0 protocol ip handle 7 fw flowid 1:3 && ` +
+		`iptables -t mangle -A PREROUTING -p tcp --dport 443 -m conntrack --ctstate NEW -j CONNMARK --set-mark 7 && ` +
+		`iptables -t mangle -A OUTPUT -p tcp --sport 443 -m connmark --mark 7 -m connbytes --connbytes 0:40 ` +
+		`--connbytes-dir both --connbytes-mode packets -j MARK --set-mark 7`
+	stopMarking := `iptables -t mangle -D PREROUTING -p tcp --dport 443 -m conntrack --ctstate NEW -j CONNMARK --set-mark 7`
+	off := `i=$(ip -o -4 addr show | awk -v p="$1" 'index($4, p) == 1 {print $2; exit}'); ` +
+		`iptables -t mangle -F OUTPUT; iptables -t mangle -D PREROUTING -p tcp --dport 443 -m conntrack --ctstate NEW -j CONNMARK --set-mark 7 2>/dev/null; ` +
+		`tc qdisc del dev $i root 2>/dev/null; true`
+	run := func(script string) {
+		h.docker("run", "--rm", "--network", "container:linx-sni", "--cap-add", "NET_ADMIN",
+			"nicolaka/netshoot", "sh", "-c", script, "slow", prefix)
+	}
+	run(on)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-time.After(window):
+			run(stopMarking)
+		case <-done:
+		}
+	}()
+	return func() {
+		close(done)
+		run(off)
+	}
+}
+
 // whenRinging returns once Asterisk has a channel ringing.
 func (h *harness) whenRinging(t *testing.T, within time.Duration) {
 	t.Helper()
@@ -181,9 +227,9 @@ func TestPhoneBenchDocker(t *testing.T) {
 	caller, answerer := h.benchPhones(t)
 	bench("prepare", filepath.Join(h.dir, "tls", "root_ca.crt"))
 
-	only := os.Getenv("LINX_BENCH_ONLY") // a scenario's name, or part of it
+	only := os.Getenv("LINX_BENCH_ONLY") // part of a scenario's name, or several joined with |
 	for _, sc := range benchScenarios {
-		if only != "" && !strings.Contains(sc.name, only) {
+		if only != "" && !slices.ContainsFunc(strings.Split(only, "|"), func(o string) bool { return strings.Contains(sc.name, o) }) {
 			continue
 		}
 		t.Run(sc.name, func(t *testing.T) {
@@ -192,6 +238,18 @@ func TestPhoneBenchDocker(t *testing.T) {
 				udp := !slices.Contains(sc.flags, "no-udp")
 				h.slowDown(sc.slow, udp)
 				defer h.slowDown("", udp)
+			}
+			if sc.newSlow {
+				// Five seconds after the answerer's app starts and three
+				// before the caller's: the answerer's line, open by then, is
+				// the phone line that stays good; everything opened from
+				// here is bad for its first part, the caller's line too.
+				undone := make(chan func(), 1)
+				go func() {
+					time.Sleep(5 * time.Second)
+					undone <- h.newConnectionsSlow(45 * time.Second)
+				}()
+				defer func() { (<-undone)() }()
 			}
 			bench(append([]string{"call", caller, answerer, "202", strconv.Itoa(benchCallSeconds)}, sc.flags...)...)
 			// LINX_BENCH_SHOTS=DIR: both screens at moments through the
@@ -370,7 +428,7 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			fail(fmt.Sprintf("HD took %.0f s to reach 720p", at-on))
 		}
 	}
-	if sc.badStart {
+	if sc.badStart || sc.newSlow {
 		answered, ok := markAt(r, "Answered")
 		if !ok {
 			answered, ok = markAt(r, "→ 200 OK (INVITE)")

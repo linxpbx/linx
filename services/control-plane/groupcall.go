@@ -336,8 +336,14 @@ func pbxChannel(name string) string {
 	return rest
 }
 
+// callIDOK is whether callID could be a SIP Call-ID at all.
+func callIDOK(callID string) bool {
+	return callID != "" && len(callID) <= 256 &&
+		strings.IndexFunc(callID, func(c rune) bool { return c > unicode.MaxASCII || !unicode.IsPrint(c) }) < 0
+}
+
 func validCallID(w http.ResponseWriter, callID string) bool {
-	if callID == "" || len(callID) > 256 || strings.IndexFunc(callID, func(c rune) bool { return c > unicode.MaxASCII || !unicode.IsPrint(c) }) >= 0 {
+	if !callIDOK(callID) {
 		apihttp.WriteProblem(w, http.StatusBadRequest, "call_invalid", "Say which call this is.")
 		return false
 	}

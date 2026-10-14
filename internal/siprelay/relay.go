@@ -14,6 +14,10 @@
 //   - the session (or the phone) is checked again every CheckInterval, and
 //     CloseSession / CloseDevice / CloseUser drop it at once when it ends
 //     (signing out, the person disabled, the phone revoked, ...).
+//
+// A phone's line also carries its calls' links (Side, ADR-087): a text
+// message starting with '{', which no SIP message does, is the side's and
+// never reaches Asterisk.
 package siprelay
 
 import (
@@ -70,6 +74,18 @@ const (
 // Subprotocol is the websocket subprotocol SIP uses (RFC 7118).
 const Subprotocol = "sip"
 
+// SideHeader is on a phone line's upgrade response when the line carries
+// call links too (Side): an app that doesn't see it opens its own call-link
+// websocket instead, and never sends the line anything but SIP.
+const SideHeader = "Linx-Call-Links"
+
+// Side messages a phone may send a second, over a second's burst: the
+// call link's own rate (an offer, an answer and their routes).
+const (
+	sideRate  = 50
+	sideBurst = 50
+)
+
 // Close reasons the browser sees, and the audit log records (reason).
 const (
 	ReasonSignedOut    = "signed out"
@@ -92,7 +108,12 @@ type Relay struct {
 	Check func(ctx context.Context, line Line) error
 	// Audit records a refused connection (action "sip.relay_closed").
 	Audit func(ctx context.Context, line Line, reason string)
-	Log   *slog.Logger
+	// Side, when set, carries a phone's call links on its line: it is
+	// started for each phone line with a way to send down it, until ctx
+	// ends with the line, and returns what to do with each side message
+	// the phone sends. A browser's line never has one.
+	Side func(ctx context.Context, line Line, send func([]byte) error) func([]byte)
+	Log  *slog.Logger
 
 	CheckInterval   time.Duration
 	MaxMessage      int64
@@ -168,6 +189,10 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, line Line) {
 	r.add(rc)
 	defer r.remove(rc)
 
+	side := r.Side != nil && line.Phone()
+	if side {
+		w.Header().Set(SideHeader, "1")
+	}
 	down, err := websocket.Accept(w, req, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
 	if err != nil {
 		up.Close(websocket.StatusGoingAway, "")
@@ -183,6 +208,10 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, line Line) {
 	up.SetReadLimit(r.MaxMessage)
 
 	s := &session{relay: r, line: line, up: up, down: down, limiter: rate.NewLimiter(r.Rate, r.Burst)}
+	if side {
+		s.side = r.Side(ctx, line, func(b []byte) error { return write(down, websocket.MessageText, b) })
+		s.sideLimiter = rate.NewLimiter(sideRate, sideBurst)
+	}
 	var wg sync.WaitGroup
 	wg.Add(3)
 	go func() { defer wg.Done(); cancel(s.fromBrowser(ctx)) }()
@@ -280,6 +309,9 @@ type session struct {
 	line     Line
 	up, down *websocket.Conn
 	limiter  *rate.Limiter
+	// side takes the phone's call-link messages (Relay.Side), if it has one.
+	side        func([]byte)
+	sideLimiter *rate.Limiter
 
 	mu sync.Mutex
 	// credentialed are requests the browser sent with credentials, by
@@ -306,6 +338,13 @@ func (s *session) fromBrowser(ctx context.Context) error {
 				return refused(ReasonTooMany)
 			}
 			return err
+		}
+		if s.side != nil && typ == websocket.MessageText && len(b) > 0 && b[0] == '{' {
+			if !s.sideLimiter.Allow() {
+				return refused(ReasonTooMany)
+			}
+			s.side(b)
+			continue
 		}
 		if !s.limiter.Allow() {
 			return refused(ReasonTooMany)
