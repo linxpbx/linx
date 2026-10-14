@@ -368,12 +368,17 @@ struct CallDiagnostics: Equatable, Sendable {
 
     // MARK: - The picture (ADR-087)
 
-    /// Opens the call's picture link once the call is up: the two devices
-    /// find each other on it and the picture goes straight between them.
-    /// `cameraFirst` is a video call — this phone's camera goes on as soon
-    /// as the other side is there.
-    func startPicture(link: any PictureLink, cameraFirst: Bool) {
-        guard picture == nil, !stopped else { return }
+    /// Opens the call's picture link, while the call rings or at the
+    /// answer: the two devices find each other on it and the picture goes
+    /// straight between them. `cameraFirst` is a video call — this phone's
+    /// camera goes on as soon as the other side is there. A link opened
+    /// while ringing is only told at the answer that the call is up.
+    func startPicture(link: any PictureLink, cameraFirst: Bool, ringing: Bool) {
+        guard !stopped else { return }
+        if let picture {
+            if !ringing { picture.callIsUp() }
+            return
+        }
         let picture = DirectPicture(
             link: link, configuration: configuration(), factory: Self.factory, tracks: tracks,
             cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn))
@@ -387,7 +392,7 @@ struct CallDiagnostics: Equatable, Sendable {
             self.onVideoChanged?(video)
         }
         self.picture = picture
-        picture.start()
+        picture.start(ringing: ringing)
     }
 
     /// This phone's camera, on or off. The call's sound is never touched.

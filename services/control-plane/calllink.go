@@ -31,6 +31,14 @@ const (
 	// callLinkCheck is how often an open link checks that the device is
 	// still allowed and its call still there (the /sip relay's pace).
 	callLinkCheck = 15 * time.Second
+	// callLinkRinging is the longest a link opened while its call rings is
+	// held for the answer: longer than any ring, so a call that is never
+	// answered closes it by ending first.
+	callLinkRinging = 3 * time.Minute
+	// callLinkWaiting is how often a link held for the answer says it is
+	// still there ({"type":"wait"}), inside the app's 20 s and a front
+	// door's idle limit.
+	callLinkWaiting = 10 * time.Second
 )
 
 // callLinkStore is what the call link reads: whose device is asking.
@@ -43,6 +51,7 @@ type callLinkStore interface {
 // callResolver is the Asterisk side (calllink.Resolver).
 type callResolver interface {
 	Resolve(ctx context.Context, sipUsername, callID string) (calllink.Leg, error)
+	WaitAnswered(ctx context.Context, sipUsername, callID string, interval time.Duration, tick func() error) (calllink.Leg, error)
 	Alive(ctx context.Context, channelID string) bool
 }
 
@@ -61,7 +70,12 @@ func callLinkHandler(authn *auth.Authenticator, st callLinkStore, resolver callR
 			return
 		}
 		leg, err := resolver.Resolve(r.Context(), device.SIPUsername, callID)
+		ringing := errors.Is(err, calllink.ErrNotAnswered)
 		switch {
+		case ringing:
+			// Opened while the call rings (2026-10-14): a new connection
+			// on a poor mobile link took 9 s and more, so the phone makes
+			// it while ringing and it is held here until the answer.
 		case errors.Is(err, calllink.ErrNoCall):
 			apihttp.WriteProblem(w, http.StatusNotFound, "no_such_call", "Linx can't find that call.")
 			return
@@ -69,8 +83,53 @@ func callLinkHandler(authn *auth.Authenticator, st callLinkStore, resolver callR
 			apihttp.WriteProblem(w, http.StatusServiceUnavailable, "unavailable", "Linx can't reach the phone system right now.")
 			return
 		}
-		serveCallLink(w, r, resolver, hub, leg, stillThere)
+		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{controlplaneapi.CallLinkSubprotocol}})
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		if c.Subprotocol() != controlplaneapi.CallLinkSubprotocol {
+			c.Close(websocket.StatusPolicyViolation, "use the "+controlplaneapi.CallLinkSubprotocol+" subprotocol")
+			return
+		}
+		ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+		defer cancel()
+		if ringing {
+			if leg, ok = waitForAnswer(ctx, c, resolver, device.SIPUsername, callID); !ok {
+				return
+			}
+		}
+		serveCallLink(ctx, c, resolver, hub, leg, stillThere)
 	})))
+}
+
+// waitForAnswer holds a link opened while its call rings until the call is
+// answered (true, with its leg) or ends, or the device goes. Nothing the
+// device sends meanwhile is read: there is nobody yet to send it to.
+func waitForAnswer(
+	ctx context.Context, c *websocket.Conn, resolver callResolver, sipUsername, callID string,
+) (calllink.Leg, bool) {
+	ctx, cancel := context.WithTimeout(ctx, callLinkRinging)
+	defer cancel()
+	waiting := []byte(`{"type":"wait"}`)
+	say := func() error {
+		wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
+		defer wcancel()
+		return c.Write(wctx, websocket.MessageText, waiting)
+	}
+	if say() != nil {
+		return calllink.Leg{}, false
+	}
+	leg, err := resolver.WaitAnswered(ctx, sipUsername, callID, callLinkWaiting, say)
+	switch {
+	case err == nil:
+		return leg, true
+	case errors.Is(err, calllink.ErrNoCall), errors.Is(err, context.DeadlineExceeded):
+		c.Close(websocket.StatusNormalClosure, "the call has ended")
+	default:
+		c.Close(websocket.StatusTryAgainLater, "Linx can't reach the phone system right now")
+	}
+	return calllink.Leg{}, false
 }
 
 // askingDevice is the one device a request comes from: a phone by its
@@ -119,20 +178,11 @@ func askingDevice(w http.ResponseWriter, r *http.Request, st callLinkStore) (pbx
 }
 
 func serveCallLink(
-	w http.ResponseWriter, r *http.Request, resolver callResolver, hub *calllink.Hub, leg calllink.Leg,
+	ctx context.Context, c *websocket.Conn, resolver callResolver, hub *calllink.Hub, leg calllink.Leg,
 	stillThere func(context.Context) error,
 ) {
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{controlplaneapi.CallLinkSubprotocol}})
-	if err != nil {
-		return
-	}
-	defer c.CloseNow()
-	if c.Subprotocol() != controlplaneapi.CallLinkSubprotocol {
-		c.Close(websocket.StatusPolicyViolation, "use the "+controlplaneapi.CallLinkSubprotocol+" subprotocol")
-		return
-	}
 	c.SetReadLimit(callLinkLimit)
-	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	m := hub.Join(leg)
 	defer hub.Leave(m)

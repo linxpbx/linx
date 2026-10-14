@@ -11,7 +11,8 @@
 #
 # flags: relay-only, no-udp (China: the relay over TLS on 443 only), audio,
 # callkit (ring and answer through CallKit, as an iPhone outside China),
-# hd (both phones press HD five seconds in).
+# hd (both phones press HD five seconds in), ring=N (the answerer rings N
+# seconds before answering; one by default).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -65,6 +66,7 @@ call)
     audio) video=NO ;;
     callkit) flags+=(-LinxBenchCallKit YES) ;;
     hd) flags+=(-LinxBenchHD YES) ;;
+    ring=*) flags+=(-LinxBenchRingFor "${f#ring=}") ;;
     *) echo "bench: unknown flag $f" >&2; exit 2 ;;
     esac
   done

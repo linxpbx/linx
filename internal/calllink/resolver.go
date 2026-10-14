@@ -15,6 +15,11 @@ import (
 // ErrNoCall is a device asking about a call Asterisk doesn't show it in.
 var ErrNoCall = errors.New("no such call")
 
+// ErrNotAnswered is a device's own call that is still ringing. It is a
+// kind of ErrNoCall, so whatever needs an answered call refuses it as one;
+// only the call link waits for it to be answered (WaitAnswered).
+var ErrNotAnswered = fmt.Errorf("%w: not answered yet", ErrNoCall)
+
 // ErrNoAsterisk is Asterisk not connected to the control plane right now.
 var ErrNoAsterisk = errors.New("the phone system isn't connected")
 
@@ -29,8 +34,58 @@ type Resolver struct {
 	// link was refused and the picture never started.
 	Settle time.Duration
 
-	mu   sync.Mutex
-	conn *ari.Conn
+	mu      sync.Mutex
+	conn    *ari.Conn
+	changes chan struct{}
+}
+
+// Changed is told whenever Asterisk's calls change (CallTracker.OnChange),
+// which wakes every link waiting for its call to be answered.
+func (r *Resolver) Changed() {
+	r.mu.Lock()
+	if r.changes != nil {
+		close(r.changes)
+		r.changes = nil
+	}
+	r.mu.Unlock()
+}
+
+// changed is closed at the next change.
+func (r *Resolver) changed() <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.changes == nil {
+		r.changes = make(chan struct{})
+	}
+	return r.changes
+}
+
+// WaitAnswered is Resolve for a call that may still be ringing: it waits,
+// woken by Asterisk's own events rather than asking it over and over, until
+// the call is answered, ends, or ctx is done. tick is called every interval
+// meanwhile (the link's sign of life) and stops the wait when it fails.
+func (r *Resolver) WaitAnswered(
+	ctx context.Context, sipUsername, callID string, interval time.Duration, tick func() error,
+) (Leg, error) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		// Taken before looking, so a change between the two isn't missed.
+		next := r.changed()
+		leg, err := r.Resolve(ctx, sipUsername, callID)
+		if !errors.Is(err, ErrNotAnswered) {
+			return leg, err
+		}
+		select {
+		case <-ctx.Done():
+			return Leg{}, ctx.Err()
+		case <-next:
+		case <-t.C:
+			if err := tick(); err != nil {
+				return Leg{}, err
+			}
+		}
+	}
 }
 
 // Connected is given Asterisk's ARI connection as it comes and goes (nil
@@ -48,16 +103,20 @@ func (r *Resolver) current() *ari.Conn {
 }
 
 // own finds the channel of sipUsername's whose SIP Call-ID is callID and
-// that is up.
+// that is up: ErrNotAnswered while it is still ringing.
 func (r *Resolver) own(ctx context.Context, c *ari.Conn, sipUsername, callID string) (*ari.Channel, error) {
 	var chans []ari.Channel
 	if err := c.Get(ctx, "channels", &chans); err != nil {
 		return nil, err
 	}
 	for i, ch := range chans {
-		if ch.ProtocolID == callID && ch.Endpoint() == sipUsername && ch.State == "Up" {
-			return &chans[i], nil
+		if ch.ProtocolID != callID || ch.Endpoint() != sipUsername {
+			continue
 		}
+		if ch.State != "Up" {
+			return nil, ErrNotAnswered
+		}
+		return &chans[i], nil
 	}
 	return nil, ErrNoCall
 }

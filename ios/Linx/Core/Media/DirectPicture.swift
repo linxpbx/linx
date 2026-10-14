@@ -99,6 +99,10 @@ struct CallLinkMessage: Decodable, Sendable {
     private var hd = false
     private var stopped = false
     private var linkTries = 0
+    /// The call has been answered; until then a link Linx refuses (a server
+    /// older than holding one while ringing) is tried again without counting.
+    private var callUp = true
+    private var saidWaiting = false
     private static let linkTriesAllowed = 15
     private var watch: Task<Void, Never>?
     private var framesSeen = 0
@@ -133,12 +137,22 @@ struct CallLinkMessage: Decodable, Sendable {
         link.onClose = { [weak self] in self?.linkClosed() }
     }
 
-    func start() {
+    func start(ringing: Bool = false) {
+        callUp = !ringing
         // The connection is made now, while the link opens, so its route
         // through the relay (a TLS handshake and an allocation, seconds on
         // a slow link) is ready by the time the other side is.
         connect()
         link.start()
+    }
+
+    /// The call was answered. A link opened while it rang is already open
+    /// (Linx holds it until now), or still being tried; from here its tries
+    /// are counted.
+    func callIsUp() {
+        guard !callUp else { return }
+        callUp = true
+        linkTries = 0
     }
 
     var mirrored: Bool { camera?.mirrored ?? true }
@@ -259,6 +273,12 @@ struct CallLinkMessage: Decodable, Sendable {
             // From an earlier pairing of the two ends: its connection is gone.
             if let theirs = message.data?.session, let session, theirs != session { return }
             if let signal = message.data { await signalled(signal) }
+        case "wait":
+            // Open while the call rings; Linx sends "peer" at the answer.
+            if !saidWaiting {
+                saidWaiting = true
+                onMark?("Picture link open, waiting for the answer")
+            }
         case "move":
             if let room = message.room, let token = message.token, let url = message.url {
                 onMove?(GroupJoin(room: room, token: token, url: url))
@@ -274,6 +294,14 @@ struct CallLinkMessage: Decodable, Sendable {
     /// call lasts, every two seconds for half a minute.
     private func linkClosed() {
         guard !stopped else { return }
+        guard callUp else {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, !self.stopped else { return }
+                self.link.start()
+            }
+            return
+        }
         linkTries += 1
         guard linkTries <= Self.linkTriesAllowed else {
             onMark?("Picture link couldn't be opened")

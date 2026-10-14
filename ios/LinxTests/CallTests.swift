@@ -73,7 +73,9 @@ import Testing
     /// Set to make the camera refuse, as one does when the person said no.
     var cameraRefuses: CameraTrouble?
     /// How often the picture link was opened, and whether as a video call.
+    /// Told the call is up (the link opens, or learns it at the answer).
     private(set) var pictureLinks = 0
+    private(set) var pictureLinksWhileRinging = 0
     private(set) var pictureCameraFirst: Bool?
     /// Every on and off asked of the camera.
     private(set) var cameraCalls: [Bool] = []
@@ -85,8 +87,12 @@ import Testing
         return Self.soundAnswer
     }
 
-    func startPicture(link: any PictureLink, cameraFirst: Bool) {
-        pictureLinks += 1
+    func startPicture(link: any PictureLink, cameraFirst: Bool, ringing: Bool) {
+        if ringing {
+            pictureLinksWhileRinging += 1
+        } else {
+            pictureLinks += 1
+        }
         pictureCameraFirst = cameraFirst
     }
 

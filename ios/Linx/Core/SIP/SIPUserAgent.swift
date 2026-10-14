@@ -88,9 +88,11 @@ struct AudioRoute: Equatable, Sendable {
     var onVideoChanged: ((CallVideo) -> Void)? { get set }
     /// The link hasn't the room for a picture any more.
     var onVideoTooExpensive: (() -> Void)? { get set }
-    /// Opens the picture link once the call is up; `cameraFirst` turns this
-    /// phone's camera on as soon as the other side is there (a video call).
-    func startPicture(link: any PictureLink, cameraFirst: Bool)
+    /// Opens the picture link while the call rings (`ringing`), so the
+    /// connection is made before the answer, and is told again at the
+    /// answer; `cameraFirst` turns this phone's camera on as soon as the
+    /// other side is there (a video call).
+    func startPicture(link: any PictureLink, cameraFirst: Bool, ringing: Bool)
     /// This phone's camera, on or off. Nothing about the call's sound
     /// changes, and nothing goes through the phone system.
     func setCamera(_ on: Bool) async throws
@@ -488,12 +490,16 @@ struct AudioRoute: Equatable, Sendable {
 
     // MARK: - The picture (ADR-087)
 
-    /// The call is up: its picture link opens, and on a video call this
-    /// phone's camera goes on as soon as the other side is there. The echo
-    /// test has nobody on the other end to link with.
-    private func startPicture(of current: Call) {
+    /// The picture link opens while the call rings and Linx holds it until
+    /// the answer: a new connection on a poor mobile link took 9 s and more
+    /// (the owner's call, 2026-10-14), and made after the answer that was 9 s
+    /// more of a video call with no picture. At the answer it is told the
+    /// call is up, and on a video call this phone's camera goes on as soon
+    /// as the other side is there. The echo test has nobody on the other end
+    /// to link with.
+    private func startPicture(of current: Call, ringing: Bool = false) {
         guard current.peer.number != "*43", let link = makeLink(current.id) else { return }
-        current.media.startPicture(link: link, cameraFirst: current.videoCall)
+        current.media.startPicture(link: link, cameraFirst: current.videoCall, ringing: ringing)
     }
 
     /// Turns this phone's camera on or off in a call that is up. The call
@@ -644,6 +650,7 @@ struct AudioRoute: Equatable, Sendable {
                 current.ringingMarked = true
                 call = current
                 current.media.mark("Ringing")
+                startPicture(of: current, ringing: true)
             }
             onProgress?()
             // A 183 that carries sound is Asterisk playing something before
@@ -980,6 +987,7 @@ struct AudioRoute: Equatable, Sendable {
         var ringing = SIPMessage.response(180, "Ringing", to: invite).withTag(incoming.localTag)
         ringing.add("Contact", contact)
         send(ringing)
+        startPicture(of: incoming, ringing: true)
         onIncoming?(peer, incoming.videoCall)
     }
 

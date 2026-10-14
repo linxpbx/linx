@@ -18,6 +18,8 @@ enum Bench {
         static var video: Bool { defaults.bool(forKey: "LinxBenchVideo") }
         /// Answer whatever rings, a second after it starts.
         static var answer: Bool { defaults.bool(forKey: "LinxBenchAnswer") }
+        /// How long it rings before that answer, in seconds (0: one).
+        static var ringFor: Int { max(1, defaults.integer(forKey: "LinxBenchRingFor")) }
         /// Hang up this many seconds after the call is answered (0: never).
         static var hangUpAfter: Int { defaults.integer(forKey: "LinxBenchHangUpAfter") }
         /// Every route through Linx's relay, as on a mobile network.
@@ -36,6 +38,7 @@ enum Bench {
         static let call: String? = nil
         static let video = false
         static let answer = false
+        static let ringFor = 1
         static let hangUpAfter = 0
         static let relayOnly = false
         static let noUDP = false

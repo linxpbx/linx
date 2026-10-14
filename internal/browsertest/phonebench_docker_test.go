@@ -45,7 +45,17 @@ type benchScenario struct {
 	slow string
 	// hd is both phones pressing HD: each must then send 720p.
 	hd bool
+	// badStart is a mobile link that, from just before the answer, opens
+	// no new connection for a while (badStartFor) while those already
+	// open carry on: the owner's iPhone on 2026-10-14, whose new TLS
+	// connections to Linx failed for half a minute and held the picture
+	// back 30 s. The answerer rings for six seconds, and the picture must
+	// still be there soon after the answer.
+	badStart bool
 }
+
+// badStartFor is how long a bad start turns new connections away.
+const badStartFor = 12 * time.Second
 
 var benchScenarios = []benchScenario{
 	{name: "mobile network: everything through the relay", flags: []string{"relay-only"}},
@@ -63,6 +73,8 @@ var benchScenarios = []benchScenario{
 	{name: "poor mobile link: 300 ms round trip, 2% loss", flags: []string{"relay-only"}, slow: "delay 300ms 20ms loss 2%"},
 	{name: "China on a poor link: 300 ms round trip, 1% loss", flags: []string{"no-udp"}, relay: "tls",
 		slow: "delay 300ms 20ms loss 1%"},
+	{name: "a mobile link that opens no new connection as the call is answered",
+		flags: []string{"relay-only", "ring=6"}, badStart: true},
 	// CallKit isn't here: a simulator's own call service ends an app's
 	// outgoing CallKit call about a second in (callservicesd asks for the
 	// CXEndCallAction itself, 2026-10-13), so it is checked on a phone.
@@ -103,6 +115,32 @@ func (h *harness) cutFor(d time.Duration) {
 	run("-I")
 	time.Sleep(d)
 	run("-D")
+}
+
+// noNewConnectionsFor turns away every new connection to linx-sni's port
+// 443 (the phones' line to Linx, the call link, the relay over TLS) for a
+// while, leaving those already open alone.
+func (h *harness) noNewConnectionsFor(d time.Duration) {
+	rule := []string{"INPUT", "-p", "tcp", "--dport", "443", "--syn", "-j", "DROP"}
+	run := func(op string) {
+		h.docker(append([]string{"run", "--rm", "--network", "container:linx-sni", "--cap-add", "NET_ADMIN",
+			"nicolaka/netshoot", "iptables", op}, rule...)...)
+	}
+	run("-I")
+	time.Sleep(d)
+	run("-D")
+}
+
+// whenRinging returns once Asterisk has a channel ringing.
+func (h *harness) whenRinging(t *testing.T, within time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for !strings.Contains(h.docker("exec", "linx-asterisk", "asterisk", "-rx", "core show channels concise"), "!Ringing!") {
+		if time.Now().After(deadline) {
+			t.Fatal("no call rang")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func TestPhoneBenchDocker(t *testing.T) {
@@ -168,6 +206,14 @@ func TestPhoneBenchDocker(t *testing.T) {
 							fmt.Sprintf("%s-%02ds", strings.TrimSuffix(name, ":"), at)).Run()
 					}
 				}()
+			}
+			if sc.badStart {
+				// Two and a half seconds into the ringing: what the phones
+				// open as the call starts ringing gets through, what they
+				// open at the answer (three and a half seconds later) doesn't.
+				h.whenRinging(t, 60*time.Second)
+				time.Sleep(2500 * time.Millisecond)
+				h.noNewConnectionsFor(badStartFor)
 			}
 			if sc.cut {
 				// About fifteen seconds into the answered call.
@@ -322,6 +368,24 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			fail("HD was on and the picture never went out at 720p")
 		case ok && at-on > 20:
 			fail(fmt.Sprintf("HD took %.0f s to reach 720p", at-on))
+		}
+	}
+	if sc.badStart {
+		answered, ok := markAt(r, "Answered")
+		if !ok {
+			answered, ok = markAt(r, "→ 200 OK (INVITE)")
+		}
+		ready, linked := markAt(r, "Picture link ready")
+		arrived, shown := markAt(r, "Their picture arrived")
+		switch {
+		case !strings.Contains(r, "Picture link open, waiting for the answer"):
+			fail("the picture link wasn't open before the answer")
+		case !ok || !linked || !shown:
+			fail("no answer, picture link or picture in the record")
+		case ready-answered > 3:
+			fail(fmt.Sprintf("the picture link was ready %.1f s after the answer", ready-answered))
+		case arrived-answered > 8:
+			fail(fmt.Sprintf("their picture arrived %.1f s after the answer", arrived-answered))
 		}
 	}
 	if !sc.cut && strings.Count(r, "Picture route now") > 2 {

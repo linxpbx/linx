@@ -1146,7 +1146,7 @@ import UIKit
         ringInTheApp()
         if Bench.answer {
             Task { [weak self] in
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .seconds(Bench.ringFor))
                 self?.answer()
             }
         }

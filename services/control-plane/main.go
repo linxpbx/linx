@@ -348,7 +348,7 @@ func main() {
 	// The Team list and its live updates (docs/WEB.md §6).
 	team := &pbx.Team{Store: st, Calls: tracker}
 	hub := newTeamHub(team, log)
-	tracker.OnChange, team.OnChange = hub.Changed, hub.Changed
+	team.OnChange = hub.Changed // tracker.OnChange is set with the call link, below
 
 	// "webhook endpoint disabled" (docs/API.md §5): fired whether the
 	// worker turned it off automatically or an admin did, resolved once
@@ -468,6 +468,11 @@ func main() {
 		return d.Kind == "web" || d.Kind == "ios", err
 	}}
 	callHub := &calllink.Hub{}
+	// A link opened while its call rings waits for these to be answered.
+	tracker.OnChange = func() {
+		hub.Changed()
+		callResolver.Changed()
+	}
 	// Group calls on the video server (ADR-088): off, with a plain answer,
 	// on a server without its key.
 	liveKitURL := envOr(os.Getenv, "LINX_LIVEKIT_URL", livekit.DefaultURL)

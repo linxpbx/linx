@@ -55,11 +55,56 @@ struct VideoTests {
         return (phone, transport, media, system)
     }
 
-    @Test("the picture link opens when the call is answered, never before")
+    @Test("the picture link is told the call is up when it is answered")
     func theLinkOpensOnAnswer() async throws {
         let (_, _, media, _) = try await inACall()
         #expect(media.pictureLinks == 1)
         #expect(media.pictureCameraFirst == false)
+    }
+
+    @Test("a call that rings out opens its picture link while it rings")
+    func theLinkOpensWhileRingingOut() async throws {
+        let transport = FakeTransport()
+        let media = FakeMedia()
+        let phone = PhoneModel(
+            line: { Self.line() }, transport: { _ in transport }, media: { _ in media },
+            calls: FakeSystemCalls())
+        await phone.start()
+        transport.asterisk(SIPMessage.response(200, "OK", to: try #require(transport.last("REGISTER"))))
+        phone.callNumber("1024", name: "Omar Khalil", withVideo: true)
+        #expect(await eventually { transport.last("INVITE") != nil })
+        let invite = try #require(transport.last("INVITE"))
+        #expect(media.pictureLinksWhileRinging == 0)
+        transport.asterisk(SIPMessage.response(180, "Ringing", to: invite).withTag("theirs"))
+        #expect(await eventually { media.pictureLinksWhileRinging == 1 })
+        // A second ringing doesn't open another.
+        transport.asterisk(SIPMessage.response(180, "Ringing", to: invite).withTag("theirs"))
+        #expect(media.pictureLinks == 0)
+
+        var ok = SIPMessage.response(200, "OK", to: invite).withTag("theirs")
+        ok.add("Contact", "<sip:1024@1.2.3.4:8089;transport=ws>")
+        ok.body = FakeMedia.soundAnswer
+        transport.asterisk(ok)
+        #expect(await eventually { phone.call?.phase == .active })
+        #expect(media.pictureLinksWhileRinging == 1)
+        #expect(media.pictureLinks == 1)
+    }
+
+    @Test("a call ringing here opens its picture link before it is answered")
+    func theLinkOpensWhileRingingIn() async throws {
+        let transport = FakeTransport()
+        let media = FakeMedia()
+        let phone = PhoneModel(
+            line: { Self.line() }, transport: { _ in transport }, media: { _ in media },
+            calls: FakeSystemCalls())
+        await phone.start()
+        transport.asterisk(SIPMessage.response(200, "OK", to: try #require(transport.last("REGISTER"))))
+        var invite = CallTests.incomingInvite()
+        invite.add("X-Linx-Video", "yes")
+        transport.asterisk(invite)
+        #expect(await eventually { transport.sent.contains { $0.status == 180 } })
+        #expect(media.pictureLinksWhileRinging == 1)
+        #expect(media.pictureLinks == 0)
     }
 
     @Test("turning video on never touches SIP, and never starts another call")
