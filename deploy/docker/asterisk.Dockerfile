@@ -29,7 +29,7 @@ ARG OPUS_CODEC_C_SHA256=b35e8917fb42cb371e8ef37a45a46aca3988130ebc38b7b8c0ff533d
 ARG OPUS_CODEC_H_SHA256=4cfd088a445233ae0c9b7d823d7918dd2561cbaf7e2f458d5f4c552fe8f504f3
 
 # debian:bookworm-slim (multi-arch index digest)
-FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS asterisk-build
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS asterisk-build
 ARG ASTERISK_VERSION
 ARG ASTERISK_SHA256
 ARG ASTERISK_GPG_FINGERPRINT
@@ -190,7 +190,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
       -o /out/asterisk-entrypoint ./services/asterisk-entrypoint
 
 # --- Runtime ---
-FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 LABEL org.opencontainers.image.source="https://github.com/linxpbx/linx" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.title="linx-asterisk"
