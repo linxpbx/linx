@@ -396,7 +396,7 @@ struct CallDiagnostics: Equatable, Sendable {
             configuration: Self.configuration(
                 relay: turn, addresses: relayAddresses, relayOnly: relayOnly || onMobileData),
             factory: Self.factory, tracks: tracks,
-            cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn))
+            cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn), onMobileData: onMobileData)
         picture.onMark = { [weak self] what in self?.mark(what) }
         picture.onTooExpensive = { [weak self] in self?.onVideoTooExpensive?() }
         picture.onSending = { [weak self] height in self?.note { $0.picture = "\(height)p" } }
@@ -668,8 +668,22 @@ struct CallDiagnostics: Equatable, Sendable {
     /// app's button used to count, so a call answered on the lock screen
     /// with the speaker on fell back to the earpiece the next time the
     /// sound was set up again (owner, 2026-10-11).
+    ///
+    /// An override that lands while the sound is going nowhere yet is
+    /// Linx's own, made at the answer before iOS has handed the call its
+    /// sound: read as a choice, it switched the loudspeaker off, and an
+    /// iPhone woken for a video call talked into its earpiece (owner,
+    /// 2026-10-15). It says nothing about what the person wants.
     private static func speakerChosen() {
-        wantsSpeaker = onTheSpeaker
+        wantsSpeaker = speakerWanted(
+            was: wantsSpeaker, outputs: AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType))
+    }
+
+    /// What the loudspeaker wish becomes after an override, given where the
+    /// sound now comes out.
+    nonisolated static func speakerWanted(was: Bool, outputs: [AVAudioSession.Port]) -> Bool {
+        guard !outputs.isEmpty else { return was }
+        return outputs.contains(.builtInSpeaker)
     }
 
     /// The loudspeaker was switched off by the audio session being set up

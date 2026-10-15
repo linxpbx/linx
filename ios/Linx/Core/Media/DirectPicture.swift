@@ -145,12 +145,24 @@ struct CallLinkMessage: Decodable, Sendable {
     /// adapting below that, end to end.
     private static let standard = VideoQuality.high
     private static let withHD = VideoQuality.hd
+    /// On mobile data the picture starts at 480p and grows as the link
+    /// shows room: an iPhone just woken on 5G could send 300 kbit/s, then
+    /// 30, and a 540p start choked its upload — sound included — for half
+    /// a minute (the owner's call, 2026-10-15). **HD** skips the wait.
+    nonisolated static let mobileStart = VideoQuality.standard
+    private let onMobileData: Bool
+    /// The picture is still at `mobileStart`, where it began.
+    private var startedSmall: Bool
 
     init(
         link: any PictureLink, configuration: RTCConfiguration, factory: RTCPeerConnectionFactory,
-        tracks: VideoTracks, cameraFirst: Bool, verifier: RTCSSLCertificateVerifier? = nil
+        tracks: VideoTracks, cameraFirst: Bool, verifier: RTCSSLCertificateVerifier? = nil,
+        onMobileData: Bool = false
     ) {
         self.link = link
+        self.onMobileData = onMobileData
+        squeezed = onMobileData ? Self.mobileStart : nil
+        startedSmall = onMobileData
         self.configuration = configuration
         self.factory = factory
         self.verifier = verifier
@@ -249,6 +261,10 @@ struct CallLinkMessage: Decodable, Sendable {
     func useHD(_ on: Bool) {
         guard hd != on else { return }
         hd = on
+        if on, startedSmall {
+            startedSmall = false
+            squeezed = nil
+        }
         camera?.use(quality)
         capWhatThisPhoneSends()
         onMark?(on ? "HD on" : "HD off")
@@ -480,7 +496,9 @@ struct CallLinkMessage: Decodable, Sendable {
         framesBefore += framesMost
         framesMost = 0
         framesSeen = 0
-        squeezed = nil
+        lastTold = nil
+        squeezed = onMobileData && !hd ? Self.mobileStart : nil
+        startedSmall = squeezed != nil
         sendingAV1 = false
         codecMarked = false
         busyReadings = 0
@@ -860,11 +878,13 @@ struct CallLinkMessage: Decodable, Sendable {
         if let freezes = how.freezes { theirFreezes = freezes }
         guard readings % Self.readingsBetweenTold == 1, told < Self.mostTold else { return }
         told += 1
-        onMark?(how.words)
+        onMark?(how.words(since: lastTold))
+        lastTold = how
     }
 
     private var readings = 0
     private var told = 0
+    private var lastTold: PictureReading?
     /// Their picture's stops (WebRTC's "freezes") and how long, at the last reading.
     private var theirFreezes: (count: Int, seconds: Double)?
     private static let readingsBetweenTold = 5
@@ -900,6 +920,7 @@ struct CallLinkMessage: Decodable, Sendable {
                 steadyWanted = min(steadyWanted * 2, Self.steadyMost)
             }
             if quality != .thin {
+                startedSmall = false
                 squeezed = .thin
                 onMark?("Picture down to \(VideoQuality.thin.height)p: room for \(room / 1000) kbit/s")
                 useQuality()
@@ -922,6 +943,7 @@ struct CallLinkMessage: Decodable, Sendable {
                 tryingFor = 0
                 steadyWanted = min(steadyWanted * 2, Self.steadyMost)
             }
+            startedSmall = false
             squeezed = fits
             onMark?("Picture down to \(fits.height)p: room for \(room / 1000) kbit/s")
             useQuality()
@@ -951,6 +973,7 @@ struct CallLinkMessage: Decodable, Sendable {
             guard steadyReadings >= steadyWanted else { return }
             steadyReadings = 0
             tryingFor = Self.trialReadings
+            startedSmall = false
             self.squeezed = bigger.rawValue >= unsqueezed.rawValue ? nil : bigger
             onMark?("Picture trying \(quality.height)p: room for \(room / 1000) kbit/s")
             useQuality()
@@ -959,6 +982,7 @@ struct CallLinkMessage: Decodable, Sendable {
         roomyReadings += 1
         guard roomyReadings >= Self.roomyReadingsWanted else { return }
         roomyReadings = 0
+        startedSmall = false
         self.squeezed = bigger.rawValue >= unsqueezed.rawValue ? nil : bigger
         onMark?("Picture back up to \(quality.height)p: room for \(room / 1000) kbit/s")
         useQuality()
@@ -1441,12 +1465,43 @@ struct PictureReading {
     /// How long the encoder takes over a frame, on average so far.
     var encodeMs: Int?
     var freezes: (count: Int, seconds: Double)?
+    /// WebRTC's running totals each way — bytes, frames, and the sum of
+    /// each frame's quantiser (how coarsely it was squeezed: lower is
+    /// sharper) — turned into kbit/s and an average between two readings.
+    /// The size alone said nothing of a 720p picture that came out soft
+    /// (the owner's call after HD, 2026-10-15).
+    var sent = Totals()
+    var got = Totals()
+    var at = Date()
+
+    struct Totals {
+        var bytes: Double?
+        var frames: Double?
+        var qpSum: Double?
+
+        init(_ values: [String: NSObject] = [:], bytes: String = "", frames: String = "") {
+            self.bytes = (values[bytes] as? NSNumber)?.doubleValue
+            self.frames = (values[frames] as? NSNumber)?.doubleValue
+            qpSum = (values["qpSum"] as? NSNumber)?.doubleValue
+        }
+
+        /// "900 kbit/s qp 34" over the time since `before`.
+        func words(since before: Totals?, seconds: Double) -> String? {
+            guard let bytes, let before, let was = before.bytes, seconds > 0, bytes >= was else { return nil }
+            var line = "\(Int((bytes - was) * 8 / seconds / 1000)) kbit/s"
+            if let frames, let qpSum, let framesWas = before.frames, let qpWas = before.qpSum, frames > framesWas {
+                line += " qp \(Int(((qpSum - qpWas) / (frames - framesWas)).rounded()))"
+            }
+            return line
+        }
+    }
 
     var any: Bool { sentHeight != nil || gotHeight != nil }
 
     mutating func mine(_ values: [String: NSObject]) {
         sentHeight = (values["frameHeight"] as? NSNumber)?.intValue
         sentFPS = (values["framesPerSecond"] as? NSNumber)?.doubleValue
+        sent = Totals(values, bytes: "bytesSent", frames: "framesEncoded")
         if let frames = (values["framesEncoded"] as? NSNumber)?.doubleValue, frames > 0,
             let seconds = (values["totalEncodeTime"] as? NSNumber)?.doubleValue
         {
@@ -1457,20 +1512,26 @@ struct PictureReading {
     mutating func theirs(_ values: [String: NSObject]) {
         gotHeight = (values["frameHeight"] as? NSNumber)?.intValue
         gotFPS = (values["framesPerSecond"] as? NSNumber)?.doubleValue
+        got = Totals(values, bytes: "bytesReceived", frames: "framesDecoded")
         if let count = (values["freezeCount"] as? NSNumber)?.intValue {
             freezes = (count, (values["totalFreezesDuration"] as? NSNumber)?.doubleValue ?? 0)
         }
     }
 
-    var words: String {
-        func way(_ height: Int?, _ fps: Double?) -> String {
+    var words: String { words(since: nil) }
+
+    func words(since before: PictureReading?) -> String {
+        let seconds = before.map { at.timeIntervalSince($0.at) } ?? 0
+        func way(_ height: Int?, _ fps: Double?, _ totals: Totals, _ was: Totals?) -> String {
             guard let height else { return "none" }
-            return "\(height)p \(Int((fps ?? 0).rounded())) fps"
+            var line = "\(height)p \(Int((fps ?? 0).rounded())) fps"
+            if let rate = totals.words(since: was, seconds: seconds) { line += " \(rate)" }
+            return line
         }
-        var mine = way(sentHeight, sentFPS)
+        var mine = way(sentHeight, sentFPS, sent, before?.sent)
         if sentHeight != nil, let codec { mine += " \(codec)" }
         if sentHeight != nil, let encodeMs { mine += " \(encodeMs) ms a frame" }
-        var line = "Picture: sending \(mine), getting \(way(gotHeight, gotFPS))"
+        var line = "Picture: sending \(mine), getting \(way(gotHeight, gotFPS, got, before?.got))"
         if let room { line += ", room \(room / 1000) kbit/s" }
         return line
     }

@@ -62,9 +62,12 @@ enum VideoQuality: Int, CaseIterable, Comparable, Sendable {
     }
 
     /// Bits a second for this step when the picture goes in AV1, which
-    /// carries the same picture in about two thirds of H.264's data: a
-    /// thin link gets a bigger picture, a roomy one uses less.
-    func bitrate(av1: Bool) -> Int { av1 ? bitrate * 2 / 3 : bitrate }
+    /// carries a small picture in about two thirds of H.264's data, so a
+    /// thin link gets a bigger one. At 540p and 720p it gets all of
+    /// H.264's: a phone encodes AV1 in its fastest mode, which saves far
+    /// less there, and 720p at two thirds came out full size but soft
+    /// (the owner's call after HD, 2026-10-15).
+    func bitrate(av1: Bool) -> Int { av1 && self < .high ? bitrate * 2 / 3 : bitrate }
 
     /// In the words people use for a picture, for the Call details screen.
     var words: String { "\(height)p" }

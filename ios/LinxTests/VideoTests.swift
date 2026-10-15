@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Testing
 
@@ -456,7 +457,44 @@ struct CallLayoutTests {
     func av1FitsMore() {
         #expect(DirectPicture.step(for: 250_000, under: .hd) == .low)
         #expect(DirectPicture.step(for: 250_000, under: .hd, av1: true) == .standard)
-        #expect(VideoQuality.high.bitrate(av1: true) == 600_000)
-        #expect(VideoQuality.high.bitrate(av1: false) == 900_000)
+        #expect(VideoQuality.standard.bitrate(av1: true) == 400_000)
+        #expect(VideoQuality.standard.bitrate(av1: false) == 600_000)
+    }
+
+    @Test("540p and 720p get H.264's full data in AV1, so HD isn't soft")
+    func av1KeepsTheTopSharp() {
+        #expect(VideoQuality.high.bitrate(av1: true) == 900_000)
+        #expect(VideoQuality.hd.bitrate(av1: true) == 1_500_000)
+    }
+
+    @Test("a reading says what each way really carried, and how sharp")
+    func readingRates() {
+        var before = PictureReading()
+        before.sentHeight = 720
+        before.sent = .init(
+            ["bytesSent": NSNumber(value: 0), "framesEncoded": NSNumber(value: 0), "qpSum": NSNumber(value: 0)],
+            bytes: "bytesSent", frames: "framesEncoded")
+        var now = before
+        now.at = before.at.addingTimeInterval(10)
+        now.sent = .init(
+            [
+                "bytesSent": NSNumber(value: 1_250_000), "framesEncoded": NSNumber(value: 300),
+                "qpSum": NSNumber(value: 9_000),
+            ],
+            bytes: "bytesSent", frames: "framesEncoded")
+        #expect(now.words(since: before) == "Picture: sending 720p 0 fps 1000 kbit/s qp 30, getting none")
+        #expect(now.words == "Picture: sending 720p 0 fps, getting none")
+    }
+
+    @Test("Linx's own override before the sound has a route doesn't turn the loudspeaker off")
+    func speakerWishSurvivesNoRoute() {
+        #expect(WebRTCMedia.speakerWanted(was: true, outputs: []))
+        #expect(!WebRTCMedia.speakerWanted(was: true, outputs: [.builtInReceiver]))
+        #expect(WebRTCMedia.speakerWanted(was: false, outputs: [.builtInSpeaker]))
+    }
+
+    @Test("on mobile data the picture starts at 480p")
+    func mobileStartsSmaller() {
+        #expect(DirectPicture.mobileStart == .standard)
     }
 }
