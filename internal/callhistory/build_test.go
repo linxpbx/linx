@@ -194,6 +194,18 @@ func TestBuild(t *testing.T) {
 			},
 		},
 		{
+			// A busy server starts the legs of an all-at-once group a
+			// little apart, in no set order (CI, 2026-10-15): still by number.
+			name: "a ring group, all at once, its legs started apart",
+			rows: []Row{
+				row(12, 0, 0, 1, aliceCLID, "101", "s", "linx-route", "PJSIP/d_alice-0000000c", "PJSIP/d_dave-0000000e", 1, "ANSWERED", "1.12", "600", "", "n:600"),
+				row(13, 1, -1, 1, aliceCLID, "101", "s", "linx-route", "PJSIP/d_alice-0000000c", "PJSIP/d_bob-0000000d", 0, "NO ANSWER", "1.12", "600", "", "n:600"),
+			},
+			result: ResultAnswered, dir: DirectionInternal,
+			words:   "Rang Sales (all at once): Bob (102), Dave (109) · Dave (109) answered",
+			parties: map[string]bool{"Alice": false, "Bob": false, "Dave": false},
+		},
+		{
 			name: "a ring group, all at once",
 			rows: []Row{
 				// Asterisk writes rows rung together in no set order.

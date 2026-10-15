@@ -495,9 +495,12 @@ func Build(ctx context.Context, lk Lookup, rows []Row) (Call, error) {
 			addParty(s.target.ExtensionID, true)
 		}
 		// In the order they rang; those rung together by number (Asterisk
-		// writes their rows in no set order).
+		// writes their rows in no set order). A group that rings everyone
+		// at once rang them together, whatever a busy server's clock says:
+		// its legs start a few milliseconds apart, in no set order either.
+		together := s.step.Group != "" && !s.step.InTurn
 		sort.SliceStable(s.rung, func(i, j int) bool {
-			if !s.rung[i].at.Equal(s.rung[j].at) {
+			if !together && !s.rung[i].at.Equal(s.rung[j].at) {
 				return s.rung[i].at.Before(s.rung[j].at)
 			}
 			return s.rung[i].number < s.rung[j].number
