@@ -968,6 +968,14 @@ import UIKit
         if let linxHeardUs, now.timeIntervalSince(linxHeardUs) < linxHearsUsWithin { return false }
         if let lastMove, now.timeIntervalSince(lastMove) < betweenRelayMoves { return false }
         if let soundLastArrived {
+            // Already on the relay, a pause is not the route's fault, and a
+            // relay-only restart gains nothing: it threw away the owner's
+            // working relay route over UDP 13 s into a call and landed on
+            // TCP, and the picture stopped for 40 s both ways until that
+            // route broke (2026-10-15, build 38; the call of 07:11 the same).
+            // A relay route that has really gone is noticed by the route
+            // itself ("Sound route dropped") and looked for again then.
+            guard !relayed || moves > 0 else { return false }
             return now.timeIntervalSince(soundLastArrived) >= silentMidCall
         }
         guard let routeFoundAt, !(relayed && moves == 0) else { return false }

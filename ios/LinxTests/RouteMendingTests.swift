@@ -93,7 +93,7 @@ struct RouteMendingTests {
         #expect(should(30, relayed: true, moves: 1, lastMove: 15))  // but a second go allows every route
         #expect(!should(10, sound: 8))  // sound two seconds ago is fine
         #expect(should(10, sound: 7))  // three seconds without it is not
-        #expect(should(10, sound: 7, relayed: true))  // also on the relay: the network changed under it
+        #expect(!should(10, sound: 7, relayed: true))  // on the relay: a pause isn't the route (2026-10-15)
         #expect(!should(30, moves: 2))  // twice a call at most
         #expect(!should(30, moves: 1, lastMove: 25))  // and ten seconds apart
         #expect(should(30, moves: 1, lastMove: 19))
