@@ -102,6 +102,15 @@ struct CallLinkMessage: Decodable, Sendable {
     private var usingTheirs = false
     private var wantCamera: Bool
     private var hd = false
+    /// AV1 goes first in this phone's picture while it keeps up with it;
+    /// once it can't, it is left out for the rest of the call (`codecSeen`).
+    private var av1Allowed = true
+    /// The picture is going out in AV1, at the last reading.
+    private var sendingAV1 = false
+    private var codecMarked = false
+    /// Readings in a row with the encoder held back by the processor.
+    private var busyReadings = 0
+    private static let busyReadingsAllowed = 3
     private var stopped = false
     private var linkTries = 0
     /// The call has been answered; until then a link Linx refuses (a server
@@ -122,6 +131,9 @@ struct CallLinkMessage: Decodable, Sendable {
     private var framesSeen = 0
     private var quietReadings = 0
     private var thinReadings = 0
+    /// The first route each way has been written in the call's report.
+    private var ourRouteMarked = false
+    private var theirRouteMarked = false
 
     /// Room enough for the voice and a thin picture; below it for three
     /// readings the picture goes to its smallest step, and below
@@ -401,6 +413,7 @@ struct CallLinkMessage: Decodable, Sendable {
             said(mine: true)
             starting = camera
         }
+        preferCodecs(connection)
         let answered = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             connection.setLocalDescriptionWithCompletionHandler { error in done.resume(returning: error == nil) }
         }
@@ -468,8 +481,16 @@ struct CallLinkMessage: Decodable, Sendable {
         framesMost = 0
         framesSeen = 0
         squeezed = nil
+        sendingAV1 = false
+        codecMarked = false
+        busyReadings = 0
         roomyReadings = 0
         tightReadings = 0
+        steadyReadings = 0
+        steadyWanted = Self.steadyFirst
+        tryingFor = 0
+        ourRouteMarked = false
+        theirRouteMarked = false
         overTCP = false
         theirsOverTCP = false
         waitedForTheirOffer = false
@@ -493,6 +514,7 @@ struct CallLinkMessage: Decodable, Sendable {
         guard connection === self.connection, !usingTheirs, connection.signalingState == .stable else { return }
         makingOffer = true
         defer { makingOffer = false }
+        preferCodecs(connection)
         let ok = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             connection.setLocalDescriptionWithCompletionHandler { error in done.resume(returning: error == nil) }
         }
@@ -563,6 +585,7 @@ struct CallLinkMessage: Decodable, Sendable {
             }
             if type == .offer { carryMyCamera(on: connection) }
             if type == .offer {
+                preferCodecs(connection)
                 let answered = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                     connection.setLocalDescriptionWithCompletionHandler { error in
                         done.resume(returning: error == nil)
@@ -579,6 +602,10 @@ struct CallLinkMessage: Decodable, Sendable {
             readTheirDirection()
             offerIfStillNeeded(connection)
         } else if let candidate = signal.candidate {
+            if !theirRouteMarked {
+                theirRouteMarked = true
+                onMark?("Picture: their first route arrived (\(Self.kind(of: candidate.candidate)))")
+            }
             let ice = RTCIceCandidate(
                 sdp: candidate.candidate, sdpMLineIndex: candidate.sdpMLineIndex ?? 0, sdpMid: candidate.sdpMid)
             // A route can overtake the description it belongs to while that
@@ -736,7 +763,7 @@ struct CallLinkMessage: Decodable, Sendable {
     }
 
     private func capWhatThisPhoneSends() {
-        let most = quality.bitrate
+        let most = quality.bitrate(av1: sendingAV1)
         for sender in connection?.senders ?? [] where sender.track?.kind == kRTCMediaStreamTrackKindVideo {
             let parameters = sender.parameters
             for encoding in parameters.encodings { encoding.maxBitrateBps = NSNumber(value: most) }
@@ -792,6 +819,12 @@ struct CallLinkMessage: Decodable, Sendable {
             }
             if statistic.type == "outbound-rtp", statistic.values["kind"] as? String == "video" {
                 how.mine(statistic.values)
+                if let codec = statistic.values["codecId"] as? String,
+                    let mime = report.statistics[codec]?.values["mimeType"] as? String
+                {
+                    how.codec = Self.codecName(mime)
+                    codecSeen(mime, limit: statistic.values["qualityLimitationReason"] as? String)
+                }
             }
             if statistic.type == "inbound-rtp", statistic.values["kind"] as? String == "video" {
                 frames += (statistic.values["framesDecoded"] as? NSNumber)?.intValue ?? 0
@@ -849,12 +882,23 @@ struct CallLinkMessage: Decodable, Sendable {
     /// call after HD, 2026-10-14). The size is Linx's to hold
     /// (`capWhatThisPhoneSends`), so it must be Linx that brings it down.
     private func follow(room: Int) {
-        if room < Self.tooThin {
+        // At the smallest size already, a thin reading is only the room
+        // following what is sent (an AV1 picture at 240p reads under
+        // `tooThin` on a fine link): the camera goes off only below
+        // `tooThinEvenSmall`, and otherwise the size is tried up like any
+        // other (the phone bench's squeeze, 2026-10-15: it stayed at 240p
+        // for the rest of the call).
+        if room < Self.tooThin, quality != .thin || room < Self.tooThinEvenSmall {
             roomyReadings = 0
             tightReadings = 0
+            steadyReadings = 0
             thinReadings += 1
             guard thinReadings >= Self.thinReadingsAllowed else { return }
             thinReadings = 0
+            if tryingFor > 0 {
+                tryingFor = 0
+                steadyWanted = min(steadyWanted * 2, Self.steadyMost)
+            }
             if quality != .thin {
                 squeezed = .thin
                 onMark?("Picture down to \(VideoQuality.thin.height)p: room for \(room / 1000) kbit/s")
@@ -865,22 +909,51 @@ struct CallLinkMessage: Decodable, Sendable {
             return
         }
         thinReadings = 0
-        let fits = Self.step(for: room, under: unsqueezed)
+        let fits = Self.step(for: room, under: unsqueezed, av1: sendingAV1)
         if fits < quality {
             roomyReadings = 0
+            steadyReadings = 0
             tightReadings += 1
             guard tightReadings >= Self.tightReadingsAllowed else { return }
             tightReadings = 0
+            if tryingFor > 0 {
+                // A step up that the link couldn't carry: wait longer before
+                // the next try.
+                tryingFor = 0
+                steadyWanted = min(steadyWanted * 2, Self.steadyMost)
+            }
             squeezed = fits
             onMark?("Picture down to \(fits.height)p: room for \(room / 1000) kbit/s")
             useQuality()
             return
         }
         tightReadings = 0
-        guard let squeezed, let bigger = VideoQuality(rawValue: squeezed.rawValue + 1),
-            room >= bigger.bitrate * 13 / 20
-        else {
+        if tryingFor > 0 {
+            // A tried step that has held: the next try waits the least again.
+            tryingFor -= 1
+            if tryingFor == 0 { steadyWanted = Self.steadyFirst }
+        }
+        guard let squeezed, let bigger = VideoQuality(rawValue: squeezed.rawValue + 1) else {
             roomyReadings = 0
+            steadyReadings = 0
+            return
+        }
+        guard room >= bigger.bitrate(av1: sendingAV1) * 13 / 20 else {
+            roomyReadings = 0
+            // The room WebRTC reports never runs far ahead of what this
+            // phone sends, so a picture squeezed small can't show room for
+            // a bigger one: the owner's iPhone sat at 360p reading 185–199
+            // kbit/s for half a minute after HD while the iPad, allowed 900,
+            // read 1023 (2026-10-15). A steady stretch is tried one step up;
+            // a link that can't carry it brings it down again in seconds,
+            // and the next try waits twice as long.
+            steadyReadings += 1
+            guard steadyReadings >= steadyWanted else { return }
+            steadyReadings = 0
+            tryingFor = Self.trialReadings
+            self.squeezed = bigger.rawValue >= unsqueezed.rawValue ? nil : bigger
+            onMark?("Picture trying \(quality.height)p: room for \(room / 1000) kbit/s")
+            useQuality()
             return
         }
         roomyReadings += 1
@@ -891,13 +964,74 @@ struct CallLinkMessage: Decodable, Sendable {
         useQuality()
     }
 
+    /// AV1 first, then the rest as WebRTC lists them (H.264, the phone's
+    /// own hardware one, leading), on every picture slot before a
+    /// description is made: each side sends in the first codec the other
+    /// lists that it has too, so two apps meet on AV1, and a side without
+    /// it (a browser that lacks it) on H.264 as before. AV1 squeezes the
+    /// same picture into about a third less data (owner, 2026-10-15: a
+    /// sharper picture on a thin link), worked out by the phone's
+    /// processor instead of its video hardware.
+    private func preferCodecs(_ connection: RTCPeerConnection) {
+        let offered = factory.rtpReceiverCapabilities(forKind: kRTCMediaStreamTrackKindVideo).codecs
+        let codecs = Self.codecOrder(offered.map(\.mimeType), av1: av1Allowed).map { offered[$0] }
+        for transceiver in connection.transceivers where transceiver.mediaType == .video && !transceiver.isStopped {
+            try? transceiver.setCodecPreferences(codecs, error: ())
+        }
+    }
+
+    /// The order of `mimeTypes` (as positions in it) this phone offers its
+    /// picture in: AV1 first when it's allowed, otherwise left out, so
+    /// neither side sends it.
+    nonisolated static func codecOrder(_ mimeTypes: [String], av1: Bool) -> [Int] {
+        let isAV1 = { (at: Int) in mimeTypes[at].lowercased() == "video/av1" }
+        let rest = mimeTypes.indices.filter { !isAV1($0) }
+        return av1 ? mimeTypes.indices.filter(isAV1) + rest : rest
+    }
+
+    nonisolated static func codecName(_ mime: String) -> String {
+        let name = mime.split(separator: "/").last.map(String.init) ?? mime
+        return name.uppercased() == "H264" ? "H.264" : name
+    }
+
+    /// What the picture is going out in, at each reading. AV1 is the
+    /// processor's work: a phone that can't keep up with it (WebRTC says
+    /// the processor is what holds the picture back, three readings
+    /// running) goes back to H.264 for the rest of the call, offering
+    /// again without AV1 so both ways change.
+    private func codecSeen(_ mime: String, limit: String?) {
+        let av1 = mime.lowercased() == "video/av1"
+        if av1 != sendingAV1 || !codecMarked {
+            codecMarked = true
+            sendingAV1 = av1
+            onMark?("Picture in \(Self.codecName(mime))")
+            capWhatThisPhoneSends()
+        }
+        guard av1 else {
+            busyReadings = 0
+            return
+        }
+        if !av1Allowed {
+            // Still AV1 after giving it up: the offer that leaves it out
+            // couldn't go yet (a description of theirs was in the way).
+            if let connection { Task { [weak self] in await self?.negotiate(connection) } }
+            return
+        }
+        busyReadings = limit == "cpu" ? busyReadings + 1 : 0
+        guard busyReadings >= Self.busyReadingsAllowed else { return }
+        busyReadings = 0
+        av1Allowed = false
+        onMark?("Picture: this phone can't keep up with AV1, back to H.264")
+        if let connection { Task { [weak self] in await self?.negotiate(connection) } }
+    }
+
     /// The biggest step, no bigger than `top`, that a link with `room` bits
     /// a second to spare can carry: one whose most is no more than twice
     /// the room. The encoder works below a step's most when it has to;
     /// further below than that, a bigger picture is a worse one.
-    static func step(for room: Int, under top: VideoQuality) -> VideoQuality {
+    nonisolated static func step(for room: Int, under top: VideoQuality, av1: Bool = false) -> VideoQuality {
         var step = top
-        while step.bitrate / 2 > room, let smaller = VideoQuality(rawValue: step.rawValue - 1) {
+        while step.bitrate(av1: av1) / 2 > room, let smaller = VideoQuality(rawValue: step.rawValue - 1) {
             step = smaller
         }
         return step
@@ -955,6 +1089,17 @@ struct CallLinkMessage: Decodable, Sendable {
     /// step up: the link's room grows with what is sent, so the next step
     /// is wanted at about two thirds of its most, not at all of it.
     private static let roomyReadingsWanted = 3
+    /// Steady readings (no tight one) at a squeezed size before trying the
+    /// next step up anyway: from ten seconds, doubling after each try the
+    /// link couldn't carry, to a minute at most.
+    private var steadyReadings = 0
+    private var steadyWanted = steadyFirst
+    private static let steadyFirst = 5
+    private static let steadyMost = 30
+    /// Readings left in which a tried step that comes down counts as a
+    /// failed try.
+    private var tryingFor = 0
+    private static let trialReadings = 4
     /// The most of their frames decoded on this connection.
     private var framesMost = 0
     /// Their first frame's watcher, on the track it watches.
@@ -1000,6 +1145,8 @@ struct CallLinkMessage: Decodable, Sendable {
         if let mine { now.mine = mine }
         if let theirs { now.theirs = theirs }
         if let theirPicture { now.theirPicture = theirPicture && now.theirs }
+        if !now.theirs { now.theirPictureSeen = false }
+        if now.theirPicture { now.theirPictureSeen = true }
         guard now != video else { return }
         video = now
         onVideoChanged?(now)
@@ -1015,10 +1162,25 @@ extension DirectPicture: RTCPeerConnectionDelegate {
         let signal = PictureSignal(
             candidate: .init(
                 candidate: candidate.sdp, sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex))
+        let kind = Self.kind(of: candidate.sdp)
         Task { @MainActor [weak self] in
             guard let self, connection === self.connection else { return }
+            if !self.ourRouteMarked {
+                // When this phone's first way in is ready: on a woken
+                // iPhone the picture took ten seconds from the answer and
+                // the reports couldn't say which part (2026-10-15).
+                self.ourRouteMarked = true
+                self.onMark?("Picture: our first route ready (\(kind))")
+            }
             self.send(signal)
         }
+    }
+
+    /// "relay", "host"… from a route's SDP line.
+    nonisolated static func kind(of sdp: String) -> String {
+        let words = sdp.split(separator: " ")
+        guard let at = words.firstIndex(of: "typ"), at + 1 < words.count else { return "?" }
+        return String(words[at + 1])
     }
 
     nonisolated func peerConnection(_ connection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
@@ -1275,6 +1437,9 @@ struct PictureReading {
     var gotHeight: Int?
     var gotFPS: Double?
     var room: Int?
+    var codec: String?
+    /// How long the encoder takes over a frame, on average so far.
+    var encodeMs: Int?
     var freezes: (count: Int, seconds: Double)?
 
     var any: Bool { sentHeight != nil || gotHeight != nil }
@@ -1282,6 +1447,11 @@ struct PictureReading {
     mutating func mine(_ values: [String: NSObject]) {
         sentHeight = (values["frameHeight"] as? NSNumber)?.intValue
         sentFPS = (values["framesPerSecond"] as? NSNumber)?.doubleValue
+        if let frames = (values["framesEncoded"] as? NSNumber)?.doubleValue, frames > 0,
+            let seconds = (values["totalEncodeTime"] as? NSNumber)?.doubleValue
+        {
+            encodeMs = Int((seconds / frames * 1000).rounded())
+        }
     }
 
     mutating func theirs(_ values: [String: NSObject]) {
@@ -1297,7 +1467,10 @@ struct PictureReading {
             guard let height else { return "none" }
             return "\(height)p \(Int((fps ?? 0).rounded())) fps"
         }
-        var line = "Picture: sending \(way(sentHeight, sentFPS)), getting \(way(gotHeight, gotFPS))"
+        var mine = way(sentHeight, sentFPS)
+        if sentHeight != nil, let codec { mine += " \(codec)" }
+        if sentHeight != nil, let encodeMs { mine += " \(encodeMs) ms a frame" }
+        var line = "Picture: sending \(mine), getting \(way(gotHeight, gotFPS))"
         if let room { line += ", room \(room / 1000) kbit/s" }
         return line
     }

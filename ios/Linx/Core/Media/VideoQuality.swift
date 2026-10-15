@@ -61,6 +61,11 @@ enum VideoQuality: Int, CaseIterable, Comparable, Sendable {
         }
     }
 
+    /// Bits a second for this step when the picture goes in AV1, which
+    /// carries the same picture in about two thirds of H.264's data: a
+    /// thin link gets a bigger picture, a roomy one uses less.
+    func bitrate(av1: Bool) -> Int { av1 ? bitrate * 2 / 3 : bitrate }
+
     /// In the words people use for a picture, for the Call details screen.
     var words: String { "\(height)p" }
 

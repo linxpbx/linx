@@ -32,6 +32,10 @@ struct CallVideo: Equatable, Sendable {
     var theirs = false
     /// And their frames are actually arriving.
     var theirPicture = false
+    /// Their frames have arrived since they last turned their camera on:
+    /// until then their picture is on its way, not stopped (the owner saw
+    /// "Their picture has stopped" while it was still loading, 2026-10-15).
+    var theirPictureSeen = false
 
     var on: Bool { mine || theirs }
 }

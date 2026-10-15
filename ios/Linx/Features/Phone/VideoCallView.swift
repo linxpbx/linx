@@ -236,6 +236,19 @@ struct VideoCallView: View {
 /// Whose picture a screen is showing.
 enum Whose: Equatable, Sendable { case mine, theirs }
 
+extension CallVideo {
+    /// What a picture's space says while there's nothing to draw in it.
+    func waiting(_ whose: Whose) -> String {
+        switch whose {
+        case .mine: return "Starting your camera…"
+        case .theirs:
+            guard theirs else { return "Their camera is off." }
+            return theirPictureSeen
+                ? "Their picture has stopped. The call carries on." : "Their picture is on its way…"
+        }
+    }
+}
+
 /// A picture, big: whoever has the big screen (`VideoCallView.big`). By
 /// default that is the other person — they are who you are talking to — and a
 /// tap swaps the two over (owner's ask, 2026-10-05). Where only this phone's
@@ -280,14 +293,7 @@ private struct Picture: View {
         }
     }
 
-    private var waitingWords: String {
-        switch whose {
-        case .mine: return "Starting your camera…"
-        case .theirs:
-            return call.video.theirs
-                ? "Their picture has stopped. The call carries on." : "Their camera is off."
-        }
-    }
+    private var waitingWords: String { call.video.waiting(whose) }
 
     static func label(_ whose: Whose, call: PhoneModel.Call, showing: Bool) -> String {
         switch whose {

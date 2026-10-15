@@ -357,6 +357,27 @@ struct VideoTests {
         }
         return check()
     }
+
+    @Test("a route's kind is read from its SDP line")
+    func routeKind() {
+        #expect(
+            DirectPicture.kind(of: "candidate:1 1 udp 41885439 86.98.181.234 50000 typ relay raddr 0.0.0.0 rport 0")
+                == "relay")
+        #expect(DirectPicture.kind(of: "candidate:2 1 udp 2122260223 192.168.1.5 5000 typ host") == "host")
+        #expect(DirectPicture.kind(of: "nonsense") == "?")
+    }
+
+    @Test("their picture is on its way until it first arrives, and stopped only after")
+    func onItsWayThenStopped() {
+        // The owner saw "Their picture has stopped" while it was still
+        // loading (2026-10-15).
+        var video = CallVideo(available: true, mine: true, theirs: true)
+        #expect(video.waiting(.theirs) == "Their picture is on its way…")
+        video.theirPictureSeen = true
+        #expect(video.waiting(.theirs) == "Their picture has stopped. The call carries on.")
+        video.theirs = false
+        #expect(video.waiting(.theirs) == "Their camera is off.")
+    }
 }
 
 /// Where a call puts itself on each kind of screen (`CallLayout`). The sizes
@@ -416,5 +437,26 @@ struct CallLayoutTests {
         #expect(CallLayout.videoShape(size: CGSize(width: 1376, height: 1032), horizontal: .regular) == .wide)
         #expect(CallLayout.videoShape(size: CGSize(width: 393, height: 852), horizontal: .compact) == .tall)
         #expect(CallLayout.selfViewWidth(for: .tall, size: CGSize(width: 1032, height: 1376)) <= 200)
+    }
+    @Test("two apps meet on AV1; without it, AV1 is left out and H.264 leads")
+    func codecOrder() {
+        let listed = ["video/H264", "video/H264", "video/VP8", "video/rtx", "video/VP9", "video/AV1", "video/red"]
+        let first = DirectPicture.codecOrder(listed, av1: true)
+        #expect(listed[first[0]] == "video/AV1")
+        #expect(first.count == listed.count)
+        #expect(first.dropFirst().map { listed[$0] } == listed.filter { $0 != "video/AV1" })
+        let without = DirectPicture.codecOrder(listed, av1: false)
+        #expect(!without.map { listed[$0] }.contains("video/AV1"))
+        #expect(listed[without[0]] == "video/H264")
+        #expect(DirectPicture.codecName("video/H264") == "H.264")
+        #expect(DirectPicture.codecName("video/AV1") == "AV1")
+    }
+
+    @Test("in AV1 a thin link carries a bigger picture than in H.264")
+    func av1FitsMore() {
+        #expect(DirectPicture.step(for: 250_000, under: .hd) == .low)
+        #expect(DirectPicture.step(for: 250_000, under: .hd, av1: true) == .standard)
+        #expect(VideoQuality.high.bitrate(av1: true) == 600_000)
+        #expect(VideoQuality.high.bitrate(av1: false) == 900_000)
     }
 }

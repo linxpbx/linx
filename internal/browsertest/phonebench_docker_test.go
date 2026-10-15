@@ -71,7 +71,22 @@ type benchScenario struct {
 	// pictureRelay: every route the picture takes starts at this phone's
 	// relay (mobile data).
 	pictureRelay bool
+	// squeeze holds the relay's way to the phones to a thin rate for a
+	// stretch mid-call, then lets go: the picture must come back up to
+	// 540p by itself. The owner's iPhone, squeezed to 360p after HD on
+	// 5G, never tried a bigger size again (2026-10-15).
+	squeeze bool
 }
+
+// squeezeRate, squeezeFrom and squeezeFor are the squeeze: what the relay
+// may send the phones, from when in the call, for how long. The call runs
+// squeezeCallSeconds so there is time to come back.
+const (
+	squeezeRate        = "rate 250kbit"
+	squeezeFrom        = 15 * time.Second
+	squeezeFor         = 15 * time.Second
+	squeezeCallSeconds = 75
+)
 
 // newLineDelay is how late what Linx sends on a just-opened line arrives
 // (newLine).
@@ -104,6 +119,7 @@ var benchScenarios = []benchScenario{
 	// its last. On the owner's 5G the direct route came and went all call
 	// long and the picture froze each time (2026-10-15).
 	{name: "on mobile data: the picture through the relay alone", flags: []string{"mobile-data", "hd"}, hd: true, pictureRelay: true},
+	{name: "a thin stretch mid-call, then room again", flags: []string{"relay-only"}, squeeze: true},
 	{name: "China: no UDP, the relay over TLS on 443", flags: []string{"no-udp"}, relay: "tls"},
 	{name: "China, and the connection cut mid-call", flags: []string{"no-udp"}, relay: "tls", cut: true},
 	{name: "poor mobile link: 300 ms round trip, 2% loss", flags: []string{"relay-only"}, slow: "delay 300ms 20ms loss 2%"},
@@ -347,7 +363,11 @@ func TestPhoneBenchDocker(t *testing.T) {
 			// answer, as before build 35).
 			flags := append(slices.Clone(sc.flags), strings.Fields(os.Getenv("LINX_BENCH_FLAGS"))...)
 			t.Logf("bench call from %s", time.Now().Format("15:04:05.0"))
-			bench(append([]string{"call", caller, answerer, "202", strconv.Itoa(benchCallSeconds)}, flags...)...)
+			seconds := benchCallSeconds
+			if sc.squeeze {
+				seconds = squeezeCallSeconds
+			}
+			bench(append([]string{"call", caller, answerer, "202", strconv.Itoa(seconds)}, flags...)...)
 			t.Logf("bench call launched %s", time.Now().Format("15:04:05.0"))
 			// LINX_BENCH_SHOTS=DIR: both screens at moments through the
 			// call, to look at what a person holding them would see.
@@ -380,7 +400,16 @@ func TestPhoneBenchDocker(t *testing.T) {
 				time.Sleep(20 * time.Second)
 				h.cutFor(4 * time.Second)
 			}
-			reports := h.benchReports(t, since, 2, time.Duration(benchCallSeconds+60)*time.Second)
+			if sc.squeeze {
+				h.whenRinging(t, 60*time.Second)
+				time.Sleep(squeezeFrom)
+				t.Logf("squeeze from %s", time.Now().Format("15:04:05.0"))
+				h.slowDown(squeezeRate, true)
+				time.Sleep(squeezeFor)
+				h.slowDown("", true)
+				t.Logf("squeeze off %s", time.Now().Format("15:04:05.0"))
+			}
+			reports := h.benchReports(t, since, 2, time.Duration(seconds+60)*time.Second)
 			for who, r := range reports {
 				t.Logf("--- %s:\n%s", who, r)
 			}
@@ -465,7 +494,12 @@ var (
 	soundInRe = regexp.MustCompile(`sound in: (\d+) bytes`)
 	framesRe  = regexp.MustCompile(`Their picture: (\d+) frames`)
 	routeRe   = regexp.MustCompile(`route: relayed \((\w+)\)`)
+	encodeRe  = regexp.MustCompile(`AV1 (\d+) ms a frame`)
 )
+
+// benchEncodeMostMs is the most an AV1 frame may take to make: at 30
+// frames a second there are 33 ms for each, and the phone has other work.
+const benchEncodeMostMs = 25
 
 var markRe = regexp.MustCompile(`\+([0-9.]+) s (.+)`)
 
@@ -509,6 +543,19 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 	} else if f, _ := strconv.Atoi(m[1]); f < 10*(benchCallSeconds-15) {
 		fail(fmt.Sprintf("too little of the other phone's picture (%d frames)", f))
 	}
+	// Two apps send their pictures in AV1 (owner, 2026-10-15), and keep up
+	// with it: the encoder never held back by the processor for long.
+	if !strings.Contains(r, "Picture in AV1") {
+		fail("the picture didn't go in AV1")
+	}
+	if strings.Contains(r, "can't keep up with AV1") {
+		fail("the phone couldn't keep up with AV1")
+	}
+	for _, m := range encodeRe.FindAllStringSubmatch(r, -1) {
+		if ms, _ := strconv.Atoi(m[1]); ms > benchEncodeMostMs {
+			fail(fmt.Sprintf("AV1 took %d ms a frame", ms))
+		}
+	}
 	if strings.Contains(r, "ended: failed") {
 		fail("the call ended by itself")
 	}
@@ -548,6 +595,16 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			fail("no answer or picture in the record")
 		case arrived-answered > benchPictureAfterAnswer:
 			fail(fmt.Sprintf("their picture arrived %.1f s after the answer", arrived-answered))
+		}
+	}
+	if sc.squeeze {
+		// Squeezed, and back to 540p by the end.
+		down := strings.LastIndex(r, "Picture down to ")
+		switch {
+		case down < 0:
+			fail("the squeeze never brought the picture down")
+		case !strings.Contains(r[down:], "Sending 540p") && !strings.Contains(r[down:], "Sending 720p"):
+			fail("the picture never came back up to 540p after the squeeze")
 		}
 	}
 	if sc.pictureRelay {
