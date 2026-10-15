@@ -9,7 +9,7 @@
 #   bench.sh call CALLER_LINK ANSWERER_LINK NUMBER SECONDS [flags…]
 #   bench.sh shot DIR NAME               # both screens, mid-call, into DIR
 #
-# flags: relay-only, no-udp (China: the relay over TLS on 443 only), audio,
+# flags: relay-only, mobile-data (the picture through the relay alone), no-udp (China: the relay over TLS on 443 only), audio,
 # callkit (ring and answer through CallKit, as an iPhone outside China),
 # hd (both phones press HD five seconds in), ring=N (the answerer rings N
 # seconds before answering; one by default).
@@ -70,6 +70,7 @@ call)
     ring=*) flags+=(-LinxBenchRingFor "${f#ring=}") ;;
     late-answerer) late=1 ;;
     no-early) flags+=(-LinxBenchNoEarly YES) ;;
+    mobile-data) flags+=(-LinxBenchMobileData YES) ;;
     *) echo "bench: unknown flag $f" >&2; exit 2 ;;
     esac
   done

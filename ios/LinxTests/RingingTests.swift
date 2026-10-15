@@ -157,14 +157,42 @@ struct RingingTests {
         transport.asterisk(challenge)
         transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
         #expect(calls.ended.isEmpty)
-        // Real time, and a slow CI machine: allow well past the four seconds.
+        // Real time, and a slow CI machine: allow well past the ten seconds.
         var waited = Duration.zero
-        while calls.ended.isEmpty, waited < .seconds(15) {
+        while calls.ended.isEmpty, waited < .seconds(20) {
             try await Task.sleep(for: .milliseconds(100))
             waited += .milliseconds(100)
         }
         #expect(calls.ended.count == 1)
         #expect(!phone.busy)
+    }
+
+    @Test("a call answered before it arrives waits for it, however late the line brings it")
+    func anAnsweredCallWaits() async throws {
+        // The owner's iPhone on 5G (2026-10-15): answered on the lock
+        // screen, the line signed in, and the invitation came nine seconds
+        // after that. The app had stopped waiting at four, took the call
+        // off the screen, and rang again when it came.
+        let calls = FakeSystemCalls()
+        let transport = FakeTransport()
+        let phone = PhoneModel(
+            line: { Self.line() }, transport: { _ in transport }, media: { _ in FakeMedia() },
+            calls: calls, inFront: { true })
+        #expect(await phone.woken(from: "0500000001"))
+        let reported = try #require(calls.reported.first?.id)
+        calls.ask(.answer(reported))
+        await phone.start()
+        let first = try #require(transport.last("REGISTER"))
+        var challenge = SIPMessage.response(401, "Unauthorized", to: first)
+        challenge.add("WWW-Authenticate", "Digest realm=\"asterisk\", nonce=\"n1\", qop=\"auth\"")
+        transport.asterisk(challenge)
+        transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
+        try await Task.sleep(for: .seconds(11))
+        #expect(calls.ended.isEmpty)
+        transport.asterisk(Self.invite(from: "+971500000001", name: "Omar Nasser", callID: "call-late"))
+        #expect(await eventually { transport.sent.contains { $0.status == 200 } })
+        #expect(phone.call?.id == reported)
+        #expect(calls.reported.count == 1)
     }
 
     @Test("a call that ends sends Linx what this phone saw of it")

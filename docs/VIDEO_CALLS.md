@@ -38,6 +38,8 @@ A second `RTCPeerConnection` beside the call's own, **for the picture only**, ma
 ### 3.3 Ringing as a video call (replaces ADR-086 (1))
 The INVITE carries **no video at all**; the app and the browser send `X-Linx-Video: yes` on a video call. The dialplan carries it to every leg it rings and to the wake push (`Video:` on `LinxWake`), so CallKit and the browser show "Video call" while it rings, as now. Migration 0052 takes `h264,vp8` and the video stream off the app's and the browser's endpoints (ADR-086 (3)'s bundling stays): Asterisk carries sound only. An older app that still offers a picture gets the stream refused and the call goes on as sound.
 
+**On mobile data (build 36, 2026-10-15)** a phone sends its picture through the relay alone (`MobileData`, `iceTransportPolicy = relay` for the picture's connection only). On the owner's 5G, a direct route came and went all call long, and the picture froze each time. A phone on Wi-Fi still goes direct.
+
 ## 4. Adding people: group calls on LiveKit (ADR-088)
 ### 4.1 What happens
 1. In a Linx-to-Linx call, either person presses **Add person** and picks someone from the Team list.

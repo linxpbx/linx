@@ -40,6 +40,9 @@ enum Bench {
         /// The picture set up only after the answer, as before build 35:
         /// what the bench's slow links are measured against.
         static var noEarly: Bool { defaults.bool(forKey: "LinxBenchNoEarly") }
+        /// This phone is on mobile data (`MobileData`): its picture goes
+        /// through the relay alone, its sound by every route as usual.
+        static var mobileData: Bool { defaults.bool(forKey: "LinxBenchMobileData") }
 
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
@@ -48,6 +51,7 @@ enum Bench {
         static let video = false
         static let callAfter = 2
         static let noEarly = false
+        static let mobileData = false
         static let answer = false
         static let ringFor = 1
         static let hangUpAfter = 0

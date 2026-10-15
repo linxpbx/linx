@@ -149,7 +149,12 @@ import UIKit
     /// now is for a call that has already ended: the caller gave up while
     /// Apple's push was late. It used to ring on for twenty seconds after
     /// the caller had gone (2026-10-11).
-    static let waitOnceSignedIn: Duration = .seconds(4)
+    ///
+    /// Ten seconds, not four: on the owner's 5G a just-woken line carried
+    /// the invitation nine seconds after it signed in (2026-10-15), and the
+    /// call they had already answered was taken off the screen and rang
+    /// again. A call the person has answered isn't cut short by this at all.
+    static let waitOnceSignedIn: Duration = .seconds(10)
 
     /// Everything the app needs to open a line: the SIP login, which Linx
     /// server it is, and the device token the relay knows this phone by.
@@ -505,7 +510,7 @@ import UIKit
     /// The line is signed in, so a call still on its way would be here in a
     /// moment: every phone being woken waits only a few seconds more.
     private func waitLessForWhatWasWoken() {
-        for index in waking.indices {
+        for index in waking.indices where !waking[index].answered {
             let id = waking[index].id
             waking[index].giveUp?.cancel()
             waking[index].giveUp = Task { [weak self] in
@@ -1005,7 +1010,16 @@ import UIKit
             place(id: id, to: intended[id] ?? peer)
         case .answer(let id):
             if let index = waking.firstIndex(where: { $0.id == id }) {
+                // Answered before the call itself is here: it gets the whole
+                // wait again from now. The owner's woken iPhone was handed
+                // its invitation twenty seconds after the push (2026-10-15).
                 waking[index].answered = true
+                waking[index].giveUp?.cancel()
+                waking[index].giveUp = Task { [weak self] in
+                    try? await Task.sleep(for: Self.waitForTheInvitation)
+                    guard !Task.isCancelled else { return }
+                    self?.nothingArrived(id)
+                }
                 return
             }
             guard call?.id == id, call?.phase == .ringing else { return }

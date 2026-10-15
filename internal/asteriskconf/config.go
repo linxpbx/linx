@@ -1201,6 +1201,11 @@ exten => s,1,GotoIf($["${LINXVIDEO}" != "yes"]?room)
 ; the step is unchanged: all the phones are dialled together afterwards,
 ; and the first to answer takes the call.
 ;
+; "Arrived" is the phone's sign-in itself (a contact PJSIP_DIAL_CONTACTS
+; lists that wasn't there when the push went), not the first OPTIONS
+; answered: on the owner's 5G that answer took 3.4 s more, which the
+; caller spent hearing ringing and the phone spent waiting (2026-10-15).
+;
 ; "Already here" is only ever a state DEVICE_STATE actually gave: an empty
 ; answer means the phone is woken, not skipped. A wrong guess either way is
 ; one redundant push (the app ties it to the invitation that follows), while
@@ -1217,6 +1222,7 @@ exten => s,1,Set(WAKELIST=)
  same => n(scan),Set(WAKEONE=${CUT(WAKEAORS,&,${WAKEI})})
  same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
  same => n,GotoIf($["${WAKESTATE}" != "" & "${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?next)
+ same => n,Set(WAKEWAS_${WAKEONE}=${PJSIP_DIAL_CONTACTS(${WAKEONE})})
  same => n,Set(WAKELIST=${IF($["${WAKELIST}" = ""]?${WAKEONE}:${WAKELIST}&${WAKEONE})})
  same => n(next),Set(WAKEI=$[${WAKEI} + 1])
  same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?scan)
@@ -1229,6 +1235,7 @@ exten => s,1,Set(WAKELIST=)
  same => n,Set(WAKEN=${FIELDQTY(WAKELIST,&)})
  same => n,Set(WAKEI=1)
  same => n(check),Set(WAKEONE=${CUT(WAKELIST,&,${WAKEI})})
+ same => n,GotoIf($["${PJSIP_DIAL_CONTACTS(${WAKEONE})}" != "" & "${PJSIP_DIAL_CONTACTS(${WAKEONE})}" != "${WAKEWAS_${WAKEONE}}"]?done)
  same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
  same => n,GotoIf($["${WAKESTATE}" = "" | "${WAKESTATE}" = "UNAVAILABLE" | "${WAKESTATE}" = "INVALID" | "${WAKESTATE}" = "UNKNOWN"]?notyet)
  same => n,Set(WAKEI=$[${WAKEI} + 1])
@@ -1246,6 +1253,7 @@ exten => late,1,Set(WAKECAME=0)
  same => n,Set(WAKEN=${FIELDQTY(WAKELIST,&)})
  same => n,Set(WAKEI=1)
  same => n(check),Set(WAKEONE=${CUT(WAKELIST,&,${WAKEI})})
+ same => n,GotoIf($["${PJSIP_DIAL_CONTACTS(${WAKEONE})}" != "" & "${PJSIP_DIAL_CONTACTS(${WAKEONE})}" != "${WAKEWAS_${WAKEONE}}"]?came)
  same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
  same => n,GotoIf($["${WAKESTATE}" != "" & "${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?came)
  same => n,Set(WAKEI=$[${WAKEI} + 1])

@@ -332,11 +332,10 @@ func TestCallsDocker(t *testing.T) {
 				t.Fatalf("Ivy not rung once her phone arrived late; her phone said:\n%s\n--- Asterisk about her:\n%s\n%s",
 					logs, strings.Join(hers, "\n"), e.asteriskCLI("pjsip show endpoint "+ivy.dev.SIPUsername))
 			}
-			// A real phone is checked the moment it signs in (the owner's
-			// iPhone was "Reachable" in the same second); the test phone isn't
-			// always, so ask Asterisk to check it now.
-			e.asteriskCLI("pjsip qualify " + ivy.dev.SIPUsername)
-			time.Sleep(time.Second)
+			// Signing in is enough: nothing asks Asterisk to check the
+			// phone first (the owner's iPhone answered that check 3.4 s
+			// after signing in, 2026-10-15).
+			time.Sleep(250 * time.Millisecond)
 		}
 		e.waitWS(arrives)
 		e.wait(late)

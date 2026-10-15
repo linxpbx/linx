@@ -16,6 +16,7 @@ import UIKit
         // A screenshot run talks to nothing at all, and must never put a
         // call on a simulator's lock screen.
         guard Screen.launched == nil else { return true }
+        MobileData.watch()
         AppModel.shared.listenForCalls()
         CrashReports.shared.start()
         return true

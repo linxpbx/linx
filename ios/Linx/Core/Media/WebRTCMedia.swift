@@ -379,8 +379,15 @@ struct CallDiagnostics: Equatable, Sendable {
             if !ringing { picture.callIsUp() }
             return
         }
+        // On mobile data the picture goes through the relay alone
+        // (`MobileData`): a direct route there came and went all call long.
+        let onMobileData = MobileData.now
+        if onMobileData { mark("On mobile data: the picture goes through the relay") }
         let picture = DirectPicture(
-            link: link, configuration: configuration(), factory: Self.factory, tracks: tracks,
+            link: link,
+            configuration: Self.configuration(
+                relay: turn, addresses: relayAddresses, relayOnly: relayOnly || onMobileData),
+            factory: Self.factory, tracks: tracks,
             cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn))
         picture.onMark = { [weak self] what in self?.mark(what) }
         picture.onTooExpensive = { [weak self] in self?.onVideoTooExpensive?() }

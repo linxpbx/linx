@@ -68,6 +68,9 @@ type benchScenario struct {
 	// some seconds after the answer, while what it sent arrived in good
 	// time. Its picture came 11 s after the answer and the caller's 9 s.
 	newLine bool
+	// pictureRelay: every route the picture takes starts at this phone's
+	// relay (mobile data).
+	pictureRelay bool
 }
 
 // newLineDelay is how late what Linx sends on a just-opened line arrives
@@ -96,6 +99,11 @@ var benchScenarios = []benchScenario{
 	// two (2026-10-14). Reading whichever pair said "nominated" made the
 	// route seem to change every few seconds and squeezed the picture.
 	{name: "direct between the phones, HD on", flags: []string{"hd"}, hd: true},
+	// Both phones on mobile data with every route open to their sound:
+	// the picture goes through the relay alone, from its first route to
+	// its last. On the owner's 5G the direct route came and went all call
+	// long and the picture froze each time (2026-10-15).
+	{name: "on mobile data: the picture through the relay alone", flags: []string{"mobile-data", "hd"}, hd: true, pictureRelay: true},
 	{name: "China: no UDP, the relay over TLS on 443", flags: []string{"no-udp"}, relay: "tls"},
 	{name: "China, and the connection cut mid-call", flags: []string{"no-udp"}, relay: "tls", cut: true},
 	{name: "poor mobile link: 300 ms round trip, 2% loss", flags: []string{"relay-only"}, slow: "delay 300ms 20ms loss 2%"},
@@ -473,6 +481,9 @@ func markAt(r, what string) (float64, bool) {
 }
 
 // benchCheck holds one phone's record of the call to what a good call is.
+// pictureRouteRe is one of the picture's routes, "local → remote".
+var pictureRouteRe = regexp.MustCompile(`Picture route(?: now)?: (\S+) →`)
+
 func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 	t.Helper()
 	fail := func(why string) { t.Errorf("%s: %s", who, why) }
@@ -537,6 +548,16 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			fail("no answer or picture in the record")
 		case arrived-answered > benchPictureAfterAnswer:
 			fail(fmt.Sprintf("their picture arrived %.1f s after the answer", arrived-answered))
+		}
+	}
+	if sc.pictureRelay {
+		if !strings.Contains(r, "On mobile data: the picture goes through the relay") {
+			fail("the phone didn't know it was on mobile data")
+		}
+		for _, m := range pictureRouteRe.FindAllStringSubmatch(r, -1) {
+			if !strings.HasPrefix(m[1], "relay/") {
+				fail("the picture took a route that isn't the relay: " + m[1])
+			}
 		}
 	}
 	if !sc.cut && strings.Count(r, "Picture route now") > 2 {
