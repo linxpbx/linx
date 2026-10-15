@@ -543,6 +543,15 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 	} else if f, _ := strconv.Atoi(m[1]); f < 10*(benchCallSeconds-15) {
 		fail(fmt.Sprintf("too little of the other phone's picture (%d frames)", f))
 	}
+	// Each phone's microphone reaches the call: sound goes out, and the
+	// app never had to start it again (the owner's iPhone sent none for a
+	// whole call, build 37).
+	if !strings.Contains(r, "First sound went out") {
+		fail("no sound ever went out")
+	}
+	if strings.Contains(r, "No sound going out") {
+		fail("the phone found no sound going out mid-call")
+	}
 	// Two apps send their pictures in AV1 (owner, 2026-10-15), and keep up
 	// with it: the encoder never held back by the processor for long.
 	if !strings.Contains(r, "Picture in AV1") {

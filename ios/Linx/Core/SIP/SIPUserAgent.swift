@@ -55,6 +55,7 @@ struct AudioRoute: Equatable, Sendable {
 /// one; the tests use a stand-in.
 extension SIPCallMedia {
     func pictureAnswerWithTheCall() async -> Data? { nil }
+    func mark(_ what: String, at: Date) { mark(what) }
 }
 
 @MainActor protocol SIPCallMedia: AnyObject {
@@ -129,6 +130,9 @@ extension SIPCallMedia {
     func mark(_ what: String)
     /// When the person asked for the call: the timeline counts from there.
     func began(at: Date)
+    /// A step that happened before the call's media was made (a woken
+    /// phone's push, its line signing in), put in its place on the timeline.
+    func mark(_ what: String, at: Date)
     /// Nobody accepted the last offer: put the call back exactly as it was,
     /// so the sound carries on untouched.
     func rollbackOffer() async

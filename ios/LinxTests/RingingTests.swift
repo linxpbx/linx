@@ -175,8 +175,14 @@ struct RingingTests {
         // off the screen, and rang again when it came.
         let calls = FakeSystemCalls()
         let transport = FakeTransport()
+        var made: [FakeMedia] = []
         let phone = PhoneModel(
-            line: { Self.line() }, transport: { _ in transport }, media: { _ in FakeMedia() },
+            line: { Self.line() }, transport: { _ in transport },
+            media: { _ in
+                let media = FakeMedia()
+                made.append(media)
+                return media
+            },
             calls: calls, inFront: { true })
         #expect(await phone.woken(from: "0500000001"))
         let reported = try #require(calls.reported.first?.id)
@@ -193,6 +199,13 @@ struct RingingTests {
         #expect(await eventually { transport.sent.contains { $0.status == 200 } })
         #expect(phone.call?.id == reported)
         #expect(calls.reported.count == 1)
+        // Its timeline starts at the push, not at the invitation.
+        let steps = try #require(made.last?.steps)
+        for step in [
+            "began", "Woken by the push", "Answered before the call arrived", "Line signed in", "The call arrived",
+        ] {
+            #expect(steps.contains(step))
+        }
     }
 
     @Test("a call that ends sends Linx what this phone saw of it")

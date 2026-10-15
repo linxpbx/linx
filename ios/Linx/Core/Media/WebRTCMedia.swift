@@ -228,6 +228,14 @@ struct CallDiagnostics: Equatable, Sendable {
         note { $0.steps = [.init(what: "Call started", at: at)] + $0.steps.dropFirst() }
     }
 
+    func mark(_ what: String, at: Date) {
+        note {
+            let step = CallDiagnostics.Step(what: what, at: at)
+            let place = $0.steps.dropFirst().firstIndex { $0.at > at } ?? $0.steps.endIndex
+            $0.steps.insert(step, at: place)
+        }
+    }
+
     /// One step of the call's setting up, for the timeline on Call details.
     func mark(_ what: String) {
         if what == CallDiagnostics.answered { quickUntil = Date().addingTimeInterval(Self.quickFor) }
@@ -985,6 +993,86 @@ struct CallDiagnostics: Equatable, Sendable {
     private var theirICEUser: String?
     private var theyRestarted = false
     private var soundHasArrived = false
+    private var soundHasGone = false
+
+    /// Sound arriving while none goes out: this phone's microphone gives the
+    /// call nothing. The owner's woken iPhone sent 0 bytes for a whole call
+    /// while it heard the iPad (build 37, 2026-10-15). WebRTC sends even
+    /// silence (DTX, a packet every 400 ms), so nothing at all going out
+    /// means nothing is coming from the microphone: what iOS says about it
+    /// goes in the report, and the sound is started again, twice at most.
+    private func checkTheMicrophone(_ connection: MediaConnection) {
+        defer {
+            micOutBefore = connection.audioBytesOut
+            micInBefore = connection.audioBytesIn
+        }
+        guard group == nil, audio?.isEnabled == true else {
+            micQuietReadings = 0
+            return
+        }
+        if connection.audioBytesOut > micOutBefore {
+            micQuietReadings = 0
+            if micRestarts > 0, !micBackSaid {
+                micBackSaid = true
+                mark("Sound going out again")
+            }
+            return
+        }
+        guard connection.audioBytesIn > micInBefore else { return }
+        micQuietReadings += 1
+        guard micQuietReadings >= Self.micQuietAllowed, micRestarts < Self.micRestartsAllowed else { return }
+        micQuietReadings = 0
+        micRestarts += 1
+        mark("No sound going out: \(Self.microphoneWords(track: audio, sender: connectionHasMicrophone))")
+        mark(Self.restartTheSound() ? "Sound started again" : "Sound not started again: iOS hasn't handed it over")
+    }
+
+    private var micOutBefore = 0
+    private var micInBefore = 0
+    private var micQuietReadings = 0
+    private var micRestarts = 0
+    private var micBackSaid = false
+    private static let micQuietAllowed = 3
+    private static let micRestartsAllowed = 2
+
+    /// The microphone's track is on this call's sender.
+    private var connectionHasMicrophone: Bool {
+        connection?.senders.contains { $0.track?.kind == kRTCMediaStreamTrackKindAudio } ?? false
+    }
+
+    /// What iOS and WebRTC say about the microphone, in a few words.
+    private static func microphoneWords(track: RTCAudioTrack?, sender: Bool) -> String {
+        let system = AVAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
+        let inputs = system.currentRoute.inputs.map(\.portType.rawValue).joined(separator: "+")
+        let permission: String
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted: permission = "allowed"
+        case .denied: permission = "refused"
+        default: permission = "not asked"
+        }
+        return [
+            "input \(inputs.isEmpty ? "none" : inputs)",
+            "available \(system.isInputAvailable)",
+            "microphone \(permission)",
+            "category \(system.category.rawValue.replacingOccurrences(of: "AVAudioSessionCategory", with: ""))",
+            "enabled \(rtc.isAudioEnabled)", "active \(rtc.isActive)", "handed over \(handedOver)",
+            "track \(track?.isEnabled == true ? "on" : "off")", "on the call \(sender)",
+        ].joined(separator: ", ")
+    }
+
+    /// Stops and starts WebRTC's sound unit, which opens the microphone
+    /// afresh. Only while iOS has handed the sound over, where CallKit
+    /// is used: starting it otherwise is what silences a call.
+    private static func restartTheSound() -> Bool {
+        let session = RTCAudioSession.sharedInstance()
+        guard !session.useManualAudio || handedOver else { return false }
+        session.lockForConfiguration()
+        defer { session.unlockForConfiguration() }
+        session.isAudioEnabled = false
+        session.isAudioEnabled = true
+        return true
+    }
 
     /// The route and the first sound, on the timeline: when the call
     /// changed route, and when anything was first heard from the other
@@ -998,6 +1086,11 @@ struct CallDiagnostics: Equatable, Sendable {
             soundHasArrived = true
             mark("First sound arrived")
         }
+        if !soundHasGone, connection.audioBytesOut > 0 {
+            soundHasGone = true
+            mark("First sound went out")
+        }
+        checkTheMicrophone(connection)
         note {
             $0.offered = connection.offered
             $0.pairs = connection.pairs

@@ -209,6 +209,16 @@ import UIKit
     private var attempts = 0
     private var stopped = false
     private var waking: [Waking] = []
+    /// What happened between a push and its call arriving, for the call's
+    /// timeline: a woken iPhone took 11 s to ring and its first half-minute
+    /// was slow (2026-10-15), and the report started only at the invitation.
+    private var wakeSteps: [(what: String, at: Date)] = []
+
+    private func noteWake(_ what: String) {
+        guard !waking.isEmpty, wakeSteps.count < Self.mostWakeSteps else { return }
+        wakeSteps.append((what, Date()))
+    }
+    private static let mostWakeSteps = 24
     /// Who an outgoing call is to, by the id the system was given: the
     /// system only keeps a number, and the app keeps the name as well.
     private var intended: [UUID: SIPPeer] = [:]
@@ -270,7 +280,10 @@ import UIKit
     /// when a push wakes the app for a call.
     func start() async {
         stopped = false
-        guard let line = await lineForThisPhone() else {
+        noteWake("Asking Linx for this phone's line")
+        let line = await lineForThisPhone()
+        noteWake(line == nil ? "No line from Linx" : "Line given")
+        guard let line else {
             status = .unavailable("Linx couldn't give this phone a line. It will try again.")
             retryLater()
             return
@@ -418,8 +431,10 @@ import UIKit
     private func lineChanged(_ status: SIPStatus) {
         switch status {
         case .connecting:
+            noteWake("Line connecting")
             self.status = .starting
         case .ready:
+            noteWake("Line signed in")
             attempts = 0
             self.status = .ready
             problem = nil
@@ -427,6 +442,7 @@ import UIKit
             reserveTheRelayIfWanted()
             callForTheBench()
         case .reconnecting:
+            noteWake("Line lost, connecting again")
             self.status = .reconnecting
             retryLater()
         case .unavailable(let why):
@@ -482,6 +498,8 @@ import UIKit
             self?.nothingArrived(id)
         }
         waking.append(woken)
+        if waking.count == 1 { wakeSteps = [] }
+        noteWake("Woken by the push")
         return true
     }
 
@@ -1014,6 +1032,7 @@ import UIKit
                 // wait again from now. The owner's woken iPhone was handed
                 // its invitation twenty seconds after the push (2026-10-15).
                 waking[index].answered = true
+                noteWake("Answered before the call arrived")
                 waking[index].giveUp?.cancel()
                 waking[index].giveUp = Task { [weak self] in
                     try? await Task.sleep(for: Self.waitForTheInvitation)
@@ -1142,6 +1161,12 @@ import UIKit
         if let index = matching(peer) {
             let woken = waking.remove(at: index)
             woken.giveUp?.cancel()
+            if let media = liveMedia, let first = wakeSteps.first {
+                media.began(at: first.at)
+                for step in wakeSteps { media.mark(step.what, at: step.at) }
+                media.mark("The call arrived")
+            }
+            wakeSteps = []
             call = Call(id: woken.id, peer: peer, incoming: true, phase: .ringing, videoCall: video)
             calls.rename(id: woken.id, to: peer)
             // The push may have come from a Linx that doesn't say video, or
@@ -1289,7 +1314,9 @@ import UIKit
         let trace = sipTrace
         sipTrace = []
         guard let line = lineInUse, finished.peer.number != Self.echoTest else { return }
-        let started = trace.first?.at ?? diagnostics.steps.first?.at ?? Date()
+        // One clock for the steps and the SIP messages: a woken call's starts
+        // at the push, before its invitation.
+        let started = diagnostics.steps.first?.at ?? trace.first?.at ?? Date()
         sendReport(line, Self.record(of: finished, diagnostics: diagnostics, trace: trace, why: why, started: started))
     }
 
