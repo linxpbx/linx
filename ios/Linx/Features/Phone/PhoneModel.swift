@@ -278,7 +278,28 @@ import UIKit
     /// start signs the phone line in. It is called once the phone is signed
     /// in to Linx, again by itself whenever the connection drops, and again
     /// when a push wakes the app for a call.
+    ///
+    /// Only one line at a time: a push and the app coming to the front both
+    /// start it, and a woken iPhone answered on its own screen did both in
+    /// the same moment — two lines, two sets of relay credentials, the
+    /// relay reserved twice, on a mobile link that was struggling already
+    /// (the owner's call, 2026-10-16). A start while one is under way waits
+    /// for it, and a line that is up is left as it is.
     func start() async {
+        if let opening {
+            await opening.value
+            return
+        }
+        if !stopped, agent != nil, status == .ready { return }
+        let task = Task { await openTheLine() }
+        opening = task
+        await task.value
+        opening = nil
+    }
+
+    private var opening: Task<Void, Never>?
+
+    private func openTheLine() async {
         stopped = false
         noteWake("Asking Linx for this phone's line")
         let line = await lineForThisPhone()

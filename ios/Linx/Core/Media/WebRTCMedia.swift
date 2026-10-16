@@ -582,6 +582,17 @@ struct CallDiagnostics: Equatable, Sendable {
     /// Whether it worked is read back from the route itself rather than
     /// assumed, and that is what the button and the words beside it show.
     func setSpeaker(_ on: Bool) {
+        // AirPods, a headset or a car have the call: a video call's
+        // loudspeaker is for a phone that would otherwise talk into its
+        // earpiece, and forcing it here sent the sound nowhere at all — not
+        // to the AirPods, not to the loudspeaker (owner, 2026-10-16). The
+        // button is the system's own picker while there is anywhere else to
+        // send the sound, so this never overrules a person's choice.
+        if on, Self.somewhereElseToSend {
+            mark("Speaker left alone: \(Self.outputWords) has the sound")
+            Self.tellTheRoute()
+            return
+        }
         Self.wantsSpeaker = on
         let session = RTCAudioSession.sharedInstance()
         session.lockForConfiguration()

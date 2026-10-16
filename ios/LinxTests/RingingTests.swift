@@ -124,6 +124,32 @@ struct RingingTests {
         return invite
     }
 
+    @Test("a push and the app coming to the front open one line, not two")
+    func oneLineAtATime() async {
+        let calls = FakeSystemCalls()
+        var asked = 0
+        let transport = FakeTransport()
+        let phone = PhoneModel(
+            line: {
+                asked += 1
+                try? await Task.sleep(for: .milliseconds(20))
+                return Self.line()
+            }, transport: { _ in transport }, media: { _ in FakeMedia() },
+            calls: calls, inFront: { true })
+        async let woken: Void = phone.start()
+        async let inFront: Void = phone.start()
+        _ = await (woken, inFront)
+        #expect(asked == 1)
+        let first = transport.last("REGISTER")!
+        var challenge = SIPMessage.response(401, "Unauthorized", to: first)
+        challenge.add("WWW-Authenticate", "Digest realm=\"asterisk\", nonce=\"n1\", qop=\"auth\"")
+        transport.asterisk(challenge)
+        transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
+        #expect(await eventually { phone.status == .ready })
+        await phone.start()
+        #expect(asked == 1, "a line that is up is left as it is")
+    }
+
     @Test("a push reports the call to the system before the line is even open")
     func aPushRingsFirst() async throws {
         let calls = FakeSystemCalls()

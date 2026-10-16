@@ -576,7 +576,7 @@ struct CallLinkMessage: Decodable, Sendable {
                 }
                 onMark?(rolledBack ? "Picture: gave way to their offer" : "Picture: couldn't take my offer back")
             }
-            let remote = RTCSessionDescription(type: type, sdp: description.sdp)
+            let remote = RTCSessionDescription(type: type, sdp: SDPTweaks.startPictureAt(description.sdp))
             let ok = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 connection.setRemoteDescription(remote) { error in done.resume(returning: error == nil) }
             }

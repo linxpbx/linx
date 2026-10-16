@@ -43,4 +43,20 @@ struct SDPTweaksTests {
         let noOpus = "v=0\r\nm=audio 9 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n"
         #expect(SDPTweaks.preferOpusFecDtx(noOpus) == noOpus)
     }
+
+    @Test("their picture codecs start at 800 kbit/s; the sound is left alone")
+    func pictureStartPace() {
+        let sdp = [
+            "v=0", "m=audio 9 UDP/TLS/RTP/SAVPF 111", "a=rtpmap:111 opus/48000/2",
+            "m=video 9 UDP/TLS/RTP/SAVPF 45 96 97", "a=rtpmap:45 AV1/90000",
+            "a=fmtp:45 level-idx=5;profile=0;tier=0", "a=rtpmap:96 H264/90000", "a=rtpmap:97 rtx/90000",
+            "a=fmtp:97 apt=96", "",
+        ].joined(separator: "\r\n")
+        let out = SDPTweaks.startPictureAt(sdp)
+        #expect(out.contains("a=fmtp:45 level-idx=5;profile=0;tier=0;x-google-start-bitrate=800\r\n"))
+        #expect(out.contains("a=rtpmap:96 H264/90000\r\na=fmtp:96 x-google-start-bitrate=800\r\n"))
+        #expect(out.contains("a=fmtp:97 apt=96\r\n"))
+        #expect(!out.contains("a=fmtp:111"))
+        #expect(SDPTweaks.startPictureAt(out) == out, "written once")
+    }
 }

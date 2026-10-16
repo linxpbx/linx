@@ -58,6 +58,49 @@ enum SDPTweaks {
         return lines.joined(separator: eol)
     }
 
+    /// The pace a picture starts at, in kbit/s. WebRTC's own is 300 and it
+    /// climbs only as fast as the sending proves room: on a link with 1–2
+    /// Mbit/s the owner's picture stayed at 150–200 kbit/s, soft and at 12
+    /// frames a second, for most of a minute (2026-10-16). It still backs
+    /// off within a second or two where there's less room, and the step's
+    /// cap (`VideoQuality`) is the most it ever spends.
+    static let pictureStartKbps = 800
+
+    /// startPictureAt writes the pace a picture starts at into a
+    /// description from the other side, for every picture codec in it:
+    /// WebRTC takes it from the codec it sends in, which is theirs.
+    static func startPictureAt(_ sdp: String, kbps: Int = pictureStartKbps) -> String {
+        let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
+        var lines = sdp.components(separatedBy: eol)
+        let codecs = ["av1/", "h264/", "vp8/", "vp9/"]
+        let key = "x-google-start-bitrate"
+        var video = false
+        var at = 0
+        while at < lines.count {
+            let line = lines[at]
+            if line.hasPrefix("m=") { video = line.hasPrefix("m=video") }
+            guard video, line.hasPrefix("a=rtpmap:") else {
+                at += 1
+                continue
+            }
+            let payload = String(line.dropFirst("a=rtpmap:".count).prefix { $0.isNumber })
+            let name = line.split(separator: " ").dropFirst().first.map { $0.lowercased() } ?? ""
+            guard !payload.isEmpty, codecs.contains(where: name.hasPrefix) else {
+                at += 1
+                continue
+            }
+            let prefix = "a=fmtp:\(payload) "
+            if let fmtp = lines.firstIndex(where: { $0.hasPrefix(prefix) }) {
+                if !lines[fmtp].contains(key + "=") { lines[fmtp] += ";\(key)=\(kbps)" }
+            } else {
+                lines.insert(prefix + "\(key)=\(kbps)", at: at + 1)
+                at += 1
+            }
+            at += 1
+        }
+        return lines.joined(separator: eol)
+    }
+
     /// everyStreamHasRoutes says whether every open stream of an offer
     /// carries at least one route candidate. Asterisk turns ICE off for a
     /// stream whose offer has none (res_pjsip_sdp_rtp's check_ice_support),
