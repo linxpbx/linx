@@ -104,6 +104,13 @@ Builds 27–29 each failed on the owner's two devices on 5G (no picture either w
 | China, connection cut mid-call | every connection to port 443 reset and refused for 4 s, 15 s into the call (`iptables` in `linx-sni`'s namespace) |
 | Poor mobile link | 300 ms round trip, 2% loss, on what Linx sends the phones (`tc netem`, the phone-facing side only) |
 | China on a poor link | the same, 1% loss, TLS only |
+| A network that holds back UDP early in a call (2026-10-16) | every UDP packet from the phones held 2.3 s, then 1 s through, for 45 s from the ringing (`testdata/held_uploads.py`, NFQUEUE in coturn's namespace): the owner's Etisalat; the call must move to the relay's TLS (ADR-089) |
+| The same network again | as above, the network already remembered: the call starts on TLS |
+| A two-second blackout | the phones' TCP to 443 reset and their UDP to the relay dropped for 2 s mid-call (a new cell, a new address) |
+| A long queue | 120 ms, 1.5 Mbit/s, a 600-packet queue: delay that grows with what is sent |
+| Starlink | 30 ms, and every 15 s 0.4 s of 110 ms and 30% loss |
+| A ship's satellite | 800 ms, 512 kbit/s, 1% loss |
+| In flight | TLS on 443 only, 600 ms, 256 kbit/s, 1% loss, a voice call |
 
 CallKit is not on the bench: a simulator's own call service ends an app's outgoing CallKit call about a second in (`callservicesd` asks for the `CXEndCallAction` itself), so the bench takes the in-app path China uses (ADR-078). CallKit stays a check on a real phone.
 

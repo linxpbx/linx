@@ -167,6 +167,14 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 - **The app:** no new framework. LiveKit's signalling is written into the app (`LiveKitWire`, `GroupCall`) on the WebRTC it already has, so the app's size barely moves.
 - **The Asterisk image** gains `res_pjsip_header_funcs` and stays 263 MB.
 
+## 3h. Networks that hold UDP back, and call quality (2026-10-16, build 42)
+
+- **The upload watch (on the phone):** while a call starts and for a minute after its answer, the app asks the relay "are you there?" four times a second over UDP: a 20-byte STUN Binding Request, answered with about 32 bytes. With the UDP and IP headers that is about **1.7 kbit/s each way**, so **about 25 KB per call** at most. When the app opens its line on a mobile network not yet known to hold UDP back, it does the same for 20 seconds (about 9 KB), at most once every ten minutes. Nothing runs between calls or on Wi-Fi outside a call. coturn answers these from memory: no allocation, no log line.
+- **The secure route** costs what TLS over TCP costs: about 5% more bytes than the same call over UDP, from the TLS and TCP headers. Calls on a network that holds UDP back use it from their first second; nobody else's do.
+- **Call quality (on the server):** no new process or timer. Asterisk already sets each leg's sound statistics as it hangs up, and the control plane hears them on the ARI connection it already has. One row per phone per call (about 250 bytes, with the reasons in words) and one per missed wake-up; saving one deletes everything older than seven days. An office making 500 calls a day keeps under 2 MB. The admin page loads at most 500 rows (one request, about 150 KB uncompressed) and only when opened.
+- **Unsent call reports** wait on the phone (at most ten, at most a week, a few KB each) and go when its line next opens.
+- **Dead calls end by themselves:** Asterisk hangs up a call when an app or a browser has sent no sound for 30 s (migration 0054), so a phone that lost its line no longer holds the other side's call open.
+
 ## 4. Minimum and recommended hardware (as built)
 
 | | Minimum (setup refuses less) | Recommended |

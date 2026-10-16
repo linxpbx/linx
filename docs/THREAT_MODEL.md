@@ -527,6 +527,19 @@ After every call the Linx app sends `POST /api/v1/me/call-reports` with its devi
 | **Tampering:** a record with misleading text. | It is the phone's own account and is shown as plain text (React escapes it; no HTML). Nothing acts on it. |
 | **Information disclosure (crash reports, migration 0050):** a crash record. | It holds the exception, the signal and the crashed thread's frames as binary + offset (MetricKit's call stack tree, unsymbolicated): code locations, no memory contents, no user data. It goes only to the company's own server, under the same access, size and retention as a call record. |
 
+### Call quality and the secure route (2026-10-16, ADR-089)
+
+Linx judges every phone's leg of every call from Asterisk's RTPAUDIOQOS (ARI `ChannelVarset`) and a missed wake (`LinxWakeMissed`), keeps the result seven days (`call_quality`, migration 0055) and shows it at `GET /api/v1/call-quality` (`calls:read`). The app's upload watch sends STUN Binding Requests to the relay; migration 0054 ends a call whose app or browser has sent no sound for 30 s.
+
+| Threat | Mitigation |
+|---|---|
+| **Information disclosure:** the page names each phone, its person and how its calls went. | `calls:read`, the people who already see everyone's call history. Only sound statistics and Linx's own words are kept; no numbers dialled, no addresses. The phone's own report beside it still needs `devices:read`. |
+| **Spoofing / tampering:** a forged quality record. | Nothing a phone or a browser sends becomes a record: they come only from Asterisk's events on the control plane's own ARI connection and from the dialplan's own UserEvent. The app's verdict line is its own report, shown as plain text. |
+| **Denial of service:** many calls filling the table, or alerts. | One row per leg, at most about 250 bytes; every save deletes rows past seven days. One alert per phone (keyed by the device), raised only after three bad calls in a day. |
+| **Denial of service:** the upload watch used against the relay. | Unauthenticated STUN Binding Requests are what coturn already answers on its public port, from memory, without an allocation; the app sends four a second for at most a minute and a half per call. |
+| **Denial of service:** a call ended by rtp_timeout. | Only after 30 s with no sound at all from that leg (a quiet call still sends Opus's silence); held calls are untouched. |
+| **Information disclosure:** the captive-portal check. | One HTTPS request to Apple's success page, only when the line couldn't be had, carrying nothing of Linx's; nothing is sent in the clear. |
+
 ## Pre-production review (2026-10-05)
 The whole backend, read as "a business is about to run its phones on this" rather than "does this phase work" (owner's ask, 2026-10-05). The earlier pre-launch audit was 2026-09-27, before Phases 1E, 1F and 2; this one covers everything since and re-checks the shape of the thing as a whole. Each phase's own review above stands; this doesn't repeat them.
 
