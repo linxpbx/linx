@@ -151,6 +151,12 @@ import Testing
         relayMoves += 1
         return Self.relayOffer
     }
+    private(set) var secureMoves = 0
+    var onSecureRoute: Bool { secureMoves > 0 }
+    func moveToSecureRoute() async throws -> String {
+        secureMoves += 1
+        return Self.relayOffer
+    }
     var onRouteLost: (() -> Void)?
     private(set) var routeRestarts = 0
     func restartRoute() async throws -> String {

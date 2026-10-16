@@ -43,6 +43,9 @@ enum Bench {
         /// This phone is on mobile data (`MobileData`): its picture goes
         /// through the relay alone, its sound by every route as usual.
         static var mobileData: Bool { defaults.bool(forKey: "LinxBenchMobileData") }
+        /// This phone's mobile network is already known to hold UDP back
+        /// (`HeldNetworks`): its calls start on the secure route.
+        static var heldBefore: Bool { defaults.bool(forKey: "LinxBenchHeldBefore") }
 
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
@@ -52,6 +55,7 @@ enum Bench {
         static let callAfter = 2
         static let noEarly = false
         static let mobileData = false
+        static let heldBefore = false
         static let answer = false
         static let ringFor = 1
         static let hangUpAfter = 0

@@ -81,7 +81,9 @@ import UIKit
     }
 
     private(set) var status: Status = .starting
-    private(set) var call: Call?
+    private(set) var call: Call? {
+        didSet { watchTheUploads() }
+    }
     /// The pictures of the call that is up, for the screen to draw. It is
     /// the live media's own, so it is empty whenever there is no call.
     private(set) var tracks = VideoTracks()
@@ -209,6 +211,20 @@ import UIKit
     private var attempts = 0
     private var stopped = false
     private var waking: [Waking] = []
+    /// Whether the network is holding back what this phone sends over UDP,
+    /// for a call's first minute (`UploadWatch`).
+    @ObservationIgnored private let uploads = UploadWatch()
+    /// The same, as the line opens on a mobile network (`checkTheNetwork`).
+    @ObservationIgnored private let networkCheck = UploadWatch()
+    private var networkCheckedAt = Date.distantPast
+    /// The call the uploads were watched for: once a call.
+    private var uploadsWatchedFor: UUID?
+    /// The uploads kept stalling before the call was answered: it moves onto
+    /// the secure route as soon as it is.
+    private var secureRouteWanted = false
+    private var uploadsDone: Task<Void, Never>?
+    /// How long after the answer the uploads are watched.
+    static let uploadsWatchedAfterTheAnswer: Duration = .seconds(60)
     /// What happened between a push and its call arriving, for the call's
     /// timeline: a woken iPhone took 11 s to ring and its first half-minute
     /// was slow (2026-10-15), and the report started only at the invitation.
@@ -305,7 +321,12 @@ import UIKit
         let line = await lineForThisPhone()
         noteWake(line == nil ? "No line from Linx" : "Line given")
         guard let line else {
-            status = .unavailable("Linx couldn't give this phone a line. It will try again.")
+            // A hotel's, an airport's or a plane's Wi-Fi that wants signing
+            // in to first: said so, rather than "trying again" for ever.
+            let portal = await CaptivePortal.suspected()
+            if portal { noteWake("This Wi-Fi wants signing in to") }
+            status = .unavailable(
+                portal ? CaptivePortal.words : "Linx couldn't give this phone a line. It will try again.")
             retryLater()
             return
         }
@@ -385,6 +406,78 @@ import UIKit
     /// and the call itself is still on its way.
     var busy: Bool { call != nil || !waking.isEmpty }
 
+    /// From the moment a call starts until a minute after its answer, the
+    /// phone watches whether the network holds back what it sends over UDP,
+    /// and moves the call onto the secure route when it keeps doing so
+    /// (`UploadWatch`; the owner's iPhone on Etisalat, 2026-10-16).
+    private func watchTheUploads() {
+        guard let call else {
+            uploads.stop()
+            uploadsDone?.cancel()
+            uploadsDone = nil
+            uploadsWatchedFor = nil
+            secureRouteWanted = false
+            return
+        }
+        guard uploadsWatchedFor != call.id, let relay else { return }
+        uploadsWatchedFor = call.id
+        secureRouteWanted = false
+        networkCheck.stop()
+        uploads.start(
+            relay: Bench.relayURLs(relay.urls),
+            onStall: { [weak self] hold in
+                self?.liveMedia?.mark(String(format: "Network held back what this phone sent for %.1f s", hold))
+            },
+            onStalls: { [weak self] in self?.uploadsKeepStalling() })
+    }
+
+    private func uploadsKeepStalling() {
+        HeldNetworks.remember()
+        guard liveMedia?.onSecureRoute != true else {
+            liveMedia?.mark("The network is still holding back UDP")
+            return
+        }
+        liveMedia?.mark("The network keeps holding back this phone's UDP")
+        guard call?.phase == .active else {
+            secureRouteWanted = true
+            return
+        }
+        Task { [weak self] in await self?.agent?.moveToSecureRoute() }
+    }
+
+    /// A mobile network not yet known to hold UDP back is checked as the
+    /// line opens, for twenty seconds, so that even its first call can start
+    /// on the right route. At most every ten minutes, never during a call,
+    /// and only remembered if it does hold things back (`HeldNetworks`).
+    private func checkTheNetwork() {
+        guard !busy, let relay, MobileData.now, !HeldNetworks.holdingHere,
+            Date().timeIntervalSince(networkCheckedAt) > 600
+        else { return }
+        networkCheckedAt = Date()
+        networkCheck.start(
+            relay: Bench.relayURLs(relay.urls), onStall: { _ in },
+            onStalls: { HeldNetworks.remember() })
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            self?.networkCheck.stop()
+        }
+    }
+
+    /// The call is answered: a move that was waiting for it happens now, and
+    /// the uploads are watched for one more minute.
+    private func uploadsAtTheAnswer() {
+        if secureRouteWanted {
+            secureRouteWanted = false
+            Task { [weak self] in await self?.agent?.moveToSecureRoute() }
+        }
+        uploadsDone?.cancel()
+        uploadsDone = Task { [weak self] in
+            try? await Task.sleep(for: Self.uploadsWatchedAfterTheAnswer)
+            guard !Task.isCancelled else { return }
+            self?.uploads.stop()
+        }
+    }
+
     private func connect(to line: Line) {
         // A call held while the line came back keeps its agent: it is given
         // the new connection, and the call goes on (`SIPUserAgent.reattach`).
@@ -403,6 +496,8 @@ import UIKit
             return
         }
         relay = line.line.turn
+        checkTheNetwork()
+        Self.sendWhatWasKept(line)
         // Look the relay up now, through iOS, so the first call finds its
         // address already known (`RelayAddresses`).
         RelayAddresses.warm(RelayCertificates.hosts(in: line.line.turn.urls))
@@ -566,6 +661,40 @@ import UIKit
             calls.reportEnded(id: woken.id, ending)
         }
         waking.removeAll()
+    }
+
+    /// The app went to the background (locked, or another app in front):
+    /// the line signs out before it closes, in time iOS is asked for, so
+    /// Linx knows at once to push the next call instead of sending it down a
+    /// line that is gone. Closed without a goodbye, the line stayed on
+    /// Asterisk's books for up to its 30 s check, and a call made in that
+    /// moment went to it and was never rung (the owner's iPhone, 11:50 on
+    /// 2026-10-16).
+    func leaveForTheBackground() {
+        guard !busy else { return }
+        // The relay held ahead for the next call goes at once: iOS may stop
+        // the app before the sign-out below finishes, and a reservation
+        // left behind holds two of the person's relay places for ten
+        // minutes (the phone bench ran out of them, 2026-10-16).
+        WebRTCMedia.releaseTheRelay()
+        guard let agent else {
+            stop()
+            return
+        }
+        var task = UIBackgroundTaskIdentifier.invalid
+        task = UIApplication.shared.beginBackgroundTask(withName: "Signing the line out") {
+            UIApplication.shared.endBackgroundTask(task)
+        }
+        Task { [weak self] in
+            await agent.signOff()
+            defer { UIApplication.shared.endBackgroundTask(task) }
+            guard let self, self.agent === agent else { return }
+            if self.busy || self.inFront() {
+                agent.signBackOn()
+            } else {
+                self.stop()
+            }
+        }
     }
 
     /// The line is signed out before it closes, so a call Asterisk sends in
@@ -1286,10 +1415,11 @@ import UIKit
         current.answeredAt = Date()
         current.ringingThere = false
         call = current
-        // An incoming call is already up as far as the system is concerned
-        // (it asked the app to answer it); an outgoing one is connected the
-        // moment the other side picks up.
-        if !current.incoming { calls.reportAnswered(id: current.id) }
+        // Connected, both ways: an outgoing call the moment the other side
+        // picks up, an incoming one once this phone's answer has gone out —
+        // which is when the system's own call timer starts (`CallKitCalls`).
+        calls.reportAnswered(id: current.id)
+        uploadsAtTheAnswer()
         // A video call: this phone's camera goes on as soon as the picture
         // link finds the other side (the user agent asked for it), so there
         // is nothing to ask about their camera, and the sound comes out of
@@ -1373,8 +1503,28 @@ import UIKit
     static func sendToLinx(_ line: Line, _ report: CallReport) {
         let task = UIApplication.shared.beginBackgroundTask(withName: "Call record")
         Task {
-            try? await LinxClient(server: line.server).sendCallReport(report, token: line.token)
+            do {
+                try await LinxClient(server: line.server).sendCallReport(report, token: line.token)
+            } catch {
+                UnsentReports.keep(report)
+            }
             UIApplication.shared.endBackgroundTask(task)
+        }
+    }
+
+    /// The reports that couldn't be sent before, sent now the line is open
+    /// (`UnsentReports`).
+    static func sendWhatWasKept(_ line: Line) {
+        let kept = UnsentReports.takeAll()
+        guard !kept.isEmpty else { return }
+        Task {
+            for report in kept.reversed() {
+                do {
+                    try await LinxClient(server: line.server).sendCallReport(report, token: line.token)
+                } catch {
+                    UnsentReports.keep(report)
+                }
+            }
         }
     }
 

@@ -33,6 +33,17 @@ import UIKit
     private var live: Set<UUID> = []
     /// A change to Recents that is waiting for the call in progress to end.
     private var recentsWanted: Bool?
+    /// Answers the person has given that the call hasn't caught up with
+    /// yet. The system starts its call timer when an answer is fulfilled,
+    /// so it is fulfilled when this phone's answer has really gone out
+    /// (`reportAnswered`), not at the tap: the owner's woken iPhone was
+    /// answered on the lock screen before the call had even arrived, and
+    /// its timer ran twelve seconds ahead of the iPad's (2026-10-16).
+    private var answering: [UUID: CXAnswerCallAction] = [:]
+    /// The most an answer is held for: the system gives up on an action it
+    /// is kept waiting for, and a timer that starts a little early is
+    /// better than a call it ends.
+    static let longestHeldAnswer: Duration = .seconds(6)
 
     init() {
         provider = CXProvider(configuration: Self.configuration)
@@ -153,10 +164,15 @@ import UIKit
     }
 
     func reportAnswered(id: UUID) {
+        if let answer = answering.removeValue(forKey: id) {
+            answer.fulfill(withDateConnected: Date())
+            return
+        }
         provider.reportOutgoingCall(with: id, connectedAt: nil)
     }
 
     func reportEnded(id: UUID, _ ending: SystemCallEnding) {
+        answering.removeValue(forKey: id)?.fail()
         provider.reportCall(with: id, endedAt: nil, reason: Self.reason(ending))
         live.remove(id)
         noCallsLeft()
@@ -229,6 +245,15 @@ import UIKit
     // MARK: - What the system says back
 
     fileprivate func deliver(_ request: SystemCallRequest) { onRequest?(request) }
+
+    fileprivate func hold(_ answer: CXAnswerCallAction) {
+        let id = answer.callUUID
+        answering[id] = answer
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.longestHeldAnswer)
+            self?.answering.removeValue(forKey: id)?.fulfill()
+        }
+    }
     fileprivate func audio(_ on: Bool) { onAudio?(on) }
 
     /// A call this phone is making: on the system's books from now until it
@@ -263,12 +288,24 @@ import UIKit
                 owner?.deliver(.start(id, SIPPeer(name: name, number: number)))
             }
             action.fulfill()
+            // The call is on its way out as of now, which is what Apple's own
+            // calling sample tells the system before anything else: the
+            // owner's iPhone, told only at the far end's ringing, never had
+            // its sound handed over on a call it made (2026-10-16).
+            provider.reportOutgoingCall(with: id, startedConnectingAt: Date())
         }
 
         func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
             let id = action.callUUID
-            MainActor.assumeIsolated { owner?.deliver(.answer(id)) }
-            action.fulfill()
+            nonisolated(unsafe) let answer = action
+            MainActor.assumeIsolated {
+                guard let owner else {
+                    answer.fulfill()
+                    return
+                }
+                owner.hold(answer)
+                owner.deliver(.answer(id))
+            }
         }
 
         func provider(_ provider: CXProvider, perform action: CXEndCallAction) {

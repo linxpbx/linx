@@ -50,9 +50,11 @@ struct CallDetailsView: View {
                         Text("How long it took")
                     } footer: {
                         Text(
-                            diagnostics.movedToRelay
-                                ? "No sound was getting through the first route, so this phone moved the call onto Linx's relay."
-                                : "Counted from the moment you started the call.")
+                            diagnostics.movedToSecure
+                                ? "This network kept holding back what this phone sent, so it moved the call onto Linx's secure route."
+                                : diagnostics.movedToRelay
+                                    ? "No sound was getting through the first route, so this phone moved the call onto Linx's relay."
+                                    : "Counted from the moment you started the call.")
                     }
                 }
 
@@ -153,6 +155,11 @@ struct CallDetailsView: View {
             "to: \(call.peer.number)",
             "connection: \(diagnostics.ice)",
         ]
+        if let verdict = CallVerdict.words(
+            diagnostics, soundIn: call.connection?.audioBytesIn, soundOut: call.connection?.audioBytesOut)
+        {
+            lines.insert("verdict: \(verdict)", at: 2)
+        }
         if let connection = call.connection {
             lines.append("route: \(connection.route.rawValue)\(connection.relayProtocol.map { " (\($0))" } ?? "")")
             lines.append("sound in: \(connection.audioBytesIn) bytes, out: \(connection.audioBytesOut) bytes")
@@ -178,6 +185,7 @@ struct CallDetailsView: View {
             }
         }
         if diagnostics.movedToRelay { lines.append("moved onto the relay: yes") }
+        if diagnostics.movedToSecure { lines.append("moved onto the secure route: yes") }
         if !diagnostics.offered.isEmpty {
             lines.append("this phone offered: \(diagnostics.offered.joined(separator: ", "))")
         }

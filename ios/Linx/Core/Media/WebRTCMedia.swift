@@ -1,4 +1,5 @@
 import AVFoundation
+import CallKit
 import Foundation
 @preconcurrency import WebRTC
 
@@ -94,6 +95,9 @@ struct CallDiagnostics: Equatable, Sendable {
     /// The call was moved onto Linx's relay because no sound was getting
     /// through the route it started on.
     var movedToRelay = false
+    /// The call was moved onto the relay over TLS because the network kept
+    /// holding back what this phone sent over UDP (`UploadWatch`).
+    var movedToSecure = false
     /// What this phone offered as ways in, and every pairing tried
     /// (`MediaConnection.offered`, `.pairs`), as last read.
     var offered: [String] = []
@@ -175,6 +179,10 @@ struct CallDiagnostics: Equatable, Sendable {
     private var relayOnly = false
     /// The offer that is out moves the call onto the relay.
     private var movingToRelay = false
+    /// Only the relay over TLS, from the moment the call is moved onto the
+    /// secure route (`moveToSecureRoute`).
+    private var secureOnly = false
+    private var movingToSecure = false
     private var connection: RTCPeerConnection?
     private var audio: RTCAudioTrack?
     private var gathered: CheckedContinuation<Void, Never>?
@@ -218,10 +226,29 @@ struct CallDiagnostics: Equatable, Sendable {
 
     init(turn: PhoneLine.Turn?, startedAt: Date = Date()) {
         self.turn = turn
+        // A mobile network that has held back this phone's UDP before: the
+        // call goes over the secure route from its first moment, as the
+        // relay is reserved (`HeldNetworks`).
+        secureOnly = Self.startsSecure(turn)
         super.init()
         diagnostics.steps = [.init(what: "Call started", at: startedAt)]
+        if secureOnly {
+            diagnostics.movedToSecure = true
+            diagnostics.steps.append(
+                .init(what: "This network holds back UDP: the call goes over the secure route", at: startedAt))
+        }
         noteTheRelay()
     }
+
+    /// Whether a call starting now goes over the secure route alone: on a
+    /// network known to hold UDP back, where the relay has a TLS way in.
+    static func startsSecure(_ turn: PhoneLine.Turn?) -> Bool {
+        guard let turn, turn.urls.contains(where: { $0.hasPrefix("turns:") }) else { return false }
+        return HeldNetworks.holdingHere
+    }
+
+    /// Whether this call is on the secure route alone.
+    var onSecureRoute: Bool { secureOnly }
 
     /// When the person asked for the call: the timeline counts from there.
     func began(at: Date) {
@@ -360,6 +387,10 @@ struct CallDiagnostics: Equatable, Sendable {
             movingToRelay = false
             mark(relayOnly ? "On the relay" : "Every route allowed again")
         }
+        if movingToSecure {
+            movingToSecure = false
+            mark("On the secure route")
+        }
         if restartingRoute {
             restartingRoute = false
             mark("Sound route restarted")
@@ -394,7 +425,8 @@ struct CallDiagnostics: Equatable, Sendable {
         let picture = DirectPicture(
             link: link,
             configuration: Self.configuration(
-                relay: turn, addresses: relayAddresses, relayOnly: relayOnly || onMobileData),
+                relay: turn, addresses: relayAddresses, relayOnly: relayOnly || onMobileData,
+                secureOnly: secureOnly),
             factory: Self.factory, tracks: tracks,
             cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn), onMobileData: onMobileData)
         picture.onMark = { [weak self] what in self?.mark(what) }
@@ -485,6 +517,7 @@ struct CallDiagnostics: Equatable, Sendable {
     func rollbackOffer() async {
         try? await setLocal(RTCSessionDescription(type: .rollback, sdp: ""))
         movingToRelay = false
+        movingToSecure = false
     }
 
     /// Whether this phone's own picture is the mirror image people expect of
@@ -784,21 +817,23 @@ struct CallDiagnostics: Equatable, Sendable {
     /// A direct route first, then Linx's relay over UDP, then over TLS on
     /// 443 — which is the one that works on a network that blocks
     /// everything else (docs/WEB.md §6).
-    static func configuration(relay: PhoneLine.Turn?, addresses: [String: [String]] = [:], relayOnly: Bool = false)
-        -> RTCConfiguration
-    {
+    static func configuration(
+        relay: PhoneLine.Turn?, addresses: [String: [String]] = [:], relayOnly: Bool = false,
+        secureOnly: Bool = false
+    ) -> RTCConfiguration {
         let configuration = RTCConfiguration()
         if let relay, !relay.urls.isEmpty {
+            let urls = Bench.relayURLs(relay.urls).filter { !secureOnly || $0.hasPrefix("turns:") }
             // By address where iOS looked the name up, each server still
             // carrying its name for TLS (SNI and the certificate check).
-            configuration.iceServers = RelayAddresses.servers(for: Bench.relayURLs(relay.urls), addresses: addresses)
+            configuration.iceServers = RelayAddresses.servers(for: urls, addresses: addresses)
                 .map {
                     RTCIceServer(
                         urlStrings: $0.urls, username: relay.username, credential: relay.credential,
                         tlsCertPolicy: .secure, hostname: $0.hostname)
                 }
         }
-        if relayOnly || Bench.relayOnly || Bench.noUDP { configuration.iceTransportPolicy = .relay }
+        if relayOnly || secureOnly || Bench.relayOnly || Bench.noUDP { configuration.iceTransportPolicy = .relay }
         configuration.sdpSemantics = .unifiedPlan
         // Not "maxBundle": Asterisk's offers carry no BUNDLE group, and a
         // call is one stream of sound, so nothing is lost by it.
@@ -824,7 +859,7 @@ struct CallDiagnostics: Equatable, Sendable {
     /// This call's configuration: the relay by the addresses iOS found, and
     /// only the relay once the call has been moved onto it.
     private func configuration() -> RTCConfiguration {
-        Self.configuration(relay: turn, addresses: relayAddresses, relayOnly: relayOnly)
+        Self.configuration(relay: turn, addresses: relayAddresses, relayOnly: relayOnly, secureOnly: secureOnly)
     }
 
     // MARK: - The relay, reserved ahead of the call
@@ -849,10 +884,12 @@ struct CallDiagnostics: Equatable, Sendable {
     /// a reservation older than this is made again.
     private static let reservationLasts: TimeInterval = 20 * 60
 
-    nonisolated static func reservationKey(_ turn: PhoneLine.Turn?, _ addresses: [String: [String]]) -> String {
+    nonisolated static func reservationKey(
+        _ turn: PhoneLine.Turn?, _ addresses: [String: [String]], secure: Bool
+    ) -> String {
         guard let turn else { return "" }
         let found = addresses.keys.sorted().map { "\($0)=\(addresses[$0]!.sorted().joined(separator: ","))" }
-        return ([turn.username] + turn.urls + found).joined(separator: "|")
+        return ([turn.username, secure ? "secure" : "any"] + turn.urls + found).joined(separator: "|")
     }
 
     /// Reserves a relay for the next call, unless one for the same relay
@@ -860,7 +897,8 @@ struct CallDiagnostics: Equatable, Sendable {
     static func reserveTheRelay(_ turn: PhoneLine.Turn?) async {
         guard let turn, !turn.urls.isEmpty else { return }
         let addresses = await RelayAddresses.addresses(for: RelayCertificates.hosts(in: turn.urls))
-        let key = reservationKey(turn, addresses)
+        let secure = startsSecure(turn)
+        let key = reservationKey(turn, addresses, secure: secure)
         if let held = reservation, held.key == key, Date().timeIntervalSince(held.made) < reservationLasts {
             return
         }
@@ -869,7 +907,7 @@ struct CallDiagnostics: Equatable, Sendable {
         let delegate = NobodyListening()
         guard
             let connection = factory.peerConnection(
-                with: configuration(relay: turn, addresses: addresses), constraints: noConstraints,
+                with: configuration(relay: turn, addresses: addresses, secureOnly: secure), constraints: noConstraints,
                 certificateVerifier: verifier, delegate: delegate)
         else { return }
         reservation = Reservation(
@@ -895,7 +933,7 @@ struct CallDiagnostics: Equatable, Sendable {
         Self.prepareAudioSession()
         watchTheRoute()
         let connection: RTCPeerConnection
-        if let ready = Self.takeTheReservation(Self.reservationKey(turn, relayAddresses)) {
+        if let ready = Self.takeTheReservation(Self.reservationKey(turn, relayAddresses, secure: secureOnly)) {
             // Made ahead of the call, its relay already reserved: the call
             // takes it over and its routes are ready at once.
             ready.delegate = self
@@ -1049,7 +1087,17 @@ struct CallDiagnostics: Equatable, Sendable {
         micQuietReadings = 0
         micRestarts += 1
         mark("No sound going out: \(Self.microphoneWords(track: audio, sender: connectionHasMicrophone))")
-        mark(Self.restartTheSound() ? "Sound started again" : "Sound not started again: iOS hasn't handed it over")
+        if Self.restartTheSound() {
+            mark("Sound started again")
+        } else {
+            // CallKit never handed this call its sound: the owner's iPhone,
+            // calling out on build 41, sent nothing all call while the iPad
+            // calling out was fine (2026-10-16). What iOS thinks of the call
+            // goes in the report, and the app takes the sound itself rather
+            // than leave the other side hearing nothing.
+            mark("iOS hasn't handed the sound over: \(Self.whatTheSystemKnows())")
+            mark(Self.takeTheSoundOurselves())
+        }
     }
 
     private var micOutBefore = 0
@@ -1085,6 +1133,42 @@ struct CallDiagnostics: Equatable, Sendable {
             "track \(track?.isEnabled == true ? "on" : "off")", "on the call \(sender)",
         ].joined(separator: ", ")
     }
+
+    /// What CallKit says about this app's calls, in a few words.
+    private static func whatTheSystemKnows() -> String {
+        let calls = CXCallObserver().calls
+        let system = AVAudioSession.sharedInstance()
+        let each = calls.map { call in
+            [
+                call.isOutgoing ? "outgoing" : "incoming", call.hasConnected ? "connected" : "not connected",
+                call.isOnHold ? "on hold" : nil, call.hasEnded ? "ended" : nil,
+            ].compactMap { $0 }.joined(separator: " ")
+        }
+        return [
+            "calls \(calls.count)\(each.isEmpty ? "" : " (" + each.joined(separator: "; ") + ")")",
+            "other audio \(system.isOtherAudioPlaying)", "mode \(system.mode.rawValue)",
+        ].joined(separator: ", ")
+    }
+
+    /// The sound the system never handed over, taken by the app: the
+    /// session made active by hand and WebRTC told it has it. Let go of at
+    /// the end of the call (`releaseAudioSession`).
+    private static func takeTheSoundOurselves() -> String {
+        let session = RTCAudioSession.sharedInstance()
+        session.lockForConfiguration()
+        defer { session.unlockForConfiguration() }
+        do {
+            try session.setActive(true)
+        } catch {
+            return "Sound not taken by the app either: iOS said \((error as NSError).code)"
+        }
+        tookTheSound = true
+        handOver(true)
+        return "Sound taken by the app"
+    }
+
+    /// The app took the sound itself (`takeTheSoundOurselves`).
+    private static var tookTheSound = false
 
     /// Stops and starts WebRTC's sound unit, which opens the microphone
     /// afresh. Only while iOS has handed the sound over, where CallKit
@@ -1310,12 +1394,16 @@ struct CallDiagnostics: Equatable, Sendable {
     private static func releaseAudioSession() {
         wantsSpeaker = false
         let session = RTCAudioSession.sharedInstance()
-        if CallStyle.usesCallKit {
+        if CallStyle.usesCallKit, !tookTheSound {
             // The system owns the session, and deactivating it from here is
             // what makes the *next* call silent. Only the hand-over is
             // closed, so WebRTC's count is even again.
             handOver(false)
             return
+        }
+        if tookTheSound {
+            tookTheSound = false
+            handOver(false)
         }
         session.lockForConfiguration()
         defer { session.unlockForConfiguration() }
@@ -1419,6 +1507,27 @@ extension WebRTCMedia: RTCPeerConnectionDelegate {
         default:
             break
         }
+    }
+
+    /// Moves a call that is up onto the relay over TLS on 443, the sound
+    /// and the picture both: the network is holding back what this phone
+    /// sends over UDP (`UploadWatch`). The owner's iPhone on Etisalat had
+    /// everything it sent over UDP held for 2.3 s at a time, every 3–4 s,
+    /// for the first 40 s of each call, while the same phone's TLS went
+    /// through (2026-10-16). Like `moveToRelay`, the old route carries the
+    /// call until the new one answers.
+    func moveToSecureRoute() async throws -> String {
+        guard let connection else { throw MediaTrouble.noOffer }
+        secureOnly = true
+        movingToSecure = true
+        mark("Moving to the secure route")
+        note { $0.movedToSecure = true }
+        connection.setConfiguration(configuration())
+        connection.restartIce()
+        picture?.move(
+            to: Self.configuration(
+                relay: turn, addresses: relayAddresses, relayOnly: true, secureOnly: true))
+        return try await offer()
     }
 
     func restartRoute() async throws -> String {

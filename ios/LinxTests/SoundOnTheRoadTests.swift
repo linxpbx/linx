@@ -332,13 +332,16 @@ struct SoundOnTheRoadTests {
         let turn = PhoneLine.Turn(
             urls: ["turn:turn.example.com:443?transport=udp"], username: "u1", credential: "c",
             expiresAt: Date(timeIntervalSinceNow: 3600), maxBitrateBps: 1_280_000)
-        let same = WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]])
-        #expect(same == WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]]))
+        let same = WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]], secure: false)
+        #expect(same == WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]], secure: false))
         let renewed = PhoneLine.Turn(
             urls: turn.urls, username: "u2", credential: "c", expiresAt: turn.expiresAt, maxBitrateBps: 1_280_000)
-        #expect(same != WebRTCMedia.reservationKey(renewed, ["turn.example.com": ["203.0.113.5"]]))
-        #expect(same != WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.9"]]))
-        #expect(WebRTCMedia.reservationKey(nil, [:]).isEmpty)
+        #expect(same != WebRTCMedia.reservationKey(renewed, ["turn.example.com": ["203.0.113.5"]], secure: false))
+        #expect(same != WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.9"]], secure: false))
+        #expect(WebRTCMedia.reservationKey(nil, [:], secure: false).isEmpty)
+        // A reservation made for the secure route isn't taken by a call on
+        // the fast one, or the other way round.
+        #expect(same != WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]], secure: true))
     }
 
     @Test("a call offers only the routes Asterisk can use, so its answer stays small")

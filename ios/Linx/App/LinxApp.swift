@@ -63,7 +63,7 @@ struct RootView: View {
             guard Screen.launched == nil, case .signedIn = model.state, !model.phone.busy
             else { return }
             switch phase {
-            case .background: model.phone.stop()
+            case .background: model.phone.leaveForTheBackground()
             case .active:
                 Task {
                     await model.phone.start()

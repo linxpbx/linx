@@ -142,8 +142,8 @@ struct PhoneLine: Decodable, Sendable {
 
 /// The app's side of the Linx API.
 /// One call as this phone saw it (`LinxClient.sendCallReport`).
-struct CallReport: Sendable, Equatable {
-    enum Kind: String, Sendable { case call, crash }
+struct CallReport: Sendable, Equatable, Codable {
+    enum Kind: String, Sendable, Codable { case call, crash }
     var callID: String
     var incoming: Bool
     var peer: String

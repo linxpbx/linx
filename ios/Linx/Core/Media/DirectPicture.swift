@@ -82,7 +82,7 @@ struct CallLinkMessage: Decodable, Sendable {
     var onMove: ((GroupJoin) -> Void)?
 
     private let link: any PictureLink
-    private let configuration: RTCConfiguration
+    private var configuration: RTCConfiguration
     private let factory: RTCPeerConnectionFactory
     /// Who says the relay's TLS certificate is good: iOS, as for the call's
     /// sound (`RelayCertificates`). Without it a picture between two phones
@@ -257,6 +257,24 @@ struct CallLinkMessage: Decodable, Sendable {
     }
 
     func switchCamera() { camera?.flip() }
+
+    /// The call is moving onto the secure route (`WebRTCMedia.moveToSecureRoute`):
+    /// the picture starts again over the relay's TLS alone. Its link is
+    /// opened afresh, and Linx tells both phones to pair up again, so each
+    /// makes a new connection — this one with only TLS in it. An ICE restart
+    /// on the connection in place moved it, but WebRTC kept the old UDP
+    /// route alive beside the new one and went back to it two seconds later
+    /// (the phone bench, 2026-10-16). The picture carries on over the old
+    /// connection until the new pairing replaces it.
+    func move(to secure: RTCConfiguration) {
+        secure.bundlePolicy = .maxBundle
+        secure.rtcpMuxPolicy = .require
+        secure.sdpSemantics = .unifiedPlan
+        configuration = secure
+        guard !stopped, connection != nil else { return }
+        onMark?("Picture moving to the secure route")
+        link.start()
+    }
 
     func useHD(_ on: Bool) {
         guard hd != on else { return }
@@ -507,6 +525,8 @@ struct CallLinkMessage: Decodable, Sendable {
         steadyReadings = 0
         steadyWanted = Self.steadyFirst
         tryingFor = 0
+        delayFloor = nil
+        delayedReadings = 0
         ourRouteMarked = false
         theirRouteMarked = false
         overTCP = false
@@ -548,9 +568,10 @@ struct CallLinkMessage: Decodable, Sendable {
         guard let connection else { return }
         if let slow = signal.slowRoute, slow != theirsOverTCP {
             theirsOverTCP = slow
+            startOverTCPSmall()
             onMark?(
                 slow
-                    ? "Their picture is over TCP: mine kept at \(Self.overTCPStep.height)p" : "Their picture is off TCP"
+                    ? "Their picture is over TCP: mine starts at \(quality.height)p" : "Their picture is off TCP"
             )
             useQuality()
         }
@@ -749,9 +770,14 @@ struct CallLinkMessage: Decodable, Sendable {
     /// is blocked (China) — a lost packet holds up everything behind it,
     /// and 540p over a link with 300 ms and 1% loss built up more than a
     /// second of delay until the camera switched itself off (the phone
-    /// bench, 2026-10-13). Video apps send less on such a route; 360p at
-    /// 350 kbit/s fits it.
+    /// bench, 2026-10-13). Video apps send less on such a route: the
+    /// picture starts at 360p there and grows only as far as the room the
+    /// link really shows, never by a blind try, and never past 540p. It used
+    /// to be held at 360p for good, which was fine while TCP was only for
+    /// China; since calls on a mobile network that holds UDP back go over
+    /// TLS from the start (`HeldNetworks`), a fast link deserves better.
     static let overTCPStep = VideoQuality.low
+    static let overTCPMost = VideoQuality.high
     private var overTCP = false
     private var theirsOverTCP = false
 
@@ -764,12 +790,54 @@ struct CallLinkMessage: Decodable, Sendable {
         let tcp = route.hasPrefix("relay/tls") || route.hasPrefix("relay/tcp")
         guard tcp != overTCP else { return }
         overTCP = tcp
+        startOverTCPSmall()
         onMark?(
             tcp
-                ? "Picture over TCP: kept at \(Self.overTCPStep.height)p"
+                ? "Picture over TCP: starts at \(quality.height)p"
                 : "Picture off TCP: back to \(unsqueezed.height)p")
         send(PictureSignal(slowRoute: tcp))
         useQuality()
+    }
+
+    /// The least round trip the picture's route has had, and how many
+    /// readings in a row it has been far above it.
+    private var delayFloor: Double?
+    private var delayedReadings = 0
+
+    /// A queue building up on the way (a mobile network that holds what it
+    /// can't send yet instead of dropping it): the round trip climbs well
+    /// above what the route had, and the picture comes down a step before
+    /// the delay reaches the sound. Two readings in a row (four seconds),
+    /// so a satellite's moment of handing over (Starlink, every fifteen
+    /// seconds) doesn't count, and never below a round trip a slow but
+    /// steady link has anyway (a ship's satellite: 0.8 s).
+    private func watchTheDelay(_ rtt: Double) {
+        delayFloor = min(delayFloor ?? rtt, rtt)
+        guard let floor = delayFloor, rtt > max(Self.delayAlways, floor * Self.delayTimes) else {
+            delayedReadings = 0
+            return
+        }
+        delayedReadings += 1
+        guard delayedReadings >= 2, let smaller = VideoQuality(rawValue: quality.rawValue - 1) else { return }
+        delayedReadings = 0
+        startedSmall = false
+        squeezed = smaller
+        roomyReadings = 0
+        steadyReadings = 0
+        onMark?("Picture down to \(smaller.height)p: the delay climbed to \(Int(rtt * 1000)) ms")
+        useQuality()
+    }
+
+    nonisolated static let delayAlways = 0.6
+    nonisolated static let delayTimes = 3.0
+
+    /// Onto a TCP route, either side's: the picture goes back to the step it
+    /// starts at there, if it was bigger.
+    private func startOverTCPSmall() {
+        guard overTCP || theirsOverTCP, quality.rawValue > Self.overTCPStep.rawValue else { return }
+        squeezed = Self.overTCPStep
+        roomyReadings = 0
+        steadyReadings = 0
     }
 
     /// The picture's route as last read.
@@ -864,6 +932,9 @@ struct CallLinkMessage: Decodable, Sendable {
         }
         framesSeen = frames
         framesMost = max(framesMost, frames)
+        if video.mine, let rtt = (pair?.values["currentRoundTripTime"] as? NSNumber)?.doubleValue, rtt > 0 {
+            watchTheDelay(rtt)
+        }
         if video.mine, let room { follow(room: room) }
         how.room = room
         tell(how)
@@ -969,6 +1040,9 @@ struct CallLinkMessage: Decodable, Sendable {
             // read 1023 (2026-10-15). A steady stretch is tried one step up;
             // a link that can't carry it brings it down again in seconds,
             // and the next try waits twice as long.
+            // Never over TCP, where a step too big for the link backs up
+            // everything behind it before the room reading catches up.
+            guard !(overTCP || theirsOverTCP) else { return }
             steadyReadings += 1
             guard steadyReadings >= steadyWanted else { return }
             steadyReadings = 0
@@ -1096,7 +1170,7 @@ struct CallLinkMessage: Decodable, Sendable {
 
     /// The step before any squeezing.
     private var unsqueezed: VideoQuality {
-        if overTCP || theirsOverTCP { return Self.overTCPStep }
+        if overTCP || theirsOverTCP { return Self.overTCPMost }
         return hd ? Self.withHD : Self.standard
     }
 

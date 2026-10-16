@@ -195,7 +195,8 @@ struct LineStatusPill: View {
         case .ready: return "Ready · Ext \(extensionNumber)"
         case .starting: return "Getting your phone line…"
         case .reconnecting: return "Reconnecting…"
-        case .unavailable: return "No phone line"
+        case .unavailable(let why):
+            return why == CaptivePortal.words ? "This Wi-Fi needs you to sign in first" : "No phone line"
         }
     }
 
