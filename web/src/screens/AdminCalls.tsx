@@ -8,6 +8,7 @@ import { Download, Search } from "lucide-react";
 import { api, problemMessage } from "@/api/client";
 import type { components } from "@/api/schema";
 import { CallDetails } from "@/components/CallDetails";
+import { CallQualityView } from "@/components/CallQuality";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { partyLabel, resultShort, talkClock, timeOf, dayHeading, type CallRecord } from "@/lib/calls";
 import { cn } from "@/lib/utils";
+import { navigate } from "@/hooks/useRoute";
 
 type Extension = components["schemas"]["Extension"];
 
@@ -37,7 +39,37 @@ function when(iso: string): string {
   return day === "Today" ? timeOf(iso) : `${day} ${timeOf(iso)}`;
 }
 
-export function AdminCallsScreen() {
+/** Call history and Call quality, the two halves of Admin → Calls. */
+function CallsTabs({ quality }: { quality: boolean }) {
+  const tab = (on: boolean, label: string, path: string) => (
+    <button type="button" role="tab" aria-selected={on} onClick={() => navigate(path)}
+      className={cn("border-b-2 px-1 pb-2 text-sm font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        on ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+      {label}
+    </button>
+  );
+  return (
+    <div role="tablist" aria-label="Calls" className="mt-4 flex gap-6 border-b">
+      {tab(!quality, "Call history", "/admin/calls")}
+      {tab(quality, "Call quality", "/admin/calls/quality")}
+    </div>
+  );
+}
+
+export function AdminCallsScreen({ quality = false }: { quality?: boolean }) {
+  if (quality) {
+    return (
+      <div className="w-full max-w-5xl px-4 py-6 md:px-6">
+        <h1 className="font-display text-3xl font-semibold tracking-tight">Calls</h1>
+        <CallsTabs quality />
+        <CallQualityView />
+      </div>
+    );
+  }
+  return <CallHistory />;
+}
+
+function CallHistory() {
   const [extensions, setExtensions] = useState<Extension[]>([]);
   const [person, setPerson] = useState(ANYONE);
   const [search, setSearch] = useState("");
@@ -84,6 +116,7 @@ export function AdminCallsScreen() {
           <a href={csv} download><Download aria-hidden="true" /> Download (CSV)</a>
         </Button>
       </div>
+      <CallsTabs quality={false} />
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Select value={person} onValueChange={setPerson}>
           <SelectTrigger className="w-48" aria-label="Whose calls"><SelectValue /></SelectTrigger>

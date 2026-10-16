@@ -41,8 +41,13 @@ const (
 	// part of the username after the colon: their id). Each phone or
 	// browser on a call holds two (UDP and TLS) and two more for every
 	// route search during it, so 10 was reached by one person's iPhone and
-	// iPad on a video call (2026-10-12).
-	UserQuota = 20
+	// iPad on a video call (2026-10-12). 40 from build 42 (2026-10-16): a
+	// call moved onto the secure route searches again over TLS and pairs
+	// its picture afresh, each new allocation made before the old one goes,
+	// and an app stopped by iOS leaves its allocations to expire (ten
+	// minutes); the phone bench, two people making nineteen calls in
+	// twenty-five minutes, ran out at 20.
+	UserQuota = 40
 	// TotalQuota is how many allocations the server holds at once.
 	TotalQuota = 300
 	// MaxBPS is each allocation's bandwidth cap, bytes a second each way.

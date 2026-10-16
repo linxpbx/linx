@@ -123,7 +123,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
       : path === "/admin/office-hours" ? "admin-office-hours"
       : path === "/admin/outgoing" ? "admin-outgoing" : path === "/admin/simulator" ? "admin-simulator"
       : path === "/admin/connections" ? "admin-connections"
-      : path === "/admin/calls" && hasScope(me, "calls:read") ? "admin-calls"
+      : (path === "/admin/calls" || path === "/admin/calls/quality") && hasScope(me, "calls:read") ? "admin-calls"
       : path === "/admin/webhooks" ? "admin-webhooks" : path === "/admin/api-keys" ? "admin-api-keys"
       : "dialer";
 
@@ -138,7 +138,7 @@ export default function SignedIn({ me, path, onSignedOut }: { me: Me; path: stri
             : screen === "team" ? <TeamScreen members={team.members} query={query} />
             : screen === "voicemail" ? <VoicemailScreen me={me} members={team.members} stamp={team.voicemail} />
             : screen === "calls" ? <CallHistoryScreen members={team.members} stamp={team.calls} />
-            : screen === "admin-calls" ? <AdminCallsScreen />
+            : screen === "admin-calls" ? <AdminCallsScreen quality={path === "/admin/calls/quality"} />
             : screen === "settings" ? <SettingsScreen />
               : screen === "account" ? <AccountScreen />
               : screen === "admin-home" ? <AdminHomeScreen me={me} systemStatus={systemStatus} members={team.members} />

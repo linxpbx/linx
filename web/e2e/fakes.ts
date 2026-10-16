@@ -1274,6 +1274,27 @@ export async function fakeServer(page: Page, opts: FakeOptions = {}) {
         .filter((c) => !missed || (c.missed && !c.placed_by_me)).slice(0, limit);
       return route.fulfill(json({ items, keep_days: callSettings.keep }));
     }
+    if (p === "/api/v1/call-quality" && method === "GET") {
+      const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+      const dev = people.devices[0]?.id ?? "01920000-0000-7000-8000-000000000009";
+      const sound = { in_packets: 4210, out_packets: 4302, in_lost: 0.2, out_lost: 0.1, jitter_ms: 6, rtt_ms: 48 };
+      const item = (id: string, min: number, extra: Record<string, unknown>) => ({
+        id, kind: "call", device_id: dev, device_name: "Sara's iPhone", extension: "101", person: "Sara Haddad",
+        call_id: `${id}@pbx`, started_at: at(min + 2), ended_at: at(min), verdict: "good", reasons: [], sound, ...extra,
+      });
+      return route.fulfill(json({ items: [
+        item("q1", 20, {
+          verdict: "bad", reasons: ["the way from this phone lost 11% of its sound", "its sound came in uneven bursts (140 ms)"],
+          sound: { ...sound, in_lost: 11.2, jitter_ms: 140 }, phone_report_id: "cr1",
+          phone_verdict: "Bad: their picture stopped 8 times, 21 s in all; the network held back what this phone sent 9 times",
+        }),
+        item("q2", 50, { device_name: "Omar's iPad", extension: "102", person: "Omar Farouk", verdict: "problems",
+          reasons: ["a long delay each way (820 ms round trip)"], sound: { ...sound, rtt_ms: 820 }, phone_verdict: "Good" }),
+        item("q3", 95, { kind: "wake", verdict: "bad", reasons: ["woken for a call, but hadn't connected after 10 s"],
+          sound: { in_packets: 0, out_packets: 0, in_lost: 0, out_lost: 0, jitter_ms: 0, rtt_ms: 0 }, call_id: "" }),
+        item("q4", 130, { phone_report_id: "cr1", phone_verdict: "Good" }),
+      ] }));
+    }
     if (p === "/api/v1/calls" && method === "GET") {
       const missed = url.searchParams.get("missed") === "true";
       return route.fulfill(json({ items: calls.map((x) => x.c).filter((c) => !missed || c.missed), keep_days: callSettings.keep }));

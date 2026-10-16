@@ -70,7 +70,7 @@ func TestResolveAndRender(t *testing.T) {
 		"\nallowed-peer-ip=172.23.0.5\n", "\ndenied-peer-ip=0.0.0.0-255.255.255.255\n", "\ndenied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff\n",
 		"\nuse-auth-secret\n", "\nstatic-auth-secret=" + strings.Repeat("s3", 20) + "\n", "\nrealm=example.com\n",
 		"\ncert=/var/lib/linx/certs/current/fullchain.pem\n", "\nno-tcp-relay\n", "\nno-multicast-peers\n",
-		"\nuser-quota=20\n", "\nlistening-port=3478\n", "\ntls-listening-port=5349\n",
+		"\nuser-quota=40\n", "\nlistening-port=3478\n", "\ntls-listening-port=5349\n",
 	} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("turnserver.conf lacks %q:\n%s", want, conf)

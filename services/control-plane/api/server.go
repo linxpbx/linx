@@ -82,6 +82,8 @@ type Server struct {
 	push *push.Gateway
 	// callReports keeps what phones saw of their calls (internal/callreport).
 	callReports *callreport.Service
+	// callQuality is Linx's own judgement of each call (internal/callquality).
+	callQuality CallQualityStore
 	// Email sending (SetEmail), and Linx's own address for its links.
 	email      *email.Service
 	webAddress string

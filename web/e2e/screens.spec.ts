@@ -754,6 +754,20 @@ for (const scheme of ["light", "dark"] as const) {
       await shot(page, `${scheme}-admin-calls-detail`);
     });
 
+    test("admin call quality", async ({ page }) => {
+      await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
+      await page.goto("/admin/calls/quality");
+      await expect(page.getByRole("tab", { name: "Call quality" })).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByTestId("quality-row")).toHaveCount(3);
+      await shot(page, `${scheme}-admin-call-quality`);
+      await page.getByLabel("Only calls that went wrong").click();
+      await expect(page.getByTestId("quality-row")).toHaveCount(4);
+      await page.getByTestId("quality-row").first().click();
+      await expect(page.getByRole("dialog")).toContainText("What Linx measured");
+      await expect(page.getByRole("dialog")).toContainText("Linx call details");
+      await shot(page, `${scheme}-admin-call-quality-detail`);
+    });
+
     test("ring groups", async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true, setupCompleted: true });
       await page.goto("/admin/ring-groups");
@@ -1356,6 +1370,7 @@ test.describe("phone width", () => {
     ["/admin/system/backups", "system-backups", "Backups"], ["/admin/system/server", "system-server", "Server settings"],
     ["/admin/lines", "lines", "Phone lines"], ["/admin/incoming", "incoming", "Incoming calls"],
     ["/voicemail", "voicemail", "Voicemail"], ["/calls", "call-history", "Call history"], ["/admin/calls", "admin-calls", "Calls"],
+    ["/admin/calls/quality", "admin-call-quality", "Calls"],
     ["/admin/ring-groups", "ring-groups", "Ring groups"], ["/admin/office-hours", "office-hours", "Office hours"],
     ["/admin/outgoing", "outgoing", "Outgoing calls"], ["/admin/simulator", "simulator", "Call simulator"],
     ["/admin/connections", "connections", "Connections"],

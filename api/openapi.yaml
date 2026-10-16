@@ -1828,6 +1828,37 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
 
+  /api/v1/call-quality:
+    get:
+      operationId: listCallQuality
+      summary: How recent calls went, judged by Linx
+      description: >-
+        One record per phone per call, newest first, at most 500 and none
+        older than seven days: what Asterisk measured of that phone's sound
+        (lost, uneven, delayed), Good / Had problems / Bad with the reasons
+        in words, and a phone woken for a call that never arrived. Beside
+        each, the verdict the phone itself gave the same call, when it sent
+        a report (`GET /api/v1/devices/{id}/call-reports`).
+      tags: [devices]
+      security:
+        - bearer: [calls:read]
+      responses:
+        "200":
+          description: The records.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CallQuality"
+        default:
+          $ref: "#/components/responses/Problem"
+
   /api/v1/devices/{id}/reset-password:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -6736,6 +6767,68 @@ components:
           type: string
           maxLength: 16384
           description: The report itself, as plain text.
+    CallQuality:
+      type: object
+      additionalProperties: false
+      required: [id, kind, device_id, device_name, extension, person, call_id, started_at, ended_at, verdict, reasons,
+        sound]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [call, wake]
+        device_id:
+          type: string
+          format: uuid
+        device_name:
+          type: string
+        extension:
+          type: string
+        person:
+          type: string
+        call_id:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        verdict:
+          type: string
+          enum: [good, problems, bad]
+        reasons:
+          type: array
+          items:
+            type: string
+        sound:
+          type: object
+          additionalProperties: false
+          required: [in_packets, out_packets, in_lost, out_lost, jitter_ms, rtt_ms]
+          properties:
+            in_packets:
+              type: integer
+            out_packets:
+              type: integer
+            in_lost:
+              type: number
+            out_lost:
+              type: number
+            jitter_ms:
+              type: number
+            rtt_ms:
+              type: number
+        phone_report_id:
+          description: The phone's own report of the same call, if it sent one.
+          type: string
+          format: uuid
+        phone_verdict:
+          description: >-
+            The verdict line in that report ("Good", "Had problems: …",
+            "Bad: …").
+          type: string
     CallReport:
       type: object
       additionalProperties: false

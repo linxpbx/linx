@@ -69,6 +69,7 @@ const ADMIN_SCREEN_FOR_PATH: Record<string, Screen> = {
   "/admin/ring-groups": "admin-ring-groups", "/admin/office-hours": "admin-office-hours", "/admin/outgoing": "admin-outgoing",
   "/admin/simulator": "admin-simulator", "/admin/connections": "admin-connections",
   "/admin/webhooks": "admin-webhooks", "/admin/api-keys": "admin-api-keys", "/admin/calls": "admin-calls",
+  "/admin/calls/quality": "admin-calls",
 };
 
 const ADMIN_EXPERT_NAV: { label: string; icon: typeof Users; path?: string }[] = [

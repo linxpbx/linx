@@ -1136,6 +1136,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/call-quality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How recent calls went, judged by Linx
+         * @description One record per phone per call, newest first, at most 500 and none older than seven days: what Asterisk measured of that phone's sound (lost, uneven, delayed), Good / Had problems / Bad with the reasons in words, and a phone woken for a call that never arrived. Beside each, the verdict the phone itself gave the same call, when it sent a report (`GET /api/v1/devices/{id}/call-reports`).
+         */
+        get: operations["listCallQuality"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/devices/{id}/reset-password": {
         parameters: {
             query?: never;
@@ -4227,6 +4247,40 @@ export interface components {
             ended_at?: string;
             /** @description The report itself, as plain text. */
             report: string;
+        };
+        CallQuality: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "call" | "wake";
+            /** Format: uuid */
+            device_id: string;
+            device_name: string;
+            extension: string;
+            person: string;
+            call_id: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            ended_at: string;
+            /** @enum {string} */
+            verdict: "good" | "problems" | "bad";
+            reasons: string[];
+            sound: {
+                in_packets: number;
+                out_packets: number;
+                in_lost: number;
+                out_lost: number;
+                jitter_ms: number;
+                rtt_ms: number;
+            };
+            /**
+             * Format: uuid
+             * @description The phone's own report of the same call, if it sent one.
+             */
+            phone_report_id?: string;
+            /** @description The verdict line in that report ("Good", "Had problems: …", "Bad: …"). */
+            phone_verdict?: string;
         };
         CallReport: {
             /** Format: uuid */
@@ -8141,6 +8195,29 @@ export interface operations {
                 content: {
                     "application/json": {
                         items: components["schemas"]["CallReport"][];
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listCallQuality: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The records. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["CallQuality"][];
                     };
                 };
             };

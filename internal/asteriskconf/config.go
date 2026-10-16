@@ -1052,6 +1052,11 @@ readsql = SELECT * FROM linx_wake('${SQL_ESC(${ARG1})}')
 // offered a picture, so a video call rings as one on the lock screen.
 const WakeEvent = "LinxWake"
 
+// WakeMissedEvent is the UserEvent the wake step sends for the phones it
+// woke that still hadn't arrived when it stopped waiting for them
+// (internal/callquality): Waited is how long it waited, in milliseconds.
+const WakeMissedEvent = "LinxWakeMissed"
+
 const extensionsConf = `; Rendered by linx-asterisk-entrypoint.
 [general]
 static = yes
@@ -1210,6 +1215,10 @@ exten => s,1,GotoIf($["${LINXVIDEO}" != "yes"]?room)
 ; answer means the phone is woken, not skipped. A wrong guess either way is
 ; one redundant push (the app ties it to the invitation that follows), while
 ; the other way round is a phone that never rings at all.
+;
+; A phone that hasn't arrived when the wait is over is told to the control
+; plane (LinxWakeMissed), which counts it against that phone's call quality:
+; a woken phone that never rings is a call its person never heard of.
 [linx-wake]
 exten => s,1,Set(WAKELIST=)
  same => n,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
@@ -1242,6 +1251,7 @@ exten => s,1,Set(WAKELIST=)
  same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?check)
  same => n,Goto(done)
  same => n(notyet),GotoIf($[${EPOCH} < ${WAKEUNTIL}]?again)
+ same => n,UserEvent(LinxWakeMissed,Call: ${UNIQUEID},Aors: ${WAKELIST},Waited: ${WAKEMS})
  same => n(done),Return()
 ; late: after a Dial that could ring nobody, waits until one of the
 ; phones woken above arrives or the epoch ARG1 passes; WAKECAME says which.

@@ -38,6 +38,7 @@ import (
 	"linxpbx.com/linx/internal/backupschedule"
 	"linxpbx.com/linx/internal/callhistory"
 	"linxpbx.com/linx/internal/calllink"
+	"linxpbx.com/linx/internal/callquality"
 	"linxpbx.com/linx/internal/callreport"
 	"linxpbx.com/linx/internal/certs"
 	"linxpbx.com/linx/internal/db"
@@ -514,10 +515,16 @@ func main() {
 	voicemails.Arrived = pushGW.NewVoicemail
 	historySvc := &callhistory.Service{Store: store.CallHistory{Store: st}, Builder: historyBuilder, Now: time.Now}
 	tracker.Ended = historyBuilder.Kick
+	// How every phone's leg of every call went, judged from Linx's side
+	// (internal/callquality, Calls → Call quality).
+	quality := &callquality.Service{Store: st, Alerts: engine, Now: time.Now, Log: log}
 	tracker.UserEvent = func(name string, fields map[string]any) {
 		switch name {
 		case voicemail.EventName:
 			voicemails.Kick()
+		case asteriskconf.WakeMissedEvent:
+			waited, _ := strconv.Atoi(asString(fields["Waited"]))
+			go quality.WakeMissed(context.Background(), wakeAORs(fields["Aors"]), time.Duration(waited)*time.Millisecond)
 		case asteriskconf.WakeEvent:
 			// A call is ringing for a phone whose app isn't connected: the
 			// dialplan holds it for a moment while Apple wakes the app.
@@ -526,6 +533,9 @@ func main() {
 				Video: asString(fields["Video"]) == "yes",
 			})
 		}
+	}
+	tracker.LegQuality = func(channel, callID string, started time.Time, qos string) {
+		go quality.Leg(context.Background(), channel, callID, started, qos)
 	}
 	// A phone arriving after a push: that is what "push → ringing" times.
 	tracker.Woke = pushGW.Registered
@@ -627,6 +637,7 @@ func main() {
 			s.SetEmail(emailSvc, weburl.FromEnv(os.Getenv))
 			s.SetPush(pushGW)
 			s.SetCallReports(&callreport.Service{Store: st, Now: time.Now})
+			s.SetCallQuality(st)
 			routingSvc := &routing.Service{Store: st, Rules: st, Changes: st, Now: time.Now}
 			st.SetRoutingWords(routingSvc.Words)
 			s.SetRouting(routingSvc)

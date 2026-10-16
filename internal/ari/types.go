@@ -31,6 +31,11 @@ type Event struct {
 	// wake request, docs/PBX.md §4). Asterisk sends the channel's own
 	// details in the same object; only the keys Linx put there are read.
 	Userevent map[string]any `json:"userevent,omitempty"`
+	// Variable and Value are a channel variable that was set
+	// (ChannelVarset): RTPAUDIOQOS is how a call leg's sound went, set by
+	// Asterisk as the leg hangs up.
+	Variable string `json:"variable,omitempty"`
+	Value    string `json:"value,omitempty"`
 }
 
 // Header returns one of a ChannelUserevent's own fields, or "".

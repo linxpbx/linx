@@ -147,6 +147,10 @@ type CallTracker struct {
 	// UserEvent, if set, hears the dialplan's UserEvent()s by name (a
 	// voicemail left: internal/voicemail) with what it carried.
 	UserEvent func(name string, fields map[string]any)
+	// LegQuality, if set, hears how each leg's sound went as it hangs up
+	// (Asterisk's RTPAUDIOQOS, internal/callquality): the leg's channel
+	// name, its SIP Call-ID and when it was made. It must not block.
+	LegQuality func(channel, callID string, started time.Time, qos string)
 	// Woke, if set, hears a device signing in, so a phone that was woken
 	// by a push can be timed (internal/push).
 	Woke func(sipUsername string)
@@ -301,7 +305,12 @@ func (t *CallTracker) handle(ctx context.Context, ev ari.Event) {
 		}
 	case "Dial":
 		t.dial(ctx, ev, at)
-	case "ChannelStateChange", "ChannelDialplan", "ChannelVarset", "ChannelHangupRequest":
+	case "ChannelVarset":
+		if ev.Variable == "RTPAUDIOQOS" && ev.Channel != nil && t.LegQuality != nil {
+			t.LegQuality(ev.Channel.Name, ev.Channel.ProtocolID, ev.Channel.CreationTime.Time, ev.Value)
+		}
+		t.observe(ev.Channel)
+	case "ChannelStateChange", "ChannelDialplan", "ChannelHangupRequest":
 		t.observe(ev.Channel)
 	case "ChannelDestroyed":
 		t.destroyed(ctx, ev, at)

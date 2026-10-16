@@ -2,8 +2,8 @@
 title: Call history
 audience: everyone
 section: everyday
-keywords: [call history, calls, recent calls, missed call, missed calls, call log, call records, cdr, who called, call back, download calls, csv, export calls, report]
-screens: [/calls, /admin/calls]
+keywords: [call quality, bad call, call problems, choppy, frozen video, no sound, call history, calls, recent calls, missed call, missed calls, call log, call records, cdr, who called, call back, download calls, csv, export calls, report]
+screens: [/calls, /admin/calls, /admin/calls/quality]
 ---
 # Call history
 
@@ -37,3 +37,14 @@ Calls are kept for 1 year, then deleted (an admin can change that).
 - **System → Settings**: **Keep call history** sets how long calls are kept (30 days to 2 years; 1 year unless you change it) and shows the space call history uses. Older calls are deleted within the hour.
 
 Call history is written by the phone engine itself as each call ends, so calls are kept even while the rest of Linx restarts. It's in Linx's database, so [backups](backups) include it. Each call takes about half a kilobyte.
+
+## For admins: how calls went
+
+**Call quality**, next to **Call history** on the admin **Calls** page, shows how each phone's part of every call in the last seven days went, so you hear about a bad call even when nobody tells you.
+
+- Linx judges each one itself, from the sound the phone engine carried: *Good*, *Had problems* or *Bad*, with the reason in words, such as *"the way from this phone lost 9% of its sound"*, *"its sound came in uneven bursts"* or *"a long delay each way"*. A phone that was woken for a call but never connected is listed as *Bad* too.
+- Beside it is what the Linx app on that iPhone or iPad said of the same call: its own *Good*, *Had problems* or *Bad*, for example *"their picture stopped 8 times, 21 s in all"*. Desk phones don't send one.
+- **Only calls that went wrong** is on to begin with; turn it off to see every call.
+- Press a call to see what Linx measured and the phone's whole report, with **Copy** to send it on.
+
+If calls keep going wrong on one phone (three bad ones in a day), Linx raises an alert, the same way as its other [alerts](alerts). The records are kept seven days.
