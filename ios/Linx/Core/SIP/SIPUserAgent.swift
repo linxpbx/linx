@@ -665,8 +665,13 @@ extension SIPCallMedia {
         let id = current.id
         let number = message.cseq?.number
         call?.reinviteTimeout = Task { [weak self] in
-            // Unanswered: it went down a connection that dropped.
-            try? await Task.sleep(for: .seconds(8))
+            // Unanswered for as long as SIP waits on a reliable connection
+            // (Timer B, RFC 3261 §17.1.1.2). A connection that dropped is
+            // handled when the line comes back (`refreshed`); on one that is
+            // still up the answer is only late, and giving up after 8 s sent
+            // a second change while the first was still on its way, which
+            // Asterisk refused with a 500 (2026-10-17).
+            try? await Task.sleep(for: .seconds(32))
             guard !Task.isCancelled, let self, self.call?.id == id, self.call?.reinviting == true,
                 self.call?.reinviteRequest?.cseq?.number == number
             else { return }
@@ -745,8 +750,14 @@ extension SIPCallMedia {
             return
         }
         guard var current = call, message.callID == current.id else { return }
-        if current.reinviting {
+        if current.reinviting, cseq.number == current.reinviteRequest?.cseq?.number {
             reinviteResponse(message, status: status, of: current)
+            return
+        }
+        if current.established {
+            // A late answer to a change this phone already gave up on: once
+            // the call is up, no answer to an INVITE can end it.
+            strayAnswer(message, status: status, of: current)
             return
         }
         switch status {
@@ -789,16 +800,6 @@ extension SIPCallMedia {
             call = current
             sendInvite()
         case 200..<300:
-            if current.established {
-                // The same answer again: Asterisk sends it until this
-                // phone's ACK reaches it, which on a slow link is after the
-                // second copy left. It is acknowledged again and nothing
-                // else — taking it for a new answer used the sound's answer
-                // twice, failed, and hung up a call that was fine (the
-                // phone bench, 300 ms and 2% loss, 2026-10-13).
-                send(ack2xx(for: message, of: current))
-                return
-            }
             current.remoteTag = message.toTag
             current.remoteTarget = SIPMessage.uri(in: message.first("Contact") ?? current.remoteURI)
             current.routeSet = message.all("Record-Route").reversed()
@@ -1178,6 +1179,39 @@ extension SIPCallMedia {
         addCommonHeaders(&message)
         call?.seq += 1
         return message
+    }
+
+    /// Acknowledges an answer to a re-INVITE this phone has stopped waiting
+    /// for, from that answer's own headers. Built from the first invitation
+    /// instead, it carried the caller's From on a call this phone was rung
+    /// for, the `/sip` relay took it for another phone's line and closed it,
+    /// and the call dropped (2026-10-17).
+    private func strayAnswer(_ message: SIPMessage, status: Int, of current: Call) {
+        guard status >= 200, let number = message.cseq?.number else { return }
+        // The call's own answer again is the commonest: Asterisk sends it
+        // until this phone's ACK reaches it, which on a slow link is after the
+        // second copy left. It is acknowledged again and nothing else —
+        // taking it for a new answer used the sound's answer twice, failed,
+        // and hung up a call that was fine (the phone bench, 300 ms and 2%
+        // loss, 2026-10-13).
+        if number != current.invite?.cseq?.number {
+            current.media.mark("A late answer to an earlier change (\(status)), acknowledged")
+        }
+        var ack = SIPMessage.request("ACK", current.remoteTarget)
+        if (200..<300).contains(status) {
+            ack.add("Via", via(branch: SIPRandom.branch()))
+            ack.add("Max-Forwards", "70")
+            for route in current.routeSet { ack.add("Route", route) }
+        } else {
+            // A refusal's ACK belongs to the refused request's transaction.
+            ack.add("Via", message.first("Via") ?? via(branch: SIPRandom.branch()))
+            ack.add("Max-Forwards", "70")
+        }
+        ack.add("From", message.first("From") ?? "\(selfAddress);tag=\(current.localTag)")
+        ack.add("To", message.first("To") ?? "<\(current.remoteURI)>")
+        ack.add("Call-ID", current.id)
+        ack.add("CSeq", "\(number) ACK")
+        send(ack)
     }
 
     /// The ACK that finishes an answered call (its own transaction, RFC 3261

@@ -669,6 +669,31 @@ extension CallTests {
         agent.stop()
     }
 
+    @Test("a late refusal of an earlier change neither ends the call nor speaks for the caller")
+    func lateRefusalAfterAMove() async throws {
+        // 2026-10-17 on Etisalat: a call this phone was rung for moved to the
+        // secure route, its change was answered, and a late 500 for it came
+        // after. Acknowledged from the first invitation, the ACK carried the
+        // caller's From, the relay closed the line and the call dropped.
+        let (agent, transport, _, box) = await signedIn()
+        transport.asterisk(Self.incomingInvite())
+        await agent.answer()
+        await agent.moveToSecureRoute()
+        let change = try #require(transport.last("INVITE"))
+        #expect(change.body == FakeMedia.relayOffer)
+        transport.asterisk(SIPMessage.response(200, "OK", to: change).withTag("theirs"))
+        transport.asterisk(
+            SIPMessage.response(500, "Another INVITE transaction in progress", to: change).withTag("theirs"))
+        #expect(box.ended == nil)
+        let ack = try #require(transport.last("ACK"))
+        #expect(SIPMessage.user(of: ack.first("From") ?? "") == "d_Ab12Cd34")
+        #expect(ack.cseq?.number == change.cseq?.number)
+        for request in transport.sent where request.method != nil {
+            #expect(SIPMessage.user(of: request.first("From") ?? "") == "d_Ab12Cd34")
+        }
+        agent.stop()
+    }
+
     @Test("a lost sound route on a line that is up is looked for again at once")
     func routeRestarts() async throws {
         let (agent, transport, media, _, _) = try await callUp()
