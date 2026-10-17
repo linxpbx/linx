@@ -507,6 +507,7 @@ struct CallDiagnostics: Equatable, Sendable {
     func use(relay: PhoneLine.Turn) {
         turn = relay
         RelayAddresses.warm(RelayCertificates.hosts(in: relay.urls))
+        RelayCertificates.warm(relay.urls)
         connection?.setConfiguration(configuration())
         noteTheRelay()
     }
@@ -812,6 +813,19 @@ struct CallDiagnostics: Equatable, Sendable {
     /// One call at a time, as everywhere else here.
     private static weak var live: WebRTCMedia?
 
+    /// What the relay's certificate checks said and how long they took
+    /// (`RelayCertificates`): on the call's timeline, or kept for the next
+    /// call when they were made ahead of it (the reserved relay).
+    static func relayChecked(_ words: String) {
+        if let live {
+            live.mark(words)
+            return
+        }
+        checkedBeforeTheCall = Array((checkedBeforeTheCall + [words]).suffix(4))
+    }
+
+    private static var checkedBeforeTheCall: [String] = []
+
     // MARK: - The peer connection
 
     /// A direct route first, then Linx's relay over UDP, then over TLS on
@@ -896,6 +910,7 @@ struct CallDiagnostics: Equatable, Sendable {
     /// and credentials is already waiting.
     static func reserveTheRelay(_ turn: PhoneLine.Turn?) async {
         guard let turn, !turn.urls.isEmpty else { return }
+        RelayCertificates.warm(turn.urls)
         let addresses = await RelayAddresses.addresses(for: RelayCertificates.hosts(in: turn.urls))
         let secure = startsSecure(turn)
         let key = reservationKey(turn, addresses, secure: secure)
@@ -930,6 +945,8 @@ struct CallDiagnostics: Equatable, Sendable {
     private func start() throws -> RTCPeerConnection {
         if let connection { return connection }
         Self.live = self
+        for words in Self.checkedBeforeTheCall { mark("Before the call: \(words)") }
+        Self.checkedBeforeTheCall = []
         Self.prepareAudioSession()
         watchTheRoute()
         let connection: RTCPeerConnection

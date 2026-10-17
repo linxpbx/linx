@@ -360,6 +360,7 @@ import UIKit
                     guard !Task.isCancelled else { return }
                     self.relay = fresh
                     RelayAddresses.warm(RelayCertificates.hosts(in: fresh.urls))
+                    RelayCertificates.warm(fresh.urls)
                     self.reserveTheRelayIfWanted()
                     // A call that is already up gets them too, so a long
                     // call can still mend a broken route.
@@ -501,6 +502,7 @@ import UIKit
         // Look the relay up now, through iOS, so the first call finds its
         // address already known (`RelayAddresses`).
         RelayAddresses.warm(RelayCertificates.hosts(in: line.line.turn.urls))
+        RelayCertificates.warm(line.line.turn.urls)
         reserveTheRelayIfWanted()
         keepTheRelayFresh(for: line)
         let agent = SIPUserAgent(

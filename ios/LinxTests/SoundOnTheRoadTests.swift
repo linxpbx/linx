@@ -121,6 +121,22 @@ struct SoundOnTheRoadTests {
         #expect(!RelayCertificates(relay: relay).verify(Data(repeating: 0x30, count: 64)))
     }
 
+    @Test("the relay's issuers are fetched over its own TLS port, ahead of the call")
+    func relayIssuersComeFromTheRelay() {
+        // Only turns: URLs speak TLS; the port is the one Linx gave, 443 when
+        // none is given, and one fetch per relay.
+        let found = RelayCertificates.tlsEndpoints(in: [
+            "turn:turn.example.com:443?transport=udp",
+            "turns:turn.example.com:443?transport=tcp",
+            "turns:turn.example.com:5349?transport=tcp",
+            "turns:relay.example.net?transport=tcp",
+            "turns:[2001:db8::1]:8443?transport=tcp",
+            "stun:stun.example.com:3478",
+        ])
+        #expect(found.map(\.host) == ["turn.example.com", "relay.example.net", "2001:db8::1"])
+        #expect(found.map(\.port) == [443, 443, 8443])
+    }
+
     // MARK: - Their picture coming and going
 
     @Test("the question about their camera waits for an answer")
