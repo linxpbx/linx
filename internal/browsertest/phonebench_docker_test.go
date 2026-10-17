@@ -594,7 +594,7 @@ func TestPhoneBenchDocker(t *testing.T) {
 			t.Logf("--- the network test:\n%s", r)
 			wants := []string{
 				"1. Nothing else running: never held", "2. With a call on the iPhone's books: never held",
-				"Side line open in", "Call put on the iPhone's books", "Busy line open in", "Call taken off the iPhone's books",
+				"Side line open in", "Call put on the iPhone's books", "Connections on this phone: ", "In use by iOS: ", "Busy line open in", "Call taken off the iPhone's books",
 			}
 			if held {
 				// The bench's line "abroad" goes to the same relay, so it is

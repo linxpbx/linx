@@ -13,6 +13,8 @@ import UIKit
         _ application: UIApplication,
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // Before anything else of WebRTC's runs (`WebRTCMedia.fieldTrials`).
+        _ = WebRTCMedia.fieldTrials
         // A screenshot run talks to nothing at all, and must never put a
         // call on a simulator's lock screen.
         guard Screen.launched == nil else { return true }

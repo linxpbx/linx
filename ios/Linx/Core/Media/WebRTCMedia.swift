@@ -1352,7 +1352,26 @@ struct CallDiagnostics: Equatable, Sendable {
     /// makes one. The video codecs are the phone's own hardware ones first
     /// (H.264), which is the difference between a warm phone and a flat
     /// battery; nothing of them runs until a camera is switched on.
+    /// WebRTC's settings that have to be made before anything else of it
+    /// runs: once, at launch (`AppDelegate`), and again harmlessly here.
+    ///
+    /// **Only the connections iOS is using.** Left to itself WebRTC tries
+    /// every network interface the phone has. An iPhone with two lines has
+    /// one for the line that isn't carrying data too (it is how that line
+    /// makes its own calls over 4G), and every try WebRTC made through it —
+    /// unanswered, so again after 4, 8, 16 s — took the phone's one radio
+    /// over to that line, stopping everything the data line was sending
+    /// for about two seconds. The owner's iPhone paused that way through
+    /// the first half-minute of every call, and never once with its du line
+    /// switched off (Settings → Test this network, 2026-10-17). With
+    /// iOS's own path monitor, WebRTC ignores every interface the phone's
+    /// current path doesn't use.
+    static let fieldTrials: Void = {
+        RTCInitFieldTrialDictionary([kRTCFieldTrialUseNWPathMonitor: kRTCFieldTrialEnabledValue])
+    }()
+
     static let factory: RTCPeerConnectionFactory = {
+        _ = fieldTrials
         RTCInitializeSSL()
         return RTCPeerConnectionFactory(
             encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: RTCDefaultVideoDecoderFactory())

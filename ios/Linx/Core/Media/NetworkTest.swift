@@ -1,5 +1,7 @@
 import AVFoundation
 import Foundation
+import Network
+import Synchronization
 import UIKit
 
 /// Settings → **Test this network**: a diagnostic, not a feature (build 45,
@@ -121,6 +123,8 @@ import UIKit
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         mark("Network test, build \(build), \(MobileData.now ? "on mobile data" : "not on mobile data")")
         if HeldNetworks.holdingHere { mark("This network was seen holding back UDP before") }
+        mark("Connections on this phone: \(Self.interfaces())")
+        mark("In use by iOS: \(await Self.inUse())")
         guard let (host, port) = RelayCertificates.tlsEndpoints(in: urls).first else {
             mark("No relay over TLS to test against")
             return record()
@@ -289,6 +293,62 @@ import UIKit
         let sorted = marks.sorted { $0.at < $1.at }
         lines += sorted.map { String(format: "+%.1f s %@", $0.at.timeIntervalSince(startedAt), $0.what) }
         return String(lines.joined(separator: "\n").prefix(16_000))
+    }
+}
+
+extension NetworkTest {
+    /// Every network interface that is up and has an address, with what
+    /// kind of addresses: what WebRTC would try without iOS's path monitor
+    /// (`WebRTCMedia.fieldTrials`). An iPhone with two lines lists one
+    /// more mobile interface (pdp_ip…) than the line carrying its data.
+    nonisolated static func interfaces() -> String {
+        var first: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&first) == 0, let first else { return "unknown" }
+        defer { freeifaddrs(first) }
+        var kinds: [String: Set<String>] = [:]
+        var order: [String] = []
+        for pointer in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let entry = pointer.pointee
+            let flags = Int32(entry.ifa_flags)
+            guard flags & IFF_UP != 0, flags & IFF_RUNNING != 0, flags & IFF_LOOPBACK == 0,
+                let address = entry.ifa_addr
+            else { continue }
+            let name = String(cString: entry.ifa_name)
+            let kind: String
+            switch Int32(address.pointee.sa_family) {
+            case AF_INET: kind = "IPv4"
+            case AF_INET6:
+                // A link-local address alone isn't a way out.
+                let v6 = UnsafeRawPointer(address).assumingMemoryBound(to: sockaddr_in6.self).pointee
+                let bytes = v6.sin6_addr.__u6_addr.__u6_addr8
+                if bytes.0 == 0xFE, bytes.1 & 0xC0 == 0x80 { continue }
+                kind = "IPv6"
+            default: continue
+            }
+            if kinds[name] == nil { order.append(name) }
+            kinds[name, default: []].insert(kind)
+        }
+        let words = order.map { "\($0) (\(kinds[$0]!.sorted().joined(separator: ", ")))" }
+        return words.isEmpty ? "none" : words.joined(separator: ", ")
+    }
+
+    /// The interfaces of the path iOS is using now: what WebRTC keeps.
+    nonisolated static func inUse() async -> String {
+        await withCheckedContinuation { done in
+            let monitor = NWPathMonitor()
+            let once = Mutex(false)
+            monitor.pathUpdateHandler = { path in
+                let already = once.withLock { told in
+                    defer { told = true }
+                    return told
+                }
+                guard !already else { return }
+                monitor.cancel()
+                let names = path.availableInterfaces.map(\.name)
+                done.resume(returning: names.isEmpty ? "none" : names.joined(separator: ", "))
+            }
+            monitor.start(queue: DispatchQueue(label: "linx.network-test.path"))
+        }
     }
 }
 
