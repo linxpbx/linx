@@ -76,14 +76,6 @@ type benchScenario struct {
 	// 540p by itself. The owner's iPhone, squeezed to 360p after HD on
 	// 5G, never tried a bigger size again (2026-10-15).
 	squeeze bool
-	// held is a mobile network that holds back what the phones send over
-	// UDP early in a call (testdata/held_uploads.py): the owner's iPhone on
-	// Etisalat (2026-10-16), everything it sent over UDP stopped for 2.3 s
-	// at a time, about a second apart, for the first 30–45 s of each call,
-	// while its TCP went through. The phones must move the call onto the
-	// relay's TLS (or start there, with held-before) and the call be smooth
-	// soon after the answer.
-	held bool
 	// blackout is everything between the phones and Linx stopping for two
 	// seconds mid-call — the line, the relay over TLS and over UDP alike —
 	// as a phone moving between cells, or getting a new address, does.
@@ -93,25 +85,6 @@ type benchScenario struct {
 	// of an ordinary link (owner, 2026-10-16).
 	starlink bool
 }
-
-// heldMs, heldPassMs and heldForS are the holding network: held this long,
-// then through this long, over and over, for this long from the ringing.
-const (
-	heldMs     = 2300
-	heldPassMs = 1000
-	heldForS   = 45
-)
-
-// On a holding network: the most, in seconds, from the answer to the
-// other phone's sound, and that its picture may stop for in all — when the
-// network was already known (the call starts on the secure route) and when
-// it is found out during the call.
-const (
-	heldKnownSound   = 3
-	heldKnownStopped = 3
-	heldFoundSound   = 7
-	heldFoundStopped = 7
-)
 
 // squeezeRate, squeezeFrom and squeezeFor are the squeeze: what the relay
 // may send the phones, from when in the call, for how long. The call runs
@@ -166,10 +139,6 @@ var benchScenarios = []benchScenario{
 		flags: []string{"relay-only", "ring=6"}, newSlow: true},
 	{name: "the phone being rung has just opened its line, and it is slow",
 		flags: []string{"relay-only", "ring=4", "late-answerer"}, newLine: true},
-	{name: "a mobile network that holds back UDP early in a call",
-		flags: []string{"relay-only", "mobile-data", "ring=4"}, held: true},
-	{name: "the same network again: calls start on the secure route",
-		flags: []string{"relay-only", "mobile-data", "ring=4", "held-before"}, held: true},
 	{name: "a two-second blackout mid-call: a new cell or a new address",
 		flags: []string{"relay-only", "mobile-data"}, blackout: true},
 	{name: "a mobile network with a long queue: delay that grows with what is sent",
@@ -235,20 +204,6 @@ func (h *harness) blackoutFor(d time.Duration) {
 			h.docker(append([]string{"run", "--rm", "--network", "container:" + c, "--cap-add", "NET_ADMIN",
 				"nicolaka/netshoot", "iptables", op}, rule...)...)
 		}
-	}
-	run("-I")
-	time.Sleep(d)
-	run("-D")
-}
-
-// holdFor holds back everything the phones send to linx-sni's port 443
-// for a while — dropped, so TCP sends it again once the hold is over, as a
-// mobile network that stops a phone's sending does.
-func (h *harness) holdFor(d time.Duration) {
-	rule := []string{"INPUT", "-p", "tcp", "--dport", "443", "-j", "DROP"}
-	run := func(op string) {
-		h.docker(append([]string{"run", "--rm", "--network", "container:linx-sni", "--cap-add", "NET_ADMIN",
-			"nicolaka/netshoot", "iptables", op}, rule...)...)
 	}
 	run("-I")
 	time.Sleep(d)
@@ -342,27 +297,6 @@ func (h *harness) newLineSlow(t *testing.T, window time.Duration) (slow, undo fu
 		}
 }
 
-// holdingNetwork puts a network that holds back the phones' UDP
-// (testdata/held_uploads.py) in front of Linx's relay, and returns what
-// starts the holding (at the ringing) and what takes it off again.
-func (h *harness) holdingNetwork(t *testing.T) (begin, undo func()) {
-	script, err := filepath.Abs("testdata/held_uploads.py")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pid := h.docker("inspect", "-f", "{{.State.Pid}}", "linx-coturn")
-	peer := strings.TrimSuffix(publicSubnet, "0/24") + "1"
-	h.docker("run", "-d", "--rm", "--name", "linx-bench-held", "--privileged", "--pid=host",
-		"-v", script+":/held.py:ro", "nicolaka/netshoot", "python3", "-u", "/held.py", peer,
-		strconv.Itoa(heldMs), strconv.Itoa(heldPassMs), strconv.Itoa(heldForS), pid)
-	return func() { h.docker("kill", "-s", "USR1", "linx-bench-held") },
-		func() {
-			logs := h.docker("logs", "linx-bench-held")
-			t.Logf("holding network:\n%s", tail(logs, 20))
-			h.docker("stop", "linx-bench-held")
-		}
-}
-
 // whenRinging returns once Asterisk has a channel ringing.
 func (h *harness) whenRinging(t *testing.T, within time.Duration) {
 	t.Helper()
@@ -442,14 +376,6 @@ func TestPhoneBenchDocker(t *testing.T) {
 					undone <- h.newConnectionsSlow(45 * time.Second)
 				}()
 				defer func() { (<-undone)() }()
-			}
-			if sc.held {
-				begin, undo := h.holdingNetwork(t)
-				defer undo()
-				go func() {
-					h.whenRinging(t, 60*time.Second)
-					begin()
-				}()
 			}
 			var slowLine func()
 			if sc.newLine {
@@ -564,63 +490,6 @@ func TestPhoneBenchDocker(t *testing.T) {
 		})
 	}
 
-	// Settings → Test this network (build 45's diagnostic): every step runs,
-	// the busy line carries a video call's worth, the record reaches Linx,
-	// and on a clean network nothing is held.
-	for _, netTest := range []string{"the network test, on a clean network", "the network test, held in step 3"} {
-		if only != "" && !slices.ContainsFunc(strings.Split(only, "|"), func(o string) bool { return strings.Contains(netTest, o) }) {
-			continue
-		}
-		t.Run(netTest, func(t *testing.T) {
-			since := h.psql("select now()")
-			bench("call", caller, answerer, "202", "0", "network-test")
-			held := strings.HasSuffix(netTest, "step 3")
-			if held {
-				// Step 3 runs from about 56 to 79 s after the phones start,
-				// and bench.sh comes back eight seconds after they do.
-				time.Sleep(57 * time.Second)
-				h.holdFor(2500 * time.Millisecond)
-			}
-			q := "select report from phone_call_report where created_at > '" + since + "' and report like 'Linx network test%';"
-			deadline := time.Now().Add(4 * time.Minute)
-			r := h.psql(q)
-			for r == "" {
-				if time.Now().After(deadline) {
-					t.Fatal("no network test record reached Linx")
-				}
-				time.Sleep(3 * time.Second)
-				r = h.psql(q)
-			}
-			t.Logf("--- the network test:\n%s", r)
-			wants := []string{
-				"1. Nothing else running: never held", "2. With a call on the iPhone's books: never held",
-				"Side line open in", "Call put on the iPhone's books", "Connections on this phone: ", "In use by iOS: ", "Busy line open in", "Call taken off the iPhone's books",
-			}
-			if held {
-				// The bench's line "abroad" goes to the same relay, so it is
-				// held at the same moment.
-				wants = append(wants, "verdict: held from step 3", "3. With the microphone and speaker on: held once",
-					"1 of the 1 holds here were held abroad at the same moment",
-					"1 of the 1 holds here were held on the voice line at the same moment")
-			} else {
-				wants = append(wants, "verdict: never held", "5. Sending as much as a video call: never held",
-					"abroad: held 0 times", "voice priority: held 0 times", "Voice line open in")
-			}
-			for _, want := range wants {
-				if !strings.Contains(r, want) {
-					t.Errorf("the record doesn't say %q", want)
-				}
-			}
-			// A hundred questions a second for twenty seconds.
-			m := regexp.MustCompile(`Busy line: (\d+) answers`).FindStringSubmatch(r)
-			if m == nil {
-				t.Fatal("no busy line summary")
-			}
-			if n, _ := strconv.Atoi(m[1]); n < 1000 {
-				t.Errorf("the busy line had %d answers, want 1000 or more", n)
-			}
-		})
-	}
 }
 
 // benchPhones makes two people with extensions 201 and 202 and a setup link
@@ -811,37 +680,6 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			fail("no answer or picture in the record")
 		case arrived-answered > benchPictureAfterAnswer:
 			fail(fmt.Sprintf("their picture arrived %.1f s after the answer", arrived-answered))
-		}
-	}
-	if sc.held {
-		known := slices.Contains(sc.flags, "held-before")
-		mostSound, mostStopped := float64(heldFoundSound), float64(heldFoundStopped)
-		secure := "On the secure route"
-		if known {
-			mostSound, mostStopped = heldKnownSound, heldKnownStopped
-			secure = "This network holds back UDP: the call goes over the secure route"
-		}
-		if !strings.Contains(r, secure) {
-			fail(fmt.Sprintf("never %q", secure))
-		}
-		answered, ok := markAt(r, "Answered")
-		if !ok {
-			answered, ok = markAt(r, "→ 200 OK (INVITE)")
-		}
-		sound, heard := markAt(r, "First sound arrived")
-		switch {
-		case !ok || !heard:
-			fail("no answer or sound in the record")
-		case sound-answered > mostSound:
-			fail(fmt.Sprintf("their sound arrived %.1f s after the answer", sound-answered))
-		}
-		if !strings.Contains(r, "Their picture arrived") {
-			fail("their picture never arrived")
-		}
-		if m := stoppedRe.FindStringSubmatch(r); m != nil {
-			if s, _ := strconv.ParseFloat(m[2], 64); s > mostStopped {
-				fail(fmt.Sprintf("their picture stopped %s times, %s s in all", m[1], m[2]))
-			}
 		}
 	}
 	if sc.squeeze {

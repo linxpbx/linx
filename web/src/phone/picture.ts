@@ -23,6 +23,8 @@ export interface PictureState {
   starting: boolean;
   /** Why the camera couldn't start, in plain words. */
   problem?: string;
+  /** **HD**: this browser's picture at 720p, where the link has room. */
+  hd?: boolean;
 }
 
 export const CALL_LINK_PATH = "/api/v1/call-link";
@@ -41,10 +43,19 @@ export interface PictureOptions {
   onChange: () => void;
   /** The call became a group call (ADR-088): here is the way in. */
   onMove?: (join: { room: string; token: string; url: string }) => void;
+  /** Linx's moment of the answer (ms since the epoch, by this browser's
+   * clock): the call's timer counts from it on every device alike. */
+  onAnswered?: (at: number) => void;
 }
 
-/** Most a picture may use, bits a second: ADR-081's 720p step. */
+/** Most a picture may use with **HD** on, bits a second: ADR-081's 720p step. */
 const MAX_BITRATE = 1_500_000;
+/** Most it may use without HD: the 540p step, which is where the app's own
+ * picture sits until its person presses HD (owner, 2026-10-17: the browser
+ * had no HD button, and always sent all it could). */
+const STANDARD_BITRATE = 900_000;
+/** The camera opens at 720p; this brings it down to 540p without HD. */
+const STANDARD_SCALE = 720 / 540;
 /** Most it may use when the other side's picture goes over TCP: ADR-081's 360p step. */
 const OVER_TCP_BITRATE = 350_000;
 
@@ -80,6 +91,13 @@ export class DirectPicture {
       this.ws = null;
       if (this.state.available === null) this.set({ available: false });
     };
+  }
+
+  /** The **HD** button: this browser's picture at 720p, or back to 540p. */
+  setHD(on: boolean) {
+    if (on === !!this.state.hd) return;
+    this.set({ hd: on });
+    this.capBitrate();
   }
 
   /** Turns this browser's camera on or off. */
@@ -151,10 +169,20 @@ export class DirectPicture {
       if (!p.encodings?.length) continue;
       // Kept small when the other side's picture goes through the relay
       // over TCP or TLS (it says so): a lost packet holds up everything
-      // behind it there, and the app keeps its own at 360p for the same
-      // reason (DirectPicture.overTCPStep).
-      p.encodings[0]!.maxBitrate = this.theirsOverTCP ? OVER_TCP_BITRATE : MAX_BITRATE;
-      if (this.theirsOverTCP) p.encodings[0]!.scaleResolutionDownBy = 1.5;
+      // behind it there, and the app keeps its own small for the same
+      // reason (DirectPicture.overTCPStep) — unless this person asked for
+      // HD, which the app also lets grow to 720p over TCP where there's room.
+      const e = p.encodings[0]!;
+      if (this.state.hd) {
+        e.maxBitrate = MAX_BITRATE;
+        e.scaleResolutionDownBy = 1;
+      } else if (this.theirsOverTCP) {
+        e.maxBitrate = OVER_TCP_BITRATE;
+        e.scaleResolutionDownBy = 1.5;
+      } else {
+        e.maxBitrate = STANDARD_BITRATE;
+        e.scaleResolutionDownBy = STANDARD_SCALE;
+      }
       void s.setParameters(p).catch(() => undefined);
     }
   }
@@ -171,7 +199,7 @@ export class DirectPicture {
   }
 
   private async onMessage(raw: string) {
-    let msg: { type?: string; video?: boolean; polite?: boolean; session?: number; data?: Signal & { session?: number }; room?: string; token?: string; url?: string };
+    let msg: { type?: string; video?: boolean; answered_ms_ago?: number; polite?: boolean; session?: number; data?: Signal & { session?: number }; room?: string; token?: string; url?: string };
     try {
       msg = JSON.parse(raw);
     } catch {
@@ -179,6 +207,9 @@ export class DirectPicture {
     }
     switch (msg.type) {
       case "peer":
+        if (typeof msg.answered_ms_ago === "number" && msg.answered_ms_ago >= 0) {
+          this.opts.onAnswered?.(Date.now() - msg.answered_ms_ago);
+        }
         if (!msg.video) {
           this.set({ available: false });
           return;

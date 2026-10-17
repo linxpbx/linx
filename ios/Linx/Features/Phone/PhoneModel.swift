@@ -81,9 +81,7 @@ import UIKit
     }
 
     private(set) var status: Status = .starting
-    private(set) var call: Call? {
-        didSet { watchTheUploads() }
-    }
+    private(set) var call: Call?
     /// The pictures of the call that is up, for the screen to draw. It is
     /// the live media's own, so it is empty whenever there is no call.
     private(set) var tracks = VideoTracks()
@@ -211,20 +209,6 @@ import UIKit
     private var attempts = 0
     private var stopped = false
     private var waking: [Waking] = []
-    /// Whether the network is holding back what this phone sends over UDP,
-    /// for a call's first minute (`UploadWatch`).
-    @ObservationIgnored private let uploads = UploadWatch()
-    /// The same, as the line opens on a mobile network (`checkTheNetwork`).
-    @ObservationIgnored private let networkCheck = UploadWatch()
-    private var networkCheckedAt = Date.distantPast
-    /// The call the uploads were watched for: once a call.
-    private var uploadsWatchedFor: UUID?
-    /// The uploads kept stalling before the call was answered: it moves onto
-    /// the secure route as soon as it is.
-    private var secureRouteWanted = false
-    private var uploadsDone: Task<Void, Never>?
-    /// How long after the answer the uploads are watched.
-    static let uploadsWatchedAfterTheAnswer: Duration = .seconds(60)
     /// What happened between a push and its call arriving, for the call's
     /// timeline: a woken iPhone took 11 s to ring and its first half-minute
     /// was slow (2026-10-15), and the report started only at the invitation.
@@ -280,10 +264,6 @@ import UIKit
         self.inFront = inFront
         self.calls.onRequest = { [weak self] request in self?.systemAsked(request) }
         self.calls.onAudio = { [weak self] on in
-            if self?.liveMedia == nil, let test = self?.networkTest {
-                test.sound(on)
-                return
-            }
             guard let media = self?.liveMedia else {
                 WebRTCMedia.systemAudioWithNoCall(on)
                 return
@@ -411,78 +391,6 @@ import UIKit
     /// and the call itself is still on its way.
     var busy: Bool { call != nil || !waking.isEmpty }
 
-    /// From the moment a call starts until a minute after its answer, the
-    /// phone watches whether the network holds back what it sends over UDP,
-    /// and moves the call onto the secure route when it keeps doing so
-    /// (`UploadWatch`; the owner's iPhone on Etisalat, 2026-10-16).
-    private func watchTheUploads() {
-        guard let call else {
-            uploads.stop()
-            uploadsDone?.cancel()
-            uploadsDone = nil
-            uploadsWatchedFor = nil
-            secureRouteWanted = false
-            return
-        }
-        guard uploadsWatchedFor != call.id, let relay else { return }
-        uploadsWatchedFor = call.id
-        secureRouteWanted = false
-        networkCheck.stop()
-        uploads.start(
-            relay: Bench.relayURLs(relay.urls),
-            onStall: { [weak self] hold in
-                self?.liveMedia?.mark(String(format: "Network held back what this phone sent for %.1f s", hold))
-            },
-            onStalls: { [weak self] in self?.uploadsKeepStalling() })
-    }
-
-    private func uploadsKeepStalling() {
-        HeldNetworks.remember()
-        guard liveMedia?.onSecureRoute != true else {
-            liveMedia?.mark("The network is still holding back UDP")
-            return
-        }
-        liveMedia?.mark("The network keeps holding back this phone's UDP")
-        guard call?.phase == .active else {
-            secureRouteWanted = true
-            return
-        }
-        Task { [weak self] in await self?.agent?.moveToSecureRoute() }
-    }
-
-    /// A mobile network not yet known to hold UDP back is checked as the
-    /// line opens, for twenty seconds, so that even its first call can start
-    /// on the right route. At most every ten minutes, never during a call,
-    /// and only remembered if it does hold things back (`HeldNetworks`).
-    private func checkTheNetwork() {
-        guard !busy, let relay, MobileData.now, !HeldNetworks.holdingHere,
-            Date().timeIntervalSince(networkCheckedAt) > 600
-        else { return }
-        networkCheckedAt = Date()
-        networkCheck.start(
-            relay: Bench.relayURLs(relay.urls), onStall: { _ in },
-            onStalls: { HeldNetworks.remember() })
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(20))
-            self?.networkCheck.stop()
-        }
-    }
-
-    /// The call is answered: a move that was waiting for it happens now, and
-    /// the uploads are watched for one more minute.
-    private func uploadsAtTheAnswer() {
-        if secureRouteWanted {
-            secureRouteWanted = false
-            Task { [weak self] in await self?.agent?.moveToSecureRoute() }
-        }
-        uploadsDone?.cancel()
-        uploadsDone = Task { [weak self] in
-            try? await Task.sleep(for: Self.uploadsWatchedAfterTheAnswer)
-            guard !Task.isCancelled else { return }
-            self?.uploads.stop()
-        }
-    }
-
     private func connect(to line: Line) {
         // A call held while the line came back keeps its agent: it is given
         // the new connection, and the call goes on (`SIPUserAgent.reattach`).
@@ -501,7 +409,6 @@ import UIKit
             return
         }
         relay = line.line.turn
-        checkTheNetwork()
         Self.sendWhatWasKept(line)
         // Look the relay up now, through iOS, so the first call finds its
         // address already known (`RelayAddresses`).
@@ -523,6 +430,7 @@ import UIKit
                 self?.diagnostics = media.diagnostics
                 media.onVideoChanged = { [weak self] video in self?.videoChanged(video) }
                 media.onVideoTooExpensive = { [weak self] in self?.videoCostTooMuch() }
+                media.onAnsweredAt = { [weak self] at in self?.answeredAtLinx(at) }
                 media.onGroupMove = { [weak self] join in self?.joinGroup(join) }
                 media.onGroupEnded = { [weak self] why in self?.groupEnded(why) }
                 self?.liveMedia = media
@@ -605,7 +513,6 @@ import UIKit
     func woken(from: String, video: Bool = false) async -> Bool {
         let id = UUID()
         let peer = Self.caller(from)
-        stopTheNetworkTest()
         guard await calls.reportIncoming(id: id, from: peer, video: video) else { return false }
         // One line, one call: a second caller hears busy and the server
         // sends them to voicemail, as it does for the browser. The push
@@ -1188,19 +1095,6 @@ import UIKit
     // MARK: - What the system tells the app to do
 
     private func systemAsked(_ request: SystemCallRequest) {
-        if let test = networkTest, request.id == test.id {
-            switch request {
-            case .start:
-                // After CallKit has been told the call is on its way out.
-                Task { [weak self] in
-                    try? await Task.sleep(for: .milliseconds(300))
-                    self?.calls.reportAnswered(id: test.id)
-                }
-            case .end: test.callEnded()
-            case .answer, .mute, .tone: break
-            }
-            return
-        }
         switch request {
         case .start(let id, let peer):
             place(id: id, to: intended[id] ?? peer)
@@ -1299,49 +1193,29 @@ import UIKit
         if call != nil { agent?.hangUp() }
     }
 
-    // MARK: - Test this network (build 45's diagnostic, `NetworkTest`)
+    // MARK: - One timer for everyone on the call
 
-    /// The test running now.
-    private(set) var networkTest: NetworkTest?
-    /// What the last test found, a line a step, for Settings.
-    private(set) var networkTestResults: [String] = []
-
-    var canTestTheNetwork: Bool {
-        status == .ready && call == nil && waking.isEmpty && networkTest == nil && relay != nil
-    }
-
-    /// Runs `NetworkTest` and sends its record to Linx like a call's.
-    func testTheNetwork() {
-        guard canTestTheNetwork, let relay else { return }
-        let id = UUID()
-        let test = NetworkTest(
-            id: id,
-            startCall: { [weak self] in
-                self?.calls.ask(.start(id, SIPPeer(name: "Network test", number: "Network test")))
-            },
-            endCall: { [weak self] in self?.calls.reportEnded(id: id, .hungUp) })
-        networkTest = test
-        networkTestResults = []
-        let urls = Bench.relayURLs(relay.urls)
-        Task { [weak self] in
-            let text = await test.run(relay: urls)
-            guard let self else { return }
-            self.networkTestResults = test.results
-            self.networkTest = nil
-            guard let line = self.lineInUse else { return }
-            self.sendReport(
-                line,
-                CallReport(
-                    callID: id.uuidString, incoming: false, peer: "network test", startedAt: test.startedAt,
-                    endedAt: Date(), text: text))
+    /// Linx says when the call was answered: the timer counts from there,
+    /// so it reads the same on every phone and browser on the call (owner,
+    /// 2026-10-17). Each used to count from its own answer, which reached
+    /// them a second or more apart. A moment far from this phone's own is
+    /// a different call's, and ignored.
+    func answeredAtLinx(_ at: Date) {
+        guard var current = call else { return }
+        // It can come a moment before this phone hears the answer itself.
+        guard current.phase == .active, let mine = current.answeredAt else {
+            answerMomentFromLinx = at
+            return
         }
+        guard abs(at.timeIntervalSince(mine)) < Self.answerMomentsAgree else { return }
+        current.answeredAt = at
+        call = current
     }
 
-    /// Stops the test at once, before a call that is coming is reported:
-    /// the system holds one call at a time.
-    func stopTheNetworkTest() {
-        networkTest?.cancel()
-    }
+    /// Linx's moment, kept until this phone's own answer.
+    private var answerMomentFromLinx: Date?
+
+    static let answerMomentsAgree: TimeInterval = 30
 
     // MARK: - The test bench (`Bench`)
 
@@ -1351,13 +1225,6 @@ import UIKit
     private func callForTheBench() {
         guard let number = Bench.call, !benchCalled else { return }
         benchCalled = true
-        if Bench.networkTest {
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(Bench.callAfter))
-                self?.testTheNetwork()
-            }
-            return
-        }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(Bench.callAfter))
             self?.callNumber(number, withVideo: Bench.video)
@@ -1418,7 +1285,6 @@ import UIKit
                 self?.answer()
             }
         }
-        stopTheNetworkTest()
         Task { [weak self] in
             guard let self else { return }
             guard await self.calls.reportIncoming(id: id, from: peer, video: video) else {
@@ -1484,14 +1350,19 @@ import UIKit
         defer { theScreenDuringTheCall() }
         guard var current = call else { return }
         current.phase = .active
-        current.answeredAt = Date()
+        let now = Date()
+        if let linx = answerMomentFromLinx, abs(linx.timeIntervalSince(now)) < Self.answerMomentsAgree {
+            current.answeredAt = linx
+        } else {
+            current.answeredAt = now
+        }
+        answerMomentFromLinx = nil
         current.ringingThere = false
         call = current
         // Connected, both ways: an outgoing call the moment the other side
         // picks up, an incoming one once this phone's answer has gone out —
         // which is when the system's own call timer starts (`CallKitCalls`).
         calls.reportAnswered(id: current.id)
-        uploadsAtTheAnswer()
         // A video call: this phone's camera goes on as soon as the picture
         // link finds the other side (the user agent asked for it), so there
         // is nothing to ask about their camera, and the sound comes out of
@@ -1506,6 +1377,7 @@ import UIKit
     }
 
     private func ended(_ why: SIPEnded) {
+        answerMomentFromLinx = nil
         // In a group call the phone call underneath may end — the person it
         // was with left — and this phone carries on in the group.
         if groupMedia != nil, !leavingGroup, call != nil { return }

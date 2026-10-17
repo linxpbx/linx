@@ -26,6 +26,7 @@ The call appears with the caller's name or number, and says so when it's a video
 - **Mute** and **Unmute** your microphone.
 - **Keypad** for menus that ask you to press a number.
 - **Turn camera on** and **Turn camera off**, at any time: the call carries on either way. **Full screen** makes the pictures fill the screen.
+- **HD**, once your camera is on: your picture goes out at up to 720p instead of 540p, where the connection has room for it. It uses nearly twice the data, so it starts off, and it only changes the picture *you* send — the other person presses their own.
 - **Add person** brings someone else into the call (below).
 - **End call** to hang up.
 

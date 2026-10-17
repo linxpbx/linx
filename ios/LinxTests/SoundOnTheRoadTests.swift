@@ -348,16 +348,13 @@ struct SoundOnTheRoadTests {
         let turn = PhoneLine.Turn(
             urls: ["turn:turn.example.com:443?transport=udp"], username: "u1", credential: "c",
             expiresAt: Date(timeIntervalSinceNow: 3600), maxBitrateBps: 1_280_000)
-        let same = WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]], secure: false)
-        #expect(same == WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]], secure: false))
+        let same = WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]])
+        #expect(same == WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]]))
         let renewed = PhoneLine.Turn(
             urls: turn.urls, username: "u2", credential: "c", expiresAt: turn.expiresAt, maxBitrateBps: 1_280_000)
-        #expect(same != WebRTCMedia.reservationKey(renewed, ["turn.example.com": ["203.0.113.5"]], secure: false))
-        #expect(same != WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.9"]], secure: false))
-        #expect(WebRTCMedia.reservationKey(nil, [:], secure: false).isEmpty)
-        // A reservation made for the secure route isn't taken by a call on
-        // the fast one, or the other way round.
-        #expect(same != WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.5"]], secure: true))
+        #expect(same != WebRTCMedia.reservationKey(renewed, ["turn.example.com": ["203.0.113.5"]]))
+        #expect(same != WebRTCMedia.reservationKey(turn, ["turn.example.com": ["203.0.113.9"]]))
+        #expect(WebRTCMedia.reservationKey(nil, [:]).isEmpty)
     }
 
     @Test("a call offers only the routes Asterisk can use, so its answer stays small")
@@ -396,6 +393,17 @@ struct SoundOnTheRoadTests {
         let words = CallDetailsView.words(call: call, diagnostics: diagnostics)
         #expect(words.contains("this phone offered: relay/tls, relay/udp"))
         #expect(words.contains("routes tried:\n  relay/udp → host/udp 172.24.0.4: succeeded, in use, 40 ms"))
+    }
+
+    @Test("the call's timer counts from Linx's moment of the answer, the same on every device")
+    func oneTimerForEveryone() async throws {
+        let (phone, _, media, _) = try await inACall()
+        let linx = Date(timeIntervalSinceNow: -1.4)
+        media.onAnsweredAt?(linx)
+        #expect(phone.call?.answeredAt == linx)
+        // Another call's moment, far from this one's, is ignored.
+        media.onAnsweredAt?(Date(timeIntervalSinceNow: -600))
+        #expect(phone.call?.answeredAt == linx)
     }
 
     // MARK: - A phone with a call up

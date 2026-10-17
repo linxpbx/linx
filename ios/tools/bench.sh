@@ -12,9 +12,7 @@
 # flags: relay-only, mobile-data (the picture through the relay alone), no-udp (China: the relay over TLS on 443 only), audio,
 # callkit (ring and answer through CallKit, as an iPhone outside China),
 # hd (both phones press HD five seconds in), ring=N (the answerer rings N
-# seconds before answering; one by default), held-before (the phones' mobile
-# network is already known to hold UDP back, so calls start on the secure route),
-# network-test (the caller runs Settings → Test this network instead of calling).
+# seconds before answering; one by default).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -73,8 +71,6 @@ call)
     late-answerer) late=1 ;;
     no-early) flags+=(-LinxBenchNoEarly YES) ;;
     mobile-data) flags+=(-LinxBenchMobileData YES) ;;
-    held-before) flags+=(-LinxBenchHeldBefore YES) ;;
-    network-test) flags+=(-LinxBenchNetworkTest YES) ;;
     *) echo "bench: unknown flag $f" >&2; exit 2 ;;
     esac
   done

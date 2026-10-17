@@ -300,6 +300,13 @@ export class PhoneLine {
     void p.setCamera(!p.state.mine);
   }
 
+  /** The **HD** button, for this browser's own picture. */
+  toggleHD() {
+    const p = this.picture;
+    if (!p || !p.state.mine) return;
+    p.setHD(!p.state.hd);
+  }
+
   /** The pictures to show: this browser's camera and theirs. */
   pictureStreams(): { mine: MediaStream | null; theirs: MediaStream | null } {
     return { mine: this.picture?.myStream ?? null, theirs: this.picture?.theirStream ?? null };
@@ -373,6 +380,12 @@ export class PhoneLine {
         if (this.picture === picture && this.state.call) this.setCall({ picture: { ...picture.state } });
       },
       onMove: (join) => this.joinGroup(join),
+      onAnswered: (at) => {
+        // Linx's moment, so every device on the call shows the same time
+        // (owner, 2026-10-17); one far from this browser's own is ignored.
+        const mine = this.state.call?.answeredAt;
+        if (this.picture === picture && mine !== undefined && Math.abs(at - mine) < 30_000) this.setCall({ answeredAt: at });
+      },
     });
     this.picture = picture;
     this.setCall({ picture: { ...picture.state } });

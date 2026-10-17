@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -243,7 +244,7 @@ func (r *Resolver) Resolve(ctx context.Context, sipUsername, callID string) (Leg
 	if peer == "" {
 		return Leg{}, ErrNoCall
 	}
-	leg := Leg{Channel: mine.Name, ChannelID: mine.ID, Peer: peer}
+	leg := Leg{Channel: mine.Name, ChannelID: mine.ID, Peer: peer, AnsweredAt: bridgedAt(ctx, c, mine.ID)}
 	if other := (ari.Channel{Name: peer}).Endpoint(); other != "" && r.Linx != nil {
 		linx, err := r.Linx(ctx, other)
 		if err != nil {
@@ -302,6 +303,25 @@ func (r *Resolver) Alive(ctx context.Context, channelID string) bool {
 	var ch ari.Channel
 	err := c.Get(ctx, "channels/"+url.PathEscape(channelID), &ch)
 	return err == nil || !ari.Gone(err)
+}
+
+// bridgedAt is when Asterisk made the bridge channelID is in: the moment
+// the call was answered, the same for both ends of an ordinary call (zero
+// if it can't be read; the device then counts from its own answer).
+func bridgedAt(ctx context.Context, c *ari.Conn, channelID string) time.Time {
+	var bridges []struct {
+		Channels     []string `json:"channels"`
+		CreationTime ari.Time `json:"creationtime"`
+	}
+	if err := c.Get(ctx, "bridges", &bridges); err != nil {
+		return time.Time{}
+	}
+	for _, b := range bridges {
+		if slices.Contains(b.Channels, channelID) {
+			return b.CreationTime.Time
+		}
+	}
+	return time.Time{}
 }
 
 func variable(ctx context.Context, c *ari.Conn, channelID, name string) (string, error) {

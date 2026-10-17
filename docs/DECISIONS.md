@@ -941,6 +941,8 @@ CI already publishes `edge` and `sha-<commit>` for every green master commit, si
 
 ## ADR-089 — A phone on a network that holds UDP back carries its calls over the relay's TLS (owner decision, 2026-10-16)
 
+**Superseded by ADR-090 (2026-10-17).** The network never held UDP back: the pauses were the owner's dual-SIM iPhone serving its second line. Everything below was removed in build 49.
+
 **Context.** On Etisalat mobile (4G and 5G alike) the owner's iPhone had everything it sent over UDP held for about 2.3 s at a time, a second apart, for the first 30–45 s of every call, then delivered in one burst; downloads were never late, and the same phone's TCP to the same server — plain uploads at call rates, both ways at once, and a call forced onto the relay's TLS — went through (server captures and test pages, 2026-10-16). du, and the same phone on du, never did it. The owner's 3CX at home, reached only through its TCP tunnel, is instant on Etisalat, video included: "Everything is instant." Moving the relay's UDP from 443 to 3478 changed nothing, and forcing every call onto TLS would cost a network like du its picture, since a TCP route stalls on a lossy link where UDP doesn't.
 
 **Options.** (a) Every mobile call over TLS, like 3CX. (b) UDP first, watched; a call whose UDP is held moves onto TLS, and the network is remembered so its next calls start there. (c) Leave it to the network.
@@ -948,3 +950,14 @@ CI already publishes `edge` and `sha-<commit>` for every green master commit, si
 **Decision.** (b), owner's go. The app asks the relay "are you there?" over UDP four times a second from the start of a call to a minute after its answer (`UploadWatch`); two answers held 1.2 s or more within 30 s move the call — sound by a re-INVITE, the picture by pairing again — onto the relay's TLS alone (`moveToSecureRoute`), and the SIM carrying the phone's data is remembered for a week (`HeldNetworks`): its calls start on TLS from the relay reserved ahead, and a mobile network not yet known is checked for 20 s when the line opens. Over TCP the picture starts at 360p and grows with the room the link really shows, up to 540p, never by a blind try. Wi-Fi is never remembered, only watched.
 
 **Consequences.** On Etisalat the first call can freeze for a few seconds before it moves; every later call within the week has nothing to wait out. A phone on du, or on Wi-Fi, keeps UDP and the full picture. About 25 KB a call for the watch (`docs/RESOURCES.md` §3h). Linx's own judgement of every call (`internal/callquality`, Calls → Call quality) shows whether it worked.
+
+## ADR-090 — WebRTC uses only the network interfaces iOS is using (owner decision, 2026-10-17)
+
+**Context.** The owner's iPhone paused everything it sent for about 2.3 s at a time, spaced 4, 8 and 16 s apart, through the first half-minute of a call or of the app opening — on Etisalat and du, 4G and 5G, whatever the port, priority or destination (Settings → Test this network, builds 45–47, measured all three at once). With its du line switched off it never paused. WebRTC on iOS tries every interface that is up; a dual-SIM iPhone has one for the line that isn't carrying data (pdp_ip1/2, its 4G calling), WebRTC's tries through it went unanswered and were retried with backoff, and each took the phone's one radio over to that line. WebRTC's iOS network monitor (NWPathMonitor, keeping only the interfaces of iOS's current path) exists but is off unless a field trial turns it on. 3CX, using only the default route, was never affected.
+
+**Options.** (a) Turn on WebRTC's path monitor (`kRTCFieldTrialUseNWPathMonitor`). (b) Ignore cellular adapters by type (loses the data line too). (c) Tell people with two lines to switch one off.
+
+**Decision.** (a), owner's go ("use only the active data connection"). Set at launch, before anything else of WebRTC runs (`WebRTCMedia.fieldTrials`, `AppDelegate`), build 48. ADR-089's UDP watch, remembered networks and secure route were removed in build 49, and so were the diagnostics that found the cause.
+
+**Consequences.** One owner call on build 48 with both lines on: no pauses at all, both legs Good. Calls on a mobile network use UDP again where it works (the relay's TLS stays as the fallback ICE finds by itself, and for China). A phone on Wi-Fi with a VPN still offers what iOS's path holds.
+

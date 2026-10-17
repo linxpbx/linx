@@ -95,9 +95,6 @@ struct CallDiagnostics: Equatable, Sendable {
     /// The call was moved onto Linx's relay because no sound was getting
     /// through the route it started on.
     var movedToRelay = false
-    /// The call was moved onto the relay over TLS because the network kept
-    /// holding back what this phone sent over UDP (`UploadWatch`).
-    var movedToSecure = false
     /// What this phone offered as ways in, and every pairing tried
     /// (`MediaConnection.offered`, `.pairs`), as last read.
     var offered: [String] = []
@@ -164,6 +161,7 @@ struct CallDiagnostics: Equatable, Sendable {
     var onVideoChanged: ((CallVideo) -> Void)?
     /// The link can't carry a picture any more: turn this phone's camera off.
     var onVideoTooExpensive: (() -> Void)?
+    var onAnsweredAt: ((Date) -> Void)?
     private var picture: DirectPicture?
     var onGroupMove: ((GroupJoin) -> Void)?
     var onGroupEnded: ((String) -> Void)?
@@ -179,10 +177,6 @@ struct CallDiagnostics: Equatable, Sendable {
     private var relayOnly = false
     /// The offer that is out moves the call onto the relay.
     private var movingToRelay = false
-    /// Only the relay over TLS, from the moment the call is moved onto the
-    /// secure route (`moveToSecureRoute`).
-    private var secureOnly = false
-    private var movingToSecure = false
     private var connection: RTCPeerConnection?
     private var audio: RTCAudioTrack?
     private var gathered: CheckedContinuation<Void, Never>?
@@ -190,9 +184,6 @@ struct CallDiagnostics: Equatable, Sendable {
     private var watch: Task<Void, Never>?
     /// Watching where the sound is coming out, while this call is up.
     private var routeWatch: NSObjectProtocol?
-    /// What the phone itself does in the call's first two minutes
-    /// (`CallWatch`, a diagnostic).
-    private var callWatch: CallWatch?
     private var stopped = false
 
     /// Asterisk doesn't take candidates one at a time, so the phone holds the
@@ -229,29 +220,10 @@ struct CallDiagnostics: Equatable, Sendable {
 
     init(turn: PhoneLine.Turn?, startedAt: Date = Date()) {
         self.turn = turn
-        // A mobile network that has held back this phone's UDP before: the
-        // call goes over the secure route from its first moment, as the
-        // relay is reserved (`HeldNetworks`).
-        secureOnly = Self.startsSecure(turn)
         super.init()
         diagnostics.steps = [.init(what: "Call started", at: startedAt)]
-        if secureOnly {
-            diagnostics.movedToSecure = true
-            diagnostics.steps.append(
-                .init(what: "This network holds back UDP: the call goes over the secure route", at: startedAt))
-        }
         noteTheRelay()
     }
-
-    /// Whether a call starting now goes over the secure route alone: on a
-    /// network known to hold UDP back, where the relay has a TLS way in.
-    static func startsSecure(_ turn: PhoneLine.Turn?) -> Bool {
-        guard let turn, turn.urls.contains(where: { $0.hasPrefix("turns:") }) else { return false }
-        return HeldNetworks.holdingHere
-    }
-
-    /// Whether this call is on the secure route alone.
-    var onSecureRoute: Bool { secureOnly }
 
     /// When the person asked for the call: the timeline counts from there.
     func began(at: Date) {
@@ -390,10 +362,6 @@ struct CallDiagnostics: Equatable, Sendable {
             movingToRelay = false
             mark(relayOnly ? "On the relay" : "Every route allowed again")
         }
-        if movingToSecure {
-            movingToSecure = false
-            mark("On the secure route")
-        }
         if restartingRoute {
             restartingRoute = false
             mark("Sound route restarted")
@@ -428,12 +396,12 @@ struct CallDiagnostics: Equatable, Sendable {
         let picture = DirectPicture(
             link: link,
             configuration: Self.configuration(
-                relay: turn, addresses: relayAddresses, relayOnly: relayOnly || onMobileData,
-                secureOnly: secureOnly),
+                relay: turn, addresses: relayAddresses, relayOnly: relayOnly || onMobileData),
             factory: Self.factory, tracks: tracks,
             cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn), onMobileData: onMobileData)
         picture.onMark = { [weak self] what in self?.mark(what) }
         picture.onTooExpensive = { [weak self] in self?.onVideoTooExpensive?() }
+        picture.onAnswered = { [weak self] at in self?.onAnsweredAt?(at) }
         picture.onSending = { [weak self] height in self?.note { $0.picture = "\(height)p" } }
         picture.onMove = { [weak self] join in self?.onGroupMove?(join) }
         picture.onVideoChanged = { [weak self] video in
@@ -521,7 +489,6 @@ struct CallDiagnostics: Equatable, Sendable {
     func rollbackOffer() async {
         try? await setLocal(RTCSessionDescription(type: .rollback, sdp: ""))
         movingToRelay = false
-        movingToSecure = false
     }
 
     /// Whether this phone's own picture is the mirror image people expect of
@@ -553,8 +520,6 @@ struct CallDiagnostics: Equatable, Sendable {
             self.routeWatch = nil
         }
         if Self.live === self { Self.live = nil }
-        callWatch?.stop()
-        callWatch = nil
         gatheringLimit?.cancel()
         gatheringLimit = nil
         gathered?.resume()
@@ -837,12 +802,11 @@ struct CallDiagnostics: Equatable, Sendable {
     /// 443 — which is the one that works on a network that blocks
     /// everything else (docs/WEB.md §6).
     static func configuration(
-        relay: PhoneLine.Turn?, addresses: [String: [String]] = [:], relayOnly: Bool = false,
-        secureOnly: Bool = false
+        relay: PhoneLine.Turn?, addresses: [String: [String]] = [:], relayOnly: Bool = false
     ) -> RTCConfiguration {
         let configuration = RTCConfiguration()
         if let relay, !relay.urls.isEmpty {
-            let urls = Bench.relayURLs(relay.urls).filter { !secureOnly || $0.hasPrefix("turns:") }
+            let urls = Bench.relayURLs(relay.urls)
             // By address where iOS looked the name up, each server still
             // carrying its name for TLS (SNI and the certificate check).
             configuration.iceServers = RelayAddresses.servers(for: urls, addresses: addresses)
@@ -852,7 +816,7 @@ struct CallDiagnostics: Equatable, Sendable {
                         tlsCertPolicy: .secure, hostname: $0.hostname)
                 }
         }
-        if relayOnly || secureOnly || Bench.relayOnly || Bench.noUDP { configuration.iceTransportPolicy = .relay }
+        if relayOnly || Bench.relayOnly || Bench.noUDP { configuration.iceTransportPolicy = .relay }
         configuration.sdpSemantics = .unifiedPlan
         // Not "maxBundle": Asterisk's offers carry no BUNDLE group, and a
         // call is one stream of sound, so nothing is lost by it.
@@ -878,7 +842,7 @@ struct CallDiagnostics: Equatable, Sendable {
     /// This call's configuration: the relay by the addresses iOS found, and
     /// only the relay once the call has been moved onto it.
     private func configuration() -> RTCConfiguration {
-        Self.configuration(relay: turn, addresses: relayAddresses, relayOnly: relayOnly, secureOnly: secureOnly)
+        Self.configuration(relay: turn, addresses: relayAddresses, relayOnly: relayOnly)
     }
 
     // MARK: - The relay, reserved ahead of the call
@@ -903,12 +867,10 @@ struct CallDiagnostics: Equatable, Sendable {
     /// a reservation older than this is made again.
     private static let reservationLasts: TimeInterval = 20 * 60
 
-    nonisolated static func reservationKey(
-        _ turn: PhoneLine.Turn?, _ addresses: [String: [String]], secure: Bool
-    ) -> String {
+    nonisolated static func reservationKey(_ turn: PhoneLine.Turn?, _ addresses: [String: [String]]) -> String {
         guard let turn else { return "" }
         let found = addresses.keys.sorted().map { "\($0)=\(addresses[$0]!.sorted().joined(separator: ","))" }
-        return ([turn.username, secure ? "secure" : "any"] + turn.urls + found).joined(separator: "|")
+        return ([turn.username] + turn.urls + found).joined(separator: "|")
     }
 
     /// Reserves a relay for the next call, unless one for the same relay
@@ -917,8 +879,7 @@ struct CallDiagnostics: Equatable, Sendable {
         guard let turn, !turn.urls.isEmpty else { return }
         RelayCertificates.warm(turn.urls)
         let addresses = await RelayAddresses.addresses(for: RelayCertificates.hosts(in: turn.urls))
-        let secure = startsSecure(turn)
-        let key = reservationKey(turn, addresses, secure: secure)
+        let key = reservationKey(turn, addresses)
         if let held = reservation, held.key == key, Date().timeIntervalSince(held.made) < reservationLasts {
             return
         }
@@ -927,7 +888,7 @@ struct CallDiagnostics: Equatable, Sendable {
         let delegate = NobodyListening()
         guard
             let connection = factory.peerConnection(
-                with: configuration(relay: turn, addresses: addresses, secureOnly: secure), constraints: noConstraints,
+                with: configuration(relay: turn, addresses: addresses), constraints: noConstraints,
                 certificateVerifier: verifier, delegate: delegate)
         else { return }
         reservation = Reservation(
@@ -952,13 +913,10 @@ struct CallDiagnostics: Equatable, Sendable {
         Self.live = self
         for words in Self.checkedBeforeTheCall { mark("Before the call: \(words)") }
         Self.checkedBeforeTheCall = []
-        let callWatch = CallWatch(relay: turn?.urls ?? []) { [weak self] words, at in self?.mark(words, at: at) }
-        callWatch.start()
-        self.callWatch = callWatch
         Self.prepareAudioSession()
         watchTheRoute()
         let connection: RTCPeerConnection
-        if let ready = Self.takeTheReservation(Self.reservationKey(turn, relayAddresses, secure: secureOnly)) {
+        if let ready = Self.takeTheReservation(Self.reservationKey(turn, relayAddresses)) {
             // Made ahead of the call, its relay already reserved: the call
             // takes it over and its routes are ready at once.
             ready.delegate = self
@@ -1551,27 +1509,6 @@ extension WebRTCMedia: RTCPeerConnectionDelegate {
         default:
             break
         }
-    }
-
-    /// Moves a call that is up onto the relay over TLS on 443, the sound
-    /// and the picture both: the network is holding back what this phone
-    /// sends over UDP (`UploadWatch`). The owner's iPhone on Etisalat had
-    /// everything it sent over UDP held for 2.3 s at a time, every 3–4 s,
-    /// for the first 40 s of each call, while the same phone's TLS went
-    /// through (2026-10-16). Like `moveToRelay`, the old route carries the
-    /// call until the new one answers.
-    func moveToSecureRoute() async throws -> String {
-        guard let connection else { throw MediaTrouble.noOffer }
-        secureOnly = true
-        movingToSecure = true
-        mark("Moving to the secure route")
-        note { $0.movedToSecure = true }
-        connection.setConfiguration(configuration())
-        connection.restartIce()
-        picture?.move(
-            to: Self.configuration(
-                relay: turn, addresses: relayAddresses, relayOnly: true, secureOnly: true))
-        return try await offer()
     }
 
     func restartRoute() async throws -> String {

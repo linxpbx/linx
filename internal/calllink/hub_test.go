@@ -3,6 +3,7 @@ package calllink
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func next(t *testing.T, m *Member) map[string]any {
@@ -72,6 +73,28 @@ func TestADeskPhoneIsNeverAPeer(t *testing.T) {
 	var h Hub
 	a := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_desk-2"})
 	if p := next(t, a); p["type"] != "peer" || p["video"] != false {
+		t.Fatalf("peer %v", p)
+	}
+}
+
+func TestBothEndsAreToldWhenTheCallWasAnswered(t *testing.T) {
+	var h Hub
+	at := time.Now().Add(-3 * time.Second)
+	a := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_b-2", PeerLinx: true, AnsweredAt: at})
+	b := h.Join(Leg{Channel: "PJSIP/d_b-2", Peer: "PJSIP/d_a-1", PeerLinx: true, AnsweredAt: at})
+	for _, p := range []map[string]any{next(t, a), next(t, b)} {
+		ago, ok := p["answered_ms_ago"].(float64)
+		if !ok || ago < 3000 || ago > 4000 {
+			t.Fatalf("answered_ms_ago %v, want about 3000", p["answered_ms_ago"])
+		}
+	}
+	// A desk phone's other end is told too; a moment not known isn't sent.
+	d := h.Join(Leg{Channel: "PJSIP/d_c-3", Peer: "PJSIP/d_desk-4", AnsweredAt: at})
+	if p := next(t, d); p["answered_ms_ago"] == nil {
+		t.Fatalf("peer %v", p)
+	}
+	e := h.Join(Leg{Channel: "PJSIP/d_e-5", Peer: "PJSIP/d_desk-6"})
+	if p := next(t, e); p["answered_ms_ago"] != nil {
 		t.Fatalf("peer %v", p)
 	}
 }

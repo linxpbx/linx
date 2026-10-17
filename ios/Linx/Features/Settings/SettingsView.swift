@@ -121,37 +121,6 @@ struct SettingsView: View {
                 )
             }
 
-            Section {
-                if let test = phone.networkTest {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text(Self.stepWords(test.step)).font(.subheadline)
-                    }
-                    Button("Stop the test", role: .destructive) { phone.stopTheNetworkTest() }
-                } else {
-                    Button("Test this network") { phone.testTheNetwork() }
-                        .foregroundStyle(LinxColor.accent)
-                        .disabled(!phone.canTestTheNetwork)
-                    if !phone.canTestTheNetwork {
-                        Text(Self.cantTestWords(phone))
-                            .font(.footnote)
-                            .foregroundStyle(LinxColor.textMuted)
-                    }
-                    ForEach(phone.networkTestResults, id: \.self) { line in
-                        Text(line).font(.subheadline)
-                    }
-                    if !phone.networkTestResults.isEmpty {
-                        Text("Sent to Linx.").font(.footnote).foregroundStyle(LinxColor.textMuted)
-                    }
-                }
-            } header: {
-                Text("Call quality")
-            } footer: {
-                Text(
-                    "Checks whether this connection pauses what the phone sends, and when. Takes under two minutes, with no call going. It shows as a call called Network test while it runs."
-                )
-            }
-
             if let problem = model.problem ?? home.problem ?? phone.problem {
                 Section { Text(problem).font(.subheadline).foregroundStyle(LinxColor.end) }
             }
@@ -177,18 +146,6 @@ struct SettingsView: View {
         } message: {
             Text("This phone will stop ringing, and you'll need a new setup code to use it again.")
         }
-    }
-
-    /// Why the test can't start now, in the words the person can act on.
-    private static func cantTestWords(_ phone: PhoneModel) -> String {
-        if phone.call != nil { return "Available once this call has ended." }
-        if phone.status != .ready { return "Waiting for this phone's line: the test needs it to be Ready." }
-        return "Getting ready… try again in a few seconds."
-    }
-
-    private static func stepWords(_ step: NetworkTest.Step?) -> String {
-        guard let step else { return "Starting…" }
-        return "Step \(step.rawValue + 1) of \(NetworkTest.Step.allCases.count): \(step.words)…"
     }
 
     /// Plain words for what iOS allows, because "notifications don't work"

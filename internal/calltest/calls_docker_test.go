@@ -167,6 +167,10 @@ func TestCallsDocker(t *testing.T) {
 		if err != nil || leg.Channel != mine.Name || !strings.HasPrefix(leg.Peer, "PJSIP/"+bob.dev.SIPUsername+"-") || !leg.PeerLinx {
 			t.Errorf("Alice's leg = %+v, %v", leg, err)
 		}
+		// The moment every device on the call counts its timer from.
+		if ago := time.Since(leg.AnsweredAt); leg.AnsweredAt.IsZero() || ago < 0 || ago > time.Minute {
+			t.Errorf("Alice's leg answered at %v (%v ago), want the bridge's creation moment", leg.AnsweredAt, ago)
+		}
 		if _, err := resolver.Resolve(ctx, bob.dev.SIPUsername, mine.ProtocolID); !errors.Is(err, calllink.ErrNoCall) {
 			t.Errorf("Bob found Alice's leg by her Call-ID: %v", err)
 		}

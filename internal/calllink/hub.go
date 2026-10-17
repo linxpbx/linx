@@ -9,6 +9,7 @@ package calllink
 import (
 	"encoding/json"
 	"sync"
+	"time"
 )
 
 // Leg is one device's side of a call, as Asterisk has it.
@@ -21,6 +22,10 @@ type Leg struct {
 	// PeerLinx is whether that channel is an app's or a browser's, which
 	// can open a link of its own; a desk phone or a trunk can't.
 	PeerLinx bool
+	// AnsweredAt is when Asterisk joined this channel to the other side
+	// (its bridge was made): the one moment every device on the call
+	// counts its timer from (owner, 2026-10-17). Zero when not known.
+	AnsweredAt time.Time
 }
 
 // Messages to a device.
@@ -44,6 +49,10 @@ type (
 		Polite  bool   `json:"polite,omitempty"`
 		Session uint64 `json:"session,omitempty"`
 		Early   bool   `json:"early,omitempty"`
+		// AnsweredMsAgo is how long before this message the call was
+		// answered (Leg.AnsweredAt). It is sent as a span, not a moment,
+		// so a device whose own clock is wrong still counts the same.
+		AnsweredMsAgo *int64 `json:"answered_ms_ago,omitempty"`
 	}
 	// EarlyMessage opens the exchange of a call that is still ringing
 	// (Hub.EarlyCaller): the caller is told to offer (Offer), and each of
@@ -113,7 +122,7 @@ func (h *Hub) JoinEarly(leg Leg, early uint64) *Member {
 	}
 	h.members[leg.Channel] = m
 	if !leg.PeerLinx {
-		h.sendLocked(m, PeerMessage{Type: "peer", Video: false})
+		h.sendLocked(m, PeerMessage{Type: "peer", Video: false, AnsweredMsAgo: msAgo(leg.AnsweredAt)})
 		return m
 	}
 	if other := h.members[leg.Peer]; other != nil && other.Peer == leg.Channel && other.peer == nil {
@@ -124,10 +133,21 @@ func (h *Hub) JoinEarly(leg Leg, early uint64) *Member {
 			session = h.pairings
 		}
 		// Either rule would do as long as both ends agree on it.
-		h.sendLocked(m, PeerMessage{Type: "peer", Video: true, Polite: m.Channel < other.Channel, Session: session, Early: early})
-		h.sendLocked(other, PeerMessage{Type: "peer", Video: true, Polite: other.Channel < m.Channel, Session: session, Early: early})
+		h.sendLocked(m, PeerMessage{Type: "peer", Video: true, Polite: m.Channel < other.Channel, Session: session,
+			Early: early, AnsweredMsAgo: msAgo(m.AnsweredAt)})
+		h.sendLocked(other, PeerMessage{Type: "peer", Video: true, Polite: other.Channel < m.Channel, Session: session,
+			Early: early, AnsweredMsAgo: msAgo(other.AnsweredAt)})
 	}
 	return m
+}
+
+// msAgo is how long ago at was, in milliseconds, or nil if it isn't known.
+func msAgo(at time.Time) *int64 {
+	if at.IsZero() {
+		return nil
+	}
+	ms := max(time.Since(at).Milliseconds(), 0)
+	return &ms
 }
 
 // Relay passes data from m to the other end, if there is one yet. It

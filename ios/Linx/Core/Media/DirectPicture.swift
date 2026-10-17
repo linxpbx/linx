@@ -62,6 +62,9 @@ struct CallLinkMessage: Decodable, Sendable {
     /// "early": this phone made the call, and offers now.
     var offer: Bool?
     var data: PictureSignal?
+    /// "peer": how long ago Asterisk answered the call, the moment every
+    /// device on it counts its timer from (`answered_ms_ago`).
+    var answeredMsAgo: Int64?
     /// "move": the call became a group call, and this is the way in.
     var room: String?
     var token: String?
@@ -258,24 +261,6 @@ struct CallLinkMessage: Decodable, Sendable {
 
     func switchCamera() { camera?.flip() }
 
-    /// The call is moving onto the secure route (`WebRTCMedia.moveToSecureRoute`):
-    /// the picture starts again over the relay's TLS alone. Its link is
-    /// opened afresh, and Linx tells both phones to pair up again, so each
-    /// makes a new connection — this one with only TLS in it. An ICE restart
-    /// on the connection in place moved it, but WebRTC kept the old UDP
-    /// route alive beside the new one and went back to it two seconds later
-    /// (the phone bench, 2026-10-16). The picture carries on over the old
-    /// connection until the new pairing replaces it.
-    func move(to secure: RTCConfiguration) {
-        secure.bundlePolicy = .maxBundle
-        secure.rtcpMuxPolicy = .require
-        secure.sdpSemantics = .unifiedPlan
-        configuration = secure
-        guard !stopped, connection != nil else { return }
-        onMark?("Picture moving to the secure route")
-        link.start()
-    }
-
     func useHD(_ on: Bool) {
         guard hd != on else { return }
         hd = on
@@ -309,9 +294,14 @@ struct CallLinkMessage: Decodable, Sendable {
     // MARK: - The link
 
     private func received(_ data: Data) async {
-        guard !stopped, let message = try? JSONDecoder().decode(CallLinkMessage.self, from: data) else { return }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard !stopped, let message = try? decoder.decode(CallLinkMessage.self, from: data) else { return }
         switch message.type {
         case "peer":
+            if let ago = message.answeredMsAgo, ago >= 0 {
+                onAnswered?(Date().addingTimeInterval(-Double(ago) / 1000))
+            }
             guard message.video == true else {
                 onMark?("Their phone can't show a picture")
                 // Its camera went on as the call rang, for a Linx device
@@ -772,10 +762,10 @@ struct CallLinkMessage: Decodable, Sendable {
     /// second of delay until the camera switched itself off (the phone
     /// bench, 2026-10-13). Video apps send less on such a route: the
     /// picture starts at 360p there and grows only as far as the room the
-    /// link really shows, never by a blind try, and never past 540p. It used
-    /// to be held at 360p for good, which was fine while TCP was only for
-    /// China; since calls on a mobile network that holds UDP back go over
-    /// TLS from the start (`HeldNetworks`), a fast link deserves better.
+    /// link really shows, never by a blind try: never past 540p, or past
+    /// 720p with **HD** on. Both phones on a call press HD and expect it
+    /// to mean something wherever the link has room, TCP or not (owner,
+    /// 2026-10-17: both pressed HD over TLS and the picture stayed 540p).
     static let overTCPStep = VideoQuality.low
     static let overTCPMost = VideoQuality.high
     private var overTCP = false
@@ -874,14 +864,9 @@ struct CallLinkMessage: Decodable, Sendable {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
                 guard let self, !Task.isCancelled, let connection = self.connection else { return }
-                let asked = Date()
                 let report = await withCheckedContinuation { (done: CheckedContinuation<RTCStatisticsReport, Never>) in
                     connection.statistics { done.resume(returning: $0) }
                 }
-                // WebRTC's own threads answer this: a slow answer is them
-                // busy or stuck (`CallWatch`).
-                let took = Date().timeIntervalSince(asked)
-                if took > 0.5 { self.onMark?(String(format: "Picture readings took %.1f s", took)) }
                 self.read(report)
             }
         }
@@ -956,11 +941,32 @@ struct CallLinkMessage: Decodable, Sendable {
         told += 1
         onMark?(how.words(since: lastTold))
         lastTold = how
+        let held = Self.heldWords()
+        if held != lastHeld {
+            lastHeld = held
+            onMark?("This \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone") is \(held)")
+        }
+    }
+
+    /// How the device is held, which is also which way round its camera's
+    /// picture goes out and how the other side's fills this screen: a
+    /// sideways picture filling an upright phone is cropped to a narrow
+    /// slice of it (owner, 2026-10-17: the iPhone's view of the iPad was
+    /// far softer than the iPad's of the iPhone, the same 540p both ways).
+    /// Flat on a table, the screen's own way round says it.
+    private static func heldWords() -> String {
+        let device = UIDevice.current.orientation
+        if device.isPortrait { return "upright" }
+        if device.isLandscape { return "sideways" }
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        guard let screen = scene?.effectiveGeometry.interfaceOrientation else { return "held some way unknown" }
+        return screen.isLandscape ? "flat, its screen sideways" : "flat, its screen upright"
     }
 
     private var readings = 0
     private var told = 0
     private var lastTold: PictureReading?
+    private var lastHeld: String?
     /// Their picture's stops (WebRTC's "freezes") and how long, at the last reading.
     private var theirFreezes: (count: Int, seconds: Double)?
     private static let readingsBetweenTold = 5
@@ -1170,12 +1176,14 @@ struct CallLinkMessage: Decodable, Sendable {
     /// A call that wanders between sizes all its life fills its report with
     /// nothing else; the first few say what is needed.
     private static let mostSizeMarks = 12
+    /// When the server says the call was answered (`CallLinkMessage.answeredMsAgo`).
+    var onAnswered: ((Date) -> Void)?
     /// The size this phone's picture is going out at, for Call details.
     var onSending: ((Int) -> Void)?
 
     /// The step before any squeezing.
     private var unsqueezed: VideoQuality {
-        if overTCP || theirsOverTCP { return Self.overTCPMost }
+        if overTCP || theirsOverTCP { return hd ? Self.withHD : Self.overTCPMost }
         return hd ? Self.withHD : Self.standard
     }
 

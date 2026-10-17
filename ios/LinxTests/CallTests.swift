@@ -74,6 +74,7 @@ import Testing
     var video = CallVideo()
     var onVideoChanged: ((CallVideo) -> Void)?
     var onVideoTooExpensive: (() -> Void)?
+    var onAnsweredAt: ((Date) -> Void)?
     let tracks = VideoTracks()
     var mirrorsMyVideo = true
     private(set) var rolledBack = false
@@ -149,12 +150,6 @@ import Testing
     static let relayOffer = "v=0\r\no=- 3 3 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\na=ice-ufrag:relay\r\n"
     func moveToRelay() async throws -> String {
         relayMoves += 1
-        return Self.relayOffer
-    }
-    private(set) var secureMoves = 0
-    var onSecureRoute: Bool { secureMoves > 0 }
-    func moveToSecureRoute() async throws -> String {
-        secureMoves += 1
         return Self.relayOffer
     }
     var onRouteLost: (() -> Void)?
@@ -671,14 +666,13 @@ extension CallTests {
 
     @Test("a late refusal of an earlier change neither ends the call nor speaks for the caller")
     func lateRefusalAfterAMove() async throws {
-        // 2026-10-17 on Etisalat: a call this phone was rung for moved to the
-        // secure route, its change was answered, and a late 500 for it came
-        // after. Acknowledged from the first invitation, the ACK carried the
+        // 2026-10-17 on Etisalat: a call this phone was rung for moved its
+        // route, its change was answered, and a late 500 for it came after. Acknowledged from the first invitation, the ACK carried the
         // caller's From, the relay closed the line and the call dropped.
         let (agent, transport, _, box) = await signedIn()
         transport.asterisk(Self.incomingInvite())
         await agent.answer()
-        await agent.moveToSecureRoute()
+        await agent.moveToRelay()
         let change = try #require(transport.last("INVITE"))
         #expect(change.body == FakeMedia.relayOffer)
         transport.asterisk(SIPMessage.response(200, "OK", to: change).withTag("theirs"))

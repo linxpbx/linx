@@ -93,6 +93,9 @@ extension SIPCallMedia {
     var onVideoChanged: ((CallVideo) -> Void)? { get set }
     /// The link hasn't the room for a picture any more.
     var onVideoTooExpensive: (() -> Void)? { get set }
+    /// The server's moment of the answer, from the call link: the call's
+    /// timer counts from it, on every device on the call alike.
+    var onAnsweredAt: ((Date) -> Void)? { get set }
     /// Opens the picture link while the call rings (`ringing`), so the
     /// connection is made before the answer, and is told again at the
     /// answer; `cameraFirst` turns this phone's camera on as soon as the
@@ -119,12 +122,6 @@ extension SIPCallMedia {
     /// Moves a call that is up onto Linx's relay (an ICE restart that allows
     /// only the relay) and answers with the offer that tells the other side.
     func moveToRelay() async throws -> String
-    /// Moves a call that is up onto the relay over TLS alone, its picture
-    /// too, and answers with the offer that tells the other side
-    /// (`WebRTCMedia.moveToSecureRoute`).
-    func moveToSecureRoute() async throws -> String
-    /// The call is on the relay's TLS alone (it started there, or moved).
-    var onSecureRoute: Bool { get }
     /// The sound's route has gone — a network change cut it — and stayed
     /// gone: the user agent looks for a new one (`restartRoute`).
     var onRouteLost: (() -> Void)? { get set }
@@ -614,21 +611,6 @@ extension SIPCallMedia {
         call?.movedToRelay = true
         defer { call?.changing = false }
         guard let offer = try? await current.media.moveToRelay(), call?.id == current.id,
-            !(call?.reinviting ?? false)
-        else { return }
-        call?.reinviteForRelay = true
-        sendReinvite(offer, of: current)
-    }
-
-    /// Moves the call onto the secure route: the network is holding back
-    /// what this phone sends over UDP (PhoneModel decides when). The same
-    /// re-INVITE as a move onto the relay, with only the relay's TLS in it.
-    func moveToSecureRoute() async {
-        guard let current = call, current.established, !current.changing, !current.reinviting else { return }
-        call?.changing = true
-        call?.movedToRelay = true
-        defer { call?.changing = false }
-        guard let offer = try? await current.media.moveToSecureRoute(), call?.id == current.id,
             !(call?.reinviting ?? false)
         else { return }
         call?.reinviteForRelay = true

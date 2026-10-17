@@ -15,6 +15,9 @@ import UIKit
     ) -> Bool {
         // Before anything else of WebRTC's runs (`WebRTCMedia.fieldTrials`).
         _ = WebRTCMedia.fieldTrials
+        // What builds 42–48 remembered about networks "holding back UDP": the
+        // pauses were a dual-SIM iPhone's second line (`WebRTCMedia.fieldTrials`).
+        UserDefaults.standard.removeObject(forKey: "heldNetworks")
         // A screenshot run talks to nothing at all, and must never put a
         // call on a simulator's lock screen.
         guard Screen.launched == nil else { return true }

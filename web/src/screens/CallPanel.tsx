@@ -232,6 +232,12 @@ export function CallPanel({ call }: { call: Call }) {
             {cameraOn ? <Video /> : <VideoOff />}
           </RoundButton>
         </span>
+        {!g && p?.mine && (
+          <RoundButton label={p.hd ? "Turn HD off" : "Turn HD on"} pressed={!!p.hd} disabled={!live}
+            onClick={() => line.toggleHD()}>
+            <span className="text-sm font-semibold">HD</span>
+          </RoundButton>
+        )}
         <AddPerson call={call} disabled={!live || (!g && !p?.available) || (!!g && g.phase !== "in")} />
       </div>
       <button type="button" onClick={() => line.hangUp()}
