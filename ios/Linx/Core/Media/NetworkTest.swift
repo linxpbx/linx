@@ -26,6 +26,12 @@ import UIKit
 /// the phone's mobile side; held only on the line home, it is on the way
 /// into the owner's own network (their line, router or Pangolin).
 ///
+/// A third runs to Linx at home marked as a voice call (build 47): iOS sends
+/// a voice call's packets ahead of everything else the phone has queued, so
+/// held on the ordinary line and not on this one, the pause is the phone's
+/// own queue behind other uploads after a quiet spell, which an app that
+/// marks its call traffic as voice (as calling apps do) never meets.
+///
 /// The step the holds start in is what to look at. The record goes to Linx
 /// like a call's.
 @MainActor @Observable final class NetworkTest {
@@ -62,6 +68,7 @@ import UIKit
     private var marks: [(at: Date, what: String)] = []
     private var holds: [(at: Date, length: TimeInterval)] = []
     private var farHolds: [(at: Date, length: TimeInterval)] = []
+    private var voiceHolds: [(at: Date, length: TimeInterval)] = []
     /// The Linx abroad the second side line asks: the owner's test VPS
     /// (`docs/RESOURCES.md`). Its relay answers a Binding request over TLS
     /// like any Linx's.
@@ -73,6 +80,7 @@ import UIKit
     private var relay: (host: String, port: UInt16)?
     private var side: SideLine?
     private var far: SideLine?
+    private var voice: SideLine?
     private var busy: SideLine?
     private var engine: AVAudioEngine?
     private var camera: TestCamera?
@@ -130,6 +138,11 @@ import UIKit
             held: { at, length in Task { @MainActor [weak self] in self?.farHolds.append((at, length)) } },
             tell: { words, at in Task { @MainActor [weak self] in self?.mark(words, at: at) } })
         far?.start()
+        voice = SideLine(
+            host: host, port: port, name: "Voice line", serviceClass: .interactiveVoice,
+            held: { at, length in Task { @MainActor [weak self] in self?.voiceHolds.append((at, length)) } },
+            tell: { words, at in Task { @MainActor [weak self] in self?.mark(words, at: at) } })
+        voice?.start()
         await wait(1.5)
         for step in Step.allCases {
             guard !cancelled else { break }
@@ -153,6 +166,8 @@ import UIKit
         side = nil
         far?.stop()
         far = nil
+        voice?.stop()
+        voice = nil
         await wait(0.5)
         step = nil
         return record()
@@ -245,19 +260,17 @@ import UIKit
         return words + String(format: "held %d times, longest %.1f s", held.count, longest)
     }
 
-    /// How the line abroad did, and how many of the holds here it shared.
-    private func abroad() -> String {
+    /// How another line did, and how many of the holds here it shared.
+    private func compare(_ name: String, _ others: [(at: Date, length: TimeInterval)], where place: String) -> String {
         let together = holds.filter { here in
             let hereEnds = here.at.addingTimeInterval(here.length)
-            return farHolds.contains { there in
+            return others.contains { there in
                 there.at < hereEnds && here.at < there.at.addingTimeInterval(there.length)
             }
         }
-        let longest = farHolds.map(\.length).max() ?? 0
-        return String(
-            format: "abroad: held %d times, longest %.1f s; %@",
-            farHolds.count, longest,
-            "\(together.count) of the \(holds.count) holds here were held abroad at the same moment")
+        let longest = others.map(\.length).max() ?? 0
+        return String(format: "%@: held %d times, longest %.1f s; ", name, others.count, longest)
+            + "\(together.count) of the \(holds.count) holds here were held \(place) at the same moment"
     }
 
     private func record() -> String {
@@ -270,7 +283,8 @@ import UIKit
         } else {
             lines.append("verdict: not finished")
         }
-        lines.append(abroad())
+        lines.append(compare("abroad", farHolds, where: "abroad"))
+        lines.append(compare("voice priority", voiceHolds, where: "on the voice line"))
         lines += steps.map { summary(of: $0) }
         let sorted = marks.sorted { $0.at < $1.at }
         lines += sorted.map { String(format: "+%.1f s %@", $0.at.timeIntervalSince(startedAt), $0.what) }

@@ -144,6 +144,7 @@ final class SideLine: @unchecked Sendable {
     private let name: String
     private let every: TimeInterval
     private let padding: Int
+    private let serviceClass: NWParameters.ServiceClass
     private let tell: @Sendable (String, Date) -> Void
     /// Each hold as it ends: when it began, and how long it was.
     private let held: (@Sendable (Date, TimeInterval) -> Void)?
@@ -163,7 +164,8 @@ final class SideLine: @unchecked Sendable {
 
     init(
         host: String, port: UInt16, name: String = "Side line", every: TimeInterval = SideLine.every,
-        padding: Int = 0, held: (@Sendable (Date, TimeInterval) -> Void)? = nil,
+        padding: Int = 0, serviceClass: NWParameters.ServiceClass = .bestEffort,
+        held: (@Sendable (Date, TimeInterval) -> Void)? = nil,
         tell: @escaping @Sendable (String, Date) -> Void
     ) {
         self.host = host
@@ -171,6 +173,7 @@ final class SideLine: @unchecked Sendable {
         self.name = name
         self.every = every
         self.padding = padding
+        self.serviceClass = serviceClass
         self.held = held
         self.tell = tell
         queue = DispatchQueue(label: "linx.side-line.\(name)", qos: .userInitiated)
@@ -206,9 +209,10 @@ final class SideLine: @unchecked Sendable {
         sec_protocol_options_set_tls_server_name(tls.securityProtocolOptions, host)
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
+        let parameters = NWParameters(tls: tls, tcp: tcp)
+        parameters.serviceClass = serviceClass
         let connection = NWConnection(
-            host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 443,
-            using: NWParameters(tls: tls, tcp: tcp))
+            host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 443, using: parameters)
         connection.stateUpdateHandler = { [weak self] state in
             guard let self, self.connection === connection else { return }
             switch state {
