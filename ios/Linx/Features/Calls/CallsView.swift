@@ -237,6 +237,21 @@ struct CallRow: View {
                 }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Call \(who) back")
+                // Someone at Linx can be rung back with a picture too (owner,
+                // 2026-10-17); an outside number can't show one.
+                if call.direction == .internal {
+                    Button {
+                        phone.callNumber(
+                            call.other.number, name: call.other.name.isEmpty ? nil : call.other.name,
+                            withVideo: true)
+                    } label: {
+                        Image(systemName: "video")
+                            .font(.title3)
+                            .foregroundStyle(selected ? LinxColor.onBrand : LinxColor.accent)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Video call \(who) back")
+                }
             }
         }
         .padding(.vertical, LinxSpace.s1)
@@ -338,7 +353,17 @@ struct CallDetailView: View {
                         phone.callNumber(
                             call.other.number, name: call.other.name.isEmpty ? nil : call.other.name)
                     }
-                    .buttonStyle(.linxPrimary)
+                    .buttonStyle(.linxCall)
+                    if call.direction == .internal {
+                        Button {
+                            phone.callNumber(
+                                call.other.number, name: call.other.name.isEmpty ? nil : call.other.name,
+                                withVideo: true)
+                        } label: {
+                            Label("Video call", systemImage: "video.fill")
+                        }
+                        .buttonStyle(.linxPrimary)
+                    }
                 }
 
                 Spacer(minLength: 0)
