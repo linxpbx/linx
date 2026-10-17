@@ -47,6 +47,9 @@ enum Bench {
         /// (`HeldNetworks`): its calls start on the secure route.
         static var heldBefore: Bool { defaults.bool(forKey: "LinxBenchHeldBefore") }
 
+        /// Run Settings → Test this network instead of making the call.
+        static var networkTest: Bool { defaults.bool(forKey: "LinxBenchNetworkTest") }
+
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
         static let setupLink: String? = nil
@@ -63,6 +66,7 @@ enum Bench {
         static let noUDP = false
         static let callKit = false
         static let hd = false
+        static let networkTest = false
         static let on = false
     #endif
 

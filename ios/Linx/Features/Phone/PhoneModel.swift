@@ -280,6 +280,10 @@ import UIKit
         self.inFront = inFront
         self.calls.onRequest = { [weak self] request in self?.systemAsked(request) }
         self.calls.onAudio = { [weak self] on in
+            if self?.liveMedia == nil, let test = self?.networkTest {
+                test.sound(on)
+                return
+            }
             guard let media = self?.liveMedia else {
                 WebRTCMedia.systemAudioWithNoCall(on)
                 return
@@ -601,6 +605,7 @@ import UIKit
     func woken(from: String, video: Bool = false) async -> Bool {
         let id = UUID()
         let peer = Self.caller(from)
+        stopTheNetworkTest()
         guard await calls.reportIncoming(id: id, from: peer, video: video) else { return false }
         // One line, one call: a second caller hears busy and the server
         // sends them to voicemail, as it does for the browser. The push
@@ -1183,6 +1188,19 @@ import UIKit
     // MARK: - What the system tells the app to do
 
     private func systemAsked(_ request: SystemCallRequest) {
+        if let test = networkTest, request.id == test.id {
+            switch request {
+            case .start:
+                // After CallKit has been told the call is on its way out.
+                Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(300))
+                    self?.calls.reportAnswered(id: test.id)
+                }
+            case .end: test.callEnded()
+            case .answer, .mute, .tone: break
+            }
+            return
+        }
         switch request {
         case .start(let id, let peer):
             place(id: id, to: intended[id] ?? peer)
@@ -1281,6 +1299,50 @@ import UIKit
         if call != nil { agent?.hangUp() }
     }
 
+    // MARK: - Test this network (build 45's diagnostic, `NetworkTest`)
+
+    /// The test running now.
+    private(set) var networkTest: NetworkTest?
+    /// What the last test found, a line a step, for Settings.
+    private(set) var networkTestResults: [String] = []
+
+    var canTestTheNetwork: Bool {
+        status == .ready && call == nil && waking.isEmpty && networkTest == nil && relay != nil
+    }
+
+    /// Runs `NetworkTest` and sends its record to Linx like a call's.
+    func testTheNetwork() {
+        guard canTestTheNetwork, let relay else { return }
+        let id = UUID()
+        let test = NetworkTest(
+            id: id,
+            startCall: { [weak self] in
+                self?.calls.ask(.start(id, SIPPeer(name: "Network test", number: "Network test")))
+            },
+            endCall: { [weak self] in self?.calls.reportEnded(id: id, .hungUp) })
+        networkTest = test
+        networkTestResults = []
+        let urls = Bench.relayURLs(relay.urls)
+        Task { [weak self] in
+            let text = await test.run(relay: urls)
+            guard let self else { return }
+            self.networkTestResults = test.results
+            self.networkTest = nil
+            guard let line = self.lineInUse else { return }
+            self.sendReport(
+                line,
+                CallReport(
+                    callID: id.uuidString, incoming: false, peer: "network test", startedAt: test.startedAt,
+                    endedAt: Date(), text: text))
+        }
+    }
+
+    /// Stops the test at once, before a call that is coming is reported:
+    /// the system holds one call at a time.
+    func stopTheNetworkTest() {
+        networkTest?.cancel()
+    }
+
     // MARK: - The test bench (`Bench`)
 
     private var benchCalled = false
@@ -1289,6 +1351,13 @@ import UIKit
     private func callForTheBench() {
         guard let number = Bench.call, !benchCalled else { return }
         benchCalled = true
+        if Bench.networkTest {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Bench.callAfter))
+                self?.testTheNetwork()
+            }
+            return
+        }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(Bench.callAfter))
             self?.callNumber(number, withVideo: Bench.video)
@@ -1349,6 +1418,7 @@ import UIKit
                 self?.answer()
             }
         }
+        stopTheNetworkTest()
         Task { [weak self] in
             guard let self else { return }
             guard await self.calls.reportIncoming(id: id, from: peer, video: video) else {

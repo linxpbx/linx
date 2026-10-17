@@ -142,10 +142,11 @@ If the app ever crashes, iOS makes a report of it and hands it to the app the ne
 
 ## Settings on the phone
 
-**More** → **Settings**: your status, how this phone's line is doing, which extension it answers, which **Person** it signs in as and which **Linx server** it was set up on, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**. Two more:
+**More** → **Settings**: your status, how this phone's line is doing, which extension it answers, which **Person** it signs in as and which **Linx server** it was set up on, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**. Three more:
 
 - **Appearance** — Light, Dark, or **Match this device**, the same choice the web app has. It is kept on this phone.
 - **Show Linx calls in the Phone app** — on, a Linx call sits in the iPhone's own Recents beside your ordinary calls and you can ring back from there; off, Linx keeps its calls to itself and only the **Calls** tab has them. Calls already made stay where they are.
+- **Test this network** — under **Call quality**: checks, in under two minutes and with no call going, whether this connection pauses what the phone sends, and at which step of putting a call together. It shows as a call named Network test while it runs, and its results go to Linx beside your call records.
 
 ## The app can't run Linx
 

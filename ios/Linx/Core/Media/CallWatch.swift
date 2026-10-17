@@ -126,14 +126,28 @@ import UIKit
 /// for a second or more. Everything here happens on `queue`, which is its
 /// own: neither WebRTC's threads nor the main thread hold it up. About
 /// 1 kbit/s each way.
+///
+/// With `padding`, every question carries that many bytes more, and asked
+/// often enough it sends as much as a video call does (`NetworkTest`'s
+/// busy line); the relay's answers stay small.
+///
+/// The relay closes a connection that never reserves anything after about a
+/// minute ("connection reset by peer", the owner's calls, 2026-10-17), so
+/// the line opens again by itself, and says so.
 final class SideLine: @unchecked Sendable {
     static let every: TimeInterval = 0.25
     static let stall: TimeInterval = 1.0
+    static let mostReopens = 20
 
     private let host: String
     private let port: UInt16
+    private let name: String
+    private let every: TimeInterval
+    private let padding: Int
     private let tell: @Sendable (String, Date) -> Void
-    private let queue = DispatchQueue(label: "linx.side-line", qos: .userInitiated)
+    /// Each hold as it ends: when it began, and how long it was.
+    private let held: (@Sendable (Date, TimeInterval) -> Void)?
+    private let queue: DispatchQueue
 
     // Only ever touched on `queue`.
     private var connection: NWConnection?
@@ -144,12 +158,22 @@ final class SideLine: @unchecked Sendable {
     private var waits: [TimeInterval] = []
     private var holds: [TimeInterval] = []
     private var opened: Date?
+    private var reopens = 0
     private var stopped = false
 
-    init(host: String, port: UInt16, tell: @escaping @Sendable (String, Date) -> Void) {
+    init(
+        host: String, port: UInt16, name: String = "Side line", every: TimeInterval = SideLine.every,
+        padding: Int = 0, held: (@Sendable (Date, TimeInterval) -> Void)? = nil,
+        tell: @escaping @Sendable (String, Date) -> Void
+    ) {
         self.host = host
         self.port = port
+        self.name = name
+        self.every = every
+        self.padding = padding
+        self.held = held
         self.tell = tell
+        queue = DispatchQueue(label: "linx.side-line.\(name)", qos: .userInitiated)
     }
 
     func start() {
@@ -170,8 +194,8 @@ final class SideLine: @unchecked Sendable {
             let longest = self.holds.max() ?? 0
             self.tell(
                 String(
-                    format: "Side line: %d answers, typically in %d ms; held %d times, longest %.1f s",
-                    self.waits.count, Int(typical * 1000), self.holds.count, longest), Date())
+                    format: "%@: %d answers, typically in %d ms; held %d times, longest %.1f s",
+                    self.name, self.waits.count, Int(typical * 1000), self.holds.count, longest), Date())
         }
     }
 
@@ -186,17 +210,17 @@ final class SideLine: @unchecked Sendable {
             host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port) ?? 443,
             using: NWParameters(tls: tls, tcp: tcp))
         connection.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
+            guard let self, self.connection === connection else { return }
             switch state {
             case .ready:
+                let first = self.opened == nil
                 self.opened = Date()
-                self.tell("Side line open in \(Int(Date().timeIntervalSince(began) * 1000)) ms", Date())
+                let ms = Int(Date().timeIntervalSince(began) * 1000)
+                self.tell(first ? "\(self.name) open in \(ms) ms" : "\(self.name) open again in \(ms) ms", Date())
                 self.receive(on: connection)
                 self.startAsking()
             case .failed(let error):
-                self.tell("Side line failed: \(error.localizedDescription)", Date())
-                self.timer?.cancel()
-                self.timer = nil
+                self.closed("\(self.name) failed: \(error.localizedDescription)")
             default:
                 break
             }
@@ -205,9 +229,28 @@ final class SideLine: @unchecked Sendable {
         connection.start(queue: queue)
     }
 
+    /// The connection is gone: say why, and open another.
+    private func closed(_ why: String) {
+        guard !stopped else { return }
+        timer?.cancel()
+        timer = nil
+        connection?.cancel()
+        connection = nil
+        asked = [:]
+        buffer = Data()
+        counter = StallCounter(stall: Self.stall, within: 3600)
+        guard opened != nil, reopens < Self.mostReopens else {
+            tell(why, Date())
+            return
+        }
+        reopens += 1
+        tell(why + "; opening it again", Date())
+        queue.asyncAfter(deadline: .now() + 0.1) { self.open() }
+    }
+
     private func startAsking() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now(), repeating: Self.every, leeway: .milliseconds(10))
+        timer.schedule(deadline: .now(), repeating: every, leeway: .milliseconds(every < 0.05 ? 2 : 10))
         timer.setEventHandler { [weak self] in self?.ask() }
         timer.resume()
         self.timer = timer
@@ -216,22 +259,26 @@ final class SideLine: @unchecked Sendable {
     private func ask() {
         guard let connection, !stopped else { return }
         let now = Date()
-        let request = UploadWatch.bindingRequest()
+        let request = Self.request(padding: padding)
         asked[request.id] = now
         connection.send(content: request.bytes, completion: .idempotent)
-        asked = asked.filter { now.timeIntervalSince($0.value) < 10 }
+        if asked.count > 64 { asked = asked.filter { now.timeIntervalSince($0.value) < 10 } }
         if let oldest = asked.values.min() { counter.waiting(since: oldest, now: now) }
     }
 
     private func receive(on connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] data, _, done, error in
-            guard let self, !self.stopped else { return }
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, done, error in
+            guard let self, !self.stopped, self.connection === connection else { return }
             if let data { self.buffer.append(data) }
             for message in Self.messages(from: &self.buffer) {
                 guard let id = UploadWatch.answeredID(message) else { continue }
                 self.answered(id)
             }
-            if error == nil, !done { self.receive(on: connection) }
+            if error == nil, !done {
+                self.receive(on: connection)
+            } else {
+                self.closed("\(self.name) closed by the relay")
+            }
         }
     }
 
@@ -242,14 +289,29 @@ final class SideLine: @unchecked Sendable {
         // answered before it too; any left are from a line that broke.
         asked = asked.filter { $0.value > sent }
         let wait = now.timeIntervalSince(sent)
-        if waits.count < 2000 { waits.append(wait) }
+        if waits.count < 20000 { waits.append(wait) }
         switch counter.answered(after: wait, now: now) {
         case .fine:
             break
         case .stalled(let hold), .keepsStalling(let hold):
             holds.append(hold)
-            tell(String(format: "Side line: no answer for %.1f s", hold), now.addingTimeInterval(-hold))
+            let began = now.addingTimeInterval(-hold)
+            held?(began, hold)
+            tell(String(format: "%@: no answer for %.1f s", name, hold), began)
         }
+    }
+
+    /// A Binding Request, with `padding` bytes more in an attribute the
+    /// relay is free to ignore (0x80A0, comprehension-optional).
+    static func request(padding: Int) -> (bytes: Data, id: Data) {
+        let plain = UploadWatch.bindingRequest()
+        guard padding > 0 else { return plain }
+        let size = (padding + 3) / 4 * 4
+        var bytes = plain.bytes
+        bytes[2] = UInt8((size + 4) >> 8)
+        bytes[3] = UInt8((size + 4) & 0xFF)
+        bytes += Data([0x80, 0xA0, UInt8(size >> 8), UInt8(size & 0xFF)]) + Data(count: size)
+        return (bytes, plain.id)
     }
 
     /// Takes whole STUN messages (a 20-byte header whose bytes 2–3 say how

@@ -102,4 +102,16 @@ struct UploadWatchTests {
         #expect(rest.count == 1 && UploadWatch.answeredID(rest[0]) == second)
         #expect(buffer.isEmpty)
     }
+
+    @Test("the busy line's question is one whole STUN message carrying its padding")
+    func busyLinePadding() {
+        let (bytes, id) = SideLine.request(padding: 1000)
+        #expect(bytes.count == 20 + 4 + 1000)
+        #expect(Int(bytes[2]) << 8 | Int(bytes[3]) == 1004)
+        #expect(bytes[20] == 0x80 && bytes[21] == 0xA0)
+        #expect(Data(bytes[8..<20]) == id)
+        var buffer = bytes
+        #expect(SideLine.messages(from: &buffer).count == 1 && buffer.isEmpty)
+        #expect(SideLine.request(padding: 0).bytes.count == 20)
+    }
 }

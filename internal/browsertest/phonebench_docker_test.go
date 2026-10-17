@@ -241,6 +241,20 @@ func (h *harness) blackoutFor(d time.Duration) {
 	run("-D")
 }
 
+// holdFor holds back everything the phones send to linx-sni's port 443
+// for a while — dropped, so TCP sends it again once the hold is over, as a
+// mobile network that stops a phone's sending does.
+func (h *harness) holdFor(d time.Duration) {
+	rule := []string{"INPUT", "-p", "tcp", "--dport", "443", "-j", "DROP"}
+	run := func(op string) {
+		h.docker(append([]string{"run", "--rm", "--network", "container:linx-sni", "--cap-add", "NET_ADMIN",
+			"nicolaka/netshoot", "iptables", op}, rule...)...)
+	}
+	run("-I")
+	time.Sleep(d)
+	run("-D")
+}
+
 // noNewConnectionsFor turns away every new connection to linx-sni's port
 // 443 (the phones' line to Linx, the call link, the relay over TLS) for a
 // while, leaving those already open alone.
@@ -547,6 +561,59 @@ func TestPhoneBenchDocker(t *testing.T) {
 			}
 			t.Logf("Linx's verdicts: %s", h.psql("select string_agg(verdict || ' ' || array_to_string(reasons, '; '), ' | ') "+
 				"from call_quality where ended_at > '"+since+"'"))
+		})
+	}
+
+	// Settings → Test this network (build 45's diagnostic): every step runs,
+	// the busy line carries a video call's worth, the record reaches Linx,
+	// and on a clean network nothing is held.
+	for _, netTest := range []string{"the network test, on a clean network", "the network test, held in step 3"} {
+		if only != "" && !slices.ContainsFunc(strings.Split(only, "|"), func(o string) bool { return strings.Contains(netTest, o) }) {
+			continue
+		}
+		t.Run(netTest, func(t *testing.T) {
+			since := h.psql("select now()")
+			bench("call", caller, answerer, "202", "0", "network-test")
+			held := strings.HasSuffix(netTest, "step 3")
+			if held {
+				// Step 3 runs from about 56 to 79 s after the phones start,
+				// and bench.sh comes back eight seconds after they do.
+				time.Sleep(57 * time.Second)
+				h.holdFor(2500 * time.Millisecond)
+			}
+			q := "select report from phone_call_report where created_at > '" + since + "' and report like 'Linx network test%';"
+			deadline := time.Now().Add(4 * time.Minute)
+			r := h.psql(q)
+			for r == "" {
+				if time.Now().After(deadline) {
+					t.Fatal("no network test record reached Linx")
+				}
+				time.Sleep(3 * time.Second)
+				r = h.psql(q)
+			}
+			t.Logf("--- the network test:\n%s", r)
+			wants := []string{
+				"1. Nothing else running: never held", "2. With a call on the iPhone's books: never held",
+				"Side line open in", "Call put on the iPhone's books", "Busy line open in", "Call taken off the iPhone's books",
+			}
+			if held {
+				wants = append(wants, "verdict: held from step 3", "3. With the microphone and speaker on: held once")
+			} else {
+				wants = append(wants, "verdict: never held", "5. Sending as much as a video call: never held")
+			}
+			for _, want := range wants {
+				if !strings.Contains(r, want) {
+					t.Errorf("the record doesn't say %q", want)
+				}
+			}
+			// A hundred questions a second for twenty seconds.
+			m := regexp.MustCompile(`Busy line: (\d+) answers`).FindStringSubmatch(r)
+			if m == nil {
+				t.Fatal("no busy line summary")
+			}
+			if n, _ := strconv.Atoi(m[1]); n < 1000 {
+				t.Errorf("the busy line had %d answers, want 1000 or more", n)
+			}
 		})
 	}
 }
