@@ -1153,6 +1153,17 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByRole("button", { name: "Call", exact: true })).toBeVisible();
       await shot(page, `${scheme}-dialer`);
 
+      // Matches come and go as a number is typed, and the keypad stays put
+      // (owner, 2026-10-17): nobody has to scroll to reach the next key.
+      const one = page.getByRole("group", { name: "Keypad" }).getByRole("button", { name: "1", exact: true });
+      const before = await one.boundingBox();
+      await page.getByLabel("Name, extension or number").fill("10");
+      await expect(page.getByRole("list", { name: "Matching people", exact: true })).toBeVisible();
+      await expect(page.getByRole("list", { name: "More matching people" })).toBeVisible();
+      expect(await one.boundingBox()).toEqual(before);
+      await shot(page, `${scheme}-dialer-matching`);
+      await page.getByLabel("Name, extension or number").fill("");
+
       await page.getByLabel("Search people or dial a number").fill("Aisha");
       await shot(page, `${scheme}-search`);
       await page.getByRole("button", { name: /Aisha Rahman/ }).first().click();

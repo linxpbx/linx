@@ -48,6 +48,7 @@ export function DialerScreen({ members, stamp }: { members: TeamMember[] | null;
     }
     setValue("");
   };
+  const callMatch = (m: TeamMember) => { line.call(m.extension, m.name); setValue(""); };
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center px-4 py-8">
@@ -64,25 +65,14 @@ export function DialerScreen({ members, stamp }: { members: TeamMember[] | null;
             </button>
           )}
         </div>
-        {matches.length > 0 && (
-          <ul className="mt-2 overflow-hidden rounded-md border bg-card" aria-label="Matching people">
-            {matches.map((m) => (
-              <li key={m.extension}>
-                <button type="button" disabled={!canCall} onClick={() => { line.call(m.extension, m.name); setValue(""); }}
-                  className="flex w-full items-center gap-3 px-3 py-2 text-start hover:bg-background disabled:opacity-50">
-                  <Avatar name={m.name} status={m.status} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{m.name}</span>
-                    <span className="block text-sm text-muted-foreground">Ext <span className="font-mono">{m.extension}</span> · {statusLabel[m.status]}</span>
-                  </span>
-                  <Phone aria-hidden="true" className="size-4 text-call" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* One row, always the same height, so the keypad below never moves
+            while matches come and go (owner, 2026-10-17): the best match here,
+            any others under the call buttons. */}
+        <div className="mt-2 h-14">
+          {matches[0] && <MatchList matches={matches.slice(0, 1)} canCall={canCall} onCall={callMatch} />}
+        </div>
       </form>
-      <div className="mt-8">
+      <div className="mt-4">
         <Keypad onKey={(k) => setValue((v) => v + k)} />
       </div>
       {/* Call in green, Video call in Cobalt (owner, 2026-10-12). A video
@@ -97,6 +87,11 @@ export function DialerScreen({ members, stamp }: { members: TeamMember[] | null;
           <Video className="size-7" />
         </button>
       </div>
+      {matches.length > 1 && (
+        <div className="mt-6 w-full">
+          <MatchList matches={matches.slice(1)} canCall={canCall} onCall={callMatch} label="More matching people" />
+        </div>
+      )}
 
       <section className="mt-10 w-full" aria-labelledby="recent-title">
         <h2 id="recent-title" className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Recent</h2>
@@ -133,5 +128,27 @@ export function DialerScreen({ members, stamp }: { members: TeamMember[] | null;
         </button>
       </section>
     </div>
+  );
+}
+
+function MatchList({ matches, canCall, onCall, label = "Matching people" }: {
+  matches: TeamMember[]; canCall: boolean; onCall: (m: TeamMember) => void; label?: string;
+}) {
+  return (
+    <ul className="divide-y overflow-hidden rounded-md border bg-card" aria-label={label}>
+      {matches.map((m) => (
+        <li key={m.extension}>
+          <button type="button" disabled={!canCall} onClick={() => onCall(m)}
+            className="flex h-14 w-full items-center gap-3 px-3 text-start hover:bg-background disabled:opacity-50">
+            <Avatar name={m.name} status={m.status} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">{m.name}</span>
+              <span className="block truncate text-sm text-muted-foreground">Ext <span className="font-mono">{m.extension}</span> · {statusLabel[m.status]}</span>
+            </span>
+            <Phone aria-hidden="true" className="size-4 text-call" />
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
