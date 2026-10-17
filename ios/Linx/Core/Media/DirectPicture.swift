@@ -874,9 +874,14 @@ struct CallLinkMessage: Decodable, Sendable {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
                 guard let self, !Task.isCancelled, let connection = self.connection else { return }
+                let asked = Date()
                 let report = await withCheckedContinuation { (done: CheckedContinuation<RTCStatisticsReport, Never>) in
                     connection.statistics { done.resume(returning: $0) }
                 }
+                // WebRTC's own threads answer this: a slow answer is them
+                // busy or stuck (`CallWatch`).
+                let took = Date().timeIntervalSince(asked)
+                if took > 0.5 { self.onMark?(String(format: "Picture readings took %.1f s", took)) }
                 self.read(report)
             }
         }

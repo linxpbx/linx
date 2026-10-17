@@ -190,6 +190,9 @@ struct CallDiagnostics: Equatable, Sendable {
     private var watch: Task<Void, Never>?
     /// Watching where the sound is coming out, while this call is up.
     private var routeWatch: NSObjectProtocol?
+    /// What the phone itself does in the call's first two minutes
+    /// (`CallWatch`, a diagnostic).
+    private var callWatch: CallWatch?
     private var stopped = false
 
     /// Asterisk doesn't take candidates one at a time, so the phone holds the
@@ -550,6 +553,8 @@ struct CallDiagnostics: Equatable, Sendable {
             self.routeWatch = nil
         }
         if Self.live === self { Self.live = nil }
+        callWatch?.stop()
+        callWatch = nil
         gatheringLimit?.cancel()
         gatheringLimit = nil
         gathered?.resume()
@@ -947,6 +952,9 @@ struct CallDiagnostics: Equatable, Sendable {
         Self.live = self
         for words in Self.checkedBeforeTheCall { mark("Before the call: \(words)") }
         Self.checkedBeforeTheCall = []
+        let callWatch = CallWatch(relay: turn?.urls ?? []) { [weak self] words, at in self?.mark(words, at: at) }
+        callWatch.start()
+        self.callWatch = callWatch
         Self.prepareAudioSession()
         watchTheRoute()
         let connection: RTCPeerConnection

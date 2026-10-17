@@ -83,4 +83,23 @@ struct UploadWatchTests {
         #expect(UploadWatch.answeredID(answer) == id)
         #expect(UploadWatch.answeredID(request) == nil)
     }
+
+    @Test("the side line takes whole STUN answers off a TCP stream, however it arrives")
+    func sideLineFraming() {
+        let (_, first) = UploadWatch.bindingRequest()
+        let (_, second) = UploadWatch.bindingRequest()
+        func answer(_ id: Data) -> Data {
+            Data([0x01, 0x01, 0x00, 0x0C, 0x21, 0x12, 0xA4, 0x42]) + id + Data(count: 12)
+        }
+        let stream = answer(first) + answer(second)
+        // In two pieces, the cut inside the second answer.
+        var buffer = Data(stream.prefix(40))
+        let got = SideLine.messages(from: &buffer)
+        #expect(got.count == 1 && UploadWatch.answeredID(got[0]) == first)
+        #expect(buffer.count == 8)
+        buffer += stream.dropFirst(40)
+        let rest = SideLine.messages(from: &buffer)
+        #expect(rest.count == 1 && UploadWatch.answeredID(rest[0]) == second)
+        #expect(buffer.isEmpty)
+    }
 }
