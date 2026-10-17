@@ -21,6 +21,11 @@ import UIKit
 ///  4. the camera running;
 ///  5. sending as much as a video call does, on a line of its own.
 ///
+/// A second side line runs the whole time to a Linx abroad (the test VPS,
+/// build 46): held at the same moments as the line home, the pause is on
+/// the phone's mobile side; held only on the line home, it is on the way
+/// into the owner's own network (their line, router or Pangolin).
+///
 /// The step the holds start in is what to look at. The record goes to Linx
 /// like a call's.
 @MainActor @Observable final class NetworkTest {
@@ -56,12 +61,18 @@ import UIKit
     private let endCall: @MainActor () -> Void
     private var marks: [(at: Date, what: String)] = []
     private var holds: [(at: Date, length: TimeInterval)] = []
+    private var farHolds: [(at: Date, length: TimeInterval)] = []
+    /// The Linx abroad the second side line asks: the owner's test VPS
+    /// (`docs/RESOURCES.md`). Its relay answers a Binding request over TLS
+    /// like any Linx's.
+    static let elsewhere = (host: "turn.vps.mym.ae", port: UInt16(443))
     private var steps: [(step: Step, from: Date, to: Date?)] = []
     private var cancelled = false
     private var callUp = false
     private var soundGiven = false
     private var relay: (host: String, port: UInt16)?
     private var side: SideLine?
+    private var far: SideLine?
     private var busy: SideLine?
     private var engine: AVAudioEngine?
     private var camera: TestCamera?
@@ -112,6 +123,13 @@ import UIKit
             held: { at, length in Task { @MainActor [weak self] in self?.holds.append((at, length)) } },
             tell: { words, at in Task { @MainActor [weak self] in self?.mark(words, at: at) } })
         side?.start()
+        // The bench has no Linx abroad: a second line to the same relay.
+        let elsewhere = Bench.on ? (host: host, port: port) : Self.elsewhere
+        far = SideLine(
+            host: elsewhere.host, port: elsewhere.port, name: "Side line abroad",
+            held: { at, length in Task { @MainActor [weak self] in self?.farHolds.append((at, length)) } },
+            tell: { words, at in Task { @MainActor [weak self] in self?.mark(words, at: at) } })
+        far?.start()
         await wait(1.5)
         for step in Step.allCases {
             guard !cancelled else { break }
@@ -133,6 +151,8 @@ import UIKit
         finishTheCall()
         side?.stop()
         side = nil
+        far?.stop()
+        far = nil
         await wait(0.5)
         step = nil
         return record()
@@ -225,6 +245,21 @@ import UIKit
         return words + String(format: "held %d times, longest %.1f s", held.count, longest)
     }
 
+    /// How the line abroad did, and how many of the holds here it shared.
+    private func abroad() -> String {
+        let together = holds.filter { here in
+            let hereEnds = here.at.addingTimeInterval(here.length)
+            return farHolds.contains { there in
+                there.at < hereEnds && here.at < there.at.addingTimeInterval(there.length)
+            }
+        }
+        let longest = farHolds.map(\.length).max() ?? 0
+        return String(
+            format: "abroad: held %d times, longest %.1f s; %@",
+            farHolds.count, longest,
+            "\(together.count) of the \(holds.count) holds here were held abroad at the same moment")
+    }
+
     private func record() -> String {
         var lines = ["Linx network test"]
         let first = steps.first { !holdsIn($0).isEmpty }
@@ -235,6 +270,7 @@ import UIKit
         } else {
             lines.append("verdict: not finished")
         }
+        lines.append(abroad())
         lines += steps.map { summary(of: $0) }
         let sorted = marks.sorted { $0.at < $1.at }
         lines += sorted.map { String(format: "+%.1f s %@", $0.at.timeIntervalSince(startedAt), $0.what) }

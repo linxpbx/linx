@@ -132,6 +132,11 @@ struct SettingsView: View {
                     Button("Test this network") { phone.testTheNetwork() }
                         .foregroundStyle(LinxColor.accent)
                         .disabled(!phone.canTestTheNetwork)
+                    if !phone.canTestTheNetwork {
+                        Text(Self.cantTestWords(phone))
+                            .font(.footnote)
+                            .foregroundStyle(LinxColor.textMuted)
+                    }
                     ForEach(phone.networkTestResults, id: \.self) { line in
                         Text(line).font(.subheadline)
                     }
@@ -172,6 +177,13 @@ struct SettingsView: View {
         } message: {
             Text("This phone will stop ringing, and you'll need a new setup code to use it again.")
         }
+    }
+
+    /// Why the test can't start now, in the words the person can act on.
+    private static func cantTestWords(_ phone: PhoneModel) -> String {
+        if phone.call != nil { return "Available once this call has ended." }
+        if phone.status != .ready { return "Waiting for this phone's line: the test needs it to be Ready." }
+        return "Getting ready… try again in a few seconds."
     }
 
     private static func stepWords(_ step: NetworkTest.Step?) -> String {

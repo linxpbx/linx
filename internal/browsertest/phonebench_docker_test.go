@@ -597,9 +597,13 @@ func TestPhoneBenchDocker(t *testing.T) {
 				"Side line open in", "Call put on the iPhone's books", "Busy line open in", "Call taken off the iPhone's books",
 			}
 			if held {
-				wants = append(wants, "verdict: held from step 3", "3. With the microphone and speaker on: held once")
+				// The bench's line "abroad" goes to the same relay, so it is
+				// held at the same moment.
+				wants = append(wants, "verdict: held from step 3", "3. With the microphone and speaker on: held once",
+					"1 of the 1 holds here were held abroad at the same moment")
 			} else {
-				wants = append(wants, "verdict: never held", "5. Sending as much as a video call: never held")
+				wants = append(wants, "verdict: never held", "5. Sending as much as a video call: never held",
+					"abroad: held 0 times")
 			}
 			for _, want := range wants {
 				if !strings.Contains(r, want) {
