@@ -172,6 +172,10 @@ type CallTracker struct {
 	connected bool
 	calls     map[string]*call // by the caller's channel id
 	legs      map[string]string
+	// woken: the call each linx-wake-leg Local channel rings for, by the
+	// name both its halves share (asteriskconf). The leg dials a woken
+	// app itself, so that Dial's caller is the Local channel, not the call.
+	woken map[string]string
 }
 
 type call struct {
@@ -236,6 +240,9 @@ func (t *CallTracker) Serve(ctx context.Context, c *ari.Conn) {
 	t.connected = true
 	if t.calls == nil {
 		t.calls, t.legs = map[string]*call{}, map[string]string{}
+	}
+	if t.woken == nil {
+		t.woken = map[string]string{}
 	}
 	t.mu.Unlock()
 	defer func() {
@@ -585,12 +592,28 @@ func (t *CallTracker) dial(ctx context.Context, ev ari.Event, at time.Time) {
 		return
 	}
 	t.mu.Lock()
-	c := t.calls[ev.Caller.ID]
+	owner := ev.Caller.ID
+	if half, ok := ari.WakeLeg(ev.Caller.Name, "2"); ok {
+		// A woken app being dialled by its own leg: it rings for the call
+		// that leg belongs to.
+		owner = t.woken[half]
+	}
+	c := t.calls[owner]
 	if c == nil {
 		t.mu.Unlock()
 		return
 	}
-	t.legs[ev.Peer.ID] = ev.Caller.ID
+	t.legs[ev.Peer.ID] = owner
+	if half, ok := ari.WakeLeg(ev.Peer.Name, "1"); ok {
+		// The leg itself only waits for the phone; it rings, and answers,
+		// through the Dial it makes once the phone is here.
+		if t.woken == nil {
+			t.woken = map[string]string{}
+		}
+		t.woken[half] = owner
+		t.mu.Unlock()
+		return
+	}
 	c.rang = true
 	outLeg := false
 	if id, ok := trunkID(ev.Peer.Endpoint()); ok {
@@ -645,6 +668,9 @@ func (t *CallTracker) destroyed(ctx context.Context, ev ari.Event, at time.Time)
 		delete(t.calls[owner].ringingNow, ev.Channel.ID)
 	}
 	delete(t.legs, ev.Channel.ID)
+	if half, ok := ari.WakeLeg(ev.Channel.Name, "1"); ok {
+		delete(t.woken, half)
+	}
 	c := t.calls[ev.Channel.ID]
 	if c == nil {
 		t.mu.Unlock()
@@ -654,6 +680,11 @@ func (t *CallTracker) destroyed(ctx context.Context, ev ari.Event, at time.Time)
 	for leg, owner := range t.legs {
 		if owner == ev.Channel.ID {
 			delete(t.legs, leg)
+		}
+	}
+	for half, owner := range t.woken {
+		if owner == ev.Channel.ID {
+			delete(t.woken, half)
 		}
 	}
 	t.mu.Unlock()

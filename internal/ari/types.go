@@ -78,6 +78,24 @@ func (c Channel) Endpoint() string {
 	return rest
 }
 
+// WakeLegContext is the dialplan context that rings a phone being woken
+// for a call (internal/asteriskconf's linx-wake-leg): the call dials
+// Local/<phone>@linx-wake-leg, whose other half dials the phone once it
+// has signed in.
+const WakeLegContext = "linx-wake-leg"
+
+// WakeLeg is, for a channel of a linx-wake-leg Local channel, the name its
+// two halves share ("Local/<phone>@linx-wake-leg-<n>"), when the channel
+// is the half asked for: "1" is the one the call dials, "2" the one that
+// dials the phone.
+func WakeLeg(name, half string) (string, bool) {
+	shared, ok := strings.CutSuffix(name, ";"+half)
+	if !ok || !strings.HasPrefix(shared, "Local/") || !strings.Contains(shared, "@"+WakeLegContext+"-") {
+		return "", false
+	}
+	return shared, true
+}
+
 type CallerID struct {
 	Name   string `json:"name"`
 	Number string `json:"number"`

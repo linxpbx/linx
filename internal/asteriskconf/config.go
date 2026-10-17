@@ -1145,31 +1145,16 @@ exten => s,1,Set(STEPS=1)
 
 ; Rings one step's phones: an extension's, or a ring group's (its number,
 ; or s when it has none). Only the context and number are for the control
-; plane's call events, which tell from them what is ringing.
-; A woken phone that arrives after the wake step's wait is still rung:
-; when nobody could be rung at all (CHANUNAVAIL) and a phone was woken,
-; the step waits for it for the rest of its ring time and dials again.
-; On 5G an iPhone took 11.4 s to arrive against a 10 s wait, and the call
-; went to voicemail with the phone on its way (2026-10-12).
+; plane's call events, which tell from them what is ringing. linx-wake
+; gives the targets back as RINGTARGETS, with each phone being woken
+; replaced by a leg that waits for it (linx-wake-leg).
 [linx-ring]
 exten => _X.,1,Gosub(linx-wake,s,1(${ARG1}))
- same => n,Set(RINGUNTIL=$[${EPOCH} + ${ARG2}])
- same => n,Dial(${ARG1},${ARG2},b(linx-headers^s^1))
- same => n,Gosub(linx-wake,late,1(${RINGUNTIL}))
- same => n,GotoIf($["${WAKECAME}" != "1"]?out)
- same => n,Set(RINGLEFT=$[${RINGUNTIL} - ${EPOCH}])
- same => n,GotoIf($[${RINGLEFT} < 1]?out)
- same => n,Dial(${ARG1},${RINGLEFT},b(linx-headers^s^1))
- same => n(out),Return()
+ same => n,Dial(${RINGTARGETS},${ARG2},b(linx-headers^s^1))
+ same => n,Return()
 exten => s,1,Gosub(linx-wake,s,1(${ARG1}))
- same => n,Set(RINGUNTIL=$[${EPOCH} + ${ARG2}])
- same => n,Dial(${ARG1},${ARG2},b(linx-headers^s^1))
- same => n,Gosub(linx-wake,late,1(${RINGUNTIL}))
- same => n,GotoIf($["${WAKECAME}" != "1"]?out)
- same => n,Set(RINGLEFT=$[${RINGUNTIL} - ${EPOCH}])
- same => n,GotoIf($[${RINGLEFT} < 1]?out)
- same => n,Dial(${ARG1},${RINGLEFT},b(linx-headers^s^1))
- same => n(out),Return()
+ same => n,Dial(${RINGTARGETS},${ARG2},b(linx-headers^s^1))
+ same => n,Return()
 
 ; Ringing someone into a group call (ADR-088): the control plane
 ; originates Local/<extension>@linx-room-invite with LINXROOM (and
@@ -1197,14 +1182,17 @@ exten => s,1,GotoIf($["${LINXVIDEO}" != "yes"]?room)
  same => n(done),Return()
 
 ; Waking a sleeping iPhone or iPad (ADR-074, docs/PHASE2.md §5). An app
-; that isn't connected can't be rung by SIP, so before this step's phones
-; are dialled: ask the database which of them are app phones that can be
-; woken (LINX_WAKE answers nothing at all unless the Apple key is in
-; place), leave out any that are already here, tell the control plane to
-; push to the rest, and hold the call ringing until they arrive or the
-; wait runs out. The caller hears ringing throughout. Everything else about
-; the step is unchanged: all the phones are dialled together afterwards,
-; and the first to answer takes the call.
+; that isn't connected can't be rung by SIP, so as this step's phones are
+; dialled: ask the database which of them are app phones that can be woken
+; (LINX_WAKE answers nothing at all unless the Apple key is in place),
+; leave out any that are already here, and tell the control plane to push
+; to the rest. RINGTARGETS is the step's phones with each of those swapped
+; for Local/<phone>@linx-wake-leg, so everything already here rings at
+; once — a browser or desk phone of the same person never waits for an
+; app to wake (the owner's browser rang 4 s late, 2026-10-17) — and each
+; woken phone is rung by its own leg the moment it arrives, for as long as
+; the step rings (on 5G an iPhone took 11.4 s, 2026-10-12). The first to
+; answer takes the call, as before; the caller hears ringing throughout.
 ;
 ; "Arrived" is the phone's sign-in itself (a contact PJSIP_DIAL_CONTACTS
 ; lists that wasn't there when the push went), not the first OPTIONS
@@ -1215,62 +1203,59 @@ exten => s,1,GotoIf($["${LINXVIDEO}" != "yes"]?room)
 ; answer means the phone is woken, not skipped. A wrong guess either way is
 ; one redundant push (the app ties it to the invitation that follows), while
 ; the other way round is a phone that never rings at all.
-;
-; A phone that hasn't arrived when the wait is over is told to the control
-; plane (LinxWakeMissed), which counts it against that phone's call quality:
-; a woken phone that never rings is a call its person never heard of.
 [linx-wake]
 exten => s,1,Set(WAKELIST=)
+ same => n,Set(RINGTARGETS=${ARG1})
  same => n,Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})
  same => n,GotoIf($[${ODBCROWS} < 1]?done)
  same => n,GotoIf($["${WAKEAORS}" = ""]?done)
  same => n,GotoIf($[${WAKEMS} < 1]?done)
  same => n,Set(WAKEN=${FIELDQTY(WAKEAORS,&)})
  same => n,Set(WAKEI=1)
- same => n,Set(WAKELIST=)
  same => n(scan),Set(WAKEONE=${CUT(WAKEAORS,&,${WAKEI})})
  same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
  same => n,GotoIf($["${WAKESTATE}" != "" & "${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?next)
- same => n,Set(WAKEWAS_${WAKEONE}=${PJSIP_DIAL_CONTACTS(${WAKEONE})})
+ same => n,Set(__WAKEWAS_${WAKEONE}=${PJSIP_DIAL_CONTACTS(${WAKEONE})})
  same => n,Set(WAKELIST=${IF($["${WAKELIST}" = ""]?${WAKEONE}:${WAKELIST}&${WAKEONE})})
  same => n(next),Set(WAKEI=$[${WAKEI} + 1])
  same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?scan)
  same => n,GotoIf($["${WAKELIST}" = ""]?done)
  same => n,UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF($["${LINXVIDEO}" = "yes"]?yes:no)})
- same => n,GotoIf($["${CHANNEL(state)}" = "Up"]?wait)
- same => n,Ringing()
- same => n(wait),Set(WAKEUNTIL=$[${EPOCH} + (${WAKEMS} + 999) / 1000])
- same => n(again),Wait(0.25)
- same => n,Set(WAKEN=${FIELDQTY(WAKELIST,&)})
+ same => n,Set(__WAKECALL=${UNIQUEID})
+ same => n,Set(__WAKEMS=${WAKEMS})
+ same => n,Set(RINGTARGETS=)
+ same => n,Set(WAKEN=${FIELDQTY(ARG1,&)})
  same => n,Set(WAKEI=1)
- same => n(check),Set(WAKEONE=${CUT(WAKELIST,&,${WAKEI})})
- same => n,GotoIf($["${PJSIP_DIAL_CONTACTS(${WAKEONE})}" != "" & "${PJSIP_DIAL_CONTACTS(${WAKEONE})}" != "${WAKEWAS_${WAKEONE}}"]?done)
- same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
- same => n,GotoIf($["${WAKESTATE}" = "" | "${WAKESTATE}" = "UNAVAILABLE" | "${WAKESTATE}" = "INVALID" | "${WAKESTATE}" = "UNKNOWN"]?notyet)
+ same => n(swap),Set(WAKEONE=${CUT(ARG1,&,${WAKEI})})
+ same => n,Set(WAKEAOR=${CUT(WAKEONE,/,2)})
+ same => n,GotoIf($[${FIELDNUM(WAKELIST,&,${WAKEAOR})} < 1]?add)
+ same => n,Set(WAKEONE=Local/${WAKEAOR}@linx-wake-leg)
+ same => n(add),Set(RINGTARGETS=${IF($["${RINGTARGETS}" = ""]?${WAKEONE}:${RINGTARGETS}&${WAKEONE})})
  same => n,Set(WAKEI=$[${WAKEI} + 1])
- same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?check)
- same => n,Goto(done)
- same => n(notyet),GotoIf($[${EPOCH} < ${WAKEUNTIL}]?again)
- same => n,UserEvent(LinxWakeMissed,Call: ${UNIQUEID},Aors: ${WAKELIST},Waited: ${WAKEMS})
+ same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?swap)
  same => n(done),Return()
-; late: after a Dial that could ring nobody, waits until one of the
-; phones woken above arrives or the epoch ARG1 passes; WAKECAME says which.
-exten => late,1,Set(WAKECAME=0)
- same => n,GotoIf($["${DIALSTATUS}" != "CHANUNAVAIL"]?out)
- same => n,GotoIf($["${WAKELIST}" = ""]?out)
- same => n(again),GotoIf($[${EPOCH} >= ${ARG1}]?out)
- same => n,Wait(0.25)
- same => n,Set(WAKEN=${FIELDQTY(WAKELIST,&)})
- same => n,Set(WAKEI=1)
- same => n(check),Set(WAKEONE=${CUT(WAKELIST,&,${WAKEI})})
- same => n,GotoIf($["${PJSIP_DIAL_CONTACTS(${WAKEONE})}" != "" & "${PJSIP_DIAL_CONTACTS(${WAKEONE})}" != "${WAKEWAS_${WAKEONE}}"]?came)
- same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${WAKEONE})})
+
+; One woken phone's leg of a ringing step: rings (so the caller hears it
+; even when nothing else can ring), waits for the phone to sign in, then
+; dials it, told what the call is (linx-headers). The step's own Dial ends
+; the leg when its time is up or someone else answers. A phone that hasn't
+; arrived when the wake wait is over is told to the control plane
+; (LinxWakeMissed), which counts it against that phone's call quality — a
+; woken phone that never rings is a call its person never heard of — and
+; is still rung if it arrives later.
+[linx-wake-leg]
+exten => _[a-zA-Z].,1,Ringing()
+ same => n,Set(WAKEUNTIL=$[${EPOCH} + (${WAKEMS} + 999) / 1000])
+ same => n(again),GotoIf($["${PJSIP_DIAL_CONTACTS(${EXTEN})}" != "" & "${PJSIP_DIAL_CONTACTS(${EXTEN})}" != "${WAKEWAS_${EXTEN}}"]?came)
+ same => n,Set(WAKESTATE=${DEVICE_STATE(PJSIP/${EXTEN})})
  same => n,GotoIf($["${WAKESTATE}" != "" & "${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?came)
- same => n,Set(WAKEI=$[${WAKEI} + 1])
- same => n,GotoIf($[${WAKEI} <= ${WAKEN}]?check)
+ same => n,GotoIf($["${WAKETOLD}" = "1" | ${EPOCH} < ${WAKEUNTIL}]?wait)
+ same => n,Set(WAKETOLD=1)
+ same => n,UserEvent(LinxWakeMissed,Call: ${WAKECALL},Aors: ${EXTEN},Waited: ${WAKEMS})
+ same => n(wait),Wait(0.25)
  same => n,Goto(again)
- same => n(came),Set(WAKECAME=1)
- same => n(out),Return()
+ same => n(came),Dial(PJSIP/${EXTEN},,b(linx-headers^s^1))
+ same => n,Hangup()
 
 ; Leaving a voicemail (ADR-069) in the box linx_route named (a uuid it
 ; checked): the greeting (LABEL "closed": the we're-closed one; the box's

@@ -307,16 +307,16 @@ func TestCallsDocker(t *testing.T) {
 		}
 		e.wait(caller)
 
-		// A woken phone that arrives after the wait is still rung: the step
-		// waits for it for the rest of its ring time and dials it again
+		// A woken phone that arrives after the wait is still rung: its leg
+		// waits for it for as long as the step rings and dials it then
 		// (on 5G an iPhone took 11.4 s against a 10 s wait, 2026-10-12).
 		before = len(wokenSoFar())
 		late := e.sipp("wake-late", "call-message.xml", alice, "-s", "110")
 		eventually(t, "the second wake event", 20*time.Second,
 			func() bool { return len(wokenSoFar()) > before })
-		time.Sleep(4 * time.Second) // past the 2 s wait: the first Dial found nobody
-		// The second Dial of linx-ring is only ever reached by a late arrival.
-		redial := "@linx-ring:8] Dial(\"PJSIP/"
+		time.Sleep(4 * time.Second) // past the 2 s wait
+		// Her leg dials her phone only once it has arrived.
+		redial := "@linx-wake-leg:11] Dial(\"Local/" + ivy.dev.SIPUsername + "@linx-wake-leg-"
 		arrives := e.wsphone("ivy-late", ivy, "-hold", "8s")
 		deadline := time.Now().Add(15 * time.Second)
 		for !strings.Contains(e.asteriskLogs(), redial) {
@@ -340,6 +340,41 @@ func TestCallsDocker(t *testing.T) {
 		e.waitWS(arrives)
 		e.wait(late)
 
+		// A phone of hers that is already here never waits for the app to
+		// wake: it rings at once, beside a leg that rings her iPhone when
+		// it arrives (the owner's browser rang 4 s late, 2026-10-17).
+		desk := e.addPhone(ivy.ext, "Ivy's desk")
+		deskRings := e.sipp("ivy-desk", "register.xml", desk, "-oocsf", "/scenarios/ring.xml", "-d", "60000")
+		eventually(t, "Ivy's desk phone online", 15*time.Second, func() bool { return online(desk) })
+		e.pushOn(8 * time.Second)
+		before = len(wokenSoFar())
+		started := time.Now()
+		both := e.sipp("wake-both", "call-message.xml", alice, "-s", "110")
+		ringing := func() bool {
+			for _, l := range strings.Split(e.asteriskLogs(), "\n") {
+				if strings.Contains(l, "PJSIP/"+desk.dev.SIPUsername+"-") && strings.Contains(l, " is ringing") {
+					return true
+				}
+			}
+			return false
+		}
+		eventually(t, "Ivy's desk phone ringing while her iPhone is woken", 6*time.Second, ringing)
+		if waited := time.Since(started); waited > 5*time.Second {
+			t.Errorf("her desk phone rang after %v: it waited for the app", waited.Round(time.Millisecond))
+		}
+		if got := wokenSoFar(); len(got) <= before || got[before]["Aors"] != ivy.dev.SIPUsername {
+			t.Errorf("her iPhone wasn't woken alongside: %v", got[before:])
+		}
+		rung := e.wsphone("ivy-rung", ivy, "-hold", "6s", "-ring")
+		if out := e.waitWS(rung); !strings.Contains(out, "rung") {
+			t.Errorf("her iPhone arrived and wasn't rung through its leg:\n%s", out)
+		}
+		e.wait(both)
+		if ended := e.callEnded("110"); ended["outcome"] != pbx.OutcomeMissed {
+			t.Errorf("outcome %v, want missed: two of her phones rang", ended["outcome"])
+		}
+		docker(t, ctx, "rm", "--force", deskRings)
+
 		// Nothing waits for a phone that can't be woken: with the key gone
 		// the same call goes straight to the step.
 		e.pushOff()
@@ -347,6 +382,50 @@ func TestCallsDocker(t *testing.T) {
 		e.run("no-wake", "call-message.xml", alice, "-s", "110")
 		if got := wokenSoFar(); len(got) > before {
 			t.Errorf("woke a phone with no Apple key in place: %v", got[before])
+		}
+	})
+
+	// A woken phone that answers: the call is answered through its leg
+	// (Local/<phone>@linx-wake-leg), and everything that reads a call
+	// sees the phone itself — who answered, and the call link's peer
+	// (ADR-087), which is how the two ends of a video call find each other.
+	// SIPp stands in for the app (wakeable), so it can answer.
+	t.Run("a woken phone answers", func(t *testing.T) {
+		jay := e.newPhone("111", "Jay")
+		e.wakeable(t, jay)
+		e.pushOn(10 * time.Second)
+		defer e.pushOff()
+		before := len(wokenSoFar())
+		call := e.sipp("wake-answer", "call.xml", alice, "-s", "111", "-d", "4000")
+		eventually(t, "Jay's phone woken", 20*time.Second, func() bool { return len(wokenSoFar()) > before })
+		callee := e.sipp("jay", "register.xml", jay, "-oocsf", "/scenarios/answer.xml", "-d", "10000")
+
+		resolver := &calllink.Resolver{Linx: func(_ context.Context, u string) (bool, error) { return u == jay.dev.SIPUsername, nil }}
+		resolver.Connected(ariConn.Load())
+		var mine ari.Channel
+		eventually(t, "Alice's call answered by Jay's woken phone", 20*time.Second, func() bool {
+			var chans []ari.Channel
+			if err := ariConn.Load().Get(ctx, "channels", &chans); err != nil {
+				return false
+			}
+			for _, ch := range chans {
+				if ch.Endpoint() == alice.dev.SIPUsername && ch.State == "Up" && ch.ProtocolID != "" {
+					mine = ch
+					return true
+				}
+			}
+			return false
+		})
+		leg, err := resolver.Resolve(ctx, alice.dev.SIPUsername, mine.ProtocolID)
+		if err != nil || !strings.HasPrefix(leg.Peer, "PJSIP/"+jay.dev.SIPUsername+"-") || !leg.PeerLinx {
+			t.Errorf("Alice's leg = %+v, %v: want Jay's phone, not its leg", leg, err)
+		}
+		e.wait(call)
+		e.wait(callee)
+		ended := e.callEnded("111")
+		by, _ := ended["answered_by"].(map[string]any)
+		if ended["outcome"] != pbx.OutcomeAnswered || by["extension"] != "111" || by["device_id"] != jay.dev.ID.String() {
+			t.Errorf("call.ended = %v, want answered by Jay's phone", ended)
 		}
 	})
 
@@ -665,6 +744,10 @@ func TestCallsDocker(t *testing.T) {
 			}
 			t.Fatalf("no call to %s with result %s in:\n%s", to, result, strings.Join(all, "\n"))
 			return callhistory.Listed{}
+		}
+		// Answered by a woken phone through its leg: the phone, not the leg.
+		if woken := find("111", callhistory.ResultAnswered); woken.AnsweredByName != "Jay (111)" {
+			t.Errorf("call to a woken phone: %+v, want answered by Jay (111)", woken)
 		}
 		answered := find("102", callhistory.ResultAnswered)
 		if answered.FromName != "Alice" || answered.AnsweredByName != "Bob (102)" || answered.TalkSeconds < 1 || answered.Direction != callhistory.DirectionInternal {

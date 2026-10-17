@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"linxpbx.com/linx/internal/ari"
 	"linxpbx.com/linx/internal/numbering"
 )
 
@@ -294,6 +295,15 @@ func Build(ctx context.Context, lk Lookup, rows []Row) (Call, error) {
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	c := Call{LinkedID: rows[0].LinkedID, Direction: DirectionInternal, StartedAt: rows[0].Started, EndedAt: rows[0].Ended}
 	var own []Row // the caller's rows
+	// What each phone being woken did, by its leg (ari.WakeLegContext):
+	// the caller's row only shows the leg it dialled, and the leg's own
+	// row the phone it rang once that phone arrived.
+	woken := map[string]Row{}
+	for _, r := range rows {
+		if shared, ok := ari.WakeLeg(r.Channel, "2"); ok {
+			woken[shared] = r
+		}
+	}
 	for _, r := range rows {
 		if r.Started.Before(c.StartedAt) {
 			c.StartedAt = r.Started
@@ -394,6 +404,15 @@ func Build(ctx context.Context, lk Lookup, rows []Row) (Call, error) {
 	var answer Row
 	stepRows := map[string]bool{}
 	for _, r := range own {
+		if shared, ok := ari.WakeLeg(r.DstChannel, "1"); ok {
+			// A phone being woken: the leg stands for the phone, if it
+			// arrived and was rung at all.
+			leg, rung := woken[shared]
+			if !rung || leg.DstChannel == "" {
+				continue
+			}
+			r.DstChannel, r.Disposition = leg.DstChannel, leg.Disposition
+		}
 		if r.DstChannel == "" {
 			continue
 		}

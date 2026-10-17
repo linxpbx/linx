@@ -228,6 +228,9 @@ func (r *Resolver) Resolve(ctx context.Context, sipUsername, callID string) (Leg
 		if err != nil && !ari.Gone(err) {
 			return Leg{}, err
 		}
+		if v, err = r.through(ctx, c, v); err != nil {
+			return Leg{}, err
+		}
 		if peer = v; peer != "" || time.Now().After(until) {
 			break
 		}
@@ -249,6 +252,43 @@ func (r *Resolver) Resolve(ctx context.Context, sipUsername, callID string) (Leg
 		leg.PeerLinx = linx
 	}
 	return leg, nil
+}
+
+// through is the channel a bridge peer stands for: itself, or — for a
+// call that rang a phone being woken (ari.WakeLegContext) — the channel
+// on the far side of that Local channel, until Asterisk takes the Local
+// channel out of the call and the two are bridged directly. "" while the
+// far side isn't bridged yet.
+func (r *Resolver) through(ctx context.Context, c *ari.Conn, peer string) (string, error) {
+	for range 2 {
+		var other string
+		if shared, ok := ari.WakeLeg(peer, "1"); ok {
+			other = shared + ";2"
+		} else if shared, ok := ari.WakeLeg(peer, "2"); ok {
+			other = shared + ";1"
+		} else {
+			return peer, nil
+		}
+		var chans []ari.Channel
+		if err := c.Get(ctx, "channels", &chans); err != nil {
+			return "", err
+		}
+		peer = ""
+		for _, ch := range chans {
+			if ch.Name != other {
+				continue
+			}
+			v, err := variable(ctx, c, ch.ID, "BRIDGEPEER")
+			if err != nil && !ari.Gone(err) {
+				return "", err
+			}
+			peer = v
+		}
+		if peer == "" {
+			return "", nil
+		}
+	}
+	return "", nil
 }
 
 // Alive reports whether the channel is still there; an error that isn't

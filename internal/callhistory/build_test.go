@@ -182,6 +182,46 @@ func TestBuild(t *testing.T) {
 			},
 		},
 		{
+			// Bob's browser rings at once and his iPhone, being woken, is
+			// rung by its own leg once it arrives and answers (the call
+			// suite's records, 2026-10-17: the caller's row names the leg,
+			// the leg's row the phone).
+			name: "a woken phone answers through its leg",
+			rows: []Row{
+				row(20, 0, -1, 5, aliceCLID, "101", "s", "linx-route", "PJSIP/d_alice-00000014", "PJSIP/d_bob-00000015", 0, "NO ANSWER", "1.20", "102", "", "n:102"),
+				row(21, 0, 4, 9, aliceCLID, "101", "s", "linx-route", "PJSIP/d_alice-00000014", "Local/d_bob@linx-wake-leg-00000003;1", 5, "ANSWERED", "1.20", "102", "", "n:102"),
+				func() Row {
+					r := row(22, 3, 4, 9, aliceCLID, "101", "d_bob", "linx-wake-leg", "Local/d_bob@linx-wake-leg-00000003;2", "PJSIP/d_bob-00000016", 5, "ANSWERED", "1.22", "", "", "")
+					r.LinkedID = "1.20"
+					return r
+				}(),
+			},
+			result: ResultAnswered, dir: DirectionInternal, words: "Rang Bob (102) · answered",
+			parties: map[string]bool{"Alice": false, "Bob": false},
+			check: func(t *testing.T, c Call) {
+				if c.AnsweredByName != "Bob (102)" || c.TalkSeconds != 5 {
+					t.Errorf("%+v", c)
+				}
+			},
+		},
+		{
+			// A woken phone that never arrived: its leg rang nothing, so
+			// nobody could ring at all.
+			name: "a woken phone that never arrives",
+			rows: []Row{
+				row(30, 0, -1, 30, aliceCLID, "101", "s", "linx-route", "PJSIP/d_alice-0000001e", "Local/d_bob@linx-wake-leg-00000004;1", 0, "NO ANSWER", "1.30", "102", "", "n:102"),
+				func() Row {
+					r := row(31, 0, -1, 30, aliceCLID, "101", "d_bob", "linx-wake-leg", "Local/d_bob@linx-wake-leg-00000004;2", "", 0, "FAILED", "1.31", "", "", "")
+					r.LinkedID = "1.30"
+					return r
+				}(),
+				row(32, 30, 30, 36, aliceCLID, "101", "not-available", "linx-messages", "PJSIP/d_alice-0000001e", "", 5, "ANSWERED", "1.30", "102", "", "n:102"),
+			},
+			result: ResultNotAvailable, dir: DirectionInternal,
+			words:   `Bob (102) has no phone or browser connected | Heard "Nobody can take your call right now"`,
+			parties: map[string]bool{"Alice": false, "Bob": true},
+		},
+		{
 			name:   "voicemail",
 			rows:   []Row{row(10, 0, 0, 9, aliceCLID, "101", carolVM.String(), "linx-voicemail", "PJSIP/d_alice-0000000a", "", 9, "ANSWERED", "1.10", "103", "", "n:103")},
 			result: ResultVoicemail, dir: DirectionInternal,

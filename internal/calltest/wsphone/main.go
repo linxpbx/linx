@@ -7,8 +7,9 @@
 //
 // It prints "cert-serial <n>" (the websocket's certificate) and "registered",
 // then, with -hold, keeps the connection open that long and signs in again
-// over it ("registered again"). Exit status 0 means every step worked; with
-// -want-reject, that the sign-in was refused.
+// over it ("registered again"). With -ring as well, a call that arrives
+// meanwhile is answered "180 Ringing" and printed ("rung"). Exit status 0
+// means every step worked; with -want-reject, that the sign-in was refused.
 package main
 
 import (
@@ -34,14 +35,15 @@ func main() {
 	pass := flag.String("pass", "", "SIP password")
 	hold := flag.Duration("hold", 0, "keep the connection open this long, then sign in again over it")
 	wantReject := flag.Bool("want-reject", false, "expect the sign-in to be refused")
+	ring := flag.Bool("ring", false, "while held, answer a call with 180 Ringing")
 	flag.Parse()
-	if err := run(*url, *caFile, *user, *pass, *hold, *wantReject); err != nil {
+	if err := run(*url, *caFile, *user, *pass, *hold, *wantReject, *ring); err != nil {
 		fmt.Fprintln(os.Stderr, "wsphone:", err)
 		os.Exit(1)
 	}
 }
 
-func run(url, caFile, user, pass string, hold time.Duration, wantReject bool) error {
+func run(url, caFile, user, pass string, hold time.Duration, wantReject, ring bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second+hold)
 	defer cancel()
 	root, err := os.ReadFile(caFile)
@@ -88,6 +90,15 @@ func run(url, caFile, user, pass string, hold time.Duration, wantReject bool) er
 	// Answer Asterisk's keep-alive checks meanwhile.
 	holdCtx, holdCancel := context.WithTimeout(ctx, hold)
 	defer holdCancel()
+	if ring {
+		invite, err := p.WaitRequest(holdCtx, "INVITE")
+		if err == nil {
+			if err := p.Reply(ctx, invite, "180 Ringing"); err != nil {
+				return fmt.Errorf("ringing: %w", err)
+			}
+			fmt.Println("rung")
+		}
+	}
 	if _, err := p.WaitRequest(holdCtx, "NONE"); !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 		return fmt.Errorf("connection dropped while held: %w", err)
 	}

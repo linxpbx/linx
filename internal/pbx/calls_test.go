@@ -192,6 +192,55 @@ func TestRingGroupCall(t *testing.T) {
 	}
 }
 
+// TestWokenPhoneAnswers: Bob's browser is here and his iPhone is being
+// woken, so the step dials the browser and a linx-wake-leg Local channel
+// at once (asteriskconf). The browser rings straight away; the iPhone,
+// dialled by the leg once it has signed in, rings and answers for the same
+// call, and nothing is left behind.
+func TestWokenPhoneAnswers(t *testing.T) {
+	tr, st := newTracker()
+	st.add("d_bobapp03", "102", "Bob's iPhone")
+	ctx := context.Background()
+	caller := ch("1", "d_alice001", "Ring", "linx-extensions", "102", "")
+	tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(0), Channel: caller})
+	caller.Dialplan = ari.Dialplan{Context: "linx-ring", Exten: "102", AppName: "Dial"}
+	browser := ch("2", "d_bob00002", "Down", "linx-ring", "s", "")
+	one := &ari.Channel{ID: "3", Name: "Local/d_bobapp03@linx-wake-leg-00000001;1", State: "Down"}
+	two := &ari.Channel{ID: "4", Name: "Local/d_bobapp03@linx-wake-leg-00000001;2", State: "Ring",
+		Dialplan: ari.Dialplan{Context: "linx-wake-leg", Exten: "d_bobapp03"}}
+	for _, leg := range []*ari.Channel{browser, one} {
+		tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(0), Channel: leg})
+		tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(0), Caller: caller, Peer: leg})
+	}
+	tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(0), Channel: two}) // not a new call
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(0), Caller: caller, Peer: browser, DialStatus: "RINGING"})
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(0), Caller: caller, Peer: one, DialStatus: "RINGING"})
+	if calls := tr.ActiveCalls(); len(calls) != 1 || !equal(calls[0].RingingExtensions, []string{"102"}) {
+		t.Fatalf("browser ringing, iPhone waking: %+v", calls)
+	}
+
+	app := ch("5", "d_bobapp03", "Down", "linx-wake-leg", "d_bobapp03", "")
+	tr.handle(ctx, ari.Event{Type: "ChannelCreated", Timestamp: at(3), Channel: app})
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(3), Caller: two, Peer: app})
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(3), Caller: two, Peer: app, DialStatus: "RINGING"})
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(5), Caller: two, Peer: app, DialStatus: "ANSWER"})
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(5), Caller: caller, Peer: one, DialStatus: "ANSWER"})
+	tr.handle(ctx, ari.Event{Type: "Dial", Timestamp: at(5), Caller: caller, Peer: browser, DialStatus: "CANCEL"})
+	calls := tr.ActiveCalls()
+	if len(calls) != 1 || calls[0].AnsweredBy == nil || calls[0].AnsweredBy.Name != "Bob's iPhone" {
+		t.Fatalf("answered on the iPhone: %+v", calls)
+	}
+	for _, c := range []*ari.Channel{browser, one, two, app, caller} {
+		tr.handle(ctx, ari.Event{Type: "ChannelDestroyed", Timestamp: at(9), Channel: c})
+	}
+	if got := st.types(); !equal(got, []string{"call.started", "call.answered", "call.ended"}) {
+		t.Errorf("events %v", got)
+	}
+	if len(tr.ActiveCalls()) != 0 || len(tr.legs) != 0 || len(tr.woken) != 0 {
+		t.Errorf("leftovers: %v %v %v", tr.ActiveCalls(), tr.legs, tr.woken)
+	}
+}
+
 func TestCallOutcomes(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {

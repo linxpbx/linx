@@ -312,15 +312,19 @@ func TestRenderARI(t *testing.T) {
 		"[linx-from-trunk]", "Set(TARGET=${LINX_INBOUND(${CHANNEL(endpoint)},${DID})})",
 		// The dialled number for call events.
 		"same => n,Goto(linx-trunk-did,${DID},1)", "exten => _[0-9+].,1,Goto(linx-route,s,1)",
-		// Waking a sleeping app phone before a step rings (ADR-074): the
+		// Waking a sleeping app phone as a step rings (ADR-074): the
 		// database says who can be woken, the dialplan leaves out the ones
-		// already here, and the call waits for the rest.
+		// already here, the rest are rung by legs that wait for them, and
+		// everything already here rings at once.
 		"[linx-wake]", "Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})",
-		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF(", `Video: ${IF($["${LINXVIDEO}" = "yes"]?yes:no)})`, "exten => late,1,Set(WAKECAME=0)",
+		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF(", `Video: ${IF($["${LINXVIDEO}" = "yes"]?yes:no)})`,
+		"GotoIf($[${FIELDNUM(WAKELIST,&,${WAKEAOR})} < 1]?add)", "Set(WAKEONE=Local/${WAKEAOR}@linx-wake-leg)",
+		"[linx-wake-leg]", "exten => _[a-zA-Z].,1,Ringing()", "same => n(came),Dial(PJSIP/${EXTEN},,b(linx-headers^s^1))",
+		"UserEvent(LinxWakeMissed,Call: ${WAKECALL},Aors: ${EXTEN},Waited: ${WAKEMS})",
 		// A video call is a header, never a video stream (ADR-087); every
 		// leg a step rings is told, and told which group call invites it.
 		`Set(__LINXVIDEO=${IF($["${PJSIP_HEADER(read,X-Linx-Video)}" = "yes"]?yes:)})`,
-		"Dial(${ARG1},${ARG2},b(linx-headers^s^1))", "Dial(${ARG1},${RINGLEFT},b(linx-headers^s^1))",
+		"Dial(${RINGTARGETS},${ARG2},b(linx-headers^s^1))",
 		"Set(PJSIP_HEADER(add,X-Linx-Video)=yes)", "Set(PJSIP_HEADER(add,X-Linx-Room)=${LINXROOM})",
 		// Ringing someone into a group call (ADR-088): their phones ring as
 		// for any call, and nothing else happens if nobody answers.
@@ -330,7 +334,7 @@ func TestRenderARI(t *testing.T) {
 		// wrong way round is a phone that never rings (the whole of row 2.4
 		// in docs/TEST_MATRIX.md, 2026-10-04).
 		`GotoIf($["${WAKESTATE}" != "" & "${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?next)`,
-		`GotoIf($["${WAKESTATE}" = "" | "${WAKESTATE}" = "UNAVAILABLE" | "${WAKESTATE}" = "INVALID" | "${WAKESTATE}" = "UNKNOWN"]?notyet)`} {
+		`GotoIf($["${WAKESTATE}" != "" & "${WAKESTATE}" != "UNAVAILABLE" & "${WAKESTATE}" != "INVALID" & "${WAKESTATE}" != "UNKNOWN"]?came)`} {
 		if got := read(t, c, "extensions.conf"); !strings.Contains(got, want) {
 			t.Errorf("extensions.conf missing %q", want)
 		}

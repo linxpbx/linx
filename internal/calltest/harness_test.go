@@ -318,6 +318,22 @@ func (e *env) newPhone(number, name string) phone {
 	return phone{number: number, ext: ext, dev: dev, password: pw}
 }
 
+// addPhone gives an existing extension one more device whose password
+// this test knows.
+func (e *env) addPhone(ext pbx.Extension, name string) phone {
+	e.t.Helper()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	user := pbx.NewSIPUsername()
+	pw := pbx.NewDevicePassword()
+	dev := pbx.Device{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, ExtensionID: ext.ID, Name: name,
+		Kind: pbx.KindSoftphone, SIPUsername: user, DigestHash: pbx.DigestHash(user, pw), Enabled: true, Version: 1,
+		CreatedAt: now, UpdatedAt: now}
+	if err := e.store.CreateDevice(e.ctx, dev, e.audit("device.create")); err != nil {
+		e.t.Fatal(err)
+	}
+	return phone{number: ext.Number, ext: ext, dev: dev, password: pw}
+}
+
 // newAppPhone creates an extension whose only phone is the iPhone/iPad app
 // (docs/PHASE2.md §5): a device of kind ios with the identity a set-up
 // phone has, and a push token for Apple. It never signs in — a phone that
@@ -344,6 +360,15 @@ func (e *env) newAppPhone(number, name string) phone {
 	if err := e.store.CreateDevice(e.ctx, dev, e.audit("device.create")); err != nil {
 		e.t.Fatal(err)
 	}
+	e.pushToken(dev, u.ID)
+	return phone{number: number, ext: ext, dev: dev, password: pw}
+}
+
+// pushToken gives a device the identity a set-up app phone has and a push
+// token for Apple.
+func (e *env) pushToken(dev pbx.Device, user uuid.UUID) {
+	e.t.Helper()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	fingerprint := make([]byte, 32)
 	if _, err := rand.Read(fingerprint); err != nil {
 		e.t.Fatal(err)
@@ -352,11 +377,42 @@ func (e *env) newAppPhone(number, name string) phone {
 		(device_id, tenant_id, user_id, public_key, cert_serial, cert_fingerprint, cert_not_after,
 		 enrolled_at, last_seen_at, expires_at, voip_token, push_environment)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, 'production')`,
-		dev.ID, e.tenant, u.ID, fingerprint, "01", fingerprint, now.Add(6*30*24*time.Hour),
+		dev.ID, e.tenant, user, fingerprint, "01", fingerprint, now.Add(6*30*24*time.Hour),
 		now, now.Add(6*30*24*time.Hour), strings.Repeat("ab", 32)); err != nil {
 		e.t.Fatal(err)
 	}
-	return phone{number: number, ext: ext, dev: dev, password: pw}
+}
+
+// wakeable makes an ordinary SIPp phone one the wake step wakes, as if it
+// were the app: a person, a push token, and — for this test only — the
+// view of wakeable phones widened to take softphones as well, so a phone
+// that can answer with SIPp's own audio stands in for the app. The view
+// goes back as it was when t ends.
+func (e *env) wakeable(t *testing.T, p phone) {
+	e.t.Helper()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	u := auth.User{ID: uuid.Must(uuid.NewV7()), TenantID: e.tenant, Email: p.number + "@linx.test", Name: p.ext.DisplayName,
+		Role: auth.RoleUser, ExtensionID: &p.ext.ID, PasswordHash: "unused", PasswordUpdatedAt: now, Version: 1, CreatedAt: now, UpdatedAt: now}
+	if err := e.store.CreateUser(e.ctx, u, e.audit("user.create")); err != nil {
+		e.t.Fatal(err)
+	}
+	e.pushToken(p.dev, u.ID)
+	var view string
+	if err := e.pool.QueryRow(e.ctx, `SELECT pg_get_viewdef('device_wakeable'::regclass)`).Scan(&view); err != nil {
+		e.t.Fatal(err)
+	}
+	widened := strings.Replace(view, "'ios'::text", "ANY (ARRAY['ios'::text, 'softphone'::text])", 1)
+	if widened == view {
+		e.t.Fatalf("can't widen device_wakeable:\n%s", view)
+	}
+	if _, err := e.pool.Exec(e.ctx, "CREATE OR REPLACE VIEW device_wakeable AS "+widened); err != nil {
+		e.t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := e.pool.Exec(context.Background(), "CREATE OR REPLACE VIEW device_wakeable AS "+view); err != nil {
+			t.Error(err)
+		}
+	})
 }
 
 // pushOn is the Apple key in place (System → Settings → Calls to the app),
