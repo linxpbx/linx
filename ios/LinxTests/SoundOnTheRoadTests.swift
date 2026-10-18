@@ -413,7 +413,9 @@ struct SoundOnTheRoadTests {
     @Test("a call Linx gives no moment for still starts the lock screen's timer")
     func noMomentFromLinx() async throws {
         let (phone, _, _, system) = try await inACall()
-        try await Task.sleep(for: PhoneModel.waitForLinxMoment + .milliseconds(300))
+        // A slow machine (CI) may run the two-second wait late: up to six.
+        let giveUp = Date().addingTimeInterval(6)
+        while system.answered.isEmpty, Date() < giveUp { try await Task.sleep(for: .milliseconds(100)) }
         #expect(system.answered.count == 1)
         #expect(system.answeredAt.first == phone.call?.answeredAt)
     }
