@@ -84,7 +84,18 @@ type benchScenario struct {
 	// to the next satellite: a moment of loss and a jump in delay, on top
 	// of an ordinary link (owner, 2026-10-16).
 	starlink bool
+	// away is both people switching to another app mid-call for a while
+	// and coming back: the call carries on in its small window, both
+	// pictures still moving (owner, 2026-10-18).
+	away bool
 }
+
+// awayFrom and awayFor are when in the call both phones go to another app,
+// and for how long.
+const (
+	awayFrom = 18 * time.Second
+	awayFor  = 12 * time.Second
+)
 
 // squeezeRate, squeezeFrom and squeezeFor are the squeeze: what the relay
 // may send the phones, from when in the call, for how long. The call runs
@@ -145,6 +156,7 @@ var benchScenarios = []benchScenario{
 		flags: []string{"relay-only", "mobile-data"}, slow: "delay 120ms 20ms rate 1500kbit limit 600"},
 	{name: "Starlink: a handover every fifteen seconds",
 		flags: []string{"relay-only", "mobile-data"}, slow: "delay 30ms 10ms", starlink: true},
+	{name: "switching to another app mid-call: the small window", flags: []string{"relay-only"}, away: true},
 	{name: "a ship's satellite: 800 ms, 512 kbit/s, 1% loss",
 		flags: []string{"relay-only", "mobile-data"}, slow: "delay 800ms 40ms loss 1% rate 512kbit"},
 	{name: "in flight: 443 only, 256 kbit/s, a voice call",
@@ -438,6 +450,11 @@ func TestPhoneBenchDocker(t *testing.T) {
 				time.Sleep(2500 * time.Millisecond)
 				h.noNewConnectionsFor(badStartFor)
 			}
+			if sc.away {
+				h.whenRinging(t, 60*time.Second)
+				time.Sleep(awayFrom)
+				bench("away", strconv.Itoa(int(awayFor.Seconds())))
+			}
 			if sc.cut {
 				// About fifteen seconds into the answered call.
 				time.Sleep(20 * time.Second)
@@ -563,11 +580,12 @@ func (h *harness) benchReports(t *testing.T, since string, n int, within time.Du
 }
 
 var (
-	soundInRe = regexp.MustCompile(`sound in: (\d+) bytes`)
-	framesRe  = regexp.MustCompile(`Their picture: (\d+) frames`)
-	routeRe   = regexp.MustCompile(`route: relayed \((\w+)\)`)
-	encodeRe  = regexp.MustCompile(`AV1 (\d+) ms a frame`)
-	stoppedRe = regexp.MustCompile(`Their picture stopped (\d+) times, ([0-9.]+) s in all`)
+	soundInRe     = regexp.MustCompile(`sound in: (\d+) bytes`)
+	framesRe      = regexp.MustCompile(`Their picture: (\d+) frames`)
+	smallWindowRe = regexp.MustCompile(`Small window off after (\d+) frames`)
+	routeRe       = regexp.MustCompile(`route: relayed \((\w+)\)`)
+	encodeRe      = regexp.MustCompile(`AV1 (\d+) ms a frame`)
+	stoppedRe     = regexp.MustCompile(`Their picture stopped (\d+) times, ([0-9.]+) s in all`)
 )
 
 // benchEncodeMostMs is the most an AV1 frame may take to make: at 30
@@ -680,6 +698,23 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			fail("no answer or picture in the record")
 		case arrived-answered > benchPictureAfterAnswer:
 			fail(fmt.Sprintf("their picture arrived %.1f s after the answer", arrived-answered))
+		}
+	}
+	if sc.away {
+		// The small window opened, showed the other phone's picture all
+		// the while, and closed again when the call came back.
+		switch m := smallWindowRe.FindStringSubmatch(r); {
+		case strings.Contains(r, "This device can't show a small window") && strings.Contains(who, "201"):
+			// The bench's iPhone simulator has no Picture in Picture
+			// (a real iPhone has); the iPad proves it.
+		case !strings.Contains(r, "Small window on"):
+			fail("the call didn't go into its small window")
+		case m == nil:
+			fail("the small window never closed")
+		default:
+			if f, _ := strconv.Atoi(m[1]); f < 8*int(awayFor.Seconds()) {
+				fail(fmt.Sprintf("the small window showed only %d frames", f))
+			}
 		}
 	}
 	if sc.squeeze {

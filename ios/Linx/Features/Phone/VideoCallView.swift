@@ -42,6 +42,15 @@ struct VideoCallView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(LinxColor.surfaceDark.ignoresSafeArea())
+        // Switching to another app carries the call on in a small window
+        // (`CallPictureInPicture`).
+        .background {
+            PictureInPictureSource(
+                window: phone.smallWindow,
+                theirs: call.video.theirs ? phone.tracks.remote : nil,
+                mine: call.video.mine ? phone.tracks.local : nil,
+                mirrored: phone.mirrorsMyVideo)
+        }
         .task(id: touches) {
             try? await Task.sleep(for: Self.controlsStay)
             guard !Task.isCancelled, mayHideControls else { return }

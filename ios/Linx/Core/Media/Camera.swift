@@ -95,6 +95,15 @@ enum CameraTrouble: Error {
         // nothing else configures it.
         capturer.captureSession.usesApplicationAudioSession = true
         capturer.captureSession.automaticallyConfiguresApplicationAudioSession = false
+        // The camera keeps going while the call is in its small window over
+        // another app (`CallPictureInPicture`): iOS 18 allows it to an app
+        // with the `voip` background mode, set before the session starts.
+        let session = capturer.captureSession
+        if session.isMultitaskingCameraAccessSupported {
+            session.beginConfiguration()
+            session.isMultitaskingCameraAccessEnabled = true
+            session.commitConfiguration()
+        }
         track = factory.videoTrack(with: source, trackId: "linx-video")
     }
 
@@ -173,6 +182,9 @@ enum CameraTrouble: Error {
     /// Whether the camera is using the call's own audio session and keeping
     /// its hands off it, which is what leaves a Bluetooth headset where it
     /// was when the camera goes on. A test holds this to it.
+    /// Whether the camera may keep running while another app is in front.
+    var keepsGoingInTheSmallWindow: Bool { capturer.captureSession.isMultitaskingCameraAccessEnabled }
+
     var usesTheCallsAudioSession: Bool {
         capturer.captureSession.usesApplicationAudioSession
             && !capturer.captureSession.automaticallyConfiguresApplicationAudioSession

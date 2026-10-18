@@ -961,3 +961,13 @@ CI already publishes `edge` and `sha-<commit>` for every green master commit, si
 
 **Consequences.** One owner call on build 48 with both lines on: no pauses at all, both legs Good. Calls on a mobile network use UDP again where it works (the relay's TLS stays as the fallback ICE finds by itself, and for China). A phone on Wi-Fi with a VPN still offers what iOS's path holds.
 
+
+## ADR-091 — A video call carries on in a small window over other apps (owner decision, 2026-10-18)
+
+**Context.** The owner wanted a video call to keep both pictures going when they switch to another app, in a small window in a corner that can be swiped away without losing the call. Until build 49, leaving the app froze this phone's picture for the other person (iOS stops the camera of an app in the background) and showed nothing on this phone; the call itself went on as sound.
+
+**Options.** (a) iOS's own Picture in Picture for video calls (`AVPictureInPictureController` with an `AVPictureInPictureVideoCallViewController`), with the camera allowed to keep running (`AVCaptureSession.isMultitaskingCameraAccessEnabled`, which iOS 18 offers any app with the `voip` background mode — no entitlement to ask Apple for). (b) Nothing: the call's green pill in the status bar brings it back.
+
+**Decision.** (a), owner's go, build 50. `CallPictureInPicture` (one for the app, held by `PhoneModel`) starts by itself when the app leaves the screen during a call with a picture in it — a 1:1 video call or a group call with a camera on — showing the other person big and this phone small in the corner (only one, big, when only one camera is on). The window draws with `AVSampleBufferDisplayLayer`, the layer Apple names for this, because WebRTC's Metal view doesn't draw from the background; frames decoded to plain planes (AV1, VP8) are copied into the layer's two-plane form. The pictures are fed to it only from the moment the app is about to leave the screen until it is back, so a call on the screen costs nothing more. Swiping the window to the edge hides it (iOS pauses the camera meanwhile); closing it leaves the call going as sound, its picture back when the app is opened.
+
+**Consequences.** The phone bench switches both phones to Settings mid-call ("switching to another app mid-call: the small window") and checks the window opened, drew the other phone's picture throughout and closed when the call came back. A simulator has no camera, so the camera running inside the window is proved on a real iPhone only. No server change, no new permission prompt.

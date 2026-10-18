@@ -8,6 +8,7 @@
 #   bench.sh prepare CA_PEM              # trust the test CA, fresh app on both
 #   bench.sh call CALLER_LINK ANSWERER_LINK NUMBER SECONDS [flags…]
 #   bench.sh shot DIR NAME               # both screens, mid-call, into DIR
+#   bench.sh away SECONDS                # both phones to another app, then back
 #
 # flags: relay-only, mobile-data (the picture through the relay alone), no-udp (China: the relay over TLS on 443 only), audio,
 # callkit (ring and answer through CallKit, as an iPhone outside China),
@@ -41,6 +42,19 @@ shot)
   mkdir -p "$dir"
   xcrun simctl io "$caller" screenshot --type=png "$dir/caller-${3:?NAME}.png" >/dev/null 2>&1
   xcrun simctl io "$answerer" screenshot --type=png "$dir/answerer-$3.png" >/dev/null 2>&1
+  ;;
+away)
+  away=${2:?SECONDS}
+  # Another app in front of the call on both phones (Settings), as a person
+  # switching apps does, then the call brought back: the call goes on in
+  # its small window meanwhile (CallPictureInPicture).
+  for d in "$caller" "$answerer"; do xcrun simctl launch "$d" com.apple.Preferences >/dev/null; done
+  sleep 4
+  if [ -n "${LINX_BENCH_SHOTS:-}" ]; then tools/bench.sh shot "$LINX_BENCH_SHOTS" away; fi
+  sleep $((away - 4))
+  for d in "$caller" "$answerer"; do xcrun simctl launch "$d" "$bundle" >/dev/null; done
+  if [ -n "${LINX_BENCH_SHOTS:-}" ]; then sleep 3; tools/bench.sh shot "$LINX_BENCH_SHOTS" back; fi
+  echo "bench: back"
   ;;
 prepare)
   ca=${2:?CA_PEM}

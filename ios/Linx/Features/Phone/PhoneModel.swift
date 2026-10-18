@@ -93,6 +93,9 @@ import UIKit
     /// ask, 2026-10-05). It lasts for the call, and only means anything while
     /// both cameras are on.
     private(set) var myPictureIsBig = false
+    /// The small window a video call goes on in while another app is in
+    /// front (owner, 2026-10-18).
+    let smallWindow = CallPictureInPicture()
     /// Where the sound of the call is coming out, read from the system
     /// rather than assumed. The call screen shows a plain Speaker switch
     /// while it is the phone's own earpiece or loudspeaker, and the
@@ -271,6 +274,7 @@ import UIKit
             media.systemAudio(on)
         }
         self.calls.onReset = { [weak self] in self?.systemForgotEverything() }
+        smallWindow.onMark = { [weak self] what in self?.liveMedia?.mark(what) }
     }
 
     // MARK: - The line
@@ -1388,6 +1392,7 @@ import UIKit
         ringer.stop()
         UIDevice.current.isProximityMonitoringEnabled = false
         holdTheScreen(false)
+        smallWindow.end()
         guard let finished = call else { return }
         call = nil
         askAboutTheirVideo = nil

@@ -110,7 +110,9 @@ import SwiftUI
     /// phone is signed in and the app is in front, and nothing a second
     /// time, so it is safe to call whenever either of those becomes true.
     func askAboutNotifications() async {
-        guard case .signedIn = state else { return }
+        // The bench's phones are never asked: iOS's question over a call
+        // keeps the app from being active, which no real call meets twice.
+        guard case .signedIn = state, !Bench.on else { return }
         await push.askAboutNotifications()
         if let tokens = push.current { await tellLinxWhereToReachThisPhone(tokens) }
     }
