@@ -181,8 +181,10 @@ struct CallDiagnostics: Equatable, Sendable {
     private var movingToRelay = false
     private var connection: RTCPeerConnection?
     private var audio: RTCAudioTrack?
-    /// The microphone both routes take their sound from (ADR-092).
-    private var audioSource: RTCAudioSource?
+    /// The microphone both routes take their sound from (ADR-092), made by
+    /// whichever asks first: a phone being rung sets up the direct link
+    /// while it rings, before its call through Asterisk has a connection.
+    private lazy var microphoneSource = Self.factory.audioSource(with: Self.microphone)
     private var muted = false
     /// Which route each side plays the other's sound from: Asterisk's is
     /// quieted, each way, while the direct link carries it (ADR-092).
@@ -411,7 +413,7 @@ struct CallDiagnostics: Equatable, Sendable {
             factory: Self.factory, tracks: tracks,
             cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn), onMobileData: onMobileData,
             sound: Bench.noDirectSound
-                ? nil : audioSource.map { Self.factory.audioTrack(with: $0, trackId: "linx-direct-audio") })
+                ? nil : Self.factory.audioTrack(with: microphoneSource, trackId: "linx-direct-audio"))
         picture.setMuted(muted)
         picture.onHearing = { [weak self] route in self?.hear(route) }
         picture.onTheyHear = { [weak self] route in self?.theyHear(route) }
@@ -973,9 +975,7 @@ struct CallDiagnostics: Equatable, Sendable {
             else { throw MediaTrouble.noOffer }
             connection = made
         }
-        let source = Self.factory.audioSource(with: Self.microphone)
-        audioSource = source
-        let track = Self.factory.audioTrack(with: source, trackId: "linx-audio")
+        let track = Self.factory.audioTrack(with: microphoneSource, trackId: "linx-audio")
         connection.add(track, streamIds: ["linx"])
         self.audio = track
         self.connection = connection

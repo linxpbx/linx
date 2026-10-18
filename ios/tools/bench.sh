@@ -85,6 +85,7 @@ call)
     late-answerer) late=1 ;;
     no-early) flags+=(-LinxBenchNoEarly YES) ;;
     no-direct-sound) flags+=(-LinxBenchNoDirectSound YES) ;;
+    no-dtx) flags+=(-LinxBenchNoDTX YES) ;;
     mobile-data) flags+=(-LinxBenchMobileData YES) ;;
     *) echo "bench: unknown flag $f" >&2; exit 2 ;;
     esac

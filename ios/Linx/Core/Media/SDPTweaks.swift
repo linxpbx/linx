@@ -38,7 +38,10 @@ enum SDPTweaks {
         let prefix = "a=fmtp:\(payload) "
 
         let wanted = [
-            ("useinbandfec", "1"), ("usedtx", "1"), ("stereo", "0"), ("sprop-stereo", "0"),
+            // The bench may turn DTX off, so a silent simulator still sends
+            // 50 packets a second and the routes' loss and delay can be
+            // compared (`Bench.noDTX`).
+            ("useinbandfec", "1"), ("usedtx", Bench.noDTX ? "0" : "1"), ("stereo", "0"), ("sprop-stereo", "0"),
             ("maxaveragebitrate", String(opusMaxBitrate)),
         ]
         guard let fmtp = lines.firstIndex(where: { $0.hasPrefix(prefix) }) else {

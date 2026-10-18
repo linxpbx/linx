@@ -100,6 +100,9 @@ type benchScenario struct {
 const (
 	directCutFrom = 20 * time.Second
 	directCutFor  = 5 * time.Second
+	// The link takes up to fifteen seconds to find its way again after a
+	// cut, and the sound waits five steady seconds before going back to it.
+	directCutCallSeconds = 70
 )
 
 // awayFrom and awayFor are when in the call both phones go to another app,
@@ -132,8 +135,10 @@ const newLineFor = 14 * time.Second
 const benchPictureAfterAnswer = 3
 
 // benchSoundDirectAfterAnswer is the most, in seconds, from the answer to
-// the sound moving onto the direct link on the bench's links.
-const benchSoundDirectAfterAnswer = 15
+// the sound moving onto the direct link on the bench's links. The sound
+// carries on through Linx until then; in flight (600 ms over TLS at
+// 256 kbit/s) the link took 16.7 s to be ready once.
+const benchSoundDirectAfterAnswer = 30
 
 // badStartFor is how long a bad start turns new connections away.
 const badStartFor = 12 * time.Second
@@ -451,6 +456,9 @@ func TestPhoneBenchDocker(t *testing.T) {
 			flags := append(slices.Clone(sc.flags), strings.Fields(os.Getenv("LINX_BENCH_FLAGS"))...)
 			t.Logf("bench call from %s", time.Now().Format("15:04:05.0"))
 			seconds := benchCallSeconds
+			if sc.directCut {
+				seconds = directCutCallSeconds
+			}
 			if sc.squeeze {
 				seconds = squeezeCallSeconds
 			}

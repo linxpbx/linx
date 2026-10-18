@@ -1,11 +1,11 @@
 # Linx — the sound of a Linx-to-Linx call goes device to device
 
-*Owner, 2026-10-18: "I will do the small step first … the main reason is improve voice quality to match the direct video call." The small step of the two offered that day: the sound joins the picture on the direct link; Asterisk stays the switchboard. ADR-092 records the decision. **Design, awaiting the owner's approval.***
+*Owner, 2026-10-18: "I will do the small step first … the main reason is improve voice quality to match the direct video call." The small step of the two offered that day: the sound joins the picture on the direct link; Asterisk stays the switchboard. ADR-092 records the decision. **Approved by the owner 2026-10-18 ("Go ahead"); as built: §9.***
 
 ## 1. In plain words
 - **Nothing about ringing changes.** Calls ring, wake a phone, show on the lock screen, go to voicemail and appear in history exactly as now. Asterisk still runs the call.
 - **Between two Linx devices** (the app or the browser, either side), once the call is answered the **sound moves onto the same direct link the picture already uses**. The two devices then talk to each other, not through Asterisk.
-- **Asterisk's sound route stays connected, but quiet**, as a safety net. If the direct sound stops arriving, both devices switch back to it within about a second and the call carries on.
+- **Asterisk's sound route stays connected, but quiet**, as a safety net. If the direct sound stops arriving, both devices switch back to it within about a second and a half and the call carries on.
 - **Desk phones, outside numbers, voicemail, `*43` and group calls are untouched.** They have no direct link, so they keep the route they have today.
 
 ## 2. Why it should sound better
@@ -25,7 +25,7 @@ This is the expectation, not a promise: §6 says how it is measured before it re
 1. **The call starts on Asterisk's route**, exactly as now, so the first words are heard at once and nothing waits for the direct link.
 2. When the direct link is connected **and sound from the other side has arrived on it** (inbound audio packets counted in the stats, two readings), the device switches: the **direct sound is played** and Asterisk's incoming sound is muted (the remote track disabled). It then **sends** on the direct link only: Asterisk's outgoing track is disabled, so that leg carries DTX silence (a few packets a second).
 3. **Each side switches on its own evidence**, so a one-way direct route never leaves anybody unheard: a side plays whichever route is actually bringing sound, and keeps sending on Asterisk's route until the other side's reports show its direct sound is arriving there.
-4. **Falling back:** if direct sound stops arriving for **1 s** while the call is up, the device unmutes Asterisk's route both ways at once. It moves back to direct when the direct sound has been steady for 5 s again. A link closed by the server, a lost call link or a dropped direct connection is the same fallback.
+4. **Falling back:** if direct sound stops arriving for **1.5 s** (three readings: Opus sends a packet at least every 400 ms even in silence, so less would mistake a pause for a broken route) while the call is up, the device unmutes Asterisk's route both ways at once. It moves back to direct when the direct sound has been steady for 5 s again. A link closed by the server, a lost call link or a dropped direct connection is the same fallback.
 5. **Mute** silences both routes. **Keypad tones** still go on Asterisk's route (RFC 4733), the way Asterisk expects them.
 6. **Group calls:** moving into one already quiets Asterisk's route (`joinGroup`); the direct link is stopped there as now, and LiveKit carries everything.
 
@@ -60,3 +60,23 @@ The direct sound is DTLS-SRTP between the two devices, encrypted end to end, whi
 ## 8. Left open
 - **Recording (Phase 4)** will need the sound where the recorder is. A recorded call would either stay on Asterisk's route or be recorded by the devices. Decided with Phase 4.
 - **The full redesign** (Linx running Linx-to-Linx calls without Asterisk) stays parked. This step is the part of it that matters for quality.
+
+## 9. As built (2026-10-18)
+- **Who may be sent sound on the link.** Each side says `{"sound":"can"}` on the link when a pairing is up; a side hears it, turns its microphone on there and answers `"sending"`. A side only plays the link once the other said `"sending"` **and** its sound has arrived steadily for a second, and says `"direct"` (or `"linx"` when it falls back) so the other quiets (or un-quiets) what it sends through Asterisk. **An app or browser that doesn't know any of this never says `can`, so nothing is ever sent to it on the link** (it would play the sound on top of Asterisk's, every word twice). The microphone on the link is a second track from the same microphone (app: same `RTCAudioSource`; browser: a clone), so each route is quieted apart. Mute silences both. A word a later version adds is ignored, not the message.
+- **Who offers.** Between two apps the caller's offer made while it rings carries the microphone (`negotiate`); the rung phone's microphone goes in that offer's slot (`carryMySound`, as `carryMyCamera`). With a browser (paired only after the answer) the side the server names as leading adds its microphone when the pair is made, so a voice call has an offer too; on a video call the browser puts its microphone in its camera's offer instead (offered first on its own, the two rounds crossed the other side's camera offer and a picture never came: the browser suite).
+- **The call link's messages are handled one at a time** (app and browser). Handled side by side, an offer could arrive while the answer before it was still being applied, be taken for a collision and dropped, and both ends waited for ever: the browser suite found it once the sound changed the timing. A camera starting is no longer waited for in that line.
+- **Code:** `ios/Linx/Core/Media/DirectSound.swift` (the rules, `SoundQuality`), `DirectPicture` (the sound section), `WebRTCMedia` (`hear`, `theyHear`), Call details' **Sound** line; `web/src/phone/directSound.ts`, `picture.ts`, `line.ts` (`quietTheLine`), the call panel's `data-sound`. Server: nothing.
+- **Bench:** every app-to-app scenario must show both phones playing the other from the direct link, and each phone's record ends with the sound quality of each route. `LINX_BENCH_FLAGS=no-direct-sound` measures the old way on the same build. New scenario: **the direct link cut mid-call** (the relay relaying to itself dropped for 5 s): the sound must go back through Linx on both sides and return. A one-way cut isn't on the bench (both phones' links go through the one relay address); the rule that covers it — each side decides from what it receives, and tells the other — is in the unit tests.
+
+### The bench's measurement (2026-10-18)
+Both routes are measured **in the same call**, under the same network, so each pair below is a fair comparison: through Asterisk → on the direct link. With Opus's DTX on (as in real calls) a silent simulator sends ~150 packets a call and the numbers were noise, so it was measured again with DTX off on the bench only (`LINX_BENCH_FLAGS=no-dtx`): ~2,000 packets per route per call, two runs each.
+
+| Scenario | Lost | Made up | Jitter buffer |
+|---|---|---|---|
+| Relay, clean | 0 → 0% | 0.1 → 0.1% | ~38 → ~38 ms |
+| 300 ms, 2% loss | ~2.1 → ~2.0% | ~1.5 → ~1.6% | 201: ~39 → ~34 ms; **202: ~42 → 106 ms** (both runs) |
+| Starlink | ~2.3 → ~2.2% | ~2.1 → ~2.0% | ~94 → ~103 ms |
+| Ship's satellite (800 ms, 512 kbit/s, 1%) | **~0.8 → ~1.2%** (all four) | ~1.5 → ~1.4% | mixed |
+| In flight (TLS, 256 kbit/s), DTX off | — | — | the link couldn't carry the second copy at 50 packets a second; the sound stayed on Asterisk's route (the safety net working). With DTX on, as in real calls, it switches and passes. |
+
+**Verdict:** the switch-over is safe (all 19 scenarios pass with real settings, the cut and fall-back proven), but **the bench shows no gain in loss, concealment or delay, and a little more loss on the satellite link and more buffering in one direction on the 2% link.** What the bench can't show is real speech: FEC and Opus's bitrate following the real route, and lips in sync. By §6's rule this doesn't ship as the default on the bench's evidence alone. Owner's decision, 2026-10-18: pending.

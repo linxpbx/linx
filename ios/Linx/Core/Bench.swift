@@ -46,6 +46,9 @@ enum Bench {
         /// The sound stays on Asterisk's route all call, as before ADR-092:
         /// what the direct sound is measured against.
         static var noDirectSound: Bool { defaults.bool(forKey: "LinxBenchNoDirectSound") }
+        /// Opus without DTX: a silent simulator still sends 50 packets a
+        /// second, so the sound's loss and delay can be measured.
+        static var noDTX: Bool { defaults.bool(forKey: "LinxBenchNoDTX") }
 
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
@@ -56,6 +59,7 @@ enum Bench {
         static let noEarly = false
         static let mobileData = false
         static let noDirectSound = false
+        static let noDTX = false
         static let answer = false
         static let ringFor = 1
         static let hangUpAfter = 0
