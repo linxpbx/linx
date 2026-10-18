@@ -111,9 +111,9 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 
 ## 9. Losing a phone, and six months (step 9)
 
-- [ ] *(2026-10-18, build 50: the call carried on, and the iPad showed "No phone line" until restarted. Fixed for the next build: the server hangs up a stopped phone's calls, and the app asks again and is told to set up again.)* **9.1** While a call is up, **My phones → I've lost it**. The call **drops mid-sentence**, not when it ends.
-- [ ] **9.2** The app says to set the phone up again, within seconds.
-- [ ] **9.3** Set it up again with a new code: everything is back, nothing else changed.
+- [x] *(2026-10-18, build 50: the call carried on, and the iPad showed "No phone line" until restarted. Fixed in build 51 and passed on the owner's iPad the same day: the server hangs up a stopped phone's calls, and the app asks again and is told to set up again.)* **9.1** While a call is up, **My phones → I've lost it**. The call **drops mid-sentence**, not when it ends.
+- [x] **9.2** The app says to set the phone up again, within seconds.
+- [x] **9.3** Set it up again with a new code: everything is back, nothing else changed.
 - [ ] **9.4** Change that person's password on the website: their phones ask to be set up again.
 - [ ] **9.5** Disable the person, then enable them: the phone stops and comes back **without** a new code.
 - [ ] **9.6** Stop a phone, then ring that person: the stopped one never rings, even in a pocket.
