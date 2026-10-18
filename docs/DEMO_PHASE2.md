@@ -86,7 +86,7 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 - [x] **6.2** Say **Not now** on the other side: the one-way call carries on normally.
 - [x] **6.3** Turn theirs on too: both pictures, and tapping either one swaps which is big.
 - [x] **6.4** **Call details** shows the picture's step. On a relayed call it settles at **540p**; direct it may reach **720p**.
-- [ ] **6.5** Walk somewhere with a poor signal: the picture steps **down** rather than the call breaking up, and the sound keeps going.
+- [x] *(owner, 2026-10-18)* **6.5** Walk somewhere with a poor signal: the picture steps **down** rather than the call breaking up, and the sound keeps going.
 - [x] **6.6** **Stop video** on both sides: the call goes back to the voice screen, not a blank video one.
 - [x] **6.7** A video call to an **outside number** (the landline): video on, then off — the screen goes back to voice properly.
 - [x] **6.8** The screen **stays awake** while a video call has a picture in it, and sleeps normally on a voice call.
@@ -105,7 +105,7 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 
 - [x] On the **iPad**, every tab is a **list beside a detail** — Mail-shaped, not a phone screen stretched across 13 inches. *This is the owner's own condition on ADR-076; say plainly whether it is met.*
 - [x] A call **stands beside the app** rather than covering it, and the list behind it doesn't jump.
-- [ ] Turn the iPad: the call screen rearranges and nothing lands under your thumb.
+- [x] Turn the iPad: the call screen rearranges and nothing lands under your thumb.
 - [x] Drag the Split View divider **during a call**: the call doesn't drop, and the in-call keypad stays open if it was (`docs/TEST_MATRIX.md` 4b.8a — the nearest thing anyone can watch to a phone being opened out).
 - [x] Look at `ios/screenshots/iPhone-18-Pro-Max/`, `iPad-Pro-13-inch-M5/` and `iPhone-Duo/` and say whether they look right.
 
@@ -114,10 +114,10 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 - [x] *(2026-10-18, build 50: the call carried on, and the iPad showed "No phone line" until restarted. Fixed in build 51 and passed on the owner's iPad the same day: the server hangs up a stopped phone's calls, and the app asks again and is told to set up again.)* **9.1** While a call is up, **My phones → I've lost it**. The call **drops mid-sentence**, not when it ends.
 - [x] **9.2** The app says to set the phone up again, within seconds.
 - [x] **9.3** Set it up again with a new code: everything is back, nothing else changed.
-- [ ] **9.4** Change that person's password on the website: their phones ask to be set up again.
-- [ ] **9.5** Disable the person, then enable them: the phone stops and comes back **without** a new code.
-- [ ] **9.6** Stop a phone, then ring that person: the stopped one never rings, even in a pocket.
-- [ ] **9.7 Six months.** On a spare phone, set the clock past the date Settings shows under **Set up again by** — it asks to be set up again. (Skip if you'd rather not move a phone's clock; the rule is covered by tests.)
+- [x] **9.4** Change that person's password on the website: their phones ask to be set up again.
+- [x] **9.5** Disable the person, then enable them: the phone stops and comes back **without** a new code.
+- [x] **9.6** Stop a phone, then ring that person: the stopped one never rings, even in a pocket.
+- [x] **9.7 Six months.** On a spare phone, set the clock past the date Settings shows under **Set up again by** — it asks to be set up again. (Skip if you'd rather not move a phone's clock; the rule is covered by tests.)
 
 ## 10. `*97` and the message light, on a desk phone (step 9b)
 
