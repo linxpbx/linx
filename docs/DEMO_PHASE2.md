@@ -65,7 +65,7 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 - [x] **4.4 App force-quit** (swipe it away in the app switcher). **It still rings.** *This is the one that failed at build 13's predecessor and was fixed in the Asterisk image — if it fails now, stop and say so.*
 - [x] **4.5 Low Power Mode on.** Rings.
 - [x] **4.6 On mobile data**, Wi-Fi off. Rings, and the call has sound both ways.
-- [ ] **4.7 Overnight.** Leave the phone untouched for a few hours, then call it. Rings. (Do this last — start it and check in the morning.)
+- [x] **4.7 Overnight.** Leave the phone untouched for a few hours, then call it. Rings. (Do this last — start it and check in the morning.)
 - [x] **4.8 The caller gives up** before you answer: the phone stops ringing and the call shows as missed in **Calls**, with a badge.
 
 **How fast did it ring?** System → Settings → **Calls to the app** on the website counts every push and how long each phone took.
