@@ -474,6 +474,18 @@ func main() {
 	relay.Side = func(ctx context.Context, line siprelay.Line, send func([]byte) error) func([]byte) {
 		return newLineLinks(ctx, callResolver, callHub, line.Username, send).received
 	}
+	// A line Linx closed for good takes its calls with it: the sound has its
+	// own route, so closing the websocket alone left a lost iPad's call
+	// running (owner, 2026-10-18).
+	relay.Stopped = func(line siprelay.Line) {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := callResolver.HangUp(ctx, line.Username); err != nil && !errors.Is(err, calllink.ErrNoAsterisk) {
+				log.Warn("hanging up a stopped line's calls", "err", err)
+			}
+		}()
+	}
 	// A link opened while its call rings waits for these to be answered.
 	tracker.OnChange = func() {
 		hub.Changed()

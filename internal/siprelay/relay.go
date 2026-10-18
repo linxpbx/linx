@@ -119,7 +119,13 @@ type Relay struct {
 	// ends with the line, and returns what to do with each side message
 	// the phone sends. A browser's line never has one.
 	Side func(ctx context.Context, line Line, send func([]byte) error) func([]byte)
-	Log  *slog.Logger
+	// Stopped, when set, is told about a line Linx closed because it may no
+	// longer be used (a phone stopped, a person signed out or disabled).
+	// Closing the websocket alone leaves a call on it running in Asterisk,
+	// whose sound has its own route (owner, 2026-10-18, on an iPad marked
+	// lost mid-call); this is where that call is hung up.
+	Stopped func(line Line)
+	Log     *slog.Logger
 
 	CheckInterval   time.Duration
 	MaxMessage      int64
@@ -234,6 +240,9 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, line Line) {
 			r.Audit(context.WithoutCancel(req.Context()), line, cc.reason)
 		}
 		r.Log.Info("sip relay closed", "user", line.UserID, "reason", cc.reason)
+		if cc.reason == ReasonSignedOut && r.Stopped != nil {
+			r.Stopped(line)
+		}
 		down.Close(websocket.StatusPolicyViolation, cc.reason)
 		up.Close(websocket.StatusNormalClosure, "")
 	case errors.Is(cause, errAsteriskClosed):

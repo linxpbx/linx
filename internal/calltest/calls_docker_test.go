@@ -1029,6 +1029,34 @@ func TestCallsDocker(t *testing.T) {
 		}
 	})
 
+	t.Run("a stopped phone's call is hung up", func(t *testing.T) {
+		// Closing a stopped phone's line leaves its call running, because
+		// the sound has its own route (owner, 2026-10-18: an iPad marked
+		// lost mid-call talked on). The control plane hangs it up through
+		// ARI (siprelay.Relay.Stopped → calllink.Resolver.HangUp).
+		call := e.sipp("stopped-mid-call", "call.xml", alice, "-s", "*43", "-d", "30000")
+		defer exec.Command("docker", "rm", "--force", call).Run()
+		aliceUp := func() bool {
+			var chans []ari.Channel
+			if err := ariConn.Load().Get(ctx, "channels", &chans); err != nil {
+				return false
+			}
+			for _, ch := range chans {
+				if ch.Endpoint() == alice.dev.SIPUsername && ch.State == "Up" {
+					return true
+				}
+			}
+			return false
+		}
+		eventually(t, "Alice's call up", 10*time.Second, aliceUp)
+		resolver := &calllink.Resolver{}
+		resolver.Connected(ariConn.Load())
+		if err := resolver.HangUp(ctx, alice.dev.SIPUsername); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, "Alice's call gone", 5*time.Second, func() bool { return !aliceUp() })
+	})
+
 	t.Run("survives a restart", func(t *testing.T) {
 		// A restarted container's tmpfs mounts aren't the same as a new
 		// one's: this once left Asterisk unable to write its config.

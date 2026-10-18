@@ -228,6 +228,46 @@ final class FakeLinx: URLProtocol, @unchecked Sendable {
         #expect(asked.first?.body["csr"] == nil)
     }
 
+    @Test("a phone stopped while it runs finds out at its next line, not at a restart (2026-10-18)")
+    func stoppedWhileRunning() async throws {
+        FakeLinx.reset()
+        let certificate = Self.certificate.replacingOccurrences(of: "\n", with: "\\n")
+        FakeLinx.answers["/v1/enroll"] = (
+            201,
+            """
+            {"device_id":"\(Self.deviceID)","device_name":"Sara's iPad","person_name":"Sara Haddad",
+             "extension":"101","certificate":"\(certificate)",
+             "ca":"-----BEGIN CERTIFICATE-----\\nca\\n-----END CERTIFICATE-----\\n",
+             "cert_not_after":"2027-04-03T00:00:00Z","set_up_again":"2027-04-03T00:00:00Z"}
+            """
+        )
+        FakeLinx.answers["/v1/device-token"] = (
+            200,
+            """
+            {"token":"a-device-token","expires_at":"2099-01-01T00:00:00Z","device_id":"\(Self.deviceID)",
+             "cert_not_after":"2027-04-03T00:00:00Z","set_up_again":"2027-04-03T00:00:00Z"}
+            """
+        )
+        let phone = session(FakeStore())
+        _ = try await phone.setUp(with: try #require(SetupCode.link("https://pbx.example.com/set-up-phone#t")))
+        _ = try await phone.accessToken()
+        // Marked lost on the website: the token in hand is refused, and a
+        // new one is refused as "set it up again".
+        FakeLinx.answers["/api/v1/me/phone-line"] = (
+            401, #"{"code":"auth_invalid","detail":"The API key or access token is not valid."}"#
+        )
+        FakeLinx.answers["/v1/device-token"] = (
+            401, #"{"code":"device_inactive","detail":"This phone was stopped. Set it up again."}"#
+        )
+        do {
+            _ = try await phone.phoneLine()
+            Issue.record("a stopped phone was given a line")
+        } catch let error as LinxError {
+            #expect(error.setUpAgain)
+        }
+        #expect(FakeLinx.asked.filter { $0.path == "/v1/device-token" }.count == 2)
+    }
+
     @Test("a phone that finds its sign-in missing says what it found (2026-10-12)")
     func missingSignInIsWrittenDown() async {
         let session = PhoneSession(keychain: FakeStore())

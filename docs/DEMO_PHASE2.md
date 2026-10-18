@@ -49,11 +49,11 @@ make ios-build-device   # ends with "ios device build: ok"
 
 ## 3. Setting a phone up (steps 2–4a)
 
-- [ ] On the website: My account → **My phones** → **Add phone** → iPhone → **Show a QR code**.
-- [ ] Scan it with the app. **Nothing is typed.** The app signs in by itself.
-- [ ] The phone appears in My phones, online, with the name you gave it.
-- [ ] Set the **iPad** up the same way, with its own code.
-- [ ] Settings → **This phone's line** names the right **Person**, **Linx server**, **Extension**, and a date six months out (step 9).
+- [x] On the website: My account → **My phones** → **Add phone** → iPhone → **Show a QR code**.
+- [x] Scan it with the app. **Nothing is typed.** The app signs in by itself.
+- [x] The phone appears in My phones, online, with the name you gave it.
+- [x] Set the **iPad** up the same way, with its own code.
+- [x] Settings → **This phone's line** names the right **Person**, **Linx server**, **Extension**, and a date six months out (step 9).
 
 ## 4. Ringing — the part only a real phone can prove
 
@@ -82,36 +82,36 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 
 ## 6. Video (ADR-079, ADR-081)
 
-- [ ] **6.1** On a call, press the video button. Your camera goes on; the other side is **asked once** whether to turn theirs on.
-- [ ] **6.2** Say **Not now** on the other side: the one-way call carries on normally.
-- [ ] **6.3** Turn theirs on too: both pictures, and tapping either one swaps which is big.
-- [ ] **6.4** **Call details** shows the picture's step. On a relayed call it settles at **540p**; direct it may reach **720p**.
+- [x] **6.1** On a call, press the video button. Your camera goes on; the other side is **asked once** whether to turn theirs on.
+- [x] **6.2** Say **Not now** on the other side: the one-way call carries on normally.
+- [x] **6.3** Turn theirs on too: both pictures, and tapping either one swaps which is big.
+- [x] **6.4** **Call details** shows the picture's step. On a relayed call it settles at **540p**; direct it may reach **720p**.
 - [ ] **6.5** Walk somewhere with a poor signal: the picture steps **down** rather than the call breaking up, and the sound keeps going.
-- [ ] **6.6** **Stop video** on both sides: the call goes back to the voice screen, not a blank video one.
-- [ ] **6.7** A video call to an **outside number** (the landline): video on, then off — the screen goes back to voice properly.
-- [ ] **6.8** The screen **stays awake** while a video call has a picture in it, and sleeps normally on a voice call.
+- [x] **6.6** **Stop video** on both sides: the call goes back to the voice screen, not a blank video one.
+- [x] **6.7** A video call to an **outside number** (the landline): video on, then off — the screen goes back to voice properly.
+- [x] **6.8** The screen **stays awake** while a video call has a picture in it, and sleeps normally on a voice call.
 - [x] **6.9 Read the data off.** *(2026-10-18: 12 MB for two minutes in HD, both ways — `docs/RESOURCES.md`.)* With mobile data on and Wi-Fi off, note iOS's data figure for Linx (Settings → Mobile Data), make a **two-minute video call**, and note it again. Write the difference down — this is the measurement `docs/RESOURCES.md` §3b asks for.
 
 ## 7. The rest of the app (step 7)
 
-- [ ] **Calls**: history matches the website, missed ones first, **ring back** works, and opening it clears the badge everywhere.
-- [ ] **Team**: everyone's there, their status is live, search works, you can call or video-call from a person's card.
-- [ ] A person whose app is closed still shows as **reachable** — not offline (owner's rule, "a phone is not a browser").
-- [ ] **Keypad**: redial, and the starred people beside it on the iPad.
-- [ ] **More → Voicemail**: play, mark heard, delete, ring back — and the website agrees.
-- [ ] **More → Settings**: status, appearance, the camera, how calls arrive here, **Show Linx calls in the Phone app**.
+- [x] **Calls**: history matches the website, missed ones first, **ring back** works, and opening it clears the badge everywhere.
+- [x] **Team**: everyone's there, their status is live, search works, you can call or video-call from a person's card.
+- [x] A person whose app is closed still shows as **reachable** — not offline (owner's rule, "a phone is not a browser").
+- [x] **Keypad**: redial, and the starred people beside it on the iPad.
+- [x] **More → Voicemail**: play, mark heard, delete, ring back — and the website agrees.
+- [x] **More → Settings**: status, appearance, the camera, how calls arrive here, **Show Linx calls in the Phone app**.
 
 ## 8. The iPad and the fold (step 8)
 
-- [ ] On the **iPad**, every tab is a **list beside a detail** — Mail-shaped, not a phone screen stretched across 13 inches. *This is the owner's own condition on ADR-076; say plainly whether it is met.*
-- [ ] A call **stands beside the app** rather than covering it, and the list behind it doesn't jump.
+- [x] On the **iPad**, every tab is a **list beside a detail** — Mail-shaped, not a phone screen stretched across 13 inches. *This is the owner's own condition on ADR-076; say plainly whether it is met.*
+- [x] A call **stands beside the app** rather than covering it, and the list behind it doesn't jump.
 - [ ] Turn the iPad: the call screen rearranges and nothing lands under your thumb.
-- [ ] Drag the Split View divider **during a call**: the call doesn't drop, and the in-call keypad stays open if it was (`docs/TEST_MATRIX.md` 4b.8a — the nearest thing anyone can watch to a phone being opened out).
-- [ ] Look at `ios/screenshots/iPhone-18-Pro-Max/`, `iPad-Pro-13-inch-M5/` and `iPhone-Duo/` and say whether they look right.
+- [x] Drag the Split View divider **during a call**: the call doesn't drop, and the in-call keypad stays open if it was (`docs/TEST_MATRIX.md` 4b.8a — the nearest thing anyone can watch to a phone being opened out).
+- [x] Look at `ios/screenshots/iPhone-18-Pro-Max/`, `iPad-Pro-13-inch-M5/` and `iPhone-Duo/` and say whether they look right.
 
 ## 9. Losing a phone, and six months (step 9)
 
-- [ ] **9.1** While a call is up, **My phones → I've lost it**. The call **drops mid-sentence**, not when it ends.
+- [ ] *(2026-10-18, build 50: the call carried on, and the iPad showed "No phone line" until restarted. Fixed for the next build: the server hangs up a stopped phone's calls, and the app asks again and is told to set up again.)* **9.1** While a call is up, **My phones → I've lost it**. The call **drops mid-sentence**, not when it ends.
 - [ ] **9.2** The app says to set the phone up again, within seconds.
 - [ ] **9.3** Set it up again with a new code: everything is back, nothing else changed.
 - [ ] **9.4** Change that person's password on the website: their phones ask to be set up again.
@@ -123,16 +123,16 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 
 Needs step 1's server update, and a desk phone.
 
-- [ ] **10.1** Leave yourself a voicemail. The desk phone's **light** (or envelope) comes on within a second or two.
-- [ ] **10.2** Dial **`*97`**. Linx answers, says "Here are your new messages", reads the caller's number out digit by digit, and plays the message.
-- [ ] **10.3** Let it finish and hang up: the light goes **out**, and the message is in **Heard** on the website.
-- [ ] **10.4** Two messages; press `2` in the middle of the first: it skips, and the first is **still new** afterwards.
-- [ ] **10.5** Press `3` while one plays: "Deleted", and it's gone from the website.
-- [ ] **10.6** Press `1` while one plays: it starts again.
-- [ ] **10.7** Hear a message **on the website** instead: the desk phone's light goes out too.
-- [ ] **10.8** Dial `*97` with nothing new: "You have no new messages."
-- [ ] **10.9** Turn that person's voicemail off and dial `*97`: it says there's none, and plays nobody else's.
-- [ ] **10.10** Restart the phone system (System → Status → Restart): the lights come back on by themselves.
+- [x] **10.1** Leave yourself a voicemail. The desk phone's **light** (or envelope) comes on within a second or two.
+- [x] **10.2** Dial **`*97`**. Linx answers, says "Here are your new messages", reads the caller's number out digit by digit, and plays the message.
+- [x] **10.3** Let it finish and hang up: the light goes **out**, and the message is in **Heard** on the website.
+- [x] **10.4** Two messages; press `2` in the middle of the first: it skips, and the first is **still new** afterwards.
+- [x] **10.5** Press `3` while one plays: "Deleted", and it's gone from the website.
+- [x] **10.6** Press `1` while one plays: it starts again.
+- [x] **10.7** Hear a message **on the website** instead: the desk phone's light goes out too.
+- [x] **10.8** Dial `*97` with nothing new: "You have no new messages."
+- [x] **10.9** Turn that person's voicemail off and dial `*97`: it says there's none, and plays nobody else's.
+- [x] **10.10** Restart the phone system (System → Status → Restart): the lights come back on by themselves.
 
 ## 11. The small server
 

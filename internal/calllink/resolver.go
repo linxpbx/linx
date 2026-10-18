@@ -103,6 +103,30 @@ func (r *Resolver) current() *ari.Conn {
 	return r.conn
 }
 
+// HangUp ends every call sipUsername's device is in: its own channels go,
+// and Asterisk ends the other side's leg as it would for any hang-up. It is
+// how a phone that was stopped loses the call it was on (Relay.Stopped).
+func (r *Resolver) HangUp(ctx context.Context, sipUsername string) error {
+	c := r.current()
+	if c == nil {
+		return ErrNoAsterisk
+	}
+	var chans []ari.Channel
+	if err := c.Get(ctx, "channels", &chans); err != nil {
+		return err
+	}
+	var errs []error
+	for _, ch := range chans {
+		if ch.Endpoint() != sipUsername {
+			continue
+		}
+		if err := c.Do(ctx, "DELETE", "channels/"+url.PathEscape(ch.ID), nil); err != nil && !ari.Gone(err) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // own finds the channel of sipUsername's whose SIP Call-ID is callID and
 // that is up: ErrNotAnswered while it is still ringing.
 func (r *Resolver) own(ctx context.Context, c *ari.Conn, sipUsername, callID string) (*ari.Channel, error) {

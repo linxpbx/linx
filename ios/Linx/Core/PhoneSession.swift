@@ -136,9 +136,22 @@ actor PhoneSession {
             throw LinxError.server(
                 status: 401, code: "device_inactive", detail: "This phone isn't set up yet.")
         }
-        let line = try await makeClient(identity.server).phoneLine(token: try await accessToken())
-        self.line = line
-        return line
+        let client = makeClient(identity.server)
+        do {
+            let line = try await client.phoneLine(token: try await accessToken())
+            self.line = line
+            return line
+        } catch LinxError.server(401, "auth_invalid", _) {
+            // The token in hand was refused: usually because this phone was
+            // stopped. Only a new token can say so ("set it up again"), so
+            // ask for one rather than retrying the refused one for ever
+            // (owner, 2026-10-18: an iPad marked lost sat on "No phone line"
+            // until the app was restarted).
+            token = nil
+            let line = try await client.phoneLine(token: try await accessToken())
+            self.line = line
+            return line
+        }
     }
 
     /// forget is "sign out of this phone", locally: the certificate and the

@@ -396,10 +396,35 @@ func TestSessionEnds(t *testing.T) {
 		wantClosed(t, c, websocket.StatusPolicyViolation, ReasonSignedOut)
 	})
 	t.Run("found by the periodic check", func(t *testing.T) {
-		h := newHarness(t, func(r *Relay) { r.CheckInterval = 20 * time.Millisecond })
+		stopped := make(chan Line, 1)
+		h := newHarness(t, func(r *Relay) {
+			r.CheckInterval = 20 * time.Millisecond
+			r.Stopped = func(l Line) { stopped <- l }
+		})
 		c := h.dial()
 		h.checkOK.Store(false)
 		wantClosed(t, c, websocket.StatusPolicyViolation, ReasonSignedOut)
+		select {
+		case l := <-stopped:
+			if l.Username != h.line.Username {
+				t.Errorf("stopped %q", l.Username)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("a line closed for good wasn't reported, so its call would carry on")
+		}
+	})
+	t.Run("a phone stopped", func(t *testing.T) {
+		stopped := make(chan Line, 1)
+		h := newHarness(t, func(r *Relay) { r.Stopped = func(l Line) { stopped <- l } })
+		c := h.dial()
+		eventually(t, func() bool { return h.relay.Connections() == 1 })
+		h.relay.CloseUsername(h.line.Username)
+		wantClosed(t, c, websocket.StatusPolicyViolation, ReasonSignedOut)
+		select {
+		case <-stopped:
+		case <-time.After(2 * time.Second):
+			t.Error("a stopped phone's line wasn't reported, so its call would carry on")
+		}
 	})
 	t.Run("opened again", func(t *testing.T) {
 		h := newHarness(t, nil)

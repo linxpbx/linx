@@ -254,7 +254,7 @@ import SwiftUI
             await askAboutNotifications()
             if let tokens = push.current { await tellLinxWhereToReachThisPhone(tokens) }
         } catch let error as LinxError where error.setUpAgain {
-            state = .setUpAgain(error.words)
+            stopped(error.words)
         } catch let error as LinxError {
             problem = error.words
             // Still signed in as far as the phone knows: it keeps its
@@ -279,7 +279,7 @@ import SwiftUI
             problem = nil
             return PhoneModel.Line(line: line, server: identity.server, token: token)
         } catch let error as LinxError where error.setUpAgain {
-            state = .setUpAgain(error.words)
+            stopped(error.words)
             return nil
         } catch let error as LinxError {
             problem = error.words
@@ -288,6 +288,14 @@ import SwiftUI
             problem = "Linx couldn't be reached. Try again in a moment."
             return nil
         }
+    }
+
+    /// stopped is Linx saying this phone may no longer be used: the line
+    /// closes and a call on it ends here and now, rather than carrying on
+    /// behind the set-up-again screen.
+    private func stopped(_ words: String) {
+        phone.stop()
+        state = .setUpAgain(words)
     }
 
     /// signOut forgets this phone's key and certificate. Stopping the phone
