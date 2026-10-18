@@ -178,6 +178,9 @@ struct CallLinkMessage: Decodable, Sendable {
     /// Their routes that came before their description, added after it.
     private var earlyRoutes: [RTCIceCandidate] = []
     private var framesSeen = 0
+    /// Their frames so far in each picture slot (by its mid), to find the
+    /// slot their picture really arrives in (`followTheirPicture`).
+    private var framesBySlot: [String: Int] = [:]
     private var quietReadings = 0
     private var thinReadings = 0
     /// The first route each way has been written in the call's report.
@@ -583,6 +586,7 @@ struct CallLinkMessage: Decodable, Sendable {
         framesBefore += framesMost
         framesMost = 0
         framesSeen = 0
+        framesBySlot = [:]
         lastTold = nil
         squeezed = onMobileData && !hd ? Self.mobileStart : nil
         startedSmall = squeezed != nil
@@ -897,18 +901,53 @@ struct CallLinkMessage: Decodable, Sendable {
 
     // MARK: - The pictures
 
+    /// Their picture is drawn from the slot its frames really arrive in:
+    /// if the slot on the screen got none since the last reading and
+    /// another did, the screen moves to that one.
+    private func followTheirPicture(_ slots: [String: Int]) {
+        defer { framesBySlot = slots }
+        guard let connection, let target = Self.slotWithTheirPicture(now: slots, before: framesBySlot) else { return }
+        let video = connection.transceivers.filter { $0.mediaType == .video && !$0.isStopped }
+        guard let onScreen = video.first(where: { $0.receiver.track === tracks.remote }),
+            onScreen.mid != target, (slots[onScreen.mid] ?? 0) <= (framesBySlot[onScreen.mid] ?? 0),
+            let arriving = video.first(where: { $0.mid == target }),
+            let track = arriving.receiver.track as? RTCVideoTrack
+        else { return }
+        onMark?("Their picture is arriving in another slot; showing that one")
+        tracks.remote = track
+        waitForTheirFirstFrame(on: track)
+    }
+
+    /// The slot whose frames went up most since the last reading, if any did.
+    nonisolated static func slotWithTheirPicture(now: [String: Int], before: [String: Int]) -> String? {
+        let grown = now.map { (mid: $0.key, by: $0.value - (before[$0.key] ?? 0)) }.filter { $0.by > 0 }
+        return grown.max { $0.by < $1.by || ($0.by == $1.by && $0.mid > $1.mid) }?.mid
+    }
+
     /// Whether they say they are sending: their side of the agreed
     /// direction of the picture.
     private func readTheirDirection() {
         guard let connection else { return }
         var theirs = false
-        for transceiver in connection.transceivers where transceiver.mediaType == .video {
+        var receiving: [RTCRtpTransceiver] = []
+        for transceiver in connection.transceivers where transceiver.mediaType == .video && !transceiver.isStopped {
             var current = RTCRtpTransceiverDirection.inactive
             if transceiver.currentDirection(&current), current == .sendRecv || current == .recvOnly {
-                theirs = true
-                tracks.remote = transceiver.receiver.track as? RTCVideoTrack
-                if let track = tracks.remote { waitForTheirFirstFrame(on: track) }
+                receiving.append(transceiver)
             }
+        }
+        // More than one slot can be open to their picture after the offers
+        // of a link made again mid-call have crossed; only one carries it.
+        // The one already on the screen stays there, and the frames decide
+        // (`followTheirPicture`): taking the last slot here put an empty
+        // one on the screen when this phone's camera went off (owner,
+        // build 52).
+        if receiving.count > 1 { onMark?("Picture: \(receiving.count) slots open to theirs") }
+        let showing = receiving.first { $0.receiver.track === tracks.remote } ?? receiving.first
+        if let showing {
+            theirs = true
+            tracks.remote = showing.receiver.track as? RTCVideoTrack
+            if let track = tracks.remote { waitForTheirFirstFrame(on: track) }
         }
         if !theirs {
             framesSeen = 0
@@ -1088,6 +1127,7 @@ struct CallLinkMessage: Decodable, Sendable {
 
     private func read(_ report: RTCStatisticsReport) {
         var frames = 0
+        var slots: [String: Int] = [:]
         var how = PictureReading()
         // The room to send in is the pair WebRTC is really using: several
         // pairs can be marked nominated at once, and reading whichever came
@@ -1117,10 +1157,13 @@ struct CallLinkMessage: Decodable, Sendable {
                 }
             }
             if statistic.type == "inbound-rtp", statistic.values["kind"] as? String == "video" {
-                frames += (statistic.values["framesDecoded"] as? NSNumber)?.intValue ?? 0
+                let decoded = (statistic.values["framesDecoded"] as? NSNumber)?.intValue ?? 0
+                frames += decoded
+                if let mid = statistic.values["mid"] as? String { slots[mid] = decoded }
                 how.theirs(statistic.values)
             }
         }
+        followTheirPicture(slots)
         if video.theirs {
             if frames > framesSeen {
                 quietReadings = 0
@@ -1473,6 +1516,9 @@ struct CallLinkMessage: Decodable, Sendable {
         if !now.theirs { now.theirPictureSeen = false }
         if now.theirPicture { now.theirPictureSeen = true }
         guard now != video else { return }
+        if now.theirPicture != video.theirPicture {
+            onMark?(now.theirPicture ? "Their picture on the screen" : "Their picture off the screen")
+        }
         video = now
         onVideoChanged?(now)
     }

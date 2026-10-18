@@ -862,6 +862,12 @@ import UIKit
         if !was.theirs, video.theirs, !video.mine, !askedAboutTheirVideo {
             askedAboutTheirVideo = true
             askAboutTheirVideo = current.peer
+            if Bench.mineOnToo {
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(1))
+                    self?.answeredAboutTheirVideo(turningMineOn: true)
+                }
+            }
         }
         if video.mine { askAboutTheirVideo = nil }
         // Their camera went off again while the question was still on the
@@ -869,6 +875,14 @@ import UIKit
         if !video.theirs { askAboutTheirVideo = nil }
         // The system shows a call with a picture in it as a video call.
         if was.on != video.on { calls.reportVideo(id: current.id, on: video.on) }
+        // What the screen shows, in the call's record: what the picture
+        // link says can differ from what is drawn (owner, build 52).
+        if was.on != video.on || was.theirs != video.theirs || was.theirPicture != video.theirPicture {
+            liveMedia?.mark(
+                !video.on
+                    ? "Screen: the voice call"
+                    : "Screen: video, theirs \(video.theirs ? (video.theirPicture ? "shown" : "waiting") : "off")")
+        }
         if was.theirs != video.theirs, video.theirs, !current.speaker {
             // Their picture arrived while this phone was at an ear.
             toggleSpeaker()
@@ -1254,6 +1268,22 @@ import UIKit
                 try? await Task.sleep(for: .seconds(5))
                 guard let self, self.call?.id == id, self.call?.hd == false else { return }
                 self.toggleHD()
+            }
+        }
+        for (at, on) in [(Bench.cameraOnAt, true), (Bench.cameraOffAt, false)] where at > 0 {
+            guard let id = call?.id else { break }
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(at))
+                guard let self, self.call?.id == id, self.call?.video.mine != on else { return }
+                self.toggleVideo()
+            }
+        }
+        if Bench.swapAt > 0, let id = call?.id {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Bench.swapAt))
+                guard let self, self.call?.id == id else { return }
+                self.swapPictures()
+                self.liveMedia?.mark(self.myPictureIsBig ? "Pictures swapped: mine big" : "Pictures not swapped")
             }
         }
         let seconds = Bench.hangUpAfter

@@ -497,4 +497,18 @@ struct CallLayoutTests {
     func mobileStartsSmaller() {
         #expect(DirectPicture.mobileStart == .standard)
     }
+
+    /// After a link made again mid-call, two slots can be open to their
+    /// picture: the screen goes to the one whose frames are arriving
+    /// (owner, build 52: the empty one was drawn once the camera went off).
+    @Test("their picture is drawn from the slot its frames arrive in")
+    func theSlotWithFrames() {
+        #expect(DirectPicture.slotWithTheirPicture(now: ["1": 0, "2": 300], before: ["1": 0, "2": 240]) == "2")
+        #expect(DirectPicture.slotWithTheirPicture(now: ["1": 90, "2": 300], before: ["1": 30, "2": 300]) == "1")
+        // Nothing arriving anywhere: nothing to move to.
+        #expect(DirectPicture.slotWithTheirPicture(now: ["1": 50, "2": 300], before: ["1": 50, "2": 300]) == nil)
+        // A slot seen for the first time counts all its frames.
+        #expect(DirectPicture.slotWithTheirPicture(now: ["3": 20], before: [:]) == "3")
+        #expect(DirectPicture.slotWithTheirPicture(now: [:], before: [:]) == nil)
+    }
 }
