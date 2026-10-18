@@ -197,3 +197,17 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 | Processor | 1 core, 64-bit (amd64 or arm64) | 2 cores (Opus calls that need converting use processor time) |
 
 Measured, not guessed: the owner's 1-core, 2 GB VPS is the demo's second server (Part A of `docs/DEMO_INSTALL.md`).
+
+### Phase 2's close on the 1-core VPS (2026-10-18, `2295b48`)
+`vps.mym.ae` (1 core, 1.9 GB, Debian 13, Atlanta) updated from `424cc46` to `2295b48` after a backup. Two simulators set up as app phones against it, each call one minute, `docker stats` every 5 s:
+
+| | Idle | Video call, direct (720p) | Video call, relayed (720p, HD) | Video call, relayed (540p) |
+|---|---|---|---|---|
+| Whole server, processor idle | ~99% | 77–99% | 83–99% | 62–100% |
+| `linx-coturn` | 0.05%, 13 MB | 0.2–0.3%, 14 MB | 1.4–4.2%, 20 MB | 1.2–3.9%, 20 MB |
+| `linx-asterisk` | 0.6%, 43 MB | 0.5–5%, 51 MB | 0.5–2.7%, 52 MB | 0.6–5.7%, 52 MB |
+| `linx-control-plane` | 0.1%, 40 MB | short peaks to 29% at call set-up, 40 MB | 0.1–11%, 40 MB | — |
+| `linx-postgres` | 0.2%, 60 MB | up to 10%, 80–97 MB | up to 9%, 108–114 MB | — |
+| Swapping | none | none | none (8 pages in once) | none |
+
+All nine services together stay near 300 MB; the server has 1.1 GB available throughout. **A relayed 720p video call costs the relay under 5% of one core.** Both calls through the relay were rated *Bad* by the phones (the picture stopped 15–47 times): the server is in Atlanta, 200 ms from the simulators in Dubai, so each picture crossed the world twice on one home uplink, and the link's room dropped to 91 kbit/s at one point. That is the path, not the server: it stayed at least 62% idle throughout. The direct call (picture between the simulators, signalling and the quiet Asterisk leg through the VPS) was *Good* on both sides.

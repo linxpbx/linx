@@ -138,10 +138,10 @@ Needs step 1's server update, and a desk phone.
 
 Phase 2 ends on the 1-core, 2 GB VPS like every phase, to prove the low-resource rule held.
 
-- [ ] Linx is running on `vps.mym.ae` at this commit, `linx doctor` green.
+- [x] *(2026-10-18: `2295b48`, after a backup; doctor's warnings only the expected ones for a test server: CA key backup, no API key, no alerts, a public address for desk phones, no outside line.)* Linx is running on `vps.mym.ae` at this commit, `linx doctor` green.
 - [ ] Set a phone up against it and make a call — it works, and the phone rings when the app is closed (its own Apple key, or borrow the home server's).
-- [ ] `docker stats` with a call up: write the numbers into `docs/RESOURCES.md` if they differ from §1's.
-- [ ] Nothing was swapping, and the call sounded normal.
+- [x] *(2026-10-18: `docs/RESOURCES.md` "Phase 2's close on the 1-core VPS": a relayed 720p video call costs the relay under 5% of one core.)* `docker stats` with a call up: write the numbers into `docs/RESOURCES.md` if they differ from §1's.
+- [x] *(2026-10-18: nothing swapping. Simulators have no voice to listen to; the sound's own numbers were clean on the direct call.)* Nothing was swapping, and the call sounded normal.
 
 ## 12. Things that are known, so nobody is surprised
 
