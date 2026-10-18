@@ -191,19 +191,19 @@ var benchScenarios = []benchScenario{
 	// The same the other way round, on mobile data, as the owner did it:
 	// the phone that was rung turned its camera on and off.
 	{name: "video added by the phone that was rung, then its camera off: the other picture stays",
-		flags: []string{"relay-only", "mobile-data", "audio", "camera-on=6", "camera-off=22", "mine-on-too", "answerer-camera"},
+		flags:     []string{"relay-only", "mobile-data", "audio", "camera-on=6", "camera-off=22", "mine-on-too", "answerer-camera"},
 		cameraOff: true},
 	// And with the line to Linx dropped just after the camera went on, so
 	// the picture's link is made again with both cameras on: the owner's
 	// call of 2026-10-18 (build 52), where the picture then stayed off the
 	// screen once that phone's camera went off.
 	{name: "video added, the line dropped, then the camera off: the other picture stays",
-		flags: []string{"relay-only", "mobile-data", "audio", "camera-on=6", "camera-off=30", "mine-on-too", "answerer-camera"},
+		flags:     []string{"relay-only", "mobile-data", "audio", "camera-on=6", "camera-off=30", "mine-on-too", "answerer-camera"},
 		cameraOff: true, cut: true},
 	// With the pictures swapped first (this phone's own big), as a person
 	// looking at themselves does.
 	{name: "video added, pictures swapped, then the camera off: the other picture stays",
-		flags: []string{"relay-only", "mobile-data", "audio", "camera-on=6", "swap=14", "camera-off=22", "mine-on-too", "answerer-camera"},
+		flags:     []string{"relay-only", "mobile-data", "audio", "camera-on=6", "swap=14", "camera-off=22", "mine-on-too", "answerer-camera"},
 		cameraOff: true},
 	{name: "a ship's satellite: 800 ms, 512 kbit/s, 1% loss",
 		flags: []string{"relay-only", "mobile-data"}, slow: "delay 800ms 40ms loss 1% rate 512kbit"},
