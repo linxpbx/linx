@@ -599,6 +599,18 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByText(/Emailed to/)).toBeVisible();
     });
 
+    test("people: a disabled person is enabled again", async ({ page }) => {
+      // Owner, 2026-10-18 (Phase 2 demo 9.5): there was a Disable button and
+      // no way back.
+      await fakeServer(page, { signedIn: true, admin: true });
+      await page.goto("/admin/people");
+      await page.getByRole("row", { name: /Chen Wei/ }).click();
+      await expect(page.getByRole("button", { name: "Disable" })).toHaveCount(0);
+      await page.getByRole("button", { name: "Enable" }).click();
+      await expect(page.getByRole("button", { name: "Disable" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Enable" })).toHaveCount(0);
+    });
+
     test("people: email not set up", async ({ page }) => {
       await fakeServer(page, { signedIn: true, admin: true });
       await page.goto("/admin/people");

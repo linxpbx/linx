@@ -522,6 +522,19 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
     onClose();
   };
 
+  // A disabled person can be turned back on: they sign in with what they had,
+  // and their phones work again without being set up afresh.
+  const enable = async () => {
+    setBusy(true);
+    setError("");
+    const { data, error: err } = await api.PATCH("/api/v1/users/{id}", {
+      params: { path: { id: user.id }, header: { "If-Match": user.etag } }, body: { disabled: false },
+    });
+    setBusy(false);
+    if (!data) { setError(problemMessage(err)); return; }
+    onChanged(data);
+  };
+
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
       <SheetContent className="w-full sm:max-w-md">
@@ -617,6 +630,9 @@ function PersonSheet({ me, user, onClose, onChanged, onDisabled }: {
               <div className="mt-2 flex flex-col items-start gap-2">
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => void resetAuthenticator()}>Reset authenticator</Button>
                 {status === "locked" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void unlock()}>Unlock</Button>}
+                {user.disabled && (
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void enable()}>Enable</Button>
+                )}
                 {!user.disabled && (
                   <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirmDisable(true)}>Disable</Button>
                 )}

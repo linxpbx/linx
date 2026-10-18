@@ -45,5 +45,6 @@ Someone with an extension also has a **Voicemail** line: whether it's on, how ma
 - **Reset authenticator**: when they lost their phone and recovery codes ([Lost your authenticator or passkey](lost-authenticator)). It signs them out everywhere.
 - **Unlock**: ends a wait after too many wrong passwords ([Locked out](locked-out)).
 - **Disable**: they'll be signed out everywhere and their browser phone stops working.
+- **Enable**: turns a disabled person back on. They sign in as before, and their iPhone or iPad works again by itself, without being set up again.
 
 An admin can't change a system admin: only a system admin can.
