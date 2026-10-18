@@ -70,7 +70,7 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 
 **How fast did it ring?** System → Settings → **Calls to the app** on the website counts every push and how long each phone took.
 
-- [ ] Push to ringing is **under about 2 seconds** on mobile data. Write the number down — `docs/RESOURCES.md` wants it.
+- [ ] *(2026-10-18: 2.6 s average, 4.0 s slowest, over three wakes — a little over.)* Push to ringing is **under about 2 seconds** on mobile data. Write the number down — `docs/RESOURCES.md` wants it.
 
 ## 5. Calls that sound right
 
@@ -90,7 +90,7 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 - [ ] **6.6** **Stop video** on both sides: the call goes back to the voice screen, not a blank video one.
 - [ ] **6.7** A video call to an **outside number** (the landline): video on, then off — the screen goes back to voice properly.
 - [ ] **6.8** The screen **stays awake** while a video call has a picture in it, and sleeps normally on a voice call.
-- [ ] **6.9 Read the data off.** With mobile data on and Wi-Fi off, note iOS's data figure for Linx (Settings → Mobile Data), make a **two-minute video call**, and note it again. Write the difference down — this is the measurement `docs/RESOURCES.md` §3b asks for.
+- [x] **6.9 Read the data off.** *(2026-10-18: 12 MB for two minutes in HD, both ways — `docs/RESOURCES.md`.)* With mobile data on and Wi-Fi off, note iOS's data figure for Linx (Settings → Mobile Data), make a **two-minute video call**, and note it again. Write the difference down — this is the measurement `docs/RESOURCES.md` §3b asks for.
 
 ## 7. The rest of the app (step 7)
 

@@ -108,6 +108,10 @@ Step 10's summary. Each step's own cost is a row in §2 above; this is what the 
 
 Through Linx's **relay** rather than directly, add roughly 10–15% for TURN and TLS framing, and the server carries **both** legs — which is why the relay is capped at 160 kB/s a session (§2) and why the ladder is held to 540p on a relayed call.
 
+**Measured on a real call (owner, 2026-10-18, build 50):** a two-minute video call, HD on both sides, iPhone on 5G with Wi-Fi off: iOS's mobile-data figure for Linx went **477 → 489 MB, 12 MB in all** — both directions together, so about **3 MB a minute each way** (~400 kbit/s). The table's numbers are ceilings; a camera held fairly still is sent well under them.
+
+**Waking a sleeping phone, measured on home.mym.ae (2026-10-18, `/metrics`):** three wake-ups since the control plane started at 23:02 Dubai on 2026-10-17, **2.6 s on average** from push to the phone being signed in and ringable, the slowest **4.0 s**. The phone's own ring appears as the push lands; this is the time until the call can be answered through to the caller.
+
 **Where to check the real number:** the app's **Call details** screen (the "Encrypted · …" line during a call) shows the sound actually sent and received and which step the picture is on. `docs/DEMO_PHASE2.md` reads it off a real call on mobile data, which is the measurement no calculation replaces.
 
 ## 3c. The leanness review (2026-10-05, before going live)
