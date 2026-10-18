@@ -49,6 +49,16 @@ enum Bench {
         /// Opus without DTX: a silent simulator still sends 50 packets a
         /// second, so the sound's loss and delay can be measured.
         static var noDTX: Bool { defaults.bool(forKey: "LinxBenchNoDTX") }
+        /// Turn the camera on this many seconds after the answer (0: never),
+        /// as a person adding video to a voice call does.
+        static var cameraOnAt: Int { defaults.integer(forKey: "LinxBenchCameraOnAt") }
+        /// Turn it off again this many seconds after the answer (0: never).
+        static var cameraOffAt: Int { defaults.integer(forKey: "LinxBenchCameraOffAt") }
+        /// Tap a picture this many seconds after the answer, swapping the
+        /// two over (0: never).
+        static var swapAt: Int { defaults.integer(forKey: "LinxBenchSwapAt") }
+        /// Answer "Turn mine on too" when the other side's camera comes on.
+        static var mineOnToo: Bool { defaults.bool(forKey: "LinxBenchMineOnToo") }
 
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
@@ -60,6 +70,10 @@ enum Bench {
         static let mobileData = false
         static let noDirectSound = false
         static let noDTX = false
+        static let cameraOnAt = 0
+        static let cameraOffAt = 0
+        static let mineOnToo = false
+        static let swapAt = 0
         static let answer = false
         static let ringFor = 1
         static let hangUpAfter = 0

@@ -13,7 +13,11 @@
 # flags: relay-only, mobile-data (the picture through the relay alone), no-udp (China: the relay over TLS on 443 only), audio,
 # callkit (ring and answer through CallKit, as an iPhone outside China),
 # hd (both phones press HD five seconds in), ring=N (the answerer rings N
-# seconds before answering; one by default).
+# seconds before answering; one by default), camera-on=N / camera-off=N (the
+# caller turns its camera on or off N seconds after the answer), mine-on-too
+# (the answerer answers "Turn mine on too"), answerer-camera (those two the
+# other way round: the phone that was rung turns its camera on and off),
+# swap=N (that phone taps a picture N seconds after the answer, swapping them).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -72,6 +76,9 @@ call)
   caller_link=${2:?} answerer_link=${3:?} number=${4:?} seconds=${5:?}
   shift 5
   flags=()
+  caller_flags=()
+  answerer_flags=()
+  swap_camera=
   video=YES
   late=
   for f in "$@"; do
@@ -87,20 +94,31 @@ call)
     no-direct-sound) flags+=(-LinxBenchNoDirectSound YES) ;;
     no-dtx) flags+=(-LinxBenchNoDTX YES) ;;
     mobile-data) flags+=(-LinxBenchMobileData YES) ;;
+    camera-on=*) caller_flags+=(-LinxBenchCameraOnAt "${f#camera-on=}") ;;
+    camera-off=*) caller_flags+=(-LinxBenchCameraOffAt "${f#camera-off=}") ;;
+    mine-on-too) answerer_flags+=(-LinxBenchMineOnToo YES) ;;
+    swap=*) caller_flags+=(-LinxBenchSwapAt "${f#swap=}") ;;
+    answerer-camera) swap_camera=1 ;;
     *) echo "bench: unknown flag $f" >&2; exit 2 ;;
     esac
   done
+  if [ -n "$swap_camera" ]; then
+    # The phone that was rung turns its camera on and off, the caller answers.
+    swapped=(${caller_flags[@]+"${caller_flags[@]}"})
+    caller_flags=(${answerer_flags[@]+"${answerer_flags[@]}"})
+    answerer_flags=(${swapped[@]+"${swapped[@]}"})
+  fi
   for d in "$caller" "$answerer"; do xcrun simctl terminate "$d" "$bundle" >/dev/null 2>&1 || true; done
   answerer_up() {
     xcrun simctl launch "$answerer" "$bundle" -LinxBenchSetup "$answerer_link" -LinxBenchAnswer YES \
-      ${flags[@]+"${flags[@]}"} >/dev/null
+      ${flags[@]+"${flags[@]}"} ${answerer_flags[@]+"${answerer_flags[@]}"} >/dev/null
   }
   if [ -n "$late" ]; then
     # The phone being rung starts after the caller, its line only just open
     # when the call comes: a phone woken for the call. The caller waits for it.
     xcrun simctl launch "$caller" "$bundle" -LinxBenchSetup "$caller_link" -LinxBenchCall "$number" \
       -LinxBenchVideo "$video" -LinxBenchHangUpAfter "$seconds" -LinxBenchCallAfter 12 \
-      ${flags[@]+"${flags[@]}"} >/dev/null
+      ${flags[@]+"${flags[@]}"} ${caller_flags[@]+"${caller_flags[@]}"} >/dev/null
     sleep 8
     answerer_up
   else
@@ -108,7 +126,8 @@ call)
     # The answerer's line first, so the call finds it.
     sleep 8
     xcrun simctl launch "$caller" "$bundle" -LinxBenchSetup "$caller_link" -LinxBenchCall "$number" \
-      -LinxBenchVideo "$video" -LinxBenchHangUpAfter "$seconds" ${flags[@]+"${flags[@]}"} >/dev/null
+      -LinxBenchVideo "$video" -LinxBenchHangUpAfter "$seconds" ${flags[@]+"${flags[@]}"} \
+      ${caller_flags[@]+"${caller_flags[@]}"} >/dev/null
   fi
   echo "bench: calling"
   ;;

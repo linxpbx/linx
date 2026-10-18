@@ -93,6 +93,12 @@ type benchScenario struct {
 	// route alone: the sound must go back through Linx and return
 	// (ADR-092, docs/DIRECT_SOUND.md §6).
 	directCut bool
+	// cameraOff is a voice call turned into a video call, both cameras
+	// on, and then the caller's camera off again: the other phone's
+	// picture must stay on the caller's screen (owner, build 52: it
+	// showed the video screen with no picture until the iPad's camera
+	// went off too).
+	cameraOff bool
 }
 
 // directCutFrom and directCutFor are when in the call the direct link is
@@ -180,6 +186,25 @@ var benchScenarios = []benchScenario{
 	{name: "switching to another app mid-call: the small window", flags: []string{"relay-only"}, away: true},
 	{name: "the direct link cut mid-call: the sound carries on through Linx",
 		flags: []string{"relay-only", "audio"}, directCut: true},
+	{name: "video added to a voice call, then one camera off: the other picture stays",
+		flags: []string{"relay-only", "audio", "camera-on=6", "camera-off=22", "mine-on-too"}, cameraOff: true},
+	// The same the other way round, on mobile data, as the owner did it:
+	// the phone that was rung turned its camera on and off.
+	{name: "video added by the phone that was rung, then its camera off: the other picture stays",
+		flags: []string{"relay-only", "mobile-data", "audio", "camera-on=6", "camera-off=22", "mine-on-too", "answerer-camera"},
+		cameraOff: true},
+	// And with the line to Linx dropped just after the camera went on, so
+	// the picture's link is made again with both cameras on: the owner's
+	// call of 2026-10-18 (build 52), where the picture then stayed off the
+	// screen once that phone's camera went off.
+	{name: "video added, the line dropped, then the camera off: the other picture stays",
+		flags: []string{"relay-only", "mobile-data", "audio", "camera-on=6", "camera-off=30", "mine-on-too", "answerer-camera"},
+		cameraOff: true, cut: true},
+	// With the pictures swapped first (this phone's own big), as a person
+	// looking at themselves does.
+	{name: "video added, pictures swapped, then the camera off: the other picture stays",
+		flags: []string{"relay-only", "mobile-data", "audio", "camera-on=6", "swap=14", "camera-off=22", "mine-on-too", "answerer-camera"},
+		cameraOff: true},
 	{name: "a ship's satellite: 800 ms, 512 kbit/s, 1% loss",
 		flags: []string{"relay-only", "mobile-data"}, slow: "delay 800ms 40ms loss 1% rate 512kbit"},
 	{name: "in flight: 443 only, 256 kbit/s, a voice call",
@@ -741,6 +766,33 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			fail(fmt.Sprintf("the sound went back through Linx at +%.1f s and never returned to the direct link", fell))
 		case !strings.Contains(r, "Sound: they hear mine through Linx again"):
 			fail("the other phone fell back and this one never sent through Linx again")
+		}
+	}
+	if sc.cameraOff {
+		// The phone whose camera goes off: the caller (201), or the phone
+		// that was rung (202).
+		mine := strings.Contains(who, "201") != slices.Contains(sc.flags, "answerer-camera")
+		// From the camera going off to the call's end (its record's
+		// summary), the other phone's picture stays on the screen.
+		off, wentOff := markAt(r, "Camera off")
+		end, _ := markAt(r, "Their picture: ")
+		shown := false
+		for _, m := range markRe.FindAllStringSubmatch(r, -1) {
+			at, _ := strconv.ParseFloat(m[1], 64)
+			switch {
+			case strings.HasPrefix(m[2], "Their picture on the screen"):
+				shown = true
+			case strings.HasPrefix(m[2], "Their picture off the screen") && mine && wentOff && at > off && at < end-1:
+				fail(fmt.Sprintf("the camera went off at +%.1f s and the other phone's picture left the screen at +%.1f s", off, at))
+			}
+		}
+		switch {
+		case !strings.Contains(r, "Camera on"):
+			fail("the camera never came on")
+		case mine && !wentOff:
+			fail("the camera never went off")
+		case mine && !shown:
+			fail("the other phone's picture never came on the screen")
 		}
 	}
 	if strings.Contains(r, "Line to Linx lost") && !strings.Contains(r, "Line to Linx back after") {
