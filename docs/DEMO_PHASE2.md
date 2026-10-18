@@ -26,10 +26,10 @@ The examples use the home server `home.mym.ae` at `192.168.1.213`, the UCM6304 a
 
 `*97` and the message-waiting light need the new Asterisk image; nothing else in this demo does.
 
-- [ ] Back up first (`docs/ops/UPDATING.md`), and write down where the backup is.
-- [ ] Update `home.mym.ae` to the commit being demoed.
-- [ ] `sudo linx doctor` — green apart from the two standing warnings (the CA root-key backup on the server, and no API key).
-- [ ] The UCM landline signs itself back in: System → Status, or Phone lines.
+- [x] Back up first (`docs/ops/UPDATING.md`), and write down where the backup is. *(2026-10-18: snapshot `492bbc8a`, home.mym.ae on `0e59a8b`.)*
+- [x] Update `home.mym.ae` to the commit being demoed.
+- [x] `sudo linx doctor` — green apart from the two standing warnings (the CA root-key backup on the server, and no API key).
+- [x] The UCM landline signs itself back in: System → Status, or Phone lines.
 
 ## 2. On your computer
 
@@ -44,8 +44,8 @@ make ios-test      # ends with "ios tests: ok"
 make ios-build-device   # ends with "ios device build: ok"
 ```
 
-- [ ] All of the above pass.
-- [ ] CI is green on that commit (`gh run list --limit 1`).
+- [x] All of the above pass.
+- [x] CI is green on that commit (`gh run list --limit 1`).
 
 ## 3. Setting a phone up (steps 2–4a)
 
