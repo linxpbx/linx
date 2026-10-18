@@ -10,16 +10,21 @@ test("adds FEC and DTX to Opus, keeping its other settings", () => {
     "",
   ].join("\r\n");
   const out = preferOpusFecDtx(sdp);
-  expect(out).toContain("a=fmtp:111 minptime=10;useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=24000\r\n");
+  expect(out).toContain("a=fmtp:111 minptime=10;useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=24000;maxplaybackrate=48000\r\n");
   expect(out).toContain("a=rtpmap:9 G722/8000");
 });
 
 test("adds an fmtp line when Opus has none", () => {
   const out = preferOpusFecDtx("m=audio 9 RTP/SAVPF 96\na=rtpmap:96 opus/48000/2\n");
-  expect(out).toBe("m=audio 9 RTP/SAVPF 96\na=rtpmap:96 opus/48000/2\na=fmtp:96 useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=24000\n");
+  expect(out).toBe("m=audio 9 RTP/SAVPF 96\na=rtpmap:96 opus/48000/2\na=fmtp:96 useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=24000;maxplaybackrate=48000\n");
 });
 
 test("leaves an offer without Opus alone", () => {
   const sdp = "m=audio 9 RTP/SAVPF 0\r\na=rtpmap:0 PCMU/8000\r\n";
   expect(preferOpusFecDtx(sdp)).toBe(sdp);
+});
+
+test("the direct link asks for full-band voice at 40 kbit/s", () => {
+  const out = preferOpusFecDtx("m=audio 9 RTP/SAVPF 96\na=rtpmap:96 opus/48000/2\n", 40000);
+  expect(out).toContain("maxaveragebitrate=40000;maxplaybackrate=48000");
 });

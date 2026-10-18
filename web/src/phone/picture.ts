@@ -28,7 +28,7 @@ export interface PictureState {
 }
 
 import { DirectSound, SOUND_EVERY_MS, SOUND_WORDS, soundPackets, type SoundRoute, type SoundWord } from "./directSound";
-import { OPUS_MAX_BITRATE, preferOpusFecDtx } from "./sdp";
+import { DIRECT_OPUS_MAX_BITRATE, preferOpusFecDtx } from "./sdp";
 
 export const CALL_LINK_PATH = "/api/v1/call-link";
 export const CALL_LINK_PROTOCOL = "linx.call.v1";
@@ -225,7 +225,7 @@ export class DirectPicture {
         // never above the call's Opus ceiling.
         const p = s.getParameters();
         for (const e of p.encodings ?? []) {
-          e.maxBitrate = OPUS_MAX_BITRATE;
+          e.maxBitrate = DIRECT_OPUS_MAX_BITRATE;
           (e as RTCRtpEncodingParameters & { networkPriority?: string; priority?: string }).networkPriority = "high";
           (e as RTCRtpEncodingParameters & { priority?: string }).priority = "high";
         }
@@ -467,10 +467,10 @@ export class DirectPicture {
         const collision = description.type === "offer" && (this.makingOffer || pc.signalingState !== "stable");
         this.ignoreOffer = !this.polite && collision;
         if (this.ignoreOffer) return;
-        // Their Opus settings are the call's (24 kbit/s, FEC, DTX): this
-        // browser's encoder takes them from their description.
+        // Opus at the direct link's quality (40 kbit/s, full band, FEC,
+        // DTX): this browser's encoder takes them from their description.
         await pc.setRemoteDescription(
-          description.sdp ? { type: description.type, sdp: preferOpusFecDtx(description.sdp) } : description,
+          description.sdp ? { type: description.type, sdp: preferOpusFecDtx(description.sdp, DIRECT_OPUS_MAX_BITRATE) } : description,
         );
         if (description.type === "offer") {
           await this.carryMySound(pc);

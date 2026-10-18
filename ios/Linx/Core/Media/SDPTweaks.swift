@@ -10,6 +10,11 @@ import Foundation
 enum SDPTweaks {
     /// Opus's most, in bits per second: full-quality mono voice.
     static let opusMaxBitrate = 24000
+    /// Opus's most between two Linx devices on their direct link (ADR-092):
+    /// full-band voice, as WhatsApp and FaceTime send it (owner, 2026-10-18:
+    /// "I need high quality voice by going direct"). WebRTC still goes lower
+    /// by itself on a poor link.
+    static let directOpusMaxBitrate = 40000
 
     /// letThemStartTheEncryption answers an offer that lets either side start
     /// the DTLS handshake (`actpass`) as the side that waits (`passive`).
@@ -25,7 +30,7 @@ enum SDPTweaks {
 
     /// preferOpusFecDtx writes the Opus settings into an SDP this phone is
     /// about to send. An SDP without Opus is left exactly as it was.
-    static func preferOpusFecDtx(_ sdp: String) -> String {
+    static func preferOpusFecDtx(_ sdp: String, bitrate: Int = opusMaxBitrate) -> String {
         let eol = sdp.contains("\r\n") ? "\r\n" : "\n"
         var lines = sdp.components(separatedBy: eol)
         guard
@@ -42,7 +47,7 @@ enum SDPTweaks {
             // 50 packets a second and the routes' loss and delay can be
             // compared (`Bench.noDTX`).
             ("useinbandfec", "1"), ("usedtx", Bench.noDTX ? "0" : "1"), ("stereo", "0"), ("sprop-stereo", "0"),
-            ("maxaveragebitrate", String(opusMaxBitrate)),
+            ("maxaveragebitrate", String(bitrate)), ("maxplaybackrate", "48000"),
         ]
         guard let fmtp = lines.firstIndex(where: { $0.hasPrefix(prefix) }) else {
             let parameters = wanted.map { "\($0.0)=\($0.1)" }.joined(separator: ";")

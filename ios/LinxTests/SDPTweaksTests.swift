@@ -18,11 +18,18 @@ struct SDPTweaksTests {
     @Test("Opus is asked for FEC, DTX, mono and a ceiling")
     func addsSettings() {
         let out = SDPTweaks.preferOpusFecDtx(Self.offer)
-        #expect(out.contains("a=fmtp:111 useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=24000"))
+        let wanted = "a=fmtp:111 useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=24000;"
+        #expect(out.contains(wanted + "maxplaybackrate=48000"))
         // Nothing else moved, and the line endings are untouched.
         #expect(out.contains("a=rtpmap:0 PCMU/8000"))
         #expect(out.contains("\r\n"))
         #expect(SDPTweaks.opusMaxBitrate == 24000)
+    }
+
+    @Test("the direct link asks for full-band voice at 40 kbit/s (ADR-092)")
+    func directQuality() {
+        let out = SDPTweaks.preferOpusFecDtx(Self.offer, bitrate: SDPTweaks.directOpusMaxBitrate)
+        #expect(out.contains("maxaveragebitrate=40000;maxplaybackrate=48000"))
     }
 
     @Test("settings already there are corrected, not repeated")

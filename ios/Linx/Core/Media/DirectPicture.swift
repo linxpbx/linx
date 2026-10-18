@@ -668,10 +668,12 @@ struct CallLinkMessage: Decodable, Sendable {
                 }
                 onMark?(rolledBack ? "Picture: gave way to their offer" : "Picture: couldn't take my offer back")
             }
-            // Their Opus settings are the call's (24 kbit/s, FEC, DTX): this
-            // phone's encoder takes them from their description.
+            // Opus at the direct link's quality (40 kbit/s, full band, FEC,
+            // DTX): this phone's encoder takes them from their description.
             let remote = RTCSessionDescription(
-                type: type, sdp: SDPTweaks.preferOpusFecDtx(SDPTweaks.startPictureAt(description.sdp)))
+                type: type,
+                sdp: SDPTweaks.preferOpusFecDtx(
+                    SDPTweaks.startPictureAt(description.sdp), bitrate: SDPTweaks.directOpusMaxBitrate))
             let ok = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 connection.setRemoteDescription(remote) { error in done.resume(returning: error == nil) }
             }
@@ -801,12 +803,12 @@ struct CallLinkMessage: Decodable, Sendable {
     }
 
     /// The voice goes before the picture when the link is short of room,
-    /// and never above the call's Opus ceiling.
+    /// and never above the direct link's Opus ceiling.
     private func putTheVoiceFirst(_ sender: RTCRtpSender) {
         let parameters = sender.parameters
         for encoding in parameters.encodings {
             encoding.networkPriority = .high
-            encoding.maxBitrateBps = NSNumber(value: SDPTweaks.opusMaxBitrate)
+            encoding.maxBitrateBps = NSNumber(value: SDPTweaks.directOpusMaxBitrate)
         }
         sender.parameters = parameters
     }

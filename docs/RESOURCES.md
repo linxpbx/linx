@@ -174,6 +174,12 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 - **The app:** no new framework. LiveKit's signalling is written into the app (`LiveKitWire`, `GroupCall`) on the WebRTC it already has, so the app's size barely moves.
 - **The Asterisk image** gains `res_pjsip_header_funcs` and stays 263 MB.
 
+## 3i. The sound of a Linx-to-Linx call on the direct link (2026-10-18, ADR-092)
+
+- **The server does less.** Once a call has switched, Asterisk forwards only silence for it (Opus DTX: a few small packets a second each way); on a direct route nothing of the voice passes through the server, and through the relay coturn forwards it without decoding.
+- **The voice costs more data, by the owner's choice:** Opus up to **40 kbit/s, full band**, on the direct link (24 kbit/s through Asterisk, unchanged for desk phones and outside lines). While someone speaks that is about **0.3 MB a minute each way** at most instead of 0.18; DTX sends almost nothing in pauses, and WebRTC goes lower by itself on a thin link. The quiet copy through Asterisk adds well under 0.05 MB a minute.
+- **The phone:** one more sound stream on the connection the picture already has; no new connection, service or timer beyond a statistics read twice a second during a call.
+
 ## 3h. Networks that hold UDP back, and call quality (2026-10-16, build 42)
 
 - **The upload watch (on the phone):** while a call starts and for a minute after its answer, the app asks the relay "are you there?" four times a second over UDP: a 20-byte STUN Binding Request, answered with about 32 bytes. With the UDP and IP headers that is about **1.7 kbit/s each way**, so **about 25 KB per call** at most. When the app opens its line on a mobile network not yet known to hold UDP back, it does the same for 20 seconds (about 9 KB), at most once every ten minutes. Nothing runs between calls or on Wi-Fi outside a call. coturn answers these from memory: no allocation, no log line.

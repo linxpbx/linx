@@ -6,7 +6,10 @@
 
 /** Opus's most, in bits per second: full-quality mono voice. */
 export const OPUS_MAX_BITRATE = 24000;
-export function preferOpusFecDtx(sdp: string): string {
+/** Opus's most between two Linx devices on their direct link (ADR-092):
+ * full-band voice, as WhatsApp and FaceTime send it (owner, 2026-10-18). */
+export const DIRECT_OPUS_MAX_BITRATE = 40000;
+export function preferOpusFecDtx(sdp: string, bitrate = OPUS_MAX_BITRATE): string {
   const pt = /^a=rtpmap:(\d+) opus\/48000\/2\r?$/im.exec(sdp)?.[1];
   if (!pt) return sdp;
   const eol = sdp.includes("\r\n") ? "\r\n" : "\n";
@@ -14,7 +17,7 @@ export function preferOpusFecDtx(sdp: string): string {
   const fmtp = lines.findIndex((l) => l.startsWith(`a=fmtp:${pt} `));
   if (fmtp === -1) {
     const rtpmap = lines.findIndex((l) => l.startsWith(`a=rtpmap:${pt} `));
-    lines.splice(rtpmap + 1, 0, `a=fmtp:${pt} useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=${OPUS_MAX_BITRATE}`);
+    lines.splice(rtpmap + 1, 0, `a=fmtp:${pt} useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=${bitrate};maxplaybackrate=48000`);
     return lines.join(eol);
   }
   const line = lines[fmtp] ?? "";
@@ -28,7 +31,8 @@ export function preferOpusFecDtx(sdp: string): string {
   set("usedtx", "1");
   set("stereo", "0");
   set("sprop-stereo", "0");
-  set("maxaveragebitrate", String(OPUS_MAX_BITRATE));
+  set("maxaveragebitrate", String(bitrate));
+  set("maxplaybackrate", "48000");
   lines[fmtp] = `a=fmtp:${pt} ${params.join(";")}`;
   return lines.join(eol);
 }
