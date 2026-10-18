@@ -1214,7 +1214,20 @@ import UIKit
         guard abs(at.timeIntervalSince(mine)) < Self.answerMomentsAgree else { return }
         current.answeredAt = at
         call = current
+        if let waiting = connectedForTheSystem {
+            waiting.cancel()
+            connectedForTheSystem = nil
+            calls.reportAnswered(id: current.id, at: at)
+        }
     }
+
+    /// An outgoing call's "connected", waiting for Linx's moment.
+    private var connectedForTheSystem: Task<Void, Never>?
+
+    /// How long an outgoing call waits for Linx's moment before the system
+    /// is told with this phone's own: a call with no call link (an outside
+    /// number) never gets one.
+    static let waitForLinxMoment: Duration = .seconds(2)
 
     /// Linx's moment, kept until this phone's own answer.
     private var answerMomentFromLinx: Date?
@@ -1366,7 +1379,22 @@ import UIKit
         // Connected, both ways: an outgoing call the moment the other side
         // picks up, an incoming one once this phone's answer has gone out —
         // which is when the system's own call timer starts (`CallKitCalls`).
-        calls.reportAnswered(id: current.id)
+        // That timer is the lock screen's, so it is given Linx's moment too
+        // (owner, 2026-10-17: one timer for everyone). An incoming answer is
+        // never held for it, because the sound waits on that answer; an
+        // outgoing call's sound is already on, so it waits a moment for
+        // Linx's word, which follows the answer over the call link.
+        if current.incoming || current.answeredAt != now {
+            calls.reportAnswered(id: current.id, at: current.answeredAt ?? now)
+        } else {
+            let id = current.id
+            connectedForTheSystem = Task { [weak self] in
+                try? await Task.sleep(for: Self.waitForLinxMoment)
+                guard !Task.isCancelled, let self, self.call?.id == id else { return }
+                self.connectedForTheSystem = nil
+                self.calls.reportAnswered(id: id, at: self.call?.answeredAt ?? now)
+            }
+        }
         // A video call: this phone's camera goes on as soon as the picture
         // link finds the other side (the user agent asked for it), so there
         // is nothing to ask about their camera, and the sound comes out of
@@ -1382,6 +1410,8 @@ import UIKit
 
     private func ended(_ why: SIPEnded) {
         answerMomentFromLinx = nil
+        connectedForTheSystem?.cancel()
+        connectedForTheSystem = nil
         // In a group call the phone call underneath may end — the person it
         // was with left — and this phone carries on in the group.
         if groupMedia != nil, !leavingGroup, call != nil { return }

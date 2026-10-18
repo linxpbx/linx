@@ -31,6 +31,7 @@ import Testing
     /// Phone app (Settings → Your call history).
     private(set) var inPhoneApp: Bool?
     private(set) var answered: [UUID] = []
+    private(set) var answeredAt: [Date] = []
     private(set) var ended: [(id: UUID, ending: SystemCallEnding)] = []
     private(set) var asked: [SystemCallRequest] = []
 
@@ -55,7 +56,10 @@ import Testing
     func reportVideo(id: UUID, on: Bool) { video.append((id, on)) }
     func showCallsInThePhoneApp(_ on: Bool) { inPhoneApp = on }
     func reportRingingThere(id: UUID) { ringingThere.append(id) }
-    func reportAnswered(id: UUID) { answered.append(id) }
+    func reportAnswered(id: UUID, at: Date) {
+        answered.append(id)
+        answeredAt.append(at)
+    }
     func reportEnded(id: UUID, _ ending: SystemCallEnding) { ended.append((id, ending)) }
 
     func ask(_ request: SystemCallRequest) {
@@ -465,6 +469,10 @@ struct RingingTests {
         ok.body = "v=0\r\ntheir-answer\r\n"
         transport.asterisk(ok)
         #expect(await eventually { phone.call?.phase == .active })
+        // The system hears "connected" once Linx says when (or, with no
+        // word from Linx, a moment later), so the lock screen's timer
+        // agrees with everyone else's.
+        media.onAnsweredAt?(Date())
         #expect(calls.answered == [id])
 
         // Mute from the app's own button, and from the system's: one path.

@@ -163,12 +163,12 @@ import UIKit
         provider.reportOutgoingCall(with: id, startedConnectingAt: nil)
     }
 
-    func reportAnswered(id: UUID) {
+    func reportAnswered(id: UUID, at: Date) {
         if let answer = answering.removeValue(forKey: id) {
-            answer.fulfill(withDateConnected: Date())
+            answer.fulfill(withDateConnected: at)
             return
         }
-        provider.reportOutgoingCall(with: id, connectedAt: nil)
+        provider.reportOutgoingCall(with: id, connectedAt: at)
     }
 
     func reportEnded(id: UUID, _ ending: SystemCallEnding) {

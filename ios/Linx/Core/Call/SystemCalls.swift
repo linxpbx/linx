@@ -72,8 +72,9 @@ enum SystemCallEnding: Equatable, Sendable {
     func reportVideo(id: UUID, on: Bool)
     /// Their phone is ringing (an outgoing call only).
     func reportRingingThere(id: UUID)
-    /// The call is up, in both directions.
-    func reportAnswered(id: UUID)
+    /// The call is up, in both directions, since `at`: the moment the
+    /// system's own call timer (the lock screen's) counts from.
+    func reportAnswered(id: UUID, at: Date)
     /// The call is over, however it went.
     func reportEnded(id: UUID, _ ending: SystemCallEnding)
     /// Whether a call of this app's also goes into the iPhone's own Phone
@@ -98,7 +99,7 @@ enum SystemCallEnding: Equatable, Sendable {
     func rename(id: UUID, to peer: SIPPeer) {}
     func reportVideo(id: UUID, on: Bool) {}
     func reportRingingThere(id: UUID) {}
-    func reportAnswered(id: UUID) {}
+    func reportAnswered(id: UUID, at: Date) {}
     func reportEnded(id: UUID, _ ending: SystemCallEnding) {}
     func showCallsInThePhoneApp(_ on: Bool) {}
     func ask(_ request: SystemCallRequest) { onRequest?(request) }

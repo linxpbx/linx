@@ -397,13 +397,25 @@ struct SoundOnTheRoadTests {
 
     @Test("the call's timer counts from Linx's moment of the answer, the same on every device")
     func oneTimerForEveryone() async throws {
-        let (phone, _, media, _) = try await inACall()
+        let (phone, _, media, system) = try await inACall()
+        // The lock screen's timer waits a moment for Linx's word.
+        #expect(system.answered.isEmpty)
         let linx = Date(timeIntervalSinceNow: -1.4)
         media.onAnsweredAt?(linx)
         #expect(phone.call?.answeredAt == linx)
+        #expect(system.answeredAt == [linx], "the lock screen counts from Linx's moment too")
         // Another call's moment, far from this one's, is ignored.
         media.onAnsweredAt?(Date(timeIntervalSinceNow: -600))
         #expect(phone.call?.answeredAt == linx)
+        #expect(system.answered.count == 1)
+    }
+
+    @Test("a call Linx gives no moment for still starts the lock screen's timer")
+    func noMomentFromLinx() async throws {
+        let (phone, _, _, system) = try await inACall()
+        try await Task.sleep(for: PhoneModel.waitForLinxMoment + .milliseconds(300))
+        #expect(system.answered.count == 1)
+        #expect(system.answeredAt.first == phone.call?.answeredAt)
     }
 
     // MARK: - A phone with a call up
