@@ -47,6 +47,30 @@ struct PictureSignal: Codable, Equatable, Sendable {
     /// The sender's picture goes through the relay over TCP or TLS
     /// (`DirectPicture.overTCP`), so the other side keeps its own small too.
     var slowRoute: Bool?
+    /// About the call's sound on this link (ADR-092, `DirectSound`).
+    var sound: SoundWord?
+
+    init(
+        description: Description? = nil, candidate: Candidate? = nil, session: UInt64? = nil,
+        slowRoute: Bool? = nil, sound: SoundWord? = nil
+    ) {
+        self.description = description
+        self.candidate = candidate
+        self.session = session
+        self.slowRoute = slowRoute
+        self.sound = sound
+    }
+
+    /// A word about the sound this version doesn't know (a later one's) is
+    /// left out, not the whole message.
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        description = try c.decodeIfPresent(Description.self, forKey: .description)
+        candidate = try c.decodeIfPresent(Candidate.self, forKey: .candidate)
+        session = try c.decodeIfPresent(UInt64.self, forKey: .session)
+        slowRoute = try c.decodeIfPresent(Bool.self, forKey: .slowRoute)
+        sound = try? c.decodeIfPresent(SoundWord.self, forKey: .sound)
+    }
 }
 
 /// One message from the server.
@@ -83,8 +107,30 @@ struct CallLinkMessage: Decodable, Sendable {
     /// The call has become a group call (ADR-088): the other side added
     /// someone, and this is how to join.
     var onMove: ((GroupJoin) -> Void)?
+    /// This phone now plays the other side's sound from this route
+    /// (ADR-092): the call's own sound, through Asterisk, is quieted while
+    /// it is `.direct`.
+    var onHearing: ((SoundRoute) -> Void)?
+    /// The other side now plays this phone's sound from this route: what
+    /// goes through Asterisk can be quiet while it is `.direct`.
+    var onTheyHear: ((SoundRoute) -> Void)?
 
     private let link: any PictureLink
+    /// This phone's microphone on the direct link (ADR-092): a track of its
+    /// own from the call's microphone, so each route can be quieted apart.
+    /// Silent until the other side says it can take it (`SoundWord.can`).
+    private let sound: RTCAudioTrack?
+    private var soundRoute = DirectSound()
+    private var soundWatch: Task<Void, Never>?
+    private var theyCanTakeSound = false
+    private var muted = false
+    /// The other side's sound on the direct link: off until it is the route
+    /// this phone plays, so a word is never heard twice.
+    private var theirSound: RTCAudioTrack?
+    /// How their sound has arrived on this link, as last read.
+    private var soundQuality: SoundQuality?
+    /// The last message being handled: the next waits for it.
+    private var inbox: Task<Void, Never>?
     private var configuration: RTCConfiguration
     private let factory: RTCPeerConnectionFactory
     /// Who says the relay's TLS certificate is good: iOS, as for the call's
@@ -160,9 +206,11 @@ struct CallLinkMessage: Decodable, Sendable {
     init(
         link: any PictureLink, configuration: RTCConfiguration, factory: RTCPeerConnectionFactory,
         tracks: VideoTracks, cameraFirst: Bool, verifier: RTCSSLCertificateVerifier? = nil,
-        onMobileData: Bool = false
+        onMobileData: Bool = false, sound: RTCAudioTrack? = nil
     ) {
         self.link = link
+        self.sound = sound
+        sound?.isEnabled = false
         self.onMobileData = onMobileData
         squeezed = onMobileData ? Self.mobileStart : nil
         startedSmall = onMobileData
@@ -175,7 +223,19 @@ struct CallLinkMessage: Decodable, Sendable {
         configuration.bundlePolicy = .maxBundle
         configuration.rtcpMuxPolicy = .require
         configuration.sdpSemantics = .unifiedPlan
-        link.onMessage = { [weak self] data in Task { await self?.received(data) } }
+        // One message at a time, in the order they came: handled side by
+        // side, an offer could arrive while the answer before it was still
+        // being applied, be taken for both sides offering at once and
+        // dropped, and the two would wait for each other for ever (the
+        // browser suite, 2026-10-18, once the sound joined the link).
+        link.onMessage = { [weak self] data in
+            guard let self else { return }
+            let before = self.inbox
+            self.inbox = Task { [weak self] in
+                await before?.value
+                await self?.received(data)
+            }
+        }
         link.onClose = { [weak self] in self?.linkClosed() }
     }
 
@@ -282,6 +342,8 @@ struct CallLinkMessage: Decodable, Sendable {
         }
         watch?.cancel()
         watch = nil
+        if let soundQuality, soundQuality.packets > 0 { onMark?("Sound on the direct link: \(soundQuality.words)") }
+        soundGone("the call's link closed")
         camera?.stop()
         camera = nil
         tracks.local = nil
@@ -289,6 +351,12 @@ struct CallLinkMessage: Decodable, Sendable {
         connection?.close()
         connection = nil
         link.stop()
+    }
+
+    /// Mutes this phone's microphone on the direct link too.
+    func setMuted(_ on: Bool) {
+        muted = on
+        sound?.isEnabled = theyCanTakeSound && !muted
     }
 
     // MARK: - The link
@@ -326,7 +394,16 @@ struct CallLinkMessage: Decodable, Sendable {
             earlySession = nil
             onMark?(goesOn ? "Picture link ready (set up while ringing)" : "Picture link ready")
             said(available: true)
-            if wantCamera, !heldOffer { try? await setCamera(true) }
+            if sound != nil {
+                send(PictureSignal(sound: .can))
+                // A voice call paired after the answer (with a browser) has
+                // no offer yet: the side that leads makes one, with its
+                // microphone in it, and the other's goes in its slot.
+                if !polite, let connection { addMySound(to: connection) }
+            }
+            // Beside the link's messages, not in their line: a camera takes
+            // a moment to start, and the other side's offer mustn't wait.
+            if wantCamera, !heldOffer { Task { [weak self] in try? await self?.setCamera(true) } }
         case "peer-gone":
             // The other side's link went: it reconnects, or the call is
             // ending. A new "peer" starts afresh.
@@ -486,11 +563,13 @@ struct CallLinkMessage: Decodable, Sendable {
             with: configuration, constraints: constraints, verifier: verifier, delegate: self)
         routeNow = nil
         startWatching()
+        startListening()
     }
 
     private func closeConnection() {
         watch?.cancel()
         watch = nil
+        soundGone("the picture's link was made again")
         camera?.stop()
         camera = nil
         tracks.local = nil
@@ -542,6 +621,7 @@ struct CallLinkMessage: Decodable, Sendable {
         guard connection === self.connection, !usingTheirs, connection.signalingState == .stable else { return }
         makingOffer = true
         defer { makingOffer = false }
+        addMySound(to: connection)
         preferCodecs(connection)
         let ok = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             connection.setLocalDescriptionWithCompletionHandler { error in done.resume(returning: error == nil) }
@@ -555,6 +635,7 @@ struct CallLinkMessage: Decodable, Sendable {
     }
 
     private func signalled(_ signal: PictureSignal) async {
+        if let word = signal.sound { soundSaid(word) }
         guard let connection else { return }
         if let slow = signal.slowRoute, slow != theirsOverTCP {
             theirsOverTCP = slow
@@ -587,7 +668,10 @@ struct CallLinkMessage: Decodable, Sendable {
                 }
                 onMark?(rolledBack ? "Picture: gave way to their offer" : "Picture: couldn't take my offer back")
             }
-            let remote = RTCSessionDescription(type: type, sdp: SDPTweaks.startPictureAt(description.sdp))
+            // Their Opus settings are the call's (24 kbit/s, FEC, DTX): this
+            // phone's encoder takes them from their description.
+            let remote = RTCSessionDescription(
+                type: type, sdp: SDPTweaks.preferOpusFecDtx(SDPTweaks.startPictureAt(description.sdp)))
             let ok = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 connection.setRemoteDescription(remote) { error in done.resume(returning: error == nil) }
             }
@@ -598,6 +682,8 @@ struct CallLinkMessage: Decodable, Sendable {
             }
             for route in earlyRoutes { connection.add(route) { _ in } }
             earlyRoutes = []
+            if type == .offer { carryMySound(on: connection) }
+            findTheirSound(on: connection)
             if type == .offer, earlySession != nil {
                 heldOffer = true
                 guard callUp else {
@@ -679,6 +765,132 @@ struct CallLinkMessage: Decodable, Sendable {
         }
         guard unsaid else { return }
         Task { [weak self] in await self?.negotiate(connection) }
+    }
+
+    // MARK: - The sound (ADR-092, docs/DIRECT_SOUND.md)
+
+    /// This phone's microphone goes in the offer it makes, in a slot of its
+    /// own, with the camera's stream id so WebRTC keeps the two in step.
+    private func addMySound(to connection: RTCPeerConnection) {
+        guard let sound, !connection.transceivers.contains(where: { $0.mediaType == .audio && !$0.isStopped })
+        else { return }
+        let setup = RTCRtpTransceiverInit()
+        setup.direction = .sendRecv
+        setup.streamIds = ["linx"]
+        if let transceiver = connection.addTransceiver(with: sound, init: setup) {
+            putTheVoiceFirst(transceiver.sender)
+        }
+    }
+
+    /// Their offer has a slot for the sound: this phone's microphone goes
+    /// in it, as its camera does (`carryMyCamera`), and a slot of its own
+    /// made for an offer it took back is closed.
+    private func carryMySound(on connection: RTCPeerConnection) {
+        guard let sound else { return }
+        let audio = connection.transceivers.filter { $0.mediaType == .audio && !$0.isStopped }
+        guard let theirs = audio.first(where: { !$0.mid.isEmpty }) else { return }
+        for orphan in audio where orphan !== theirs && orphan.mid.isEmpty {
+            orphan.sender.track = nil
+            orphan.stopInternal()
+        }
+        guard theirs.sender.track == nil else { return }
+        theirs.sender.track = sound
+        theirs.sender.streamIds = ["linx"]
+        theirs.setDirection(.sendRecv, error: nil)
+        putTheVoiceFirst(theirs.sender)
+    }
+
+    /// The voice goes before the picture when the link is short of room,
+    /// and never above the call's Opus ceiling.
+    private func putTheVoiceFirst(_ sender: RTCRtpSender) {
+        let parameters = sender.parameters
+        for encoding in parameters.encodings {
+            encoding.networkPriority = .high
+            encoding.maxBitrateBps = NSNumber(value: SDPTweaks.opusMaxBitrate)
+        }
+        sender.parameters = parameters
+    }
+
+    /// Their sound on this link, kept off until it is the route played.
+    private func findTheirSound(on connection: RTCPeerConnection) {
+        let track = connection.transceivers.first { $0.mediaType == .audio && !$0.isStopped }?.receiver.track
+        guard let track = track as? RTCAudioTrack else { return }
+        theirSound = track
+        track.isEnabled = soundRoute.playing == .direct
+    }
+
+    /// The other side said something about the sound.
+    private func soundSaid(_ word: SoundWord) {
+        let before = soundRoute.theyPlay
+        soundRoute.heard(word)
+        switch word {
+        case .can:
+            // It knows about the direct sound: this phone's microphone goes
+            // on there, and it is told so.
+            guard sound != nil else { return }
+            theyCanTakeSound = true
+            sound?.isEnabled = !muted
+            send(PictureSignal(sound: .sending))
+        case .sending:
+            onMark?("Sound: theirs is on the direct link too")
+        case .direct, .linx:
+            guard soundRoute.theyPlay != before else { return }
+            onMark?(word == .direct ? "Sound: they hear mine directly" : "Sound: they hear mine through Linx again")
+            onTheyHear?(soundRoute.theyPlay)
+        }
+    }
+
+    /// Reads the direct link's sound twice a second, and follows it.
+    private func startListening() {
+        soundWatch?.cancel()
+        guard sound != nil else { return }
+        soundWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: DirectSound.every)
+                guard let self, !Task.isCancelled, let connection = self.connection else { return }
+                guard self.callUp else { continue }
+                let report = await withCheckedContinuation { (done: CheckedContinuation<RTCStatisticsReport, Never>) in
+                    connection.statistics { done.resume(returning: $0) }
+                }
+                guard !Task.isCancelled, connection === self.connection else { return }
+                self.soundQuality =
+                    SoundQuality(report: report)
+                    ?? self.soundQuality
+                self.heard(Self.soundPackets(in: report))
+            }
+        }
+    }
+
+    /// Their sound packets that have arrived on this link so far.
+    nonisolated static func soundPackets(in report: RTCStatisticsReport) -> Int {
+        report.statistics.values
+            .filter { $0.type == "inbound-rtp" && ($0.values["kind"] as? String) == "audio" }
+            .reduce(0) { $0 + (($1.values["packetsReceived"] as? NSNumber)?.intValue ?? 0) }
+    }
+
+    private func heard(_ packets: Int) {
+        guard let route = soundRoute.reading(packets: packets) else { return }
+        theirSound?.isEnabled = route == .direct
+        onMark?(
+            route == .direct
+                ? "Sound: playing theirs from the direct link"
+                : "Sound: theirs stopped on the direct link; playing it through Linx")
+        onHearing?(route)
+        send(PictureSignal(sound: route == .direct ? .direct : .linx))
+    }
+
+    /// The link is gone or made again: both routes are Asterisk's at once.
+    private func soundGone(_ why: String) {
+        soundWatch?.cancel()
+        soundWatch = nil
+        theyCanTakeSound = false
+        sound?.isEnabled = false
+        theirSound?.isEnabled = false
+        theirSound = nil
+        guard soundRoute.linkGone() else { return }
+        onMark?("Sound: through Linx again (\(why))")
+        onHearing?(.linx)
+        onTheyHear?(.linx)
     }
 
     // MARK: - The pictures
@@ -1621,5 +1833,12 @@ struct PictureReading {
         var line = "Picture: sending \(mine), getting \(way(gotHeight, gotFPS, got, before?.got))"
         if let room { line += ", room \(room / 1000) kbit/s" }
         return line
+    }
+}
+
+extension SoundQuality {
+    /// From a connection's statistics.
+    init?(report: RTCStatisticsReport) {
+        self.init(report.statistics.values.map { $0.values.merging(["type": $0.type as NSString]) { kept, _ in kept } })
     }
 }

@@ -43,6 +43,9 @@ enum Bench {
         /// This phone is on mobile data (`MobileData`): its picture goes
         /// through the relay alone, its sound by every route as usual.
         static var mobileData: Bool { defaults.bool(forKey: "LinxBenchMobileData") }
+        /// The sound stays on Asterisk's route all call, as before ADR-092:
+        /// what the direct sound is measured against.
+        static var noDirectSound: Bool { defaults.bool(forKey: "LinxBenchNoDirectSound") }
 
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
@@ -52,6 +55,7 @@ enum Bench {
         static let callAfter = 2
         static let noEarly = false
         static let mobileData = false
+        static let noDirectSound = false
         static let answer = false
         static let ringFor = 1
         static let hangUpAfter = 0

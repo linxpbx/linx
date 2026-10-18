@@ -102,6 +102,8 @@ struct CallDiagnostics: Equatable, Sendable {
     /// What the picture is set to now, in the words people use for it ("540p"),
     /// while this phone's camera is on (ADR-081).
     var picture: String?
+    /// Which route this phone plays the other side's sound from (ADR-092).
+    var soundRoute: SoundRoute = .linx
     /// Whether the phone has finished looking for routes. Until it has, a
     /// relay address that failed means nothing: a server may offer two and
     /// one of them answer, and the one that fails usually fails first — which
@@ -179,6 +181,15 @@ struct CallDiagnostics: Equatable, Sendable {
     private var movingToRelay = false
     private var connection: RTCPeerConnection?
     private var audio: RTCAudioTrack?
+    /// The microphone both routes take their sound from (ADR-092).
+    private var audioSource: RTCAudioSource?
+    private var muted = false
+    /// Which route each side plays the other's sound from: Asterisk's is
+    /// quieted, each way, while the direct link carries it (ADR-092).
+    private var hearing = SoundRoute.linx
+    private var theyHear = SoundRoute.linx
+    /// How the sound has arrived through Asterisk, as last read.
+    private var soundQuality: SoundQuality?
     private var gathered: CheckedContinuation<Void, Never>?
     private var gatheringLimit: Task<Void, Never>?
     private var watch: Task<Void, Never>?
@@ -398,7 +409,12 @@ struct CallDiagnostics: Equatable, Sendable {
             configuration: Self.configuration(
                 relay: turn, addresses: relayAddresses, relayOnly: relayOnly || onMobileData),
             factory: Self.factory, tracks: tracks,
-            cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn), onMobileData: onMobileData)
+            cameraFirst: cameraFirst, verifier: RelayCertificates(relay: turn), onMobileData: onMobileData,
+            sound: Bench.noDirectSound
+                ? nil : audioSource.map { Self.factory.audioTrack(with: $0, trackId: "linx-direct-audio") })
+        picture.setMuted(muted)
+        picture.onHearing = { [weak self] route in self?.hear(route) }
+        picture.onTheyHear = { [weak self] route in self?.theyHear(route) }
         picture.onMark = { [weak self] what in self?.mark(what) }
         picture.onTooExpensive = { [weak self] in self?.onVideoTooExpensive?() }
         picture.onAnswered = { [weak self] at in self?.onAnsweredAt?(at) }
@@ -496,11 +512,33 @@ struct CallDiagnostics: Equatable, Sendable {
     var mirrorsMyVideo: Bool { group?.mirrored ?? picture?.mirrored ?? true }
 
     func setMuted(_ muted: Bool) {
+        self.muted = muted
         if let group {
             group.setMuted(muted)
             return
         }
-        audio?.isEnabled = !muted
+        audio?.isEnabled = !muted && theyHear == .linx
+        picture?.setMuted(muted)
+    }
+
+    /// This phone plays the other side's sound from `route` (ADR-092):
+    /// Asterisk's copy of it is quieted while the direct link carries it.
+    private func hear(_ route: SoundRoute) {
+        hearing = route
+        note { $0.soundRoute = route }
+        guard group == nil else { return }
+        for receiver in connection?.receivers ?? [] where receiver.track?.kind == kRTCMediaStreamTrackKindAudio {
+            receiver.track?.isEnabled = route == .linx
+        }
+    }
+
+    /// The other side plays this phone's sound from `route`: what goes
+    /// through Asterisk is silence while it is the direct link (a few small
+    /// packets a second), and the voice again the moment it isn't.
+    private func theyHear(_ route: SoundRoute) {
+        theyHear = route
+        guard group == nil else { return }
+        audio?.isEnabled = !muted && route == .linx
     }
 
     func sendTone(_ digit: Character) {
@@ -524,6 +562,7 @@ struct CallDiagnostics: Equatable, Sendable {
         gatheringLimit = nil
         gathered?.resume()
         gathered = nil
+        if let soundQuality, soundQuality.packets > 0 { mark("Sound through Linx: \(soundQuality.words)") }
         picture?.stop()
         picture = nil
         group?.leave()
@@ -935,6 +974,7 @@ struct CallDiagnostics: Equatable, Sendable {
             connection = made
         }
         let source = Self.factory.audioSource(with: Self.microphone)
+        audioSource = source
         let track = Self.factory.audioTrack(with: source, trackId: "linx-audio")
         connection.add(track, streamIds: ["linx"])
         self.audio = track
@@ -1219,6 +1259,9 @@ struct CallDiagnostics: Equatable, Sendable {
         var audioBytesOut = 0
         var framesIn = 0
         var reportsBack = 0
+        soundQuality =
+            SoundQuality(report: report)
+            ?? soundQuality
         var pairID: String?
         // The sound's own route. A call whose picture travels separately has
         // two, and taking whichever came first made Call details seem to

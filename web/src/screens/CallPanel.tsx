@@ -19,7 +19,7 @@ function ConnectionChip({ call }: { call: Call }) {
   else if (c) text = `${c.mode === "relayed" ? "Relayed" : "Direct"}${c.rttMs !== undefined ? ` · ${c.rttMs} ms` : ""}`;
   return (
     <span data-testid="connection" data-mode={c?.mode ?? ""} data-relay-protocol={c?.relayProtocol ?? ""}
-      data-audio-in={c?.audioBytesIn ?? 0}
+      data-audio-in={c?.audioBytesIn ?? 0} data-sound={c?.sound ?? "linx"}
       className="inline-flex items-center gap-1.5 rounded-full bg-sidebar-foreground/10 px-2.5 py-1 text-xs text-sidebar-foreground"
       title="Audio is encrypted end to end between your browser and Linx.">
       <Lock aria-hidden="true" className="size-3" />

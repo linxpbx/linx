@@ -84,6 +84,7 @@ call)
     ring=*) flags+=(-LinxBenchRingFor "${f#ring=}") ;;
     late-answerer) late=1 ;;
     no-early) flags+=(-LinxBenchNoEarly YES) ;;
+    no-direct-sound) flags+=(-LinxBenchNoDirectSound YES) ;;
     mobile-data) flags+=(-LinxBenchMobileData YES) ;;
     *) echo "bench: unknown flag $f" >&2; exit 2 ;;
     esac

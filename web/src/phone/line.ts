@@ -27,8 +27,11 @@ export interface Connection {
   rttMs?: number;
   /** For a relayed call: how this browser reaches the relay (udp, tcp, tls). */
   relayProtocol?: string;
-  /** Audio received so far, in bytes (for "can I hear them?" checks). */
+  /** Audio received so far, in bytes (for "can I hear them?" checks), on
+   * both routes: the phone system's and the direct link's (ADR-092). */
   audioBytesIn: number;
+  /** Which route this browser plays the other side's sound from. */
+  sound?: "linx" | "direct";
 }
 
 export interface Call {
@@ -362,7 +365,25 @@ export class PhoneLine {
     this.group?.attach(id, el);
   }
 
+  /** Which route the other side plays this browser's sound from (ADR-092). */
+  private theyHear: "linx" | "direct" = "linx";
+  /** Which route this browser plays theirs from. */
+  private hearing: "linx" | "direct" = "linx";
+
+  /** What goes through the phone system is silence while the other side
+   * plays this browser's sound from the direct link, and the voice again
+   * the moment it doesn't (or this browser is muted, which JsSIP owns). */
+  private quietTheLine() {
+    const s = this.session;
+    if (!s || this.group) return;
+    const muted = s.isMuted().audio ?? false;
+    for (const sender of s.connection?.getSenders() ?? []) {
+      if (sender.track?.kind === "audio") sender.track.enabled = !muted && this.theyHear === "linx";
+    }
+  }
+
   private startPicture(session: RTCSession, videoCall: boolean, peer: Peer) {
+    this.theyHear = "linx";
     this.picture?.stop();
     this.picture = null;
     const known = this.sessions.get(session);
@@ -380,6 +401,21 @@ export class PhoneLine {
         if (this.picture === picture && this.state.call) this.setCall({ picture: { ...picture.state } });
       },
       onMove: (join) => this.joinGroup(join),
+      // The sound on the direct link (ADR-092): the phone system's copy of
+      // theirs is quieted while this browser plays it from the link, and of
+      // this browser's while they do.
+      microphone: () => session.connection?.getSenders().find((x) => x.track?.kind === "audio")?.track ?? null,
+      speakerId: this.settings.speakerId,
+      onHearing: (route) => {
+        if (this.picture !== picture) return;
+        this.hearing = route;
+        this.audio.muted = route === "direct" || !!this.group;
+      },
+      onTheyHear: (route) => {
+        if (this.picture !== picture) return;
+        this.theyHear = route;
+        this.quietTheLine();
+      },
       onAnswered: (at) => {
         // Linx's moment, so every device on the call shows the same time
         // (owner, 2026-10-17); one far from this browser's own is ignored.
@@ -462,7 +498,10 @@ export class PhoneLine {
     if (!s || this.state.call?.phase === "calling" || this.state.call?.phase === "ringing") return;
     if (s.isMuted().audio) s.unmute({ audio: true });
     else s.mute({ audio: true });
-    this.setCall({ muted: s.isMuted().audio ?? false });
+    const muted = s.isMuted().audio ?? false;
+    this.picture?.setMuted(muted);
+    this.quietTheLine();
+    this.setCall({ muted });
   }
 
   sendTone(tone: string) {
@@ -526,6 +565,9 @@ export class PhoneLine {
       // In a group call the phone call is only what rang: the other person
       // hanging up their side ends it, and the group call carries on.
       if (this.group) return;
+      this.audio.muted = false;
+      this.theyHear = "linx";
+      this.hearing = "linx";
       const kind: RecentCall["kind"] = direction === "outgoing" ? "outgoing" : missed ? "missed" : "incoming";
       if (peer.number !== ECHO_TEST) {
         this.set({ recent: [{ id: session.id, peer, kind, at: Date.now() }, ...this.state.recent].slice(0, 20) });
@@ -544,7 +586,10 @@ export class PhoneLine {
       const pc = this.session?.connection;
       if (!pc) return;
       const connection = await readConnection(pc);
-      if (connection && this.state.call) this.setCall({ connection });
+      if (!connection || !this.state.call) return;
+      connection.audioBytesIn += (await this.picture?.soundBytesIn()) ?? 0;
+      connection.sound = this.hearing;
+      if (this.state.call) this.setCall({ connection });
     };
     void tick();
     this.statsTimer = window.setInterval(tick, STATS_EVERY_MS);

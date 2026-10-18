@@ -204,6 +204,12 @@ test("browsers call each other, one with UDP blocked", async () => {
     throw new Error(`the pictures didn't arrive (Aisha: ${said[0]}; Omar: ${said[1]}): ${String(e)}`);
   }
   await hearsAudio(aisha);
+  // The sound moves onto the direct link beside the pictures (ADR-092),
+  // and the phone system's route goes quiet.
+  for (const p of [aisha, omar]) {
+    await expect(p.getByTestId("connection")).toHaveAttribute("data-sound", "direct", { timeout: 20_000 });
+  }
+  await hearsAudio(omar);
   await omar.getByRole("button", { name: "Turn camera off" }).click();
   await expect(aisha.getByTestId("pictures")).toHaveAttribute("data-theirs", "false", { timeout: 15_000 });
   await expect(omar.getByTestId("pictures")).toHaveAttribute("data-mine", "false");

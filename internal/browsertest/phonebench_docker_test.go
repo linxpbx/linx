@@ -88,7 +88,19 @@ type benchScenario struct {
 	// and coming back: the call carries on in its small window, both
 	// pictures still moving (owner, 2026-10-18).
 	away bool
+	// directCut stops only the direct link between the two phones for a
+	// while mid-call (the relay relaying to itself), leaving Asterisk's
+	// route alone: the sound must go back through Linx and return
+	// (ADR-092, docs/DIRECT_SOUND.md §6).
+	directCut bool
 }
+
+// directCutFrom and directCutFor are when in the call the direct link is
+// cut, and for how long.
+const (
+	directCutFrom = 20 * time.Second
+	directCutFor  = 5 * time.Second
+)
 
 // awayFrom and awayFor are when in the call both phones go to another app,
 // and for how long.
@@ -118,6 +130,10 @@ const newLineFor = 14 * time.Second
 // benchPictureAfterAnswer is the most, in seconds, from the answer to the
 // other phone's picture on a bad mobile link (badStart, newSlow, newLine).
 const benchPictureAfterAnswer = 3
+
+// benchSoundDirectAfterAnswer is the most, in seconds, from the answer to
+// the sound moving onto the direct link on the bench's links.
+const benchSoundDirectAfterAnswer = 15
 
 // badStartFor is how long a bad start turns new connections away.
 const badStartFor = 12 * time.Second
@@ -157,6 +173,8 @@ var benchScenarios = []benchScenario{
 	{name: "Starlink: a handover every fifteen seconds",
 		flags: []string{"relay-only", "mobile-data"}, slow: "delay 30ms 10ms", starlink: true},
 	{name: "switching to another app mid-call: the small window", flags: []string{"relay-only"}, away: true},
+	{name: "the direct link cut mid-call: the sound carries on through Linx",
+		flags: []string{"relay-only", "audio"}, directCut: true},
 	{name: "a ship's satellite: 800 ms, 512 kbit/s, 1% loss",
 		flags: []string{"relay-only", "mobile-data"}, slow: "delay 800ms 40ms loss 1% rate 512kbit"},
 	{name: "in flight: 443 only, 256 kbit/s, a voice call",
@@ -216,6 +234,20 @@ func (h *harness) blackoutFor(d time.Duration) {
 			h.docker(append([]string{"run", "--rm", "--network", "container:" + c, "--cap-add", "NET_ADMIN",
 				"nicolaka/netshoot", "iptables", op}, rule...)...)
 		}
+	}
+	run("-I")
+	time.Sleep(d)
+	run("-D")
+}
+
+// directCutFor stops what the relay relays to itself, which is the direct
+// link between two phones that both go through it, for a while; their
+// routes to Asterisk go to another address and carry on.
+func (h *harness) directCutFor(d time.Duration) {
+	rule := []string{"OUTPUT", "-p", "udp", "-m", "addrtype", "--src-type", "LOCAL", "--dst-type", "LOCAL", "-j", "DROP"}
+	run := func(op string) {
+		h.docker(append([]string{"run", "--rm", "--network", "container:linx-coturn", "--cap-add", "NET_ADMIN",
+			"nicolaka/netshoot", "iptables", op}, rule...)...)
 	}
 	run("-I")
 	time.Sleep(d)
@@ -464,6 +496,11 @@ func TestPhoneBenchDocker(t *testing.T) {
 				time.Sleep(20 * time.Second)
 				h.blackoutFor(2 * time.Second)
 			}
+			if sc.directCut {
+				h.whenRinging(t, 60*time.Second)
+				time.Sleep(directCutFrom)
+				h.directCutFor(directCutFor)
+			}
 			if sc.starlink {
 				stop := make(chan struct{})
 				defer close(stop)
@@ -661,6 +698,42 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 	}
 	if strings.Contains(r, "ended: failed") {
 		fail("the call ended by itself")
+	}
+	// The sound moves onto the direct link (ADR-092), unless the bench is
+	// measuring the old way (LINX_BENCH_FLAGS=no-direct-sound). How well it
+	// arrived on each route goes in the log, for comparing the two.
+	for _, line := range strings.Split(r, "\n") {
+		if i := strings.Index(line, "Sound through Linx: "); i >= 0 {
+			t.Logf("%s: %s", who, line[i:])
+		}
+		if i := strings.Index(line, "Sound on the direct link: "); i >= 0 {
+			t.Logf("%s: %s", who, line[i:])
+		}
+	}
+	if !strings.Contains(os.Getenv("LINX_BENCH_FLAGS"), "no-direct-sound") {
+		switched, ok := markAt(r, "Sound: playing theirs from the direct link")
+		answered, _ := markAt(r, "Answered")
+		switch {
+		case !ok:
+			fail("the sound never moved onto the direct link")
+		case answered > 0 && switched-answered > benchSoundDirectAfterAnswer:
+			fail(fmt.Sprintf("the sound moved onto the direct link %.1f s after the answer", switched-answered))
+		}
+		if !strings.Contains(r, "Sound: they hear mine directly") {
+			fail("the other phone never played this one's sound from the direct link")
+		}
+	}
+	if sc.directCut {
+		fell, ok := markAt(r, "Sound: theirs stopped on the direct link")
+		back := strings.LastIndex(r, "Sound: playing theirs from the direct link")
+		switch {
+		case !ok:
+			fail("the direct link was cut and the sound never went back through Linx")
+		case back < strings.Index(r, "Sound: theirs stopped on the direct link"):
+			fail(fmt.Sprintf("the sound went back through Linx at +%.1f s and never returned to the direct link", fell))
+		case !strings.Contains(r, "Sound: they hear mine through Linx again"):
+			fail("the other phone fell back and this one never sent through Linx again")
+		}
 	}
 	if strings.Contains(r, "Line to Linx lost") && !strings.Contains(r, "Line to Linx back after") {
 		fail("the line to Linx never came back during the call")
