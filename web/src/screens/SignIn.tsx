@@ -10,7 +10,7 @@ import { createContext, useContext, useEffect, useRef, useState, type FormEvent,
 import { Building2, CircleAlert, CircleCheck, KeyRound, TriangleAlert } from "lucide-react";
 import { api, problemCode, problemMessage } from "@/api/client";
 import {
-  autofillSupported, cancelled, createPasskey, deviceName, PasskeyError, passkeysSupported, savePasskey, answerWithPasskey,
+  autofillSupported, cancelled, createPasskey, deviceName, noPasskeyUsed, PasskeyError, passkeysSupported, savePasskey, answerWithPasskey,
 } from "@/lib/passkey";
 import { navigate } from "@/hooks/useRoute";
 import { companyErrorMessage, goToCompany, takeCompanyResult, type CompanyButton } from "@/lib/company";
@@ -206,7 +206,7 @@ function usePasskeySignIn(onDone: (b: StatusBody) => void, setError: (m: string)
     try {
       onDone((await answerWithPasskey("/api/v1/session/passkey")) as StatusBody);
     } catch (err) {
-      if (!cancelled(err)) setError(passkeyMessage(err));
+      setError(cancelled(err) ? noPasskeyUsed("Try again, or sign in with your email and password.") : passkeyMessage(err));
       setAutofill((n) => n + 1);
     } finally {
       setBusy(false);
@@ -381,7 +381,7 @@ function CodeStep({ methods, onDone, onTimedOut, onStartOver, lead, sendCode, pa
     } catch (err) {
       if (onRefused?.(err)) return;
       if (err instanceof PasskeyError && ["session_expired", "session_invalid", "auth_required"].includes(err.code)) onTimedOut();
-      else if (!cancelled(err)) setError(passkeyMessage(err));
+      else setError(cancelled(err) ? noPasskeyUsed("Try again, or use another way to finish signing in.") : passkeyMessage(err));
     } finally {
       setKeyBusy(false);
     }
@@ -620,7 +620,7 @@ export function NewPasskey({ path, onSaved, onBack, onConfirmNeeded }: {
       setCredential(await createPasskey(path));
     } catch (err) {
       if (onConfirmNeeded && err instanceof PasskeyError && err.code === "confirm_required") onConfirmNeeded();
-      else if (!cancelled(err)) setError(passkeyMessage(err));
+      else setError(cancelled(err) ? noPasskeyUsed("Try again.") : passkeyMessage(err));
     } finally {
       setBusy(false);
     }

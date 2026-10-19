@@ -39,6 +39,21 @@ export function cancelled(err: unknown): boolean {
   return err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "AbortError");
 }
 
+/** What to say when a passkey attempt the person started ends with no
+ * passkey used. `cancelled` above cannot tell apart someone closing the
+ * prompt from the attempt genuinely failing -- no passkey on this device
+ * for this site, a timeout, the wrong domain -- because browsers answer
+ * NotAllowedError to all of them on purpose, so that a site can't learn
+ * whether a credential exists. Saying nothing at all left a real failure
+ * looking like a dead button: that is how "confirm it's you" went nowhere
+ * twice for the owner (2026-10-19), with no clue and nothing in the audit
+ * log. So an attempt the person made themselves always answers, with a
+ * line that fits either case and names the way out. Autofill is the one
+ * exception and stays silent: nothing was ever asked of the person. */
+export function noPasskeyUsed(nextStep: string): string {
+  return `No passkey was used. ${nextStep}`;
+}
+
 /** A name for a new passkey from this device, e.g. "Mac — Safari". */
 export function deviceName(): string {
   const ua = navigator.userAgent;

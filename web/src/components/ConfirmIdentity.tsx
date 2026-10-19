@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { companyErrorMessage, confirmWithCompany } from "@/lib/company";
-import { answerWithPasskey, cancelled, PasskeyError, passkeysSupported } from "@/lib/passkey";
+import { answerWithPasskey, cancelled, noPasskeyUsed, PasskeyError, passkeysSupported } from "@/lib/passkey";
 import { onRepairPage } from "@/lib/repair";
 import type { components } from "@/api/schema";
 
@@ -111,7 +111,8 @@ function ConfirmIdentityDialog({ open, me, onCancel, onConfirmed }:
       reset();
       onConfirmed();
     } catch (err) {
-      if (!cancelled(err)) setError(err instanceof PasskeyError ? err.message : "Your passkey couldn't be checked. Try again.");
+      setError(cancelled(err) ? noPasskeyUsed("Try again, or confirm with your password below.")
+        : err instanceof PasskeyError ? err.message : "Your passkey couldn't be checked. Try again.");
     } finally {
       setBusy(false);
     }
