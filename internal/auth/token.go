@@ -25,7 +25,16 @@ const (
 	// EnrollAudience and EnrollTokenTTL are the one-time token that sets up
 	// a phone (ADR-012, ADR-073): it can do nothing else, and only once.
 	EnrollAudience = "linx-enroll"
-	EnrollTokenTTL = 10 * time.Minute
+	// DefaultEnrollTokenTTL is how long a setup code lasts. Ten minutes:
+	// it is a bearer secret, and a code somebody photographs over your
+	// shoulder is only worth anything while it lives.
+	DefaultEnrollTokenTTL = 10 * time.Minute
+	// MaxEnrollTokenTTL is as far as a server may stretch it. Apple's own
+	// beta and App Review take about a day and cannot be handed a code
+	// that lasts ten minutes (docs/ops/STORE_SUBMISSION.md §1), so a
+	// **demo** server may be told to issue longer ones. No server that
+	// anybody really uses should: see EnrollTokenTTL below.
+	MaxEnrollTokenTTL = 7 * 24 * time.Hour
 	// KindDevice marks an access token a phone got with its certificate,
 	// rather than an OAuth client's.
 	KindDevice = "device"
@@ -209,7 +218,7 @@ type EnrollClaims struct {
 // ticket's own, so the token can be used exactly once (ADR-012): the ticket
 // row records that it has been.
 func (t *Tokens) IssueEnrollment(enrollment, tenant, jti uuid.UUID, now time.Time) (string, error) {
-	exp := now.Add(EnrollTokenTTL).Truncate(time.Second)
+	exp := now.Add(EnrollTokenTTL()).Truncate(time.Second)
 	c := tokenClaims{
 		Claims: jwt.Claims{
 			Issuer:    TokenIssuer,
@@ -244,7 +253,7 @@ func (t *Tokens) VerifyEnrollment(raw string, now time.Time) (EnrollClaims, erro
 	if c.Expiry == nil || c.NotBefore == nil || c.IssuedAt == nil || c.ID == "" {
 		return EnrollClaims{}, ErrTokenInvalid
 	}
-	if c.Expiry.Time().Sub(c.IssuedAt.Time()) > EnrollTokenTTL {
+	if c.Expiry.Time().Sub(c.IssuedAt.Time()) > EnrollTokenTTL() {
 		return EnrollClaims{}, ErrTokenInvalid
 	}
 	if err := c.ValidateWithLeeway(jwt.Expected{
@@ -270,4 +279,30 @@ func (t *Tokens) VerifyEnrollment(raw string, now time.Time) (EnrollClaims, erro
 		return EnrollClaims{}, ErrTokenInvalid
 	}
 	return EnrollClaims{EnrollmentID: enrollment, TenantID: tenant, JTI: jti, ExpiresAt: c.Expiry.Time()}, nil
+}
+
+// EnrollTokenTTL is how long a setup code lasts on this server.
+//
+// It is ten minutes everywhere, and the only reason it can be anything
+// else is Apple: a reviewer opens the app a day after the build is
+// submitted, and a client for a phone system somebody else runs is
+// unreviewable without a code that is still good when they get to it
+// (docs/ops/STORE_SUBMISSION.md §1). A **demo** server is told to issue
+// longer ones with LINX_ENROLL_TOKEN_TTL, which is capped at a week and
+// never set on a server with anybody's real calls on it.
+//
+// A longer code is a longer-lived bearer secret: anyone holding it can
+// set a phone up as that one person until it is used or runs out. That is
+// the whole of what it can do — it carries no password, no SIP
+// credentials, and it works once (ADR-012, ADR-073).
+func EnrollTokenTTL() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("LINX_ENROLL_TOKEN_TTL"))
+	if raw == "" {
+		return DefaultEnrollTokenTTL
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < DefaultEnrollTokenTTL {
+		return DefaultEnrollTokenTTL
+	}
+	return min(d, MaxEnrollTokenTTL)
 }

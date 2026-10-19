@@ -430,7 +430,7 @@ func TestRedeemRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.now = f.now.Add(TicketTTL + time.Minute)
+	f.now = f.now.Add(TicketTTL() + time.Minute)
 	if _, err := f.svc.Redeem(context.Background(), RedeemRequest{Token: second.Token, CSR: p.csr(t, CertName)}); status(err) != http.StatusBadRequest {
 		t.Errorf("an expired ticket: %v", err)
 	}

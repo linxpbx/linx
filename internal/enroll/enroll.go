@@ -50,8 +50,7 @@ import (
 
 // Rules of this slice (docs/PHASE2.md §4, §9).
 const (
-	// TicketTTL is how long a QR code, link or typed code is good for.
-	TicketTTL = auth.EnrollTokenTTL
+	// (TicketTTL is a function below: it follows the token's own life.)
 	// InactivityWindow is how long a phone may go without being in touch
 	// before it has to be set up again: six months (owner, 2026-10-03,
 	// ADR-077). The certificate lasts exactly as long, and is renewed every
@@ -349,7 +348,7 @@ func (s *Service) CreateTicket(ctx context.Context, in TicketInput) (NewTicket, 
 		ID: id, TenantID: p.TenantID, UserID: target.UserID, ExtensionID: target.ExtensionID,
 		Kind: kind, DeviceName: name, Delivery: delivery, CreatedBy: p.Actor(),
 		CodeHash: auth.HashSecret(code), TokenJTI: jti,
-		CreatedAt: now, ExpiresAt: now.Add(TicketTTL), PersonName: target.PersonName, Number: target.Number,
+		CreatedAt: now, ExpiresAt: now.Add(TicketTTL()), PersonName: target.PersonName, Number: target.Number,
 	}
 	token, err := s.Tokens.IssueEnrollment(id, p.TenantID, jti, now)
 	if err != nil {
@@ -541,3 +540,8 @@ func verifyProof(raw string, cert *x509.Certificate, device uuid.UUID, now time.
 	}
 	return jti, nil
 }
+
+// TicketTTL is how long a QR code, link or typed code is good for. It is
+// the life of the token the code carries, so the two can never disagree
+// (`auth.EnrollTokenTTL`).
+func TicketTTL() time.Duration { return auth.EnrollTokenTTL() }
