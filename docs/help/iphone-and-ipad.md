@@ -2,7 +2,7 @@
 title: Your iPhone and iPad
 audience: everyone
 section: everyday
-keywords: [iphone, ipad, app, mobile, phone app, qr code, setup code, set up phone, lost phone, expired, ios]
+keywords: [iphone, ipad, app, mobile, phone app, qr code, setup code, set up phone, lost phone, expired, ios, accounts, multiple accounts, second account, two servers]
 screens: [/set-up-phone]
 ---
 # Your iPhone and iPad
@@ -144,9 +144,29 @@ It's the same as the **Copy these details** text from the call screen, kept for 
 
 If the app ever crashes, iOS makes a report of it and hands it to the app the next time it opens (sometimes up to a day later). The app sends it to Linx, and it appears in the same list as **The app crashed**, in red. It holds the crashed part of the app's code and nothing of yours.
 
+## More than one Linx on one phone
+
+One iPhone or iPad can be set up on *several Linx systems at once* — your work system and another one, or two companies. Up to four.
+
+*They are all live together.* Every account rings. There is nothing to switch into, and no account misses a call because you were "in" another one.
+
+**More** → **Settings** → **Accounts** is the list. **Add account** asks for a setup code from the other Linx, exactly as the first one did: My account → My phones → Add phone, over there. Swipe an account to give it a name of your own ("Work", "Site office") or to remove it.
+
+Once there is more than one account:
+
+- a call that rings says which account it came through, on the lock screen as well — "Ahmed Khan — Work";
+- **Calls** and **Voicemail** are still one list each, newest first, with a small label on each row saying which account it belongs to. Ringing somebody back always goes out on the account their call came in on;
+- **Team** has a section for each account, because the same extension number on two systems is two different people;
+- the keypad asks **Call with** which account, and remembers the last one you used;
+- the call screen names the account under the caller.
+
+Removing an account stops this phone ringing for it and forgets its key. Your other accounts are untouched. If you've **lost the phone**, stop it in Linx on a computer instead (below) — and do it on each system the phone was set up on, since each one only knows its own.
+
+With one account none of this appears at all: no labels, no sections, no chooser.
+
 ## Settings on the phone
 
-**More** → **Settings**: your status, how this phone's line is doing, which extension it answers, which **Person** it signs in as and which **Linx server** it was set up on, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, and **Sign out of this phone**. Two more:
+**More** → **Settings**: your status, how this phone's line is doing, which extension it answers, which **Person** it signs in as and which **Linx server** it was set up on, when it would have to be set up again, whether video calls start on the front camera, how calls reach this phone, **Accounts** (above), and **Sign out of this phone**. Two more:
 
 - **Appearance** — Light, Dark, or **Match this device**, the same choice the web app has. It is kept on this phone.
 - **Show Linx calls in the Phone app** — on, a Linx call sits in the iPhone's own Recents beside your ordinary calls and you can ring back from there; off, Linx keeps its calls to itself and only the **Calls** tab has them. Calls already made stay where they are.

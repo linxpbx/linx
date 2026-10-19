@@ -38,19 +38,32 @@ import SwiftUI
     private let keychain: any PhoneStorage
     /// How a new account's session is made, so a test can hand in its own.
     private let makeSession: @MainActor (UUID?) -> PhoneSession
+    /// The one call provider the whole app shares, with a line of its own
+    /// for each account (`SystemCallsRouter`, docs/MULTI_ACCOUNT.md §6).
+    @ObservationIgnored private let calls: SystemCallsRouter
 
     init(
         push: PushService = .shared,
         keychain: any PhoneStorage = Keychain.shared,
-        session: @escaping @MainActor (UUID?) -> PhoneSession = { PhoneSession(account: $0) }
+        session: @escaping @MainActor (UUID?) -> PhoneSession = { PhoneSession(account: $0) },
+        calls: SystemCallsRouter = SystemCallsRouter()
     ) {
         self.push = push
         self.keychain = keychain
         self.makeSession = session
-        let account = Account(session: session(nil))
+        self.calls = calls
+        let account = Account(session: session(nil), calls: calls.line())
         self.accounts = [account]
         self.current = account
         account.onSignedIn = { [weak self] in await self?.askAboutNotifications() }
+    }
+
+    /// A fresh account, wired to the app: its own line into the one call
+    /// provider, and the app's business handed back up to the app.
+    private func newAccount(_ id: UUID?) -> Account {
+        let account = Account(session: makeSession(id), storedAs: id, calls: calls.line())
+        account.onSignedIn = { [weak self] in await self?.askAboutNotifications() }
+        return account
     }
 
     // MARK: - The list (docs/MULTI_ACCOUNT.md §4)
@@ -84,24 +97,32 @@ import SwiftUI
         accounts.first { $0.accountID == id }
     }
 
-    /// addAnAccount puts an empty account at the end and makes it the
-    /// current one, so the setup screen sets *it* up. It does nothing at
-    /// the limit, and nothing if there is already an empty one waiting.
+    /// addAnAccount puts an empty account at the end for the setup screen
+    /// to fill in. It does nothing at the limit, and gives back the empty
+    /// one already waiting rather than making a second.
+    ///
+    /// It deliberately does **not** become the account calls are made from:
+    /// that would move the keypad and the screens onto an account that
+    /// isn't set up yet. It joins the list properly once it has signed in.
     @discardableResult func addAnAccount() -> Account? {
         // An account that is already on this phone but couldn't be read —
         // its certificate is gone, so it shows "set it up again" — is still
         // one of its accounts and not a free slot. Only an account that has
         // never been set up at all is one of those.
-        if let waiting = accounts.first(where: { $0.accountID == nil }) {
-            current = waiting
-            return waiting
-        }
+        if let waiting = accounts.first(where: { $0.accountID == nil }) { return waiting }
         guard canAddAnAccount else { return nil }
-        let account = Account(session: makeSession(nil))
-        account.onSignedIn = { [weak self] in await self?.askAboutNotifications() }
+        let account = newAccount(nil)
         accounts.append(account)
-        current = account
         return account
+    }
+
+    /// giveUpOnAddingAnAccount drops an empty account the person closed the
+    /// setup screen on. One that was really set up stays, and the app never
+    /// drops its last account, which is the setup screen itself.
+    func giveUpOnAddingAnAccount(_ account: Account) {
+        guard account.accountID == nil, accounts.count > 1 else { return }
+        accounts.removeAll { $0 === account }
+        if !accounts.contains(where: { $0 === current }) { current = accounts[0] }
     }
 
     // MARK: - Calls to a sleeping phone (docs/PHASE2.md §5, build step 6)
@@ -110,9 +131,9 @@ import SwiftUI
     /// (`AppDelegate`): PushKit only delivers a call to an app that was
     /// already listening for one.
     func listenForCalls() {
-        push.onCall = { [weak self] _, from, video, done in
+        push.onCall = { [weak self] _, from, video, device, done in
             Task { @MainActor in
-                await self?.woken(from: from, video: video)
+                await self?.woken(device: device, from: from, video: video)
                 // Apple's "I'm finished with this push", once the phone is
                 // ringing. Opening the line goes on in the background.
                 done()
@@ -136,6 +157,14 @@ import SwiftUI
     /// release) rings the current account, which is the right answer for
     /// every phone with one and the only honest one for the rest (§5).
     func woken(device: UUID? = nil, from: String, video: Bool = false) async {
+        // A push to a phone whose app was closed launches it with nothing
+        // set up yet, and this is the first thing that runs — before
+        // `start()`. So the list is read out of the Keychain here, or the
+        // call would ring on whichever account happened to be first.
+        // Reading it is a Keychain read and nothing more; a Keychain that
+        // can't be read yet leaves the list as it is, and the call rings on
+        // the account calls are made from, which is the honest answer.
+        restoreTheList()
         let account = device.flatMap { self.account(id: $0) } ?? current
         await account.woken(from: from, video: video)
     }
@@ -186,9 +215,7 @@ import SwiftUI
         let existing = accounts
         accounts = stored.ids.map { id in
             if let already = existing.first(where: { $0.accountID == id }) { return already }
-            let account = Account(session: makeSession(id), storedAs: id)
-            account.onSignedIn = { [weak self] in await self?.askAboutNotifications() }
-            return account
+            return newAccount(id)
         }
         // `current` has a didSet that writes the choice back; this is only
         // reading what was already chosen, so it is set without it.
@@ -197,6 +224,35 @@ import SwiftUI
         } else if !accounts.contains(where: { $0 === current }) {
             current = accounts[0]
         }
+        nameTheAccounts()
+        if let first = accounts.first?.accountID { starsBelongToTheFirstAccount?(first) }
+    }
+
+    /// Set by the screens: the stars kept on this phone were kept by
+    /// extension number alone before there could be more than one account,
+    /// and they can only have come from the account this phone already had
+    /// (`Favourites.belongTo`).
+    @ObservationIgnored var starsBelongToTheFirstAccount: ((UUID) -> Void)?
+
+    /// nameTheAccounts gives each account the name it is shown by where
+    /// there is room for one line of text — the lock screen, a car, the
+    /// Phone app's Recents (§6, §7). **With one account there is no name at
+    /// all**, so an incoming call reads exactly as it always did. The name
+    /// is the one the person typed, and otherwise the Linx server's own, as
+    /// that is what tells two accounts apart before anybody renames them.
+    func nameTheAccounts() {
+        guard hasSeveralAccounts else {
+            for account in accounts { account.label = nil }
+            return
+        }
+        let stored = PhoneStore.accounts(in: keychain)
+        for account in accounts {
+            guard let id = account.accountID else {
+                account.label = nil
+                continue
+            }
+            account.label = stored.name(for: id) ?? account.identity?.server.host() ?? "Linx"
+        }
     }
 
     // MARK: - The current account, for the screens
@@ -204,8 +260,16 @@ import SwiftUI
     /// Until step 5's screens, every screen in the app is the current
     /// account's, and these are what it reads. With one account they are
     /// that account, which is exactly how the app behaved before.
+    /// What the app is doing, which is not quite what one account is
+    /// doing: as long as **any** account is signed in the app is usable, so
+    /// a second account part-way through being set up, or one that has been
+    /// stopped, doesn't take the whole app back to the setup screen. With
+    /// one account it is that account, exactly as before.
     var state: State {
-        get { current.state }
+        get {
+            if accounts.contains(where: { $0.state == .signedIn }) { return .signedIn }
+            return current.state
+        }
         set { current.state = newValue }
     }
     var identity: PhoneIdentity? {
@@ -221,21 +285,89 @@ import SwiftUI
         set { current.problem = newValue }
     }
     var phone: PhoneModel { current.phone }
+
+    /// Where the merged lists get their rows: every account that is signed
+    /// in, with the name to put beside its rows (nil with one account, so
+    /// the lists look exactly as they always did). Calls and Voicemail are
+    /// one list each, newest first (docs/MULTI_ACCOUNT.md §7).
+    var callSources: [CallsModel.Source] {
+        accounts.compactMap { account in
+            guard let access = account.linx else { return nil }
+            return CallsModel.Source(account: account.accountID, label: account.label, access: access)
+        }
+    }
+
+    /// The two counts on the tab bar, added up across every account: what
+    /// somebody missed is what somebody missed, whichever system it came
+    /// through (docs/MULTI_ACCOUNT.md §7).
+    var missedCalls: Int { accounts.reduce(0) { $0 + $1.home.missedCalls } }
+    var newVoicemail: Int { accounts.reduce(0) { $0 + $1.home.newVoicemail } }
+
+    var voicemailSources: [VoicemailModel.Source] {
+        accounts.compactMap { account in
+            guard let access = account.linx else { return nil }
+            return VoicemailModel.Source(account: account.accountID, label: account.label, access: access)
+        }
+    }
     var home: HomeModel { current.home }
     var linx: LinxAccess? { current.linx }
 
-    func setUp(with code: SetupCode) async { await current.setUp(with: code) }
+    func setUp(with code: SetupCode) async { await setUp(current, with: code) }
+
+    /// setUp redeems a code for one account — the current one, or the empty
+    /// one that **Add account** opened.
+    func setUp(_ account: Account, with code: SetupCode) async {
+        await account.setUp(with: code)
+        // It may be this phone's second account, which is the moment every
+        // label and section in the app starts appearing.
+        nameTheAccounts()
+    }
+
+    /// name gives an account the name the person typed ("Work"), or takes
+    /// it away again, and keeps it with the account in the Keychain.
+    func name(_ account: Account, _ name: String) {
+        guard let id = account.accountID else { return }
+        var list = PhoneStore.accounts(in: keychain)
+        list.name(name, for: id)
+        PhoneStore.save(list, to: keychain)
+        nameTheAccounts()
+    }
+
+    /// What an account is shown as in the Accounts list: the name the
+    /// person typed, else who it signs in as and where.
+    func typedName(for account: Account) -> String? {
+        guard let id = account.accountID else { return nil }
+        return PhoneStore.accounts(in: keychain).name(for: id)
+    }
     func signIn() async { await current.signIn() }
+
+    #if DEBUG
+        /// A second account, for the screenshots and the previews: no key,
+        /// no certificate and no Linx to talk to (`Screen`).
+        func pretendASecondAccount(_ identity: PhoneIdentity) {
+            guard let account = addAnAccount() else { return }
+            account.identity = identity
+            account.label = identity.server.host()
+            accounts.first?.label = accounts.first?.identity?.server.host()
+        }
+    #endif
 
     /// signOut forgets this account on this phone. The account itself is
     /// emptied either way — which is exactly what the app did when there
     /// could only be one — and it leaves the list only if there is another
     /// one left to show.
-    func signOut(from button: String) async {
-        let account = current
+    func signOut(from button: String) async { await signOut(current, from: button) }
+
+    /// signOut forgets one account on this phone — the one the person
+    /// chose in the Accounts list, or the only one there is.
+    func signOut(_ account: Account, from button: String) async {
         await account.signOut(from: button)
-        guard accounts.count > 1 else { return }
+        guard accounts.count > 1 else {
+            nameTheAccounts()
+            return
+        }
         accounts.removeAll { $0 === account }
-        current = accounts[0]
+        if !accounts.contains(where: { $0 === current }) { current = accounts[0] }
+        nameTheAccounts()
     }
 }

@@ -51,9 +51,13 @@ import UIKit
         provider.setDelegate(bridge, queue: nil)
     }
 
-    /// What the system shows and allows. One call at a time: this phone has
-    /// one line, and a second caller hears busy or goes to voicemail, the
-    /// same as the browser (hold and a second line are later build steps).
+    /// What the system shows and allows. **One call at a time per account**,
+    /// and one group per account: a second caller on the same account hears
+    /// busy or goes to voicemail, the same as the browser (hold and a second
+    /// line are later build steps), but a phone set up on two Linx servers
+    /// can have one of each at once, which is iOS's own business and what it
+    /// is built for (docs/MULTI_ACCOUNT.md §6). Left at one group, iOS would
+    /// simply refuse the second account's call.
     private static var configuration: CXProviderConfiguration {
         // The name on the lock screen is the app's own (CFBundleDisplayName,
         // "Linx"): iOS takes it from the bundle and won't be told otherwise.
@@ -63,7 +67,7 @@ import UIKit
         // video. Every call still *rings* as a phone call: a picture is
         // added to a call, never rung as one.
         configuration.supportsVideo = true
-        configuration.maximumCallGroups = 1
+        configuration.maximumCallGroups = PhoneAccounts.most
         configuration.maximumCallsPerCallGroup = 1
         // A number, and "generic" for an extension or a withheld number.
         configuration.supportedHandleTypes = [.phoneNumber, .generic]

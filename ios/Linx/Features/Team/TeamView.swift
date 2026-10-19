@@ -24,22 +24,47 @@ struct TeamView: View {
 
     private var mine: String { model.identity?.extensionNumber ?? "" }
 
-    private var shown: [TeamMember] {
+    /// One account's team: the people on it, who this phone is there, and
+    /// the name of the section they go under. Two companies' people are
+    /// never one directory, so each account keeps its own section
+    /// (docs/MULTI_ACCOUNT.md §7).
+    @MainActor private struct Team: Identifiable {
+        let account: Account
+        nonisolated var id: UUID { account.id }
+        var members: [TeamMember] { account.home.members }
+        var mine: String { account.identity?.extensionNumber ?? "" }
+    }
+
+    private var teams: [Team] {
+        let signedIn = model.accounts.filter { $0.identity != nil }
+        guard !signedIn.isEmpty else { return [Team(account: model.current)] }
+        return signedIn.map(Team.init)
+    }
+
+    private func shown(_ team: Team) -> [TeamMember] {
         let text = search.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !text.isEmpty else { return home.members }
-        return home.members.filter {
+        guard !text.isEmpty else { return team.members }
+        return team.members.filter {
             $0.name.lowercased().contains(text) || $0.extensionNumber.contains(text)
         }
     }
 
+    /// Everybody on screen, across every account, in the order they are
+    /// shown: what "pick the first one" and "who is chosen" are read from.
+    private var everyone: [(team: Team, member: TeamMember)] {
+        teams.flatMap { team in shown(team).map { (team, $0) } }
+    }
+
     /// One person, with the star that keeps them at the top of this phone's
-    /// own list.
-    @ViewBuilder private func row(_ member: TeamMember) -> some View {
-        let starred = favourites.has(member.extensionNumber)
-        TeamRow(member: member, isMe: member.extensionNumber == mine, selected: chosen == member.id)
+    /// own list. A star belongs to the account the person is on.
+    @ViewBuilder private func row(_ member: TeamMember, on team: Team) -> some View {
+        let account = team.account.accountID
+        let starred = favourites.has(member.extensionNumber, on: account)
+        TeamRow(member: member, isMe: member.extensionNumber == team.mine, selected: chosen == member.id)
+            .environment(team.account.phone)
             .swipeActions(edge: .leading) {
                 Button(starred ? "Unstar" : "Favourite", systemImage: starred ? "star.slash" : "star") {
-                    favourites.toggle(member.extensionNumber)
+                    favourites.toggle(member.extensionNumber, on: account)
                 }
                 // Amber, the colour of the star itself. Not the brand blue:
                 // on a phone, blue down the side of a row means "mark read
@@ -48,24 +73,41 @@ struct TeamView: View {
             }
     }
 
+    /// A section's heading. With one account it is what it always was —
+    /// "Favourites", or nothing at all. With several, the account's name
+    /// goes on it, because the same extension number means two different
+    /// people on two different systems.
+    private func sectionTitle(_ what: String?, _ team: Team) -> String {
+        guard model.hasSeveralAccounts, let label = team.account.label else { return what ?? "" }
+        guard let what else { return label }
+        return "\(what) · \(label)"
+    }
+
     var body: some View {
         NavigationSplitView {
             Group {
-                if home.members.isEmpty {
+                if everyone.isEmpty {
                     TeamEmpty(loaded: home.loaded, problem: home.problem)
                 } else {
                     List(selection: $chosen) {
-                        let parts = favourites.split(shown)
-                        if !parts.favourites.isEmpty {
-                            Section("Favourites") {
-                                ForEach(parts.favourites) { member in
-                                    row(member)
+                        ForEach(teams) { team in
+                            let parts = favourites.split(shown(team), on: team.account.accountID)
+                            // With one account these are the two sections
+                            // the tab has always had; with several, each
+                            // account's people are its own, under its name.
+                            if !parts.favourites.isEmpty {
+                                Section(sectionTitle("Favourites", team)) {
+                                    ForEach(parts.favourites) { member in
+                                        row(member, on: team)
+                                    }
                                 }
                             }
-                        }
-                        Section {
-                            ForEach(parts.rest) { member in
-                                row(member)
+                            if !parts.rest.isEmpty {
+                                Section(sectionTitle(nil, team)) {
+                                    ForEach(parts.rest) { member in
+                                        row(member, on: team)
+                                    }
+                                }
                             }
                         }
                     }
@@ -82,8 +124,13 @@ struct TeamView: View {
                 ToolbarItem(placement: .topBarTrailing) { PresenceButton() }
             }
         } detail: {
-            if let member = home.members.first(where: { $0.id == chosen }) {
-                PersonView(member: member, isMe: member.extensionNumber == mine, favourites: favourites)
+            if let picked = everyone.first(where: { $0.member.id == chosen }) {
+                PersonView(
+                    member: picked.member, isMe: picked.member.extensionNumber == picked.team.mine,
+                    favourites: favourites, account: picked.team.account.accountID,
+                    label: picked.team.account.label
+                )
+                .environment(picked.team.account.phone)
             } else {
                 NothingPicked(
                     symbol: "person.2", title: "Nobody picked",
@@ -95,12 +142,13 @@ struct TeamView: View {
         .picksTheFirstRow(
             $chosen,
             first: {
-                shown.first(where: { $0.extensionNumber != mine })?.id
+                everyone.first(where: { $0.member.extensionNumber != $0.team.mine })?.member.id
             },
             when: horizontal == .regular
         )
         .task {
-            home.noticeMyOwnStatus(extensionNumber: mine)
+            // Each account watches for its own entry in its own team.
+            for team in teams { team.account.home.noticeMyOwnStatus(extensionNumber: team.mine) }
         }
     }
 }
@@ -114,9 +162,14 @@ struct PersonView: View {
     let member: TeamMember
     let isMe: Bool
     let favourites: Favourites
+    /// Which account this person is on, so their star is their own and the
+    /// call goes out on the line they are reachable on.
+    var account: UUID?
+    /// The account's name, shown only on a phone with more than one.
+    var label: String?
 
     private var callable: Bool { !isMe && phone.status == .ready && phone.call == nil }
-    private var starred: Bool { favourites.has(member.extensionNumber) }
+    private var starred: Bool { favourites.has(member.extensionNumber, on: account) }
 
     var body: some View {
         ScrollView {
@@ -165,7 +218,7 @@ struct PersonView: View {
                         .disabled(!callable)
 
                         Button(starred ? "Remove from favourites" : "Add to favourites") {
-                            favourites.toggle(member.extensionNumber)
+                            favourites.toggle(member.extensionNumber, on: account)
                         }
                         .font(.subheadline)
                         .foregroundStyle(LinxColor.accent)

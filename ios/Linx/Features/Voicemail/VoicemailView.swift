@@ -10,54 +10,98 @@ import SwiftUI
 // of memory, and is never written to the phone: a voicemail is somebody's
 // voice, and the fewer places it exists the better.
 
+/// One message in the list, and which account it is on
+/// (docs/MULTI_ACCOUNT.md §7). With one account `label` is nil and the row
+/// shows exactly what it always showed.
+struct AccountVoicemail: Identifiable, Sendable, Equatable {
+    let message: VoicemailMessage
+    let account: UUID?
+    let label: String?
+
+    /// Each Linx gives its messages an id of its own, so a row in a merged
+    /// list is named by the account and the message together.
+    var id: String { "\(account?.uuidString ?? "")/\(message.id)" }
+}
+
 @MainActor @Observable final class VoicemailModel {
-    private(set) var messages: [VoicemailMessage] = []
-    private(set) var boxes: [VoicemailBoxSummary] = []
+    /// One account's voicemail, with the name to put beside its rows.
+    struct Source {
+        let account: UUID?
+        let label: String?
+        let access: LinxAccess
+    }
+
+    private(set) var messages: [AccountVoicemail] = []
     private(set) var loaded = false
     private(set) var problem: String?
     /// Which message is playing, and how far through it is.
     private(set) var playing: UUID?
     private(set) var busy: UUID?
 
-    private let access: LinxAccess?
+    private let sources: [Source]
+    /// Each account's boxes, so "whose box is this" is asked of the Linx the
+    /// message is on and never of another.
+    private var boxesByAccount: [String: [VoicemailBoxSummary]] = [:]
     private var player: AVAudioPlayer?
     private var listener: VoicemailEnded?
     private var usingTheSpeaker = false
 
-    init(access: LinxAccess?) {
-        self.access = access
+    init(sources: [Source]) {
+        self.sources = sources
     }
 
+    /// One account, which is every phone until somebody adds a second.
+    convenience init(access: LinxAccess?) {
+        self.init(sources: access.map { [Source(account: nil, label: nil, access: $0)] } ?? [])
+    }
+
+    private static func key(_ account: UUID?) -> String { account?.uuidString ?? "one" }
+
+    private func access(for account: UUID?) -> LinxAccess? {
+        sources.first { $0.account == account }?.access
+    }
+
+    /// Every account's messages, newest first. One account being
+    /// unreachable leaves the others on the screen and says so once.
     func load() async {
-        guard let access else { return }
-        do {
-            let list = try await access.client.voicemail(token: try await access.token())
-            messages = list.items
-            boxes = list.boxes
-            loaded = true
-            problem = nil
-        } catch let error as LinxError {
-            problem = error.words
-        } catch {
-            problem = "Linx couldn't be reached. Try again in a moment."
+        guard !sources.isEmpty else { return }
+        var all: [AccountVoicemail] = []
+        var trouble: String?
+        for source in sources {
+            do {
+                let list = try await source.access.client.voicemail(token: try await source.access.token())
+                boxesByAccount[Self.key(source.account)] = list.boxes
+                all += list.items.map {
+                    AccountVoicemail(message: $0, account: source.account, label: source.label)
+                }
+            } catch let error as LinxError {
+                trouble = trouble ?? error.words
+            } catch {
+                trouble = trouble ?? "Linx couldn't be reached. Try again in a moment."
+            }
         }
+        messages = all.sorted { $0.message.receivedAt > $1.message.receivedAt }
+        loaded = true
+        problem = trouble
     }
 
     /// Whose box a message landed in, when it isn't this person's own.
-    func box(_ message: VoicemailMessage) -> String? {
-        guard let box = boxes.first(where: { $0.id == message.boxID }), !box.mine else { return nil }
+    func box(_ row: AccountVoicemail) -> String? {
+        let boxes = boxesByAccount[Self.key(row.account)] ?? []
+        guard let box = boxes.first(where: { $0.id == row.message.boxID }), !box.mine else { return nil }
         return box.owner
     }
 
     /// Plays a message, or stops the one that is playing. The first press
     /// fetches it; nothing is kept afterwards.
-    func play(_ message: VoicemailMessage) async {
+    func play(_ row: AccountVoicemail) async {
+        let message = row.message
         if playing == message.id {
             stop()
             return
         }
         stop()
-        guard let access else { return }
+        guard let access = access(for: row.account) else { return }
         busy = message.id
         defer { busy = nil }
         do {
@@ -73,7 +117,7 @@ import SwiftUI
             self.player = player
             player.play()
             playing = message.id
-            await markHeard(message)
+            await markHeard(row)
         } catch let error as LinxError {
             problem = error.words
         } catch {
@@ -93,25 +137,29 @@ import SwiftUI
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    private func markHeard(_ message: VoicemailMessage) async {
-        guard !message.heardByMe, let access else { return }
+    private func markHeard(_ row: AccountVoicemail) async {
+        let message = row.message
+        guard !message.heardByMe, let access = access(for: row.account) else { return }
         try? await access.client.markVoicemail(message.id, heard: true, token: try await access.token())
-        if let at = messages.firstIndex(where: { $0.id == message.id }) {
-            messages[at] = VoicemailMessage(
-                id: message.id, boxID: message.boxID, callerNumber: message.callerNumber,
-                callerName: message.callerName, receivedAt: message.receivedAt,
-                durationMs: message.durationMs, heardByMe: true, heardBy: message.heardBy)
+        if let at = messages.firstIndex(where: { $0.id == row.id }) {
+            messages[at] = AccountVoicemail(
+                message: VoicemailMessage(
+                    id: message.id, boxID: message.boxID, callerNumber: message.callerNumber,
+                    callerName: message.callerName, receivedAt: message.receivedAt,
+                    durationMs: message.durationMs, heardByMe: true, heardBy: message.heardBy),
+                account: row.account, label: row.label)
         }
     }
 
     /// Deleted for everyone who can see that box, which is what the web app
     /// says too — a ring group's message is the group's, not one person's.
-    func delete(_ message: VoicemailMessage) async {
-        guard let access else { return }
+    func delete(_ row: AccountVoicemail) async {
+        let message = row.message
+        guard let access = access(for: row.account) else { return }
         if playing == message.id { stop() }
         do {
             try await access.client.deleteVoicemail(message.id, token: try await access.token())
-            messages.removeAll { $0.id == message.id }
+            messages.removeAll { $0.id == row.id }
         } catch let error as LinxError {
             problem = error.words
         } catch {
@@ -129,8 +177,10 @@ import SwiftUI
     }
 
     #if DEBUG
-        func pretend(_ messages: [VoicemailMessage]) {
-            self.messages = messages
+        func pretend(_ messages: [VoicemailMessage], label: String? = nil) {
+            self.messages = messages.map {
+                AccountVoicemail(message: $0, account: nil, label: label)
+            }
             loaded = true
         }
     #endif
@@ -157,12 +207,21 @@ struct VoicemailView: View {
     @Environment(PhoneModel.self) private var phone
     @State private var voicemail: VoicemailModel?
 
+    /// The phone line a message belongs to, which is the one a ring back
+    /// goes out on: a message left on one account is never answered from
+    /// another (docs/MULTI_ACCOUNT.md §7).
+    private func phone(for row: AccountVoicemail) -> PhoneModel {
+        guard let id = row.account, let account = model.account(id: id) else { return phone }
+        return account.phone
+    }
+
     var body: some View {
         Group {
             if let voicemail, !voicemail.messages.isEmpty {
                 List {
                     ForEach(voicemail.messages) { message in
-                        VoicemailRow(message: message, voicemail: voicemail)
+                        VoicemailRow(row: message, voicemail: voicemail)
+                            .environment(phone(for: message))
                             .swipeActions {
                                 // Red, always, and Linx's own red rather
                                 // than whichever one the system reaches for:
@@ -185,7 +244,7 @@ struct VoicemailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if voicemail == nil {
-                voicemail = VoicemailModel(access: Screen.launched == nil ? model.linx : nil)
+                voicemail = VoicemailModel(sources: Screen.launched == nil ? model.voicemailSources : [])
             }
             #if DEBUG
                 if Screen.launched != nil {
@@ -205,15 +264,16 @@ struct VoicemailView: View {
 
 private struct VoicemailRow: View {
     @Environment(PhoneModel.self) private var phone
-    let message: VoicemailMessage
+    let row: AccountVoicemail
     let voicemail: VoicemailModel
 
+    private var message: VoicemailMessage { row.message }
     private var playing: Bool { voicemail.playing == message.id }
 
     var body: some View {
         HStack(spacing: LinxSpace.s3) {
             Button {
-                Task { await voicemail.play(message) }
+                Task { await voicemail.play(row) }
             } label: {
                 ZStack {
                     Circle()
@@ -266,7 +326,9 @@ private struct VoicemailRow: View {
 
     private var words: String {
         var parts = [CallsWhen.text(message.receivedAt), CallView.length(seconds: message.durationMs / 1000)]
-        if let box = voicemail.box(message) { parts.insert(box, at: 0) }
+        if let box = voicemail.box(row) { parts.insert(box, at: 0) }
+        // Which account the message is on, on a phone with more than one.
+        if let label = row.label { parts.append(label) }
         if let heardBy = message.heardBy, !message.heardByMe { parts.append("Heard by \(heardBy)") }
         return parts.joined(separator: " · ")
     }

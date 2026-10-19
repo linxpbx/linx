@@ -43,7 +43,10 @@ struct PushTokens: Equatable, Sendable {
     /// A call is on its way: the call's id and the caller's number, which is
     /// all that was ever sent. The app has to ring before it does anything
     /// else, and `then` is Apple's own "I'm finished with this push".
-    var onCall: ((_ call: String, _ from: String, _ video: Bool, _ then: @escaping () -> Void) -> Void)?
+    /// `device` is which of this phone's accounts the call is for, and is
+    /// nil from a Linx older than multi-account (docs/MULTI_ACCOUNT.md §5).
+    var onCall:
+        ((_ call: String, _ from: String, _ video: Bool, _ device: UUID?, _ then: @escaping () -> Void) -> Void)?
     /// A VoIP push that isn't a call this app can ring: a payload a later
     /// Linx sent that this version doesn't understand, or one that arrived
     /// damaged. **iOS still requires a call to be reported** — an app that
@@ -155,13 +158,25 @@ struct PushTokens: Equatable, Sendable {
     }
 
     /// What a push says, and nothing more: the call's id, the caller's
-    /// number, and whether it is a video call. A push without the first two
-    /// is not a Linx call and is ignored; one from a Linx that doesn't say
-    /// rings as an ordinary call.
-    nonisolated static func call(in payload: [AnyHashable: Any]) -> (call: String, from: String, video: Bool)? {
+    /// number, whether it is a video call, and which of this phone's
+    /// accounts it is for. A push without the call's id is not a Linx call
+    /// and is ignored; one from a Linx that doesn't say rings as an
+    /// ordinary call.
+    ///
+    /// The account is there because Apple gives the app one token for the
+    /// whole phone, so two Linx servers push to the same address
+    /// (docs/MULTI_ACCOUNT.md §5). A push from a Linx older than that
+    /// release names no account, and rings the one calls are made from —
+    /// which is the right answer for every phone with one account.
+    nonisolated static func call(in payload: [AnyHashable: Any])
+        -> (call: String, from: String, video: Bool, device: UUID?)?
+    {
         guard let linx = payload["linx"] as? [AnyHashable: Any] else { return nil }
         guard let call = linx["call"] as? String, !call.isEmpty else { return nil }
-        return (call, linx["from"] as? String ?? "", linx["video"] as? Bool ?? false)
+        return (
+            call, linx["from"] as? String ?? "", linx["video"] as? Bool ?? false,
+            (linx["device"] as? String).flatMap(UUID.init(uuidString:))
+        )
     }
 
     /// Whether a notification is the "a call is ringing" one, which the app
@@ -170,7 +185,9 @@ struct PushTokens: Equatable, Sendable {
         (payload["linx"] as? [AnyHashable: Any])?["kind"] as? String == "call"
     }
 
-    fileprivate func arrived(call: String, from: String, video: Bool, then done: @escaping () -> Void) {
+    fileprivate func arrived(
+        call: String, from: String, video: Bool, device: UUID?, then done: @escaping () -> Void
+    ) {
         guard let onCall else {
             // Nobody is listening yet, which shouldn't happen — the app
             // wires this up before PushKit is started. A call still has to
@@ -179,7 +196,7 @@ struct PushTokens: Equatable, Sendable {
             nothingToRing(then: done)
             return
         }
-        onCall(call, from, video, done)
+        onCall(call, from, video, device, done)
     }
 
     fileprivate func nothingToRing(then done: @escaping () -> Void) {
@@ -228,7 +245,8 @@ struct PushTokens: Equatable, Sendable {
                     owner?.nothingToRing(then: done)
                     return
                 }
-                owner?.arrived(call: said.call, from: said.from, video: said.video, then: done)
+                owner?.arrived(
+                    call: said.call, from: said.from, video: said.video, device: said.device, then: done)
             }
         }
 

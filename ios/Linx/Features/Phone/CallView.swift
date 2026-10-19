@@ -110,6 +110,16 @@ struct CallView: View {
                     .font(.title3.monospacedDigit())
                     .foregroundStyle(LinxColor.onSurfaceDark)
                     .accessibilityLabel(whatSpoken)
+                if let account = phone.accountLabel {
+                    // Which of this phone's accounts the call is on, so
+                    // there is never a doubt which company you are speaking
+                    // as (docs/MULTI_ACCOUNT.md §7). Nothing at all with one
+                    // account.
+                    Text(account)
+                        .font(.subheadline)
+                        .foregroundStyle(LinxColor.onSurfaceDark.opacity(0.7))
+                        .accessibilityLabel("On your \(account) account")
+                }
             }
 
             Spacer(minLength: 0)

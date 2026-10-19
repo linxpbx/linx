@@ -234,9 +234,15 @@ func TestWakeSendsOneVoIPPush(t *testing.T) {
 	if linx["call"] != "1759500000.7" || linx["from"] != "+971500000001" || linx["video"] != true {
 		t.Errorf("payload = %v", got.Body)
 	}
+	// Which of the phone's accounts the call is for: Apple gives the app
+	// one token for the whole phone, so two Linx servers push to the same
+	// address and the push has to say (docs/MULTI_ACCOUNT.md §5).
+	if linx["device"] != d.DeviceID.String() {
+		t.Errorf("device = %v, want %v", linx["device"], d.DeviceID)
+	}
 	// Nothing else is ever told to Apple: no name, no token, no extension.
-	if len(linx) != 4 {
-		t.Errorf("the wake push carries more than the call, the caller, the time and video: %v", linx)
+	if len(linx) != 5 {
+		t.Errorf("the wake push carries more than the call, the caller, the time, video and the account: %v", linx)
 	}
 	// The provider token is a signed JWT with the key's id on it.
 	header, _, ok := strings.Cut(strings.TrimPrefix(got.Bearer, "bearer "), ".")
@@ -295,13 +301,42 @@ func TestACallWhereCallKitMayNotBeUsed(t *testing.T) {
 	if linx["call"] != "1759500000.9" || linx["from"] != "+971500000002" || linx["kind"] != "call" {
 		t.Errorf("payload = %v", got.Body)
 	}
-	// The same three facts, and the kind that says which notification it
-	// is. Nothing else reaches Apple.
-	if len(linx) != 4 {
-		t.Errorf("the call notification carries more than the call, the caller and the time: %v", linx)
+	if linx["device"] != d.DeviceID.String() {
+		t.Errorf("device = %v, want %v", linx["device"], d.DeviceID)
+	}
+	// The same three facts, the kind that says which notification it is,
+	// and which account it is for. Nothing else reaches Apple.
+	if len(linx) != 5 {
+		t.Errorf("the call notification carries more than the call, the caller, the time and the account: %v", linx)
 	}
 	if s := e.gateway.Snapshot(); s.Sent["call"] != 1 || s.Sent["wake"] != 0 {
 		t.Errorf("counted as %v", s.Sent)
+	}
+}
+
+func TestEachPhoneIsToldWhichAccountTheCallIsFor(t *testing.T) {
+	e := newEnv(t)
+	// Two phones of the same person — an iPhone and an iPad, or the same
+	// iPhone set up on two Linx servers, which from here looks the same:
+	// each is told its own account, never the other's.
+	first := e.phone("aabbccdd", "")
+	second := e.phone("11223344", "")
+	e.gateway.Wake(context.Background(), []string{first.SIPUsername}, push.Call{
+		ID: "1759500000.7", From: "+971500000001", At: e.now})
+
+	sent := e.apple.sent()
+	if len(sent) != 2 {
+		t.Fatalf("sent %d pushes, want 2", len(sent))
+	}
+	want := map[string]string{
+		"/3/device/aabbccdd": first.DeviceID.String(),
+		"/3/device/11223344": second.DeviceID.String(),
+	}
+	for _, got := range sent {
+		linx, _ := got.Body["linx"].(map[string]any)
+		if linx["device"] != want[got.Path] {
+			t.Errorf("%s was told account %v, want %v", got.Path, linx["device"], want[got.Path])
+		}
 	}
 }
 

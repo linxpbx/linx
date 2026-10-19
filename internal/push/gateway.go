@@ -254,18 +254,6 @@ func (g *Gateway) Wake(ctx context.Context, sipUsernames []string, c Call) {
 		g.Log.Error("looking up the phones to wake", "err", err)
 		return
 	}
-	payload, err := wakePayload(c)
-	if err != nil {
-		g.Log.Error("writing the wake push", "err", err)
-		return
-	}
-	// The same call, for a phone that may not use CallKit: an ordinary,
-	// time-sensitive notification on the app's own topic (ADR-078).
-	announcement, err := callPayload(c)
-	if err != nil {
-		g.Log.Error("writing the call notification", "err", err)
-		return
-	}
 	now := g.now()
 	for _, d := range devices {
 		if !g.wakes.Allow("wake:"+d.DeviceID.String(), now) {
@@ -283,6 +271,14 @@ func (g *Gateway) Wake(ctx context.Context, sipUsernames []string, c Call) {
 		}
 		g.woke[d.SIPUsername] = now
 		g.mu.Unlock()
+		// Written for this phone: the push says which of its accounts the
+		// call is for, because Apple gives an app one token for the whole
+		// phone (docs/MULTI_ACCOUNT.md §5).
+		payload, err := wakePayload(c, d.DeviceID)
+		if err != nil {
+			g.Log.Error("writing the wake push", "err", err)
+			return
+		}
 		n := notice{
 			Token: d.VoIPToken, Topic: settings.BundleID + ".voip", PushType: "voip",
 			// Right now or not at all: a call is no use late.
@@ -294,12 +290,20 @@ func (g *Gateway) Wake(ctx context.Context, sipUsernames []string, c Call) {
 			// instead; it is worth nothing once the caller gives up, so it
 			// expires with the ringing.
 			kind = KindCall
+			// The same call, for a phone that may not use CallKit: an
+			// ordinary, time-sensitive notification on the app's own topic
+			// (ADR-078).
+			announcement, err := callPayload(c, d.DeviceID)
+			if err != nil {
+				g.Log.Error("writing the call notification", "err", err)
+				return
+			}
 			n = notice{
 				Token: d.AlertToken, Topic: settings.BundleID, PushType: "alert",
 				Priority: 10, Expiration: now.Add(CallAlertLife).Unix(), Payload: announcement,
 			}
 		}
-		err := g.send(ctx, key, environmentOf(d, settings), n)
+		err = g.send(ctx, key, environmentOf(d, settings), n)
 		g.after(ctx, d, kind, err)
 	}
 }
@@ -349,7 +353,7 @@ func (g *Gateway) quiet(ctx context.Context, extension uuid.UUID, kind, title, b
 			badge = g.badge(ctx, d)
 			badges[d.UserID] = badge
 		}
-		payload, err := quietPayload(kind, title, body, badge)
+		payload, err := quietPayload(kind, title, body, badge, d.DeviceID)
 		if err != nil {
 			g.Log.Error("writing a notification", "kind", kind, "err", err)
 			return

@@ -130,6 +130,10 @@ import UIKit
     private(set) var recent: [Recent] = []
     /// The last thing that didn't work, for the screen to show once.
     private(set) var problem: String?
+    /// Which of this phone's accounts this line is, for the call screen to
+    /// name under the caller. Nil with one account, which is every phone
+    /// until somebody adds a second (docs/MULTI_ACCOUNT.md §7).
+    var accountLabel: String?
     /// What's on the keypad.
     var typed = ""
     /// The last number this phone rang, for the keypad's redial: pressing

@@ -50,8 +50,14 @@ import UserNotifications
     /// `watching` is the websocket. A test and a screenshot run ask for a
     /// model without one: what they check is what the screens do with what
     /// Linx said, not the connection itself.
-    init(access: LinxAccess?, watching: Bool = true) {
+    /// Which of this phone's accounts this team belongs to, so a star kept
+    /// on this phone belongs to the right one: extension 101 on two Linx
+    /// systems is two different people (docs/MULTI_ACCOUNT.md §7).
+    let account: UUID?
+
+    init(access: LinxAccess?, account: UUID? = nil, watching: Bool = true) {
         self.access = access
+        self.account = account
         guard let access, watching else { return }
         let socket = TeamLive(server: access.server, token: { try? await access.token() })
         socket.onList = { [weak self] list in self?.took(list) }

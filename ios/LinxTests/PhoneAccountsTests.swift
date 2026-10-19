@@ -231,6 +231,51 @@ struct AppAccountsTests {
         #expect(model.account(id: UUID()) == nil)
     }
 
+    @Test("a push says which account it is for, and the app reads it")
+    func thePushNamesTheAccount() {
+        let id = UUID()
+        let said = PushService.call(in: [
+            "aps": [:],
+            "linx": [
+                "call": "1759500000.7", "from": "+971500000001", "at": 1_759_500_000,
+                "video": true, "device": id.uuidString.lowercased(),
+            ],
+        ])
+        #expect(said?.call == "1759500000.7")
+        #expect(said?.from == "+971500000001")
+        #expect(said?.video == true)
+        #expect(said?.device == id)
+
+        // A Linx older than multi-account names no account: the call rings
+        // on the one calls are made from, which is right for every phone
+        // with one account and the only honest answer for the rest (§5).
+        let older = PushService.call(in: ["aps": [:], "linx": ["call": "1759500000.8", "from": "101"]])
+        #expect(older?.device == nil)
+        #expect(older?.call == "1759500000.8")
+
+        // Nonsense where the account should be is the same as none.
+        let rubbish = PushService.call(in: ["aps": [:], "linx": ["call": "1", "device": "not-an-id"]])
+        #expect(rubbish?.device == nil)
+        // And a push with no call at all is not a Linx call.
+        #expect(PushService.call(in: ["aps": [:], "linx": ["device": id.uuidString]]) == nil)
+    }
+
+    @Test("a woken phone finds its accounts before it rings one")
+    func wokenBeforeTheListIsRead() async {
+        let store = FakeStore()
+        let work = UUID(), staging = UUID()
+        PhoneStore.save(identity(work, server: "https://pbx.example.com"), key: nil, to: store)
+        PhoneStore.save(identity(staging, server: "https://home.example.com"), key: nil, to: store)
+
+        // A push to a closed app launches it with nothing set up yet, and
+        // this runs before start() ever does.
+        let model = app(store)
+        #expect(model.accounts.count == 1)
+        await model.woken(device: staging, from: "+971500000001")
+        #expect(model.accounts.count == 2)
+        #expect(model.account(id: staging) != nil)
+    }
+
     @Test("choosing an account is remembered for next time")
     func theChoiceIsKept() async {
         let store = FakeStore()
@@ -283,7 +328,22 @@ struct AppAccountsTests {
         // gives back the one already waiting rather than a second.
         let smaller = app(FakeStore())
         let waiting = smaller.addAnAccount()
-        #expect(waiting === smaller.current)
         #expect(smaller.accounts.count == 1)
+        #expect(waiting === smaller.addAnAccount())
+
+        // An account being set up never becomes the one calls are made
+        // from: that would move the keypad onto an account that isn't set
+        // up yet. And closing the setup screen on it drops it again.
+        let store2 = FakeStore()
+        let there = UUID()
+        PhoneStore.save(identity(there, server: "https://pbx.example.com"), key: nil, to: store2)
+        let two = app(store2)
+        await two.start()
+        let fresh = try! #require(two.addAnAccount())
+        #expect(two.current.accountID == there)
+        #expect(two.accounts.count == 2)
+        two.giveUpOnAddingAnAccount(fresh)
+        #expect(two.accounts.count == 1)
+        #expect(two.current.accountID == there)
     }
 }

@@ -8,18 +8,56 @@ import SwiftUI
 // Opening it clears the badge for this person on every device they have,
 // because what someone missed is kept per person, not per phone.
 
+/// One call in the list, and which account it belongs to
+/// (docs/MULTI_ACCOUNT.md §7). With one account `label` is nil and the row
+/// shows exactly what it always showed.
+struct AccountCall: Identifiable, Sendable, Equatable {
+    let record: CallRecord
+    /// The account this call is on, so ringing back goes out on the line it
+    /// came in on. Nil only for the made-up calls in a screenshot run.
+    let account: UUID?
+    let label: String?
+
+    /// Two Linx servers each give their calls an id of their own, so the id
+    /// of a row in a merged list is the account's and the call's together.
+    var id: String { "\(account?.uuidString ?? "")/\(record.id)" }
+}
+
 @MainActor @Observable final class CallsModel {
-    private(set) var calls: [CallRecord] = []
+    /// Where the calls come from: one account's history, with the name to
+    /// put beside its rows. Several of them merge into one list.
+    struct Source {
+        let account: UUID?
+        let label: String?
+        let access: LinxAccess
+    }
+
+    /// Every account's calls, newest first.
+    private(set) var calls: [AccountCall] = []
     private(set) var loading = false
     private(set) var loaded = false
     private(set) var problem: String?
-    /// The page after the one in hand, when there is one.
-    private var next: String?
+    /// The page after the one in hand, per account, when there is one.
+    private var next: [String: String] = [:]
+    /// What each account has given so far, kept apart so one account's
+    /// next page replaces only its own rows.
+    private var pages: [String: [AccountCall]] = [:]
 
-    private let access: LinxAccess?
+    private let sources: [Source]
 
-    init(access: LinxAccess?) {
-        self.access = access
+    init(sources: [Source]) {
+        self.sources = sources
+    }
+
+    /// One account, which is every phone until somebody adds a second.
+    convenience init(access: LinxAccess?) {
+        self.init(sources: access.map { [Source(account: nil, label: nil, access: $0)] } ?? [])
+    }
+
+    private static func key(_ source: Source) -> String { source.account?.uuidString ?? "one" }
+
+    private func merge() {
+        calls = pages.values.flatMap { $0 }.sorted { $0.record.startedAt > $1.record.startedAt }
     }
 
     /// What is being searched for, if anything.
@@ -37,45 +75,64 @@ import SwiftUI
         await load()
     }
 
-    /// The newest page. Asked for again whenever Linx says a call ended.
+    /// The newest page from every account, merged. Asked for again
+    /// whenever Linx says a call ended.
+    ///
+    /// One account being unreachable doesn't empty the list: the others are
+    /// shown and the problem is said once, because a list that goes blank
+    /// when a staging server is off is worse than one that is short.
     func load() async {
-        guard let access, !loading else { return }
+        guard !sources.isEmpty, !loading else { return }
         loading = true
         defer { loading = false }
         let digits = searching.filter { $0.isNumber || $0 == "+" }
-        do {
-            let page = try await access.client.myCalls(
-                number: digits.isEmpty ? nil : digits, token: try await access.token())
-            calls = page.items
-            next = page.next
-            loaded = true
-            problem = nil
-        } catch let error as LinxError {
-            problem = error.words
-        } catch {
-            problem = "Linx couldn't be reached. Try again in a moment."
+        var trouble: String?
+        for source in sources {
+            do {
+                let page = try await source.access.client.myCalls(
+                    number: digits.isEmpty ? nil : digits, token: try await source.access.token())
+                pages[Self.key(source)] = page.items.map {
+                    AccountCall(record: $0, account: source.account, label: source.label)
+                }
+                next[Self.key(source)] = page.next
+            } catch let error as LinxError {
+                trouble = trouble ?? error.words
+            } catch {
+                trouble = trouble ?? "Linx couldn't be reached. Try again in a moment."
+            }
         }
+        merge()
+        loaded = true
+        problem = trouble
     }
 
-    /// One more page, when the person scrolls to the end of this one.
+    /// One more page from every account that has one, when the person
+    /// scrolls to the end.
     func loadMore() async {
-        guard let access, let before = next, !loading else { return }
+        guard hasMore, !loading else { return }
         loading = true
         defer { loading = false }
         let digits = searching.filter { $0.isNumber || $0 == "+" }
-        guard
-            let page = try? await access.client.myCalls(
-                before: before, number: digits.isEmpty ? nil : digits, token: try await access.token())
-        else { return }
-        calls += page.items
-        next = page.next
+        for source in sources {
+            guard let before = next[Self.key(source)] else { continue }
+            guard
+                let page = try? await source.access.client.myCalls(
+                    before: before, number: digits.isEmpty ? nil : digits,
+                    token: try await source.access.token())
+            else { continue }
+            pages[Self.key(source), default: []] += page.items.map {
+                AccountCall(record: $0, account: source.account, label: source.label)
+            }
+            next[Self.key(source)] = page.next
+        }
+        merge()
     }
 
-    var hasMore: Bool { next != nil }
+    var hasMore: Bool { next.values.contains { $0 != nil } }
 
     #if DEBUG
-        func pretend(_ calls: [CallRecord]) {
-            self.calls = calls
+        func pretend(_ calls: [CallRecord], label: String? = nil) {
+            self.calls = calls.map { AccountCall(record: $0, account: nil, label: label) }
             loaded = true
         }
     #endif
@@ -91,18 +148,26 @@ struct CallsView: View {
     @State private var search = ""
     /// Which call the right-hand side is showing. On a phone there is no
     /// right-hand side and picking one pushes it instead (step 8).
-    @State private var chosen: CallRecord.ID?
+    @State private var chosen: AccountCall.ID?
 
-    private var shown: [CallRecord] {
+    private var shown: [AccountCall] {
         var all = calls?.calls ?? []
-        if onlyMissed { all = all.filter(\.missed) }
+        if onlyMissed { all = all.filter(\.record.missed) }
         let text = search.trimmingCharacters(in: .whitespaces).lowercased()
         // A number has already been searched for at the server; a name is
         // matched here, against what is on the screen.
         guard !text.isEmpty, !text.contains(where: \.isNumber) else { return all }
         return all.filter {
-            $0.from.name.lowercased().contains(text) || $0.to.name.lowercased().contains(text)
+            $0.record.from.name.lowercased().contains(text) || $0.record.to.name.lowercased().contains(text)
         }
+    }
+
+    /// The phone line a row's call belongs to, which is the one a ring back
+    /// goes out on: a call that came in on one account is never rung back
+    /// on another (docs/MULTI_ACCOUNT.md §7).
+    private func phone(for call: AccountCall) -> PhoneModel {
+        guard let id = call.account, let account = model.account(id: id) else { return model.phone }
+        return account.phone
     }
 
     /// All / Missed. In the toolbar on a phone, as it has always been; in
@@ -143,7 +208,8 @@ struct CallsView: View {
             // One call, in full: who, which way it went, when, how long, and
             // the button to ring them back.
             if let call = shown.first(where: { $0.id == chosen }) {
-                CallDetailView(call: call)
+                CallDetailView(call: call.record, label: call.label)
+                    .environment(phone(for: call))
             } else {
                 NothingPicked(
                     symbol: "clock", title: "No call picked",
@@ -152,12 +218,16 @@ struct CallsView: View {
         }
         .picksTheFirstRow($chosen, first: { shown.first?.id }, when: horizontal == .regular)
         .task {
-            if calls == nil { calls = CallsModel(access: Screen.launched == nil ? model.linx : nil) }
+            if calls == nil {
+                calls = CallsModel(sources: Screen.launched == nil ? model.callSources : [])
+            }
             #if DEBUG
                 if Screen.launched != nil {
                     calls?.pretend(Screen.sampleCalls)
                     return
                 }
+            #endif
+            #if DEBUG
             #endif
             await calls?.load()
             // Opening this screen is what clears the badge, here and on
@@ -174,7 +244,8 @@ struct CallsView: View {
             if let calls, !calls.calls.isEmpty {
                 List(selection: $chosen) {
                     ForEach(shown) { call in
-                        CallRow(call: call, selected: chosen == call.id)
+                        CallRow(call: call.record, label: call.label, selected: chosen == call.id)
+                            .environment(phone(for: call))
                     }
                     if calls.hasMore, !onlyMissed {
                         Button("Show older calls") {
@@ -196,6 +267,9 @@ struct CallsView: View {
 struct CallRow: View {
     @Environment(PhoneModel.self) private var phone
     let call: CallRecord
+    /// Which account this call came through, shown only on a phone with
+    /// more than one (docs/MULTI_ACCOUNT.md §7).
+    var label: String?
     /// This row is the one open on the detail side, so iOS has filled it
     /// with the app's own brand colour and the ink has to change with it
     /// (step 8). On a phone nothing stays selected and this is always false.
@@ -225,6 +299,12 @@ struct CallRow: View {
                 Text(words)
                     .font(.subheadline)
                     .foregroundStyle(quietInk)
+                if let label {
+                    Text(label)
+                        .font(.caption)
+                        .foregroundStyle(quietInk)
+                        .accessibilityLabel("Through \(label)")
+                }
             }
             Spacer(minLength: LinxSpace.s2)
             if callable {
@@ -305,6 +385,8 @@ enum CallWords {
 struct CallDetailView: View {
     @Environment(PhoneModel.self) private var phone
     let call: CallRecord
+    /// Which account the call came through, on a phone with more than one.
+    var label: String?
 
     private var who: String { CallWords.who(call) }
 
@@ -344,6 +426,11 @@ struct CallDetailView: View {
                         }
                         if let answered = call.answeredBy {
                             DetailLine(label: "Answered by", value: answered)
+                        }
+                        if let label {
+                            // Which of this phone's accounts, so there is no
+                            // doubt which line a ring back goes out on.
+                            DetailLine(label: "Account", value: label)
                         }
                     }
                 }

@@ -15,6 +15,8 @@ struct SettingsView: View {
     @AppStorage(Settings.appearance) private var appearance = Appearance.system.rawValue
     @AppStorage(Settings.showCallsInThePhoneApp) private var inPhoneApp = true
     @State private var signingOut = false
+    /// Open from the start only for the screenshot of it (`Screen`).
+    @State private var accounts = Screen.launched == .accounts
     @State private var notifications: UNAuthorizationStatus = .notDetermined
 
     private var ready: Bool { phone.status == .ready }
@@ -39,6 +41,19 @@ struct SettingsView: View {
                 Text("Do not disturb stops your extension ringing anywhere. Callers go to your voicemail.")
                     .font(.footnote)
                     .foregroundStyle(LinxColor.textMuted)
+            }
+
+            Section {
+                Button {
+                    accounts = true
+                } label: {
+                    LabeledContent("Accounts", value: accountsWords)
+                        .foregroundStyle(LinxColor.text)
+                }
+            } footer: {
+                Text(
+                    "This phone can be set up on more than one Linx at a time — your work system and another one. They are all live together: every account rings, and nothing has to be switched to."
+                )
             }
 
             Section("This phone's line") {
@@ -135,6 +150,7 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $accounts) { AccountsView() }
         .task { notifications = await PushService.shared.notificationState() }
         .confirmationDialog(
             "Sign out of this phone?", isPresented: $signingOut, titleVisibility: .visible
@@ -146,6 +162,15 @@ struct SettingsView: View {
         } message: {
             Text("This phone will stop ringing, and you'll need a new setup code to use it again.")
         }
+    }
+
+    /// How many Linx servers this phone is set up on, in the words the row
+    /// shows. One account says the one it is, because "1 account" is a
+    /// sentence nobody with one account needs to read.
+    private var accountsWords: String {
+        let set = model.accounts.filter { $0.accountID != nil }.count
+        guard set > 1 else { return model.identity?.server.host() ?? "1" }
+        return "\(set)"
     }
 
     /// Plain words for what iOS allows, because "notifications don't work"

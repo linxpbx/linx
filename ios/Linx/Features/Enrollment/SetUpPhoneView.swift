@@ -7,6 +7,11 @@ import SwiftUI
 /// address and the 8 characters. The phone makes its own key as it finishes,
 /// and nobody's password is in any of it.
 struct SetUpPhoneView: View {
+    /// Which account this code is for. Nil is the ordinary case — the phone
+    /// is being set up for the first time — and **Add account** hands in
+    /// the empty account it opened (docs/MULTI_ACCOUNT.md §7).
+    var account: Account?
+
     @Environment(AppModel.self) private var model
 
     @State private var camera = CameraAccess.none
@@ -51,8 +56,11 @@ struct SetUpPhoneView: View {
         }
     }
 
+    private var setUpThis: Account { account ?? model.current }
+
     private func use(_ code: SetupCode) {
-        Task { await model.setUp(with: code) }
+        let account = setUpThis
+        Task { await model.setUp(account, with: code) }
     }
 
     /// A scanned code is a setup link. Anything else is somebody else's QR
@@ -60,7 +68,7 @@ struct SetUpPhoneView: View {
     private func scan(_ text: String) {
         guard !scanned else { return }
         guard let code = SetupCode.link(text) else {
-            model.problem = "That isn't a Linx setup code. Scan the code on the Linx page that made it."
+            setUpThis.problem = "That isn't a Linx setup code. Scan the code on the Linx page that made it."
             return
         }
         scanned = true
@@ -100,7 +108,7 @@ struct SetUpPhoneView: View {
                 }
             }
 
-            if let problem = model.problem {
+            if let problem = setUpThis.problem {
                 Text(problem)
                     .font(.subheadline)
                     .foregroundStyle(LinxColor.end)

@@ -44,10 +44,30 @@ import SwiftUI
     /// What to tell the person about the last thing that didn't work.
     var problem: String?
 
+    /// This account's view of the system's calls — the one call provider
+    /// the whole app shares (`SystemCallsRouter`, docs/MULTI_ACCOUNT.md §6).
+    /// Nil for a model made on its own, which then has a system of its own,
+    /// exactly as every `PhoneModel` did before.
+    @ObservationIgnored private let calls: SystemCallsLine?
+
+    /// What this account is called where there is only room for one line of
+    /// text — the lock screen, a car, the Phone app's Recents. Nil with one
+    /// account, which is every phone until somebody adds a second.
+    var label: String? {
+        didSet {
+            // The system's one line of text (`SystemCallsLine`), and the
+            // call screen, which asks the line it is showing rather than
+            // the whole app.
+            calls?.accountLabel = label
+            phone.accountLabel = label
+        }
+    }
+
     /// The phone line itself: signing in to Asterisk, and the calls
     /// (`Features/Phone`). It asks this account for a line whenever it needs
     /// one, which is also what notices a phone that has been stopped.
-    @ObservationIgnored lazy var phone: PhoneModel = PhoneModel(line: { [weak self] in await self?.lineForPhone() })
+    @ObservationIgnored lazy var phone: PhoneModel = PhoneModel(
+        line: { [weak self] in await self?.lineForPhone() }, calls: calls)
 
     /// What the four tabs show for this account: the team, this person's
     /// status and the two counts on the tab bar (docs/PHASE2.md §12 step 7).
@@ -72,9 +92,13 @@ import SwiftUI
 
     /// `storedAs` names one of the phone's existing enrolments
     /// (`PhoneStore.accounts`); an account being set up has none yet.
-    init(session: PhoneSession = PhoneSession(), storedAs storedID: UUID? = nil) {
+    init(
+        session: PhoneSession = PhoneSession(), storedAs storedID: UUID? = nil,
+        calls: SystemCallsLine? = nil
+    ) {
         self.session = session
         self.storedID = storedID
+        self.calls = calls
     }
 
     // MARK: - Calls to a sleeping phone (docs/PHASE2.md §5, build step 6)
@@ -225,7 +249,7 @@ import SwiftUI
             sendCrashReportsFromNowOn()
             if homeFor != identity?.deviceID {
                 home.stop()
-                home = HomeModel(access: linx)
+                home = HomeModel(access: linx, account: accountID)
                 homeFor = identity?.deviceID
             }
             await phone.start()

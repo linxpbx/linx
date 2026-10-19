@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Apple's two addresses. Everything goes over TLS 1.2+ to one of these and
@@ -116,12 +118,22 @@ type notice struct {
 }
 
 // wakePayload is what a woken app is told: the call's id, the caller's
-// number, the time, and whether it is a video call. No name, no token,
-// nothing else (docs/PHASE2.md §5).
-func wakePayload(c Call) ([]byte, error) {
+// number, the time, whether it is a video call, and which of the phone's
+// accounts it is for. No name, no token, nothing else (docs/PHASE2.md §5,
+// docs/MULTI_ACCOUNT.md §5).
+//
+// The device id is there because Apple gives an app **one** push token for
+// the phone, so a phone set up on two Linx servers is pushed to by both at
+// the same address and the push itself has to say which account it belongs
+// to. Nothing new is disclosed by it: the token already identifies the
+// phone, and this id means something only to the phone that holds it.
+func wakePayload(c Call, device uuid.UUID) ([]byte, error) {
 	return json.Marshal(map[string]any{
-		"aps":  map[string]any{},
-		"linx": map[string]any{"call": c.ID, "from": c.From, "at": c.At.Unix(), "video": c.Video},
+		"aps": map[string]any{},
+		"linx": map[string]any{
+			"call": c.ID, "from": c.From, "at": c.At.Unix(), "video": c.Video,
+			"device": device.String(),
+		},
 	})
 }
 
@@ -129,7 +141,7 @@ func wakePayload(c Call) ([]byte, error) {
 // (ADR-078). It carries exactly what a wake push carries — the call's id,
 // the caller's number and the time — with the words the lock screen shows
 // and the "time sensitive" level, which is what lets it through Focus.
-func callPayload(c Call) ([]byte, error) {
+func callPayload(c Call, device uuid.UUID) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"aps": map[string]any{
 			"alert":              map[string]any{"title": "Incoming call", "body": calledBy(c.From)},
@@ -138,13 +150,14 @@ func callPayload(c Call) ([]byte, error) {
 		},
 		"linx": map[string]any{
 			"kind": KindCall, "call": c.ID, "from": c.From, "at": c.At.Unix(),
+			"device": device.String(),
 		},
 	})
 }
 
 // quietPayload is a missed call or a new voicemail: the same bare facts,
 // in the words the phone shows.
-func quietPayload(kind, title, body string, badge *int) ([]byte, error) {
+func quietPayload(kind, title, body string, badge *int, device uuid.UUID) ([]byte, error) {
 	aps := map[string]any{
 		"alert": map[string]any{"title": title, "body": body},
 		"sound": "default",
@@ -152,7 +165,10 @@ func quietPayload(kind, title, body string, badge *int) ([]byte, error) {
 	if badge != nil {
 		aps["badge"] = *badge
 	}
-	return json.Marshal(map[string]any{"aps": aps, "linx": map[string]any{"kind": kind}})
+	return json.Marshal(map[string]any{
+		"aps":  aps,
+		"linx": map[string]any{"kind": kind, "device": device.String()},
+	})
 }
 
 // send delivers one push. A dead token comes back as *Dead, so the caller

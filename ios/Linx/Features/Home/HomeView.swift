@@ -32,7 +32,7 @@ struct HomeView: View {
             Tab("Calls", systemImage: "clock", value: Tabs.calls) {
                 CallsView()
             }
-            .badge(model.home.missedCalls)
+            .badge(model.missedCalls)
 
             Tab("Team", systemImage: "person.2", value: Tabs.team) {
                 TeamView()
@@ -45,19 +45,28 @@ struct HomeView: View {
             Tab("More", systemImage: "ellipsis.circle", value: Tabs.more) {
                 MoreView()
             }
-            .badge(model.home.newVoicemail)
+            .badge(model.newVoicemail)
         }
         .tabViewStyle(.sidebarAdaptable)
         .tint(LinxColor.brandFill)
         .environment(model.home)
         .environment(favourites)
         .task {
+            // The stars this phone kept before there could be more than one
+            // account belong to the account it already had.
+            model.starsBelongToTheFirstAccount = { favourites.belongTo($0) }
+            if let first = model.accounts.first?.accountID { favourites.belongTo(first) }
             // A screenshot run has its contents already and talks to
             // nothing at all (`Screen`).
             guard Screen.launched == nil else { return }
-            model.home.start()
+            // Every account's team is live at once: a section that only
+            // filled in when you looked at it would be a switcher by
+            // another name (docs/MULTI_ACCOUNT.md §2).
+            for account in model.accounts { account.home.start() }
         }
-        .onDisappear { model.home.stop() }
+        .onDisappear {
+            for account in model.accounts { account.home.stop() }
+        }
     }
 }
 
@@ -100,6 +109,42 @@ struct KeypadScreen: View {
         }
     }
 
+    /// Which account a call goes out on, once there is more than one
+    /// (docs/MULTI_ACCOUNT.md §7). The last one used is remembered, so for
+    /// most people it is read rather than pressed — and with one account it
+    /// isn't there at all.
+    @ViewBuilder private var callWith: some View {
+        if model.hasSeveralAccounts {
+            Menu {
+                ForEach(model.accounts.filter { $0.identity != nil }) { account in
+                    Button {
+                        model.prefer(account)
+                    } label: {
+                        if account === model.current {
+                            Label(account.label ?? "Linx", systemImage: "checkmark")
+                        } else {
+                            Text(account.label ?? "Linx")
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: LinxSpace.s1) {
+                    Text("Call with")
+                        .foregroundStyle(LinxColor.textMuted)
+                    Text(model.current.label ?? "Linx")
+                        .foregroundStyle(LinxColor.accent)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(LinxColor.accent)
+                }
+                .font(.subheadline)
+            }
+            .padding(.horizontal, LinxSpace.s6)
+            .padding(.top, LinxSpace.s2)
+            .accessibilityLabel("Call with \(model.current.label ?? "Linx"). Change the account calls go out on.")
+        }
+    }
+
     private var pad: some View {
         VStack(spacing: 0) {
             HStack {
@@ -117,6 +162,8 @@ struct KeypadScreen: View {
             .padding(.horizontal, LinxSpace.s6)
             .padding(.top, LinxSpace.s5)
 
+            callWith
+
             KeypadView()
         }
         .linxBackground()
@@ -132,7 +179,13 @@ struct SpeedDial: View {
     @Environment(PhoneModel.self) private var phone
     @Environment(Favourites.self) private var favourites
 
-    private var starred: [TeamMember] { favourites.split(home.members).favourites }
+    /// The starred people on the account calls are made from: the keypad
+    /// beside it dials that account, and the team list beside it is that
+    /// account's, so it is asked which account it is
+    /// (docs/MULTI_ACCOUNT.md §7).
+    private var starred: [TeamMember] {
+        favourites.split(home.members, on: home.account).favourites
+    }
 
     var body: some View {
         List {

@@ -129,6 +129,10 @@ enum Screen: String {
     case more
     case voicemail
     case settings
+    /// Settings → Accounts, with a second account on the phone: the only
+    /// screen that exists at all once there is more than one
+    /// (docs/MULTI_ACCOUNT.md §7).
+    case accounts
     /// A call with a picture in it, which is the screen that lays itself
     /// out to whatever it is on (`CallLayout`): shoot it on an iPhone
     /// upright and on its side, on an iPad, and on an iPhone Duo folded and
@@ -139,7 +143,7 @@ enum Screen: String {
     var morePage: MoreView.Page? {
         switch self {
         case .voicemail: return .voicemail
-        case .settings: return .settings
+        case .settings, .accounts: return .settings
         default: return nil
         }
     }
@@ -149,7 +153,7 @@ enum Screen: String {
         switch self {
         case .calls: return .calls
         case .team: return .team
-        case .more, .voicemail, .settings: return .more
+        case .more, .voicemail, .settings, .accounts: return .more
         default: return .keypad
         }
     }
@@ -188,7 +192,7 @@ enum Screen: String {
         case .setUpPhone:
             break
         case .signedIn, .thisPhone, .keypad, .inCall, .callDetails, .incomingCall, .calls, .team, .more, .voicemail,
-            .settings, .videoCall:
+            .settings, .videoCall, .accounts:
             model.identity = Screen.sampleIdentity
             model.line = nil
             model.state = .signedIn
@@ -203,6 +207,13 @@ enum Screen: String {
             if self == .keypad {
                 model.phone.typed = "+971 4 000 0123"
             }
+            #if DEBUG
+                if self == .accounts {
+                    // A phone on two Linx systems, which is what the
+                    // Accounts screen is for.
+                    model.pretendASecondAccount(Screen.sampleSecondIdentity)
+                }
+            #endif
             #if DEBUG
                 if self == .inCall {
                     model.phone.pretend(
@@ -320,6 +331,17 @@ enum Screen: String {
             callerNumber: "1024", callerName: "Omar Khalil", receivedAt: Date(timeIntervalSinceNow: -180_000),
             durationMs: 9_000, heardByMe: true, heardBy: "Sara Haddad"),
     ]
+
+    /// A second Linx, for the Accounts screen.
+    static var sampleSecondIdentity: PhoneIdentity {
+        PhoneIdentity(
+            server: URL(string: "https://staging.example.com")!,
+            deviceID: UUID(uuidString: "0199c0de-0000-7000-8000-000000000002")!,
+            deviceName: "Sara's iPhone", personName: "Sara Haddad", extensionNumber: "204",
+            certificate: "", ca: "",
+            certNotAfter: Date(timeIntervalSince1970: 1_806_800_000),
+            setUpAgain: Date(timeIntervalSince1970: 1_806_800_000), keyKind: .software)
+    }
 
     static var sampleIdentity: PhoneIdentity {
         PhoneIdentity(

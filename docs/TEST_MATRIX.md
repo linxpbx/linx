@@ -143,6 +143,28 @@ don't use either of these.
 | 5c.3 | During a call, **turn Wi-Fi off** (phone moves to 5G), or switch the VPN on or off | The sound comes back within a few seconds without the call dropping |
 | 5c.4 | Any call: open **Call details → How long it took** | **Call sent** about a second after you tapped (it was up to 10 s), then **Ringing** and **Answered**. Send me the numbers if any step looks slow |
 
+## 5d. More than one Linx on one phone (ADR-093, `docs/MULTI_ACCOUNT.md`)
+
+Needs a setup code from a **second** Linx — staging and live, or the test VPS
+and home. Every row assumes both accounts are set up and named ("Work",
+"Staging") in **More → Settings → Accounts**.
+
+| # | Do this | You should see |
+|---|---|---|
+| 5d.1 | More → Settings → **Accounts** → **Add account**, scan the second Linx's code | The new account appears in the list with its server and extension, and **Ready** once its line is up. The first account is untouched and still rings |
+| 5d.2 | From another phone, ring the **first** account's extension | It rings, and the lock screen says the caller **— Work** (the name you gave it). The call screen names the account under the caller |
+| 5d.3 | Ring the **second** account's extension | The same, naming the second account. Answer it: the sound works and the call is on that account's line |
+| 5d.4 | **Lock the phone, close the app**, ring the second account | It rings on the lock screen within a few seconds, naming the second account — the push itself says which account it is for |
+| 5d.5 | Ring **both** accounts within a few seconds of each other | Two calls in iOS's own list. Answering one doesn't drop the other's ringing — iOS asks what to do with the second, as it does for two SIM lines |
+| 5d.6 | **Calls** tab | One list, newest first, with both accounts' calls in it and a small label on each row saying which. Tap a call from the second account and **Call back**: it goes out on **that** account (its own extension shows at the far end) |
+| 5d.7 | **Team** tab | A section for each account, each with its own people. Star somebody on one account: nobody on the other account is starred |
+| 5d.8 | **Keypad** | **Call with** above the keys, showing the last account used. Change it and dial: the call goes out on the account you chose |
+| 5d.9 | **Voicemail** | Both accounts' messages in one list, labelled. Play one from each: each plays, and each marks itself heard on its own system |
+| 5d.10 | Settings → Accounts → swipe an account → **Remove** | That account goes and the phone stops ringing for it. The other account keeps working with no interruption, including a call in progress on it |
+| 5d.11 | Remove the second account so only one is left | Every label, section and chooser disappears: the app looks exactly as it did with one account |
+| 5d.12 | **Restart the phone**, don't unlock it, and ring either account | It rings. (Before the unlock the app can't read its keys; it waits rather than asking to be set up again) |
+| 5d.13 | Try to add a **fifth** account | **Add account** is greyed out and says four is as many as the phone holds |
+
 ## 6. Where it gets hard
 
 Worth trying if you can, not blockers:
