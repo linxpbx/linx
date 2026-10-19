@@ -53,7 +53,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - **Exit:** every lock-screen and killed-app ringing case in `TEST_MATRIX.md` passes on real devices.
 
 ## Right after Phase 2 (owner, 2026-10-18)
-1. **The app knows a local and a public address.** As desk phones and 3CX do: on Wi-Fi the app tries Linx's local address first (sip.<domain> → the server's LAN address) and falls back to the public one (the front door); on mobile data it goes straight to the public one. TLS stays as strict: the server still proves it is the Linx name, whichever address is used. Calls at the office stop depending on the office's internet. (The sound and picture already take the local route by themselves through ICE; this is the call-setup line.)
+1. **The app knows a local and a public address.** As desk phones and 3CX do: on Wi-Fi the app tries Linx's local address first (sip.<domain> → the server's LAN address) and falls back to the public one (the front door); on mobile data it goes straight to the public one. TLS stays as strict: the server still proves it is the Linx name, whichever address is used. Calls at the office stop depending on the office's internet. (The sound and picture already take the local route by themselves through ICE; this is the call-setup line.) **Designed 2026-10-19: `docs/LOCAL_ADDRESS.md` — awaiting the owner's go-ahead (§10).**
 2. **Simpler setup for the app and for desk phones** (owner, same day: "I also want to simplify Linx app setup as well as desk phones"). What feels complicated today is to be asked first; desk-phone auto-provisioning (Phase 4, below) is the likely heart of the desk-phone half, and may move up.
 3. Then **desk phones from outside the office** (below), designed with the owner.
 

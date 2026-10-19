@@ -186,11 +186,13 @@ final class FakeLinx: URLProtocol, @unchecked Sendable {
         #expect(await again.identity?.deviceID == identity.deviceID)
         #expect(await again.line?.sipUsername == nil)
 
-        // Signing out leaves nothing behind.
+        // Signing out leaves nothing behind: the account's two slots go,
+        // and it leaves the list of accounts.
         await again.forget()
         #expect(await again.identity?.deviceID == nil)
-        #expect(store.read(PhoneStore.identityAccount) == nil)
-        #expect(store.read(PhoneStore.keyAccount) == nil)
+        #expect(store.read(PhoneStore.identityAccount(identity.deviceID)) == nil)
+        #expect(store.read(PhoneStore.keyAccount(identity.deviceID)) == nil)
+        #expect(PhoneStore.accounts(in: store).isEmpty)
     }
 
     @Test("tokens asked for at once make one request, and renew only near the end (2026-10-13)")

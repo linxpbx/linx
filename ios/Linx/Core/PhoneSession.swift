@@ -18,15 +18,22 @@ actor PhoneSession {
     /// The SIP login, kept in memory only and never written anywhere.
     private(set) var line: PhoneLine?
 
+    /// Which of this phone's accounts this session is (`docs/MULTI_ACCOUNT.md`
+    /// §3): a phone on two Linx servers has a session for each. Nil until it
+    /// is restored or set up, and then the account it holds.
+    private(set) var account: UUID?
+
     private let keychain: any PhoneStorage
     private let makeClient: @Sendable (URL) -> LinxClient
     private let now: @Sendable () -> Date
 
     init(
+        account: UUID? = nil,
         keychain: any PhoneStorage = Keychain.shared,
         client: @escaping @Sendable (URL) -> LinxClient = { LinxClient(server: $0) },
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
+        self.account = account
         self.keychain = keychain
         self.makeClient = client
         self.now = now
@@ -49,10 +56,14 @@ actor PhoneSession {
     /// up, and says what it found when it couldn't.
     @discardableResult
     func restore() -> Missing? {
-        guard let (identity, key) = PhoneStore.load(from: keychain) else {
-            return Missing(
-                identity: keychain.status(PhoneStore.identityAccount), key: keychain.status(PhoneStore.keyAccount))
+        // The account this session was made for, or — for the first one, as
+        // the app starts — whichever account a call is made from.
+        let id = account ?? PhoneStore.accounts(in: keychain).current
+        guard let id, let (identity, key) = PhoneStore.load(id, from: keychain) else {
+            let how = PhoneStore.status(id, in: keychain)
+            return Missing(identity: how.identity, key: how.key)
         }
+        self.account = id
         self.identity = identity
         self.key = key
         return nil
@@ -74,6 +85,7 @@ actor PhoneSession {
             certificate: enrolled.certificate, ca: enrolled.ca, certNotAfter: enrolled.certNotAfter,
             setUpAgain: enrolled.setUpAgain, keyKind: key.kind)
         PhoneStore.save(identity, key: key, to: keychain)
+        self.account = identity.deviceID
         self.identity = identity
         self.key = key
         self.token = nil
@@ -157,7 +169,13 @@ actor PhoneSession {
     /// forget is "sign out of this phone", locally: the certificate and the
     /// key go, and nothing of this Linx is left on the phone.
     func forget() {
-        PhoneStore.forget(keychain)
+        // This account alone: every other account on this phone stays.
+        if let account {
+            PhoneStore.forget(account, from: keychain)
+        } else {
+            PhoneStore.forget(keychain)
+        }
+        account = nil
         identity = nil
         key = nil
         token = nil

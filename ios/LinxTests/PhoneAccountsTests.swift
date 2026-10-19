@@ -1,0 +1,289 @@
+import Foundation
+import Testing
+
+@testable import Linx
+
+// More than one account on one phone (docs/MULTI_ACCOUNT.md §4): the list,
+// each account's own two slots, and the one-time move of a phone that was
+// set up before there could be more than one. Nothing here touches a
+// network or a real Keychain.
+
+/// A store that can't be read, the way the Keychain can't be before the
+/// phone has been unlocked since it started.
+final class LockedStore: PhoneStorage, @unchecked Sendable {
+    @discardableResult func save(_ data: Data, as account: String) -> Bool { false }
+    func read(_ account: String) -> Data? { nil }
+    func delete(_ account: String) { saw = true }
+    func status(_ account: String) -> OSStatus { errSecInteractionNotAllowed }
+    /// Set if anything was thrown away, which must never happen here.
+    private(set) var saw = false
+}
+
+/// A phone that has already been moved to accounts, woken before its first
+/// unlock: the list can't be read, and the two old slots are genuinely gone.
+/// "Can't read it" must not come out as "nothing there".
+final class LockedAfterTheMoveStore: PhoneStorage, @unchecked Sendable {
+    @discardableResult func save(_ data: Data, as account: String) -> Bool { false }
+    func read(_ account: String) -> Data? { nil }
+    func delete(_ account: String) {}
+    func status(_ account: String) -> OSStatus {
+        account == PhoneStore.accountsAccount ? errSecInteractionNotAllowed : errSecItemNotFound
+    }
+}
+
+@Suite("Accounts on one phone")
+struct PhoneAccountsTests {
+    private func identity(_ id: UUID, server: String) -> PhoneIdentity {
+        PhoneIdentity(
+            server: URL(string: server)!, deviceID: id, deviceName: "iPhone", personName: "Sam",
+            extensionNumber: "101", certificate: "", ca: "", certNotAfter: .distantFuture,
+            setUpAgain: .distantFuture, keyKind: .software)
+    }
+
+    @Test("two accounts are kept apart, and removing one leaves the other")
+    func twoAccounts() throws {
+        let store = FakeStore()
+        let work = UUID(), staging = UUID()
+        PhoneStore.save(identity(work, server: "https://pbx.example.com"), key: nil, to: store)
+        PhoneStore.save(identity(staging, server: "https://home.example.com"), key: nil, to: store)
+
+        var list = PhoneStore.accounts(in: store)
+        #expect(list.ids == [work, staging])
+        // The first one added is the one a call is made from, until another
+        // is chosen.
+        #expect(list.current == work)
+        list.prefer(staging)
+        PhoneStore.save(list, to: store)
+        #expect(PhoneStore.accounts(in: store).current == staging)
+
+        PhoneStore.forget(work, from: store)
+        let left = PhoneStore.accounts(in: store)
+        #expect(left.ids == [staging])
+        #expect(left.current == staging)
+        #expect(store.read(PhoneStore.identityAccount(work)) == nil)
+        #expect(store.read(PhoneStore.identityAccount(staging)) != nil)
+    }
+
+    @Test("saving the same account again doesn't add it twice")
+    func savedTwice() {
+        let store = FakeStore()
+        let id = UUID()
+        PhoneStore.save(identity(id, server: "https://pbx.example.com"), key: nil, to: store)
+        PhoneStore.save(identity(id, server: "https://pbx.example.com"), key: nil, to: store)
+        #expect(PhoneStore.accounts(in: store).ids == [id])
+    }
+
+    @Test("a name the person typed belongs to its account and goes with it")
+    func names() {
+        let store = FakeStore()
+        let id = UUID()
+        PhoneStore.save(identity(id, server: "https://pbx.example.com"), key: nil, to: store)
+        var list = PhoneStore.accounts(in: store)
+        list.name("  Work  ", for: id)
+        PhoneStore.save(list, to: store)
+        #expect(PhoneStore.accounts(in: store).name(for: id) == "Work")
+
+        list.name("   ", for: id)
+        #expect(list.name(for: id) == nil)
+        list.remove(id)
+        #expect(list.isEmpty)
+        #expect(list.current == nil)
+    }
+
+    @Test("four is the most, and an account this phone hasn't got is ignored")
+    func theLimit() {
+        var list = PhoneAccounts()
+        for _ in 0..<PhoneAccounts.most { list.add(UUID()) }
+        #expect(list.isFull)
+        let stranger = UUID()
+        list.prefer(stranger)
+        #expect(list.current == list.ids.first)
+    }
+
+    @Test("a phone set up by an older app becomes its first account, once")
+    func theOldSlotsMoveIn() throws {
+        let store = FakeStore()
+        let id = UUID()
+        let old = identity(id, server: "https://home.example.com")
+        store.save(try JSONEncoder().encode(old), as: PhoneStore.oldIdentityAccount)
+        store.save(Data("a key blob".utf8), as: PhoneStore.oldKeyAccount)
+
+        let list = PhoneStore.accounts(in: store)
+        #expect(list.ids == [id])
+        #expect(store.read(PhoneStore.identityAccount(id)) != nil)
+        #expect(store.read(PhoneStore.keyAccount(id)) == Data("a key blob".utf8))
+        // And the old slots are gone, so it only ever happens once.
+        #expect(store.read(PhoneStore.oldIdentityAccount) == nil)
+        #expect(store.read(PhoneStore.oldKeyAccount) == nil)
+        #expect(PhoneStore.accounts(in: store).ids == [id])
+    }
+
+    @Test("a Keychain that can't be read yet is left completely alone")
+    func lockedIsNotEmpty() {
+        let store = LockedStore()
+        #expect(PhoneStore.accounts(in: store).isEmpty)
+        // Nothing was thrown away on the strength of a read that couldn't
+        // happen, and the trail says locked rather than missing.
+        #expect(!store.saw)
+        #expect(PhoneStore.status(nil, in: store).identity == errSecInteractionNotAllowed)
+        #expect(PhoneStore.status(UUID(), in: store).key == errSecInteractionNotAllowed)
+    }
+
+    @Test("an account whose key is gone isn't half-loaded")
+    func halfAnAccount() {
+        let store = FakeStore()
+        let id = UUID()
+        PhoneStore.save(identity(id, server: "https://pbx.example.com"), key: nil, to: store)
+        // Saved with no key (a renewal), so there is no key blob to restore.
+        #expect(PhoneStore.load(id, from: store) == nil)
+        #expect(PhoneStore.status(id, in: store).identity == errSecSuccess)
+        #expect(PhoneStore.status(id, in: store).key == errSecItemNotFound)
+    }
+
+    @Test("a locked Keychain on a phone already moved to accounts still reads as locked")
+    func lockedAfterTheMove() {
+        // The old slots are gone, so they answer "not there" however locked
+        // the phone is; only the list itself can say what is really going
+        // on, and the app must wait for the unlock rather than ask to be
+        // set up again (2026-10-19).
+        let how = PhoneStore.status(nil, in: LockedAfterTheMoveStore())
+        #expect(how.identity == errSecInteractionNotAllowed)
+        #expect(PhoneSession.Missing(identity: how.identity, key: how.key).locked)
+    }
+}
+
+// The app's side of it (docs/MULTI_ACCOUNT.md §3, build step 2): `AppModel`
+// holds the list and nothing else, and with one account every screen sees
+// exactly what it saw before there could be more than one.
+
+@MainActor
+@Suite("The list of accounts")
+struct AppAccountsTests {
+    private func identity(_ id: UUID, server: String) -> PhoneIdentity {
+        PhoneIdentity(
+            server: URL(string: server)!, deviceID: id, deviceName: "iPhone", personName: "Sam",
+            extensionNumber: "101", certificate: "", ca: "", certNotAfter: .distantFuture,
+            setUpAgain: .distantFuture, keyKind: .software)
+    }
+
+    /// An app on a store of its own, and no sign-in trail left over from
+    /// another test (a phone that was signed out on purpose doesn't stop to
+    /// write a note about its missing sign-in).
+    private func app(_ store: FakeStore) -> AppModel {
+        SignInTrail.signedOut(from: "a test")
+        return AppModel(keychain: store, session: { PhoneSession(account: $0, keychain: store) })
+    }
+
+    @Test("one account is the whole app, exactly as before")
+    func oneAccount() async {
+        let model = app(FakeStore())
+        #expect(model.accounts.count == 1)
+        #expect(!model.hasSeveralAccounts)
+        #expect(model.canAddAnAccount)
+        // The screens read the app and get the account.
+        #expect(model.state == .setUp)
+        model.identity = Screen.sampleIdentity
+        model.state = .signedIn
+        #expect(model.current.identity?.extensionNumber == "101")
+        #expect(model.current.state == .signedIn)
+        #expect(model.phone === model.current.phone)
+        #expect(model.home === model.current.home)
+        // Signing out empties the account and keeps it: that is what the
+        // app did when there could only ever be one.
+        await model.signOut(from: "a test")
+        #expect(model.accounts.count == 1)
+        #expect(model.identity == nil)
+        #expect(model.state == .setUp)
+    }
+
+    @Test("every account on the phone comes back, and the chosen one is current")
+    func theListComesBack() async {
+        let store = FakeStore()
+        let work = UUID(), staging = UUID()
+        PhoneStore.save(identity(work, server: "https://pbx.example.com"), key: nil, to: store)
+        PhoneStore.save(identity(staging, server: "https://home.example.com"), key: nil, to: store)
+        var list = PhoneStore.accounts(in: store)
+        list.prefer(staging)
+        PhoneStore.save(list, to: store)
+
+        let model = app(store)
+        await model.start()
+        #expect(model.accounts.map(\.accountID) == [work, staging])
+        #expect(model.current.accountID == staging)
+        // Neither of them could be loaded (no key blob was saved), so both
+        // are back at the setup screen — which is the point of the check:
+        // the list is the Keychain's, not the sign-in's.
+        #expect(model.accounts.allSatisfy { $0.state == .setUp })
+    }
+
+    @Test("a push says which account it is for")
+    func pushPicksTheAccount() async {
+        let store = FakeStore()
+        let work = UUID(), staging = UUID()
+        PhoneStore.save(identity(work, server: "https://pbx.example.com"), key: nil, to: store)
+        PhoneStore.save(identity(staging, server: "https://home.example.com"), key: nil, to: store)
+
+        let model = app(store)
+        await model.start()
+        #expect(model.account(id: staging) === model.accounts[1])
+        // An id this phone doesn't hold rings nothing of its own: the call
+        // falls to the account calls are made from (§5).
+        #expect(model.account(id: UUID()) == nil)
+    }
+
+    @Test("choosing an account is remembered for next time")
+    func theChoiceIsKept() async {
+        let store = FakeStore()
+        let work = UUID(), staging = UUID()
+        PhoneStore.save(identity(work, server: "https://pbx.example.com"), key: nil, to: store)
+        PhoneStore.save(identity(staging, server: "https://home.example.com"), key: nil, to: store)
+
+        let model = app(store)
+        await model.start()
+        model.prefer(model.accounts[1])
+        #expect(PhoneStore.accounts(in: store).current == staging)
+        // An account from somewhere else is not this app's to choose.
+        model.prefer(Account())
+        #expect(model.current.accountID == staging)
+    }
+
+    @Test("signing out of one account leaves the others alone")
+    func signOutOfOne() async {
+        let store = FakeStore()
+        let work = UUID(), staging = UUID()
+        PhoneStore.save(identity(work, server: "https://pbx.example.com"), key: nil, to: store)
+        PhoneStore.save(identity(staging, server: "https://home.example.com"), key: nil, to: store)
+
+        let model = app(store)
+        await model.start()
+        model.prefer(model.accounts[0])
+        await model.signOut(from: "a test")
+        #expect(model.accounts.count == 1)
+        #expect(model.current.accountID == staging)
+        #expect(PhoneStore.accounts(in: store).ids == [staging])
+    }
+
+    @Test("four accounts is the most, and an empty one is never doubled")
+    func theLimit() async {
+        let store = FakeStore()
+        let ids = (0..<PhoneAccounts.most).map { _ in UUID() }
+        for id in ids { PhoneStore.save(identity(id, server: "https://pbx.example.com"), key: nil, to: store) }
+
+        let model = app(store)
+        await model.start()
+        #expect(model.accounts.count == PhoneAccounts.most)
+        #expect(!model.canAddAnAccount)
+        #expect(model.hasSeveralAccounts)
+        // Full, and none of these is a free slot even though none of them
+        // could be read (no key blob was saved): an account the phone holds
+        // is an account, whether or not it is signed in this moment.
+        #expect(model.addAnAccount() == nil)
+
+        // With room, Add account opens one empty account — and asking twice
+        // gives back the one already waiting rather than a second.
+        let smaller = app(FakeStore())
+        let waiting = smaller.addAnAccount()
+        #expect(waiting === smaller.current)
+        #expect(smaller.accounts.count == 1)
+    }
+}
