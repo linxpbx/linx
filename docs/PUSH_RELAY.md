@@ -1,8 +1,15 @@
 # Push for everyone's Linx — the blind relay
 
-*Design, 2026-10-19. ADR-094. For the owner: §7 is the handful of decisions
-only you can make, and nothing below step 2 can be built until §7.1 is
-answered.*
+*Design, 2026-10-19. ADR-094.*
+
+> **Deferred, not cancelled (owner, 2026-10-19).** Linx's answer to push is
+> that **every operator publishes their own app and their own Linx sends its
+> own pushes** — which is how it already works for anybody with a key
+> (`docs/help/app-push-notifications.md`). This relay would exist only for
+> people using the publisher's App Store app, and nobody is in that position
+> today. It is kept here, designed, for the day somebody is. **Step 2, the
+> sealed envelope, was built anyway** (`internal/pushseal`): it takes the
+> call's details out of Apple's view for everyone, relay or no relay.
 
 ## 1. Why this exists
 

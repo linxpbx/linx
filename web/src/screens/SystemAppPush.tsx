@@ -178,7 +178,13 @@ export function AppPushCard({ me }: { me: Me }) {
         So a call rings someone's iPhone or iPad when the app isn't open. Linx asks Apple to wake the app and holds
         the call ringing while it arrives. Apple is told the call's number and nothing else.
       </p>
-      {!setUp && <p className="mt-2 text-sm" role="status">Not set up: the app only rings while it is open.</p>}
+      {!setUp && (
+        <p className="mt-2 text-sm" role="status">
+          Not set up: a call reaches the app only while someone is looking at it. Waking a sleeping phone needs a key
+          from Apple, and Apple only gives one to whoever published the app — so this is for your own build of it.
+          Help for this page has the steps.
+        </p>
+      )}
       {setUp && (
         <div className="mt-3 flex flex-col">
           <Row label="Status">{push.enabled ? "On" : "Off: the app only rings while it is open"}</Row>
