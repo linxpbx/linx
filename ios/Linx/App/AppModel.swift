@@ -203,6 +203,20 @@ import SwiftUI
         // others up. They all run on the main actor, as they always did.
         let starting = accounts.map { account in Task { @MainActor in await account.start() } }
         for task in starting { await task.value }
+        await setUpTheBenchsSecondAccount()
+    }
+
+    /// The test bench's second account: a phone on two Linx accounts at
+    /// once, which is the only way the bench can ring one of them and prove
+    /// the other is still live (`ios/tools/bench.sh`, the two-accounts
+    /// scenario). Nothing happens in an ordinary run.
+    private func setUpTheBenchsSecondAccount() async {
+        guard let link = Bench.secondSetupLink, let code = SetupCode.link(link),
+            accounts.allSatisfy({ $0.accountID == nil || $0.state == .signedIn }),
+            accounts.filter({ $0.accountID != nil }).count == 1,
+            let second = addAnAccount()
+        else { return }
+        await setUp(second, with: code)
     }
 
     /// restoreTheList makes an `Account` for each enrolment in the Keychain

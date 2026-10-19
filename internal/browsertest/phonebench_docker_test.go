@@ -3,6 +3,7 @@ package browsertest
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,6 +100,16 @@ type benchScenario struct {
 	// showed the video screen with no picture until the iPad's camera
 	// went off too).
 	cameraOff bool
+	// twoAccounts gives the phone being rung a **second** Linx account as
+	// well as its first, and rings that second one (ADR-093,
+	// docs/MULTI_ACCOUNT.md). Both accounts must be signed in and
+	// registered at the same moment — "all live at once" is the whole
+	// claim of the feature — and the call must be answered by the account
+	// that was rung, not by the other one.
+	twoAccounts bool
+	// number is the extension the caller rings; the answerer's first
+	// account (202) unless a scenario says otherwise.
+	number string
 }
 
 // directCutFrom and directCutFor are when in the call the direct link is
@@ -209,6 +220,20 @@ var benchScenarios = []benchScenario{
 		flags: []string{"relay-only", "mobile-data"}, slow: "delay 800ms 40ms loss 1% rate 512kbit"},
 	{name: "in flight: 443 only, 256 kbit/s, a voice call",
 		flags: []string{"no-udp", "audio"}, relay: "tls", slow: "delay 600ms 50ms loss 1% rate 256kbit"},
+	// Two Linx accounts on the phone that is rung, and the call goes to
+	// the **second** one. It proves what the feature claims: both
+	// accounts are signed in and registered at the same moment, a call to
+	// either rings, and the account that was rung is the one that answers
+	// and reports the call (ADR-093).
+	// call-after: the phone that is rung sets its second account up after
+	// its first has signed in, so the caller waits for both to be ready.
+	{name: "two accounts on one phone: the second one rings",
+		flags: []string{"relay-only", "audio", "call-after=10"}, twoAccounts: true, number: "203"},
+	// The same, with everything through the relay over TLS and the first
+	// account left idle throughout: the idle account must still be
+	// registered at the end, not quietly dropped while the other is busy.
+	{name: "two accounts on one phone, China: the idle account stays live",
+		flags: []string{"no-udp", "audio", "call-after=10"}, relay: "tls", twoAccounts: true, number: "203"},
 	// CallKit isn't here: a simulator's own call service ends an app's
 	// outgoing CallKit call about a second in (callservicesd asks for the
 	// CXEndCallAction itself, 2026-10-13), so it is checked on a phone.
@@ -479,6 +504,18 @@ func TestPhoneBenchDocker(t *testing.T) {
 			// measure against (no-early: the picture set up after the
 			// answer, as before build 35).
 			flags := append(slices.Clone(sc.flags), strings.Fields(os.Getenv("LINX_BENCH_FLAGS"))...)
+			if sc.twoAccounts {
+				// The phone that is rung sets its second account up as it
+				// starts, and the call goes to that account's extension.
+				// A fresh link each time: a setup code lasts ten minutes,
+				// and the phone only redeems one when it hasn't got the
+				// account yet.
+				flags = append(flags, "second="+h.benchLink(t, "203"))
+			}
+			number := sc.number
+			if number == "" {
+				number = "202"
+			}
 			t.Logf("bench call from %s", time.Now().Format("15:04:05.0"))
 			seconds := benchCallSeconds
 			if sc.directCut {
@@ -487,7 +524,7 @@ func TestPhoneBenchDocker(t *testing.T) {
 			if sc.squeeze {
 				seconds = squeezeCallSeconds
 			}
-			bench(append([]string{"call", caller, answerer, "202", strconv.Itoa(seconds)}, flags...)...)
+			bench(append([]string{"call", caller, answerer, number, strconv.Itoa(seconds)}, flags...)...)
 			t.Logf("bench call launched %s", time.Now().Format("15:04:05.0"))
 			// LINX_BENCH_SHOTS=DIR: both screens at moments through the
 			// call, to look at what a person holding them would see.
@@ -550,6 +587,20 @@ func TestPhoneBenchDocker(t *testing.T) {
 					}
 				}()
 			}
+			if sc.twoAccounts {
+				// Mid-call, with the second account busy: the first one has
+				// to be signed in and registered at the same moment. That
+				// is the whole claim — every account live at once, nothing
+				// to switch into (ADR-093 §2).
+				h.whenRinging(t, 60*time.Second)
+				time.Sleep(10 * time.Second)
+				live := h.benchRegistered(t, "201", "202", "203")
+				for _, n := range []string{"202", "203"} {
+					if !live[n] {
+						t.Errorf("the phone holds two accounts and %s's line wasn't registered during the call", n)
+					}
+				}
+			}
 			if sc.squeeze {
 				h.whenRinging(t, 60*time.Second)
 				time.Sleep(squeezeFrom)
@@ -566,6 +617,23 @@ func TestPhoneBenchDocker(t *testing.T) {
 			for who, r := range reports {
 				h.benchCheck(t, who, r, sc)
 			}
+			if sc.twoAccounts {
+				// The call was reported by the account that was rung, and
+				// never by the other one: a report is sent as the account
+				// whose call it was, so this is the app's own routing seen
+				// from the server's side.
+				if _, ok := reports["Bench phone "+number]; !ok {
+					t.Errorf("the call rang %s and no report came from that account (got %v)",
+						number, slices.Sorted(maps.Keys(reports)))
+				}
+				if _, ok := reports["Bench phone 202"]; ok {
+					t.Error("the other account on the same phone reported the call as well")
+				}
+				// And the idle account is still live once the call is over.
+				if live := h.benchRegistered(t, "202"); !live["202"] {
+					t.Error("the account that wasn't rung lost its line while the other was on a call")
+				}
+			}
 			// Linx judged each phone's leg itself (internal/callquality), and
 			// found the phone's own report of the same call beside it.
 			judged := h.psql("select count(*) from call_quality where kind = 'call' and ended_at > '" + since + "'")
@@ -579,8 +647,13 @@ func TestPhoneBenchDocker(t *testing.T) {
 
 }
 
-// benchPhones makes two people with extensions 201 and 202 and a setup link
-// for each one's phone: the caller's and the answerer's.
+// benchPhones makes three people with extensions 201, 202 and 203, and a
+// setup link for the first two: the caller's phone and the answerer's.
+//
+// 203 is the **second account** the answerer's phone also holds in the
+// two-account scenarios (ADR-093), and its link is made only when one of
+// them runs (`benchLink`): a setup code can be used once and lasts ten
+// minutes, and those scenarios are half an hour into the bench.
 func (h *harness) benchPhones(t *testing.T) (caller, answerer string) {
 	out := h.docker("exec", "linx-control-plane", "/usr/local/bin/service", "api-key", "create",
 		"--name", "phone bench", "--role", "admin", "--scopes", "all,devices:write")
@@ -589,34 +662,68 @@ func (h *harness) benchPhones(t *testing.T) (caller, answerer string) {
 		t.Fatalf("no API key in:\n%s", out)
 	}
 	links := map[string]string{}
-	for _, n := range []string{"201", "202"} {
+	for _, n := range []string{"201", "202", "203"} {
 		h.call("POST", "/api/v1/extensions", map[string]string{"number": n, "display_name": "Bench " + n}, nil)
 		email := "bench" + n + "@" + benchDomain
 		h.docker("exec", "linx-control-plane", "/usr/local/bin/service", "user", "create",
 			"--email", email, "--name", "Bench "+n, "--role", "user", "--extension", n)
-		var users struct {
-			Items []struct {
-				ID    string `json:"id"`
-				Email string `json:"email"`
-			} `json:"items"`
+		if n == "203" {
+			continue // its link is made when a two-account scenario runs
 		}
-		h.call("GET", "/api/v1/users?limit=100", nil, &users)
-		var id string
-		for _, u := range users.Items {
-			if u.Email == email {
-				id = u.ID
-			}
-		}
-		if id == "" {
-			t.Fatalf("no user %s", email)
-		}
-		var enrolled struct {
-			Token string `json:"token"`
-		}
-		h.call("POST", "/api/v1/enrollments", map[string]string{"name": "Bench phone " + n, "user_id": id}, &enrolled)
-		links[n] = "https://" + benchDomain + "/set-up-phone#" + enrolled.Token
+		links[n] = h.benchLink(t, n)
 	}
 	return links["201"], links["202"]
+}
+
+// benchLink makes a fresh setup link for one extension's phone. A setup
+// code can be used once and lasts ten minutes, so a scenario that needs one
+// asks for it as it runs rather than holding one from the start of the
+// bench (the two-account scenarios failed exactly that way, 2026-10-19).
+func (h *harness) benchLink(t *testing.T, extension string) string {
+	t.Helper()
+	email := "bench" + extension + "@" + benchDomain
+	var users struct {
+		Items []struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+		} `json:"items"`
+	}
+	h.call("GET", "/api/v1/users?limit=100", nil, &users)
+	var id string
+	for _, u := range users.Items {
+		if u.Email == email {
+			id = u.ID
+		}
+	}
+	if id == "" {
+		t.Fatalf("no user %s", email)
+	}
+	var enrolled struct {
+		Token string `json:"token"`
+	}
+	h.call("POST", "/api/v1/enrollments",
+		map[string]string{"name": "Bench phone " + extension, "user_id": id}, &enrolled)
+	return "https://" + benchDomain + "/set-up-phone#" + enrolled.Token
+}
+
+// benchRegistered reports which of these extensions' phones Asterisk has a
+// live contact for this moment. A phone's line shows up as its device's SIP
+// username, which is what the extension's device row holds.
+func (h *harness) benchRegistered(t *testing.T, extensions ...string) map[string]bool {
+	t.Helper()
+	contacts := h.docker("exec", "linx-asterisk", "asterisk", "-rx", "pjsip show contacts")
+	live := map[string]bool{}
+	for _, n := range extensions {
+		username := h.psql("select d.sip_username from device d join extension e on e.id = d.extension_id " +
+			"where e.number = '" + n + "' order by d.created_at desc limit 1")
+		if username == "" {
+			t.Errorf("extension %s has no phone", n)
+			continue
+		}
+		live[n] = strings.Contains(contacts, username)
+	}
+	t.Logf("lines registered: %v\n%s", live, contacts)
+	return live
 }
 
 // psql runs one query on the stack's database and returns its answer.

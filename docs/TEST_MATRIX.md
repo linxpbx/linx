@@ -149,6 +149,14 @@ Needs a setup code from a **second** Linx — staging and live, or the test VPS
 and home. Every row assumes both accounts are set up and named ("Work",
 "Staging") in **More → Settings → Accounts**.
 
+The phone bench already proves, on every run, that two accounts on one phone
+are **registered at the same moment**, that a call rings the account it was
+meant for, and that the idle account keeps its line while the other is on a
+call — including with no UDP at all. What it cannot do is CallKit (a
+simulator ends an app's own CallKit call a second in) or a real push, so the
+rows below are the ones that need your hands: the **lock screen**, **two
+accounts ringing at once**, and a **sleeping** phone.
+
 | # | Do this | You should see |
 |---|---|---|
 | 5d.1 | More → Settings → **Accounts** → **Add account**, scan the second Linx's code | The new account appears in the list with its server and extension, and **Ready** once its line is up. The first account is untouched and still rings |

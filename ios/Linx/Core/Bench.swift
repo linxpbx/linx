@@ -12,6 +12,10 @@ enum Bench {
 
         /// A setup link to redeem when the app starts with no phone set up.
         static var setupLink: String? { defaults.string(forKey: "LinxBenchSetup") }
+        /// A second account's setup link, redeemed once the first account is
+        /// signed in: a phone on two Linx accounts at the same time
+        /// (docs/MULTI_ACCOUNT.md). Nil for every other scenario.
+        static var secondSetupLink: String? { defaults.string(forKey: "LinxBenchSetup2") }
         /// A number to call once the line is up, once.
         static var call: String? { defaults.string(forKey: "LinxBenchCall") }
         /// Whether that call is a video call.
@@ -63,6 +67,7 @@ enum Bench {
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
         static let setupLink: String? = nil
+        static let secondSetupLink: String? = nil
         static let call: String? = nil
         static let video = false
         static let callAfter = 2

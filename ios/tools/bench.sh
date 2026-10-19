@@ -10,7 +10,9 @@
 #   bench.sh shot DIR NAME               # both screens, mid-call, into DIR
 #   bench.sh away SECONDS                # both phones to another app, then back
 #
-# flags: relay-only, mobile-data (the picture through the relay alone), no-udp (China: the relay over TLS on 443 only), audio,
+# flags: second=LINK (the answerer holds a second account too, set up from
+# that link: docs/MULTI_ACCOUNT.md), call-after=N (the caller waits N seconds
+# after its line is up before ringing; two by default), relay-only, mobile-data (the picture through the relay alone), no-udp (China: the relay over TLS on 443 only), audio,
 # callkit (ring and answer through CallKit, as an iPhone outside China),
 # hd (both phones press HD five seconds in), ring=N (the answerer rings N
 # seconds before answering; one by default), camera-on=N / camera-off=N (the
@@ -79,6 +81,7 @@ call)
   caller_flags=()
   answerer_flags=()
   swap_camera=
+  second_link=
   video=YES
   late=
   for f in "$@"; do
@@ -89,11 +92,13 @@ call)
     callkit) flags+=(-LinxBenchCallKit YES) ;;
     hd) flags+=(-LinxBenchHD YES) ;;
     ring=*) flags+=(-LinxBenchRingFor "${f#ring=}") ;;
+    call-after=*) caller_flags+=(-LinxBenchCallAfter "${f#call-after=}") ;;
     late-answerer) late=1 ;;
     no-early) flags+=(-LinxBenchNoEarly YES) ;;
     no-direct-sound) flags+=(-LinxBenchNoDirectSound YES) ;;
     no-dtx) flags+=(-LinxBenchNoDTX YES) ;;
     mobile-data) flags+=(-LinxBenchMobileData YES) ;;
+    second=*) second_link="${f#second=}" ;;
     camera-on=*) caller_flags+=(-LinxBenchCameraOnAt "${f#camera-on=}") ;;
     camera-off=*) caller_flags+=(-LinxBenchCameraOffAt "${f#camera-off=}") ;;
     mine-on-too) answerer_flags+=(-LinxBenchMineOnToo YES) ;;
@@ -108,6 +113,9 @@ call)
     caller_flags=(${answerer_flags[@]+"${answerer_flags[@]}"})
     answerer_flags=(${swapped[@]+"${swapped[@]}"})
   fi
+  # The second account belongs to the phone that is rung, whichever side
+  # happens to be working its camera.
+  if [ -n "$second_link" ]; then answerer_flags+=(-LinxBenchSetup2 "$second_link"); fi
   for d in "$caller" "$answerer"; do xcrun simctl terminate "$d" "$bundle" >/dev/null 2>&1 || true; done
   answerer_up() {
     xcrun simctl launch "$answerer" "$bundle" -LinxBenchSetup "$answerer_link" -LinxBenchAnswer YES \
