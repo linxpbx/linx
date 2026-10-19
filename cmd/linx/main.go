@@ -20,6 +20,7 @@ Usage:
 Commands:
   setup         Check this server and install what Linx needs (run with sudo)
   doctor        Check that everything is working (run with sudo)
+  watch         Run doctor's checks and raise an alert for anything new (run with sudo)
   api-key       Create, list or revoke API keys (run with sudo; see linx api-key help)
   user          Add people and issue set-password links (run with sudo; see linx user help)
   admin-access  Let admins sign in from anywhere again when "only from my home network" shuts them out (run with sudo)
@@ -55,6 +56,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runSetup(context.Background(), args[1:], stdout, stderr, realSetupEnv())
 	case "doctor":
 		return runDoctor(context.Background(), args[1:], stdout, stderr, realDoctorEnv())
+	case "watch":
+		return runWatch(context.Background(), realWatchEnv(), args[1:], stdout, stderr)
 	case "api-key":
 		return runAPIKey(context.Background(), args[1:], stdout, stderr, realAPIKeyEnv())
 	case "user":

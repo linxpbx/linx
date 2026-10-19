@@ -105,7 +105,7 @@ func TestWebApplyHome(t *testing.T) {
 		"Portainer (home network only)", "Download Linx's services", "Certificate for pbx.example.com and *.pbx.example.com",
 		"Start Linx (this setup page closes)", "Your system admin account (sam@example.com)", "Phone system and call audio",
 		"pbx.example.com, turn.pbx.example.com at this network's public address; sip.pbx.example.com at 192.168.1.20 (for desk phones at home)",
-		"Helpers: backups, status, firewall sync", "Finish"}
+		"Helpers: backups, status, firewall sync, watching", "Finish"}
 	if !slices.Equal(titles, want) {
 		t.Fatalf("rows:\n%s", strings.Join(titles, "\n"))
 	}

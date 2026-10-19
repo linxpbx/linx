@@ -193,8 +193,9 @@ func (w *webApply) rows(ctx context.Context, in install.ApplyInput) ([]applyRow,
 	helpers = append(helpers, installer.ResticPlan(ctx, w.env.runner)...)
 	helpers = append(helpers, installer.BackupAgentPlan(w.env.executable, w.env.resolve, w.env.stat)...)
 	helpers = append(helpers, installer.OpsAgentPlan(w.env.executable, w.env.resolve, w.env.stat)...)
+	helpers = append(helpers, installer.WatchPlan()...)
 	helpers = append(helpers, installer.PruneOldImagesStep())
-	rows = append(rows, applyRow{title: "Helpers: backups, status, firewall sync", plan: helpers})
+	rows = append(rows, applyRow{title: "Helpers: backups, status, firewall sync, watching", plan: helpers})
 
 	done := cfg
 	done.Install.FinishedAt = w.now().UTC().Format(time.RFC3339)

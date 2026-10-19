@@ -110,6 +110,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "backup" {
 		os.Exit(runBackupCommand(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "watch" {
+		os.Exit(runWatchCommand(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "ops-bridge" {
 		os.Exit(runOpsBridge(opsSocket(os.Getenv), os.Stdin, os.Stdout, os.Stderr))
 	}

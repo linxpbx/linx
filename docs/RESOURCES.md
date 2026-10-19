@@ -189,6 +189,29 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 - **Unsent call reports** wait on the phone (at most ten, at most a week, a few KB each) and go when its line next opens.
 - **Dead calls end by themselves:** Asterisk hangs up a call when an app or a browser has sent no sound for 30 s (migration 0054), so a phone that lost its line no longer holds the other side's call open.
 
+## 3j. Watching the server (2026-10-19, `linx watch`)
+
+A timer runs `linx watch` every five minutes: doctor's own checks, raising an
+alert the first time a problem appears and clearing it when it goes. **No new
+container, no new always-on process** — a `oneshot` systemd unit that runs the
+`linx` already installed, so nothing is resident between runs.
+
+Measured on the live server (`pbx.mym.ae`, 4 cores, three runs):
+
+| | |
+|---|---|
+| Each run | **5.4–6.0 s** wall, **~2.0 s** processor, **~86 MB** peak |
+| Every five minutes | about **0.67% of one core**, averaged over a day |
+| Between runs | **nothing**: the process is gone |
+
+The 86 MB is a few seconds of one short-lived process, not a resident cost; on
+the 1-core 2 GB VPS the nine services together sit near 300 MB with 1.1 GB
+free (§4), so the spike fits with room to spare. Five minutes rather than one
+because the checks ask DNS, open TLS connections and allocate a relay address
+— far more than the backup agent's glance at the database — and a problem that
+has lasted five minutes is still news. **If it ever matters on a small server,
+the interval is one line** (`OnUnitActiveSec` in `internal/installer/watchagent.go`).
+
 ## 4. Minimum and recommended hardware (as built)
 
 | | Minimum (setup refuses less) | Recommended |

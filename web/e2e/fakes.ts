@@ -1788,10 +1788,10 @@ export async function fakeSecureInstall(page: Page, base: string, opts: {
       "Download Linx's services", "Certificate for example.com and *.example.com", "Start Linx (this setup page closes)",
       "Your system admin account (mohammed@example.com)", "Phone system and call audio",
       "example.com, turn.example.com at this network's public address; sip.example.com at 192.168.1.212 (for desk phones at home)",
-      "Helpers: backups, status, firewall sync", "Finish"]
+      "Helpers: backups, status, firewall sync, watching", "Finish"]
     : ["Save your settings", "Firewall", "Internal certificate authority", "Download Linx's services", "Certificate (renews through port 443)",
       "Start Linx (this setup page closes)", "Your system admin account (mohammed@example.com)", "Phone system and call audio",
-      "Helpers: backups, status, firewall sync", "Finish"];
+      "Helpers: backups, status, firewall sync, watching", "Finish"];
   const finish: Record<string, unknown> = {
     provider: "cloudflare", skip_allowed: where === "rented", portainer_allowed: where === "home",
     profiles: [
