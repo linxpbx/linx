@@ -133,6 +133,12 @@ enum Screen: String {
     /// screen that exists at all once there is more than one
     /// (docs/MULTI_ACCOUNT.md §7).
     case accounts
+    /// The keypad on a phone with two accounts, which is where "Call with"
+    /// appears (docs/MULTI_ACCOUNT.md §7). The plain `keypad` screen is the
+    /// one-account case, where that row isn't there at all, so without this
+    /// one the chooser had no picture anywhere -- which is how its rows
+    /// came to be misaligned unnoticed (owner, 2026-10-19).
+    case keypadAccounts = "keypad-accounts"
     /// A call with a picture in it, which is the screen that lays itself
     /// out to whatever it is on (`CallLayout`): shoot it on an iPhone
     /// upright and on its side, on an iPad, and on an iPhone Duo folded and
@@ -191,8 +197,8 @@ enum Screen: String {
         switch self {
         case .setUpPhone:
             break
-        case .signedIn, .thisPhone, .keypad, .inCall, .callDetails, .incomingCall, .calls, .team, .more, .voicemail,
-            .settings, .videoCall, .accounts:
+        case .signedIn, .thisPhone, .keypad, .keypadAccounts, .inCall, .callDetails, .incomingCall, .calls, .team,
+            .more, .voicemail, .settings, .videoCall, .accounts:
             model.identity = Screen.sampleIdentity
             model.line = nil
             model.state = .signedIn
@@ -204,13 +210,13 @@ enum Screen: String {
                 UserDefaults.standard.set(["1024", "1031"], forKey: Settings.favourites)
                 model.phone.pretendLastDialled("+971 4 000 0123")
             #endif
-            if self == .keypad {
+            if self == .keypad || self == .keypadAccounts {
                 model.phone.typed = "+971 4 000 0123"
             }
             #if DEBUG
-                if self == .accounts {
-                    // A phone on two Linx systems, which is what the
-                    // Accounts screen is for.
+                if self == .accounts || self == .keypadAccounts {
+                    // A phone on two Linx systems: what the Accounts screen
+                    // is for, and what puts "Call with" on the keypad.
                     model.pretendASecondAccount(Screen.sampleSecondIdentity)
                 }
             #endif

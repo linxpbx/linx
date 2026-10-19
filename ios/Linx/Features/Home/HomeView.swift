@@ -109,6 +109,19 @@ struct KeypadScreen: View {
         }
     }
 
+    /// The account a new call goes out on, as the picker reads and sets it.
+    /// Accounts are told apart here by the app's own `id`, which every one
+    /// has from the moment it exists; `accountID` is Linx's and is still
+    /// nil for an account part-way through being set up.
+    private var callingWith: Binding<UUID> {
+        Binding(
+            get: { model.current.id },
+            set: { id in
+                if let account = model.accounts.first(where: { $0.id == id }) { model.prefer(account) }
+            }
+        )
+    }
+
     /// Which account a call goes out on, once there is more than one
     /// (docs/MULTI_ACCOUNT.md §7). The last one used is remembered, so for
     /// most people it is read rather than pressed — and with one account it
@@ -116,17 +129,20 @@ struct KeypadScreen: View {
     @ViewBuilder private var callWith: some View {
         if model.hasSeveralAccounts {
             Menu {
-                ForEach(model.accounts.filter { $0.identity != nil }) { account in
-                    Button {
-                        model.prefer(account)
-                    } label: {
-                        if account === model.current {
-                            Label(account.label ?? "Linx", systemImage: "checkmark")
-                        } else {
-                            Text(account.label ?? "Linx")
-                        }
+                // A picker, not buttons of our own: iOS lays its rows out
+                // itself, so every name starts in the same place and the
+                // tick sits where it does everywhere else on the system.
+                // Hand-made rows gave the chosen account a Label (an icon
+                // and a title) and the rest a bare Text, and iOS lines
+                // those two up differently -- the unticked names sat left
+                // of the ticked one, with a wide gap after the tick
+                // (owner, 2026-10-19).
+                Picker("Call with", selection: callingWith) {
+                    ForEach(model.accounts.filter { $0.identity != nil }) { account in
+                        Text(account.label ?? "Linx").tag(account.id)
                     }
                 }
+                .pickerStyle(.inline)
             } label: {
                 HStack(spacing: LinxSpace.s1) {
                     Text("Call with")
