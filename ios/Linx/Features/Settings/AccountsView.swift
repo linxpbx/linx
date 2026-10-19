@@ -14,8 +14,17 @@ struct AccountsView: View {
     /// up. Closing the screen without finishing drops it again.
     @State private var adding: Account?
     @State private var renaming: Account?
+    /// The account just added, being named for the first time.
+    @State private var naming: Account?
     @State private var newName = ""
+
     @State private var removing: Account?
+
+    /// What the account would be called if the person types nothing: its
+    /// Linx's own address (`AppModel.nameTheAccounts`).
+    private var suggestedName: String {
+        naming?.identity?.server.host() ?? "its Linx"
+    }
 
     var body: some View {
         List {
@@ -54,9 +63,14 @@ struct AccountsView: View {
                         }
                     }
             }
-            // The moment it is really set up, the sheet has done its job.
+            // The moment it is really set up, the sheet has done its job —
+            // and the account is named there and then, rather than leaving
+            // the person to find the rename later (owner, 2026-10-19).
             .onChange(of: account.state == .signedIn) { _, signedIn in
-                if signedIn { adding = nil }
+                guard signedIn else { return }
+                adding = nil
+                newName = ""
+                naming = account
             }
         }
         .onChange(of: adding == nil) { _, closed in
@@ -66,8 +80,10 @@ struct AccountsView: View {
                 model.giveUpOnAddingAnAccount(account)
             }
         }
-        .alert("Name this account", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }))
-        {
+        .alert(
+            "Name this account",
+            isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
+        ) {
             TextField("Work", text: $newName)
             Button("Save") {
                 if let account = renaming { model.name(account, newName) }
@@ -76,6 +92,23 @@ struct AccountsView: View {
             Button("Cancel", role: .cancel) { renaming = nil }
         } message: {
             Text("What this account is called on this phone — on the lock screen, and beside its calls.")
+        }
+        // Asked once, as an account is added. Leaving it blank is fine:
+        // the account is then called after its Linx.
+        .alert(
+            "Name this account",
+            isPresented: Binding(get: { naming != nil }, set: { if !$0 { naming = nil } })
+        ) {
+            TextField(suggestedName, text: $newName)
+            Button("Save") {
+                if let account = naming { model.name(account, newName) }
+                naming = nil
+            }
+            Button("Not now", role: .cancel) { naming = nil }
+        } message: {
+            Text(
+                "What to call it on this phone — on the lock screen, and beside its calls. Leave it blank and it's called after its Linx, \(suggestedName)."
+            )
         }
         .confirmationDialog(
             "Remove this account?",

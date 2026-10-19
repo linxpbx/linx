@@ -150,7 +150,7 @@ One iPhone or iPad can be set up on *several Linx systems at once* — your work
 
 *They are all live together.* Every account rings. There is nothing to switch into, and no account misses a call because you were "in" another one.
 
-**More** → **Settings** → **Accounts** is the list. **Add account** asks for a setup code from the other Linx, exactly as the first one did: My account → My phones → Add phone, over there. Swipe an account to give it a name of your own ("Work", "Site office") or to remove it.
+**More** → **Settings** → **Accounts** is the list. **Add account** asks for a setup code from the other Linx, exactly as the first one did: My account → My phones → Add phone, over there. It then asks what to **call** the account on this phone — "Work", "Site office" — which is the name you'll see when it rings. Leave it blank and it's called after its Linx (the server's address). Swipe an account later to rename it or to remove it.
 
 Once there is more than one account:
 
