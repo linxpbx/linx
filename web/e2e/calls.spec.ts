@@ -30,7 +30,13 @@ const pages: Page[] = [];
 
 async function signIn(browser: Browser, token: string): Promise<Page> {
   const context = await browser.newContext({ baseURL: base, permissions: ["microphone", "camera"] });
-  // Keep every RTCPeerConnection the page makes, to explain a failure.
+  // Keep every RTCPeerConnection the page makes, and everything said on the
+  // call link, to explain a failure. The direct link (ADR-092) is two
+  // browsers talking through that one websocket, so when it doesn't come up
+  // the answer is nearly always in what each end sent and what arrived:
+  // whether an offer was relayed at all, whether the pairing was broken by a
+  // "peer-gone", and whether the two ends still agree on the pairing's
+  // session (a signal stamped with an older one is thrown away).
   await context.addInitScript(() => {
     const Original = window.RTCPeerConnection;
     const all: RTCPeerConnection[] = [];
@@ -40,6 +46,67 @@ async function signIn(browser: Browser, token: string): Promise<Page> {
         const pc = new target(...args);
         all.push(pc);
         return pc;
+      },
+    });
+
+    const started = Date.now();
+    const link: string[] = [];
+    (window as unknown as { __link: string[] }).__link = link;
+    // What a message is, in a few words: the whole thing is mostly SDP.
+    const gist = (raw: string): string => {
+      try {
+        const m = JSON.parse(raw) as {
+          type?: string; video?: boolean; polite?: boolean; session?: number;
+          data?: { session?: number; sound?: string; candidate?: { candidate?: string } | null;
+                   description?: { type?: string }; slowRoute?: boolean };
+        };
+        if (m.type !== "signal") {
+          return `${m.type ?? "?"}${m.video === undefined ? "" : ` video=${m.video}`}`
+            + `${m.polite === undefined ? "" : ` polite=${m.polite}`}`
+            + `${m.session === undefined ? "" : ` session=${m.session}`}`;
+        }
+        const d = m.data ?? {};
+        const what = d.description ? `description=${d.description.type ?? "?"}`
+          : d.sound ? `sound=${d.sound}`
+          : d.candidate === null ? "candidate=end"
+          : d.candidate ? `candidate ${(d.candidate.candidate ?? "").split(" ")[7] ?? "?"}`
+          : d.slowRoute ? "slowRoute" : "?";
+        return `signal ${what}${d.session === undefined ? "" : ` session=${d.session}`}`;
+      } catch {
+        return raw.slice(0, 60);
+      }
+    };
+    // The suite keeps only the last 60 lines of this, so a run of
+    // candidates is counted rather than listed: they come in dozens and
+    // say nothing the count doesn't, while the words that matter -- the
+    // pairings, the sound and the offers -- must not be pushed off the top.
+    const note = (dir: string, raw: string) => {
+      const line = `${dir} ${gist(raw)}`;
+      const last = link[link.length - 1];
+      if (last !== undefined && line.includes(" signal candidate ")) {
+        const same = last.replace(/^ *\d+ms /, "").replace(/ \u00d7\d+$/, "");
+        if (same === line) {
+          const n = Number(/ \u00d7(\d+)$/.exec(last)?.[1] ?? 1) + 1;
+          link[link.length - 1] = `${String(Date.now() - started).padStart(6)}ms ${line} \u00d7${n}`;
+          return;
+        }
+      }
+      if (link.length < 120) link.push(`${String(Date.now() - started).padStart(6)}ms ${line}`);
+    };
+    const OriginalWS = window.WebSocket;
+    window.WebSocket = new Proxy(OriginalWS, {
+      construct(target, args: ConstructorParameters<typeof WebSocket>) {
+        const ws = new target(...args);
+        if (!String(args[0]).includes("/api/v1/call-link")) return ws;
+        note("open", JSON.stringify({ type: "link opened" }));
+        ws.addEventListener("message", (e: MessageEvent) => note("in ", String(e.data)));
+        ws.addEventListener("close", (e: CloseEvent) => note("shut", JSON.stringify({ type: `link closed code=${e.code}` })));
+        const send = ws.send.bind(ws);
+        ws.send = (body: Parameters<WebSocket["send"]>[0]) => {
+          if (typeof body === "string") note("out", body);
+          send(body);
+        };
+        return ws;
       },
     });
   });
@@ -93,17 +160,23 @@ test.afterEach(async ({}, info) => {
 });
 
 /** Why the sound hasn't moved onto the direct link (ADR-092), printed when
- * that assertion fails. It is the handshake that stalls, not the link: each
- * side says "can", answers with "sending", and only then is the other's
- * sound played from the link, so the useful facts are whether a microphone
- * is in the connection at all and whether its packets are arriving. */
+ * that assertion fails. Two things can stall: the direct link itself may
+ * never come up, or it may be up and the handshake stuck (each side says
+ * "can", answers with "sending", and only then is the other's sound played
+ * from the link). The report keeps them apart -- each connection is named,
+ * so the phone system's leg isn't mistaken for the link, and the call
+ * link's own traffic is printed underneath. */
 async function soundReport(page: Page): Promise<string> {
   const conn = page.getByTestId("connection");
   const said = await Promise.all((["data-sound", "data-mode", "data-audio-in", "data-relay-protocol"] as const)
     .map(async (a) => `${a}=${await conn.getAttribute(a).catch(() => "?")}`));
   const pcs = await page.evaluate(async () => {
     const out: string[] = [];
-    for (const pc of (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs ?? []) {
+    const pcs = (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs ?? [];
+    for (const [i, pc] of pcs.entries()) {
+      // Only the direct link asks for max-bundle (Picture.connect); the
+      // phone system's leg is JsSIP's, which leaves the default.
+      const direct = pc.getConfiguration().bundlePolicy === "max-bundle";
       const audio = pc.getTransceivers().filter((t) => t.receiver.track.kind === "audio");
       const slots = audio.map((t) => {
         const track = t.sender.track;
@@ -111,14 +184,20 @@ async function soundReport(page: Page): Promise<string> {
           + ` sending=${track ? `${track.readyState}/${track.enabled ? "on" : "off"}` : "none"}`;
       });
       let got = "";
-      (await pc.getStats()).forEach((r: { type?: string; kind?: string; packetsReceived?: number }) => {
+      let pair = "";
+      (await pc.getStats()).forEach((r: { type?: string; kind?: string; packetsReceived?: number; state?: string; nominated?: boolean }) => {
         if (r.type === "inbound-rtp" && r.kind === "audio") got += ` packetsReceived=${r.packetsReceived ?? 0}`;
+        if (r.type === "candidate-pair" && r.nominated) pair += ` pair=${r.state}`;
       });
-      out.push(`  pc conn=${pc.connectionState} audioSlots=[${slots.join("; ")}]${got}`);
+      out.push(`  pc ${i} ${direct ? "DIRECT LINK" : "phone system"}`
+        + ` ice=${pc.iceConnectionState} conn=${pc.connectionState} sig=${pc.signalingState}`
+        + `${pair} audioSlots=[${slots.join("; ")}]${got}`);
     }
     return out.join("\n");
   }).catch((e) => String(e));
-  return `${said.join(" ")}\n${pcs}`;
+  const link = await page.evaluate(() => ((window as unknown as { __link: string[] }).__link ?? []).join("\n    "))
+    .catch((e) => String(e));
+  return `${said.join(" ")}\n${pcs}\n  call link:\n    ${link}`;
 }
 
 /** The relay candidates this browser gets with its own relay credentials. */

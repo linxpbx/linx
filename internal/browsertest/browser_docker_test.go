@@ -721,8 +721,11 @@ func (h *harness) provision(t *testing.T) {
 	pw.Close()
 	<-scanned
 	// Each line marked "| " so make test-browser's filter, which drops the
-	// services' (indented) logs, keeps them.
-	t.Logf("browsers:\n| %s", strings.ReplaceAll(tail(outB.String(), 60), "\n", "\n| "))
+	// services' (indented) logs, keeps them. Enough lines to hold both
+	// browsers' failure reports whole: the sound report ends with what each
+	// end said on the call link, and a tail that cuts its first lines takes
+	// the pairings with them, which is where the answer usually is.
+	t.Logf("browsers:\n| %s", strings.ReplaceAll(tail(outB.String(), 150), "\n", "\n| "))
 	if err != nil {
 		t.Fatalf("browser call suite failed: %v", err)
 	}
