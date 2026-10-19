@@ -272,7 +272,7 @@ AllowedIPs = 0.0.0.0/0
 	t.Run("after Asterisk restarts, the tunnel follows it", func(t *testing.T) {
 		restarts := docker(t, ctx, "inspect", "--format", "{{.RestartCount}}", agent)
 		docker(t, ctx, "restart", astName)
-		e.waitAsterisk()
+		e.waitAsterisk(t)
 		eventually(t, "Asterisk's ARI connection again", 30*time.Second, tracker.Connected)
 		e.eventuallyOr(t, "the agent restarted into Asterisk's new namespace", 30*time.Second, func() bool {
 			return docker(t, ctx, "inspect", "--format", "{{.RestartCount}}", agent) != restarts &&

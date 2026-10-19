@@ -1061,7 +1061,7 @@ func TestCallsDocker(t *testing.T) {
 		// A restarted container's tmpfs mounts aren't the same as a new
 		// one's: this once left Asterisk unable to write its config.
 		docker(t, ctx, "restart", astName)
-		e.waitAsterisk()
+		e.waitAsterisk(t)
 		eventually(t, "Asterisk's ARI connection after the restart", 30*time.Second, tracker.Connected)
 		e.run("echo-after-restart", "call.xml", alice, "-s", "*43", "-d", "1000")
 		e.waitWS(e.wsphone("after-restart", e.newWebPhone("106", "Fay")))

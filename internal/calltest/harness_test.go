@@ -235,7 +235,7 @@ func start(t *testing.T, ctx context.Context, newApp func(*env) ari.App) *env {
 	docker(t, ctx, "network", "connect", "--alias", asteriskconf.DefaultSIPWSHost, sipwsNet, astName)
 	docker(t, ctx, "network", "connect", "--alias", asteriskconf.DefaultMediaHost, mediaNet, astName)
 	docker(t, ctx, "start", astName)
-	e.waitAsterisk()
+	e.waitAsterisk(t)
 
 	// The forwarder: published for this process, on linx-sipws for Asterisk.
 	docker(t, ctx, "create", "--name", fwdName, "--network", netName, "--publish", "127.0.0.1::8089",
@@ -254,17 +254,31 @@ func (e *env) sipwsAddr() string {
 
 // waitAsterisk waits until Asterisk answers its console and has loaded
 // PJSIP (so the TLS transport is up) and its browser websocket listener.
-func (e *env) waitAsterisk() {
+//
+// It takes the running test's own t, because a subtest that called the
+// outer one's Fatalf would end its own goroutine while the subtest itself
+// was never finished (testing's FailNow must be called from the goroutine
+// running that test). And each docker call is given its own deadline: one
+// that hung left the loop below never reaching the deadline it checks
+// between calls, so the whole binary ran into Go's 10-minute limit and
+// said only that it had, with no mention of Asterisk (2026-10-19).
+func (e *env) waitAsterisk(t *testing.T) {
+	t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
+	ask := func(args ...string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		return exec.CommandContext(ctx, "docker", append([]string{"exec", astName}, args...)...).CombinedOutput()
+	}
 	for {
-		out, err := exec.Command("docker", "exec", astName, "asterisk", "-rx", "pjsip show transports").CombinedOutput()
-		tcp, _ := exec.Command("docker", "exec", astName, "cat", "/proc/net/tcp").CombinedOutput()
+		out, err := ask("asterisk", "-rx", "pjsip show transports")
+		tcp, _ := ask("cat", "/proc/net/tcp")
 		ws := slices.ContainsFunc(doctor.ListeningTCP(string(tcp)), func(a netip.AddrPort) bool { return a.Port() == asteriskconf.SIPWSPort })
 		if err == nil && strings.Contains(string(out), "transport-tls") && ws {
 			return
 		}
 		if time.Now().After(deadline) {
-			e.t.Fatalf("Asterisk never came up (websocket listening: %v): %v %s\n%s", ws, err, out, e.asteriskLogs())
+			t.Fatalf("Asterisk never came up (websocket listening: %v): %v %s\n%s", ws, err, out, e.asteriskLogs())
 		}
 		time.Sleep(500 * time.Millisecond)
 	}

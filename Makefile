@@ -69,11 +69,14 @@ test-install: ## Web install suite: install page + first certificate with Pebble
 
 .PHONY: test-calls
 test-calls: ## Phone engine call suite only: Asterisk + SIPp over TLS/SRTP (needs make image SERVICE=asterisk and SERVICE=wireguard)
-	@if out=$$(LINX_DOCKER_TESTS=1 go test -count=1 -v -run "TestCallsDocker|TestTrunksDocker|TestWireGuardDocker" ./internal/calltest/ 2>&1); then \
+	@if out=$$(LINX_DOCKER_TESTS=1 go test -count=1 -v -timeout 20m -run "TestCallsDocker|TestTrunksDocker|TestWireGuardDocker" ./internal/calltest/ 2>&1); then \
 		if echo "$$out" | grep -q -- "--- SKIP"; then echo "$$out" | grep -A2 -- "--- SKIP"; echo "call suite: SKIPPED"; exit 1; fi; \
 		echo "call suite: ok"; \
 	else echo "$$out" | grep -v '^=== ' | tail -80; \
 		echo "--- the test's own lines (service logs left out):"; echo "$$out" | grep -v '^=== ' | grep -Ev '^ {8}' | tail -40; \
+		if echo "$$out" | grep -q '^panic: '; then \
+			echo "--- why it stopped (the tail above is the end of a goroutine dump):"; \
+			echo "$$out" | grep -A6 -m1 '^panic: '; fi; \
 		echo "call suite: FAILED"; exit 1; fi
 
 .PHONY: test-browser
