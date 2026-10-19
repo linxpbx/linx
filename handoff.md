@@ -18,6 +18,8 @@ The standing constraints that shape every change: smallest possible processor, m
 
 ## 2. Current state
 
+**Live (`pbx.mym.ae`, .212) runs `sha-08e3787` = `v1.0.0-27-g08e3787`, schema 55, updated 2026-10-20** (backup `2ec23277` first). Staging is `home.mym.ae` (.213). The two paragraphs below are older and kept for their detail; where they disagree with this line, this line is right.
+
 **Phase 2 steps 1–10 are all built.** What stands between here and **Linx 1.0.0 live** is the owner's close-out demo (`docs/DEMO_PHASE2.md`), which needs `home.mym.ae` updated first. Steps 8–10, release management and the whole security pass all landed on 2026-10-05; CI green throughout (last push `e500ad0`, CI running at session end — check it).
 
 **The app is on TestFlight as build 14** (0.1.0 (14), delivery `dd4647ed`, signed *Apple Distribution*, `aps-environment = production`). It is the first build carrying step 8's iPad/fold screens, step 9's Person/Linx-server lines in Settings, the privacy manifest, and step 10's VoIP-push fix. **The next upload is build 15** (a number is used once, ever). Standing permission to upload in this round still holds; the App Store listing and Submit stay the owner's.
@@ -206,7 +208,26 @@ The useful half of the record: **do not try these again.**
 
 ## 6. Next step
 
-**▶ 2026-10-20 (latest) — THE BROWSER SUITE'S FLAKE NOW HAS A WITNESS, AND THE RELEASE GATE WAS NEVER BROKEN.**
+**▶ 2026-10-20 (latest) — LIVE IS UPDATED. `pbx.mym.ae` RUNS `sha-08e3787` (`v1.0.0-27-g08e3787`), NOT 1.0.0.**
+
+Done on the owner's word, by `docs/ops/UPDATING.md`. **Backup first: snapshot `2ec23277`** (restic, on the server). **Schema stayed 55** — the 27 commits since the v1.0.0 tag add no migration, so going back is only a matter of copying the older program.
+
+**Why `08e3787` and not master's head.** Head was `398e9e9`, whose CI was still running, and its images therefore did not exist yet — `installer.ImageTag` pins `sha-<full commit>` and a server never resolves a moving tag. `398e9e9` changes **only** the e2e spec, the test harness, the Makefile and this file, so `08e3787` gives live byte-for-byte the same running software. **The rule to keep: only install a commit whose six images are on ghcr.io** (`docker manifest inspect ghcr.io/linxpbx/linx-<service>:sha-<full sha>` for control-plane, certd, coturn, livekit, wireguard, asterisk).
+
+**One thing worth knowing before doing this again:** a master build is **not** a release, so `installer.IsRelease` is false. That guard only ever forces a test certificate **off**, never on, and live's saved `setup.yaml` already has `staging: false` — so the trusted certificate was never at risk. It was checked before touching the server rather than after.
+
+**What live gained.** All eight services healthy on the new tag; the certificate re-issued for `pbx.mym.ae` and `*.pbx.mym.ae`, valid to **17 Jan 2027**, full chain to ISRG. `https://pbx.mym.ae` answers **200** with a verified certificate from outside. The UCM landline trunk re-registered by itself (**3.35 ms** RTT). Extension 100's two devices read `Unavailable` between calls, which is normal — iOS suspends the app and the push wakes it.
+
+**`linx watch` is now live**, five-minutely, and its first run proves the fix of `144f683` on a real server: it reports **one** problem (no API key) and does **not** raise an alert about the alert doctor already shows for it. **`doctor`'s new push check reads "1 iPhone or iPad can be woken for a call"** — the Apple key moved there yesterday is working.
+
+**Three warnings, none caused by the update:**
+- **No API key** — deliberate; production has none.
+- The open alert mirroring it, which is doctor reporting its own open alerts. Expected.
+- **"Calls keep going wrong on M’s iPhone", open since 02:34 Dubai** (before the update): *3 of the calls … were woken for a call, but hadn't connected after 10 s*. **This is a real finding and the one thing here worth chasing** — it is the push→ringing path on the live server, and Linx closes the alert by itself once it stops happening.
+
+**Still not done:** live runs an untagged master commit rather than a release. If the owner wants live back on a numbered version, that is a **1.1.0** tag and a release run, not another master copy.
+
+**▶ 2026-10-20 — THE BROWSER SUITE'S FLAKE NOW HAS A WITNESS, AND THE RELEASE GATE WAS NEVER BROKEN.**
 
 **The gate first: nothing needs changing.** CI on `08e3787` went green all the way through, **iOS included, so `publish` ran and every image is published for that commit**. The three runs before it that skipped `publish` were GitHub's **macOS runner capacity** cancelling the `ios` job before it executed a single step — not a workflow fault. **Do not take `ios` out of `publish`'s `needs`**; rerun instead. Live (`pbx.mym.ae`) is still on the **v1.0.0** binary and can now be updated whenever the owner says so (back up first, `docs/ops/UPDATING.md`).
 
