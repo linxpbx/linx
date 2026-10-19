@@ -80,6 +80,15 @@ func opsAgent(ctx context.Context, env Env, rs *results) {
 	}
 }
 
+// OpenAlertPrefix starts the message of a result that is only reporting an
+// alert Linx has already raised, rather than finding something itself.
+//
+// `linx watch` must leave these alone. It turns doctor's warnings into
+// alerts, so an alert reported as a warning would raise an alert about
+// itself, and that one would be reported next run: on a real server it took
+// two runs to go from two problems to four (2026-10-19).
+const OpenAlertPrefix = "Open alert since "
+
 func service(ctx context.Context, env Env, rs *results, container, label string) {
 	status, health, err := containerState(ctx, env.Runner, container)
 	logs := "Look at its log for the reason: sudo docker logs --tail 50 " + container
@@ -165,7 +174,7 @@ func Database(ctx context.Context, env Env) []Result {
 		rs.ok("No open alerts.")
 	}
 	for _, a := range st.OpenAlerts {
-		msg := fmt.Sprintf("Open alert since %s: %s", a.Since.Local().Format("2 Jan 15:04"), a.Title)
+		msg := fmt.Sprintf(OpenAlertPrefix+"%s: %s", a.Since.Local().Format("2 Jan 15:04"), a.Title)
 		fix := a.Message + " Linx closes the alert by itself once the problem is fixed."
 		switch a.Severity {
 		case "critical":

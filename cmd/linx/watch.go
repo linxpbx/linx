@@ -117,6 +117,13 @@ func findings(sections []doctor.Section) []watch.Finding {
 	var out []watch.Finding
 	for _, sec := range sections {
 		for _, r := range sec.Results {
+			// An alert Linx has already raised is not a finding of its own.
+			// Without this the watch feeds on itself: it raises an alert,
+			// doctor reports that alert as a warning next run, and the watch
+			// raises an alert about the alert.
+			if strings.HasPrefix(r.Message, doctor.OpenAlertPrefix) {
+				continue
+			}
 			out = append(out, watch.Finding{Section: sec.Name, Level: int(r.Level), Message: r.Message, Fix: r.Fix})
 		}
 	}

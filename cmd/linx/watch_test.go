@@ -27,6 +27,22 @@ func TestWatchLevelsMatchDoctors(t *testing.T) {
 	}
 }
 
+// Found on a real server (2026-10-19): the watch raises an alert, doctor
+// reports that open alert as a warning on the next run, and the watch
+// raises an alert about the alert. Two problems became four in one run.
+func TestAnAlertIsNotAFindingAboutItself(t *testing.T) {
+	got := findings([]doctor.Section{{Name: "Database, access and alerts", Results: []doctor.Result{
+		{Level: installer.Warn, Message: doctor.OpenAlertPrefix + "19 Oct 18:13: No API key exists yet"},
+		{Level: installer.Warn, Message: "No API key exists yet, so nothing can manage Linx through its API."},
+	}}})
+	if len(got) != 1 {
+		t.Fatalf("wanted the real problem only, got %d: %+v", len(got), got)
+	}
+	if strings.HasPrefix(got[0].Message, doctor.OpenAlertPrefix) {
+		t.Errorf("the mirrored alert was kept: %q", got[0].Message)
+	}
+}
+
 func watchTestEnv(sent *[]byte, fail error) watchEnv {
 	return watchEnv{
 		isRoot:      true,
