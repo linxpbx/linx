@@ -70,7 +70,7 @@ This is the heart of Phase 2. Each one: have the web client call your extension.
 
 **How fast did it ring?** System → Settings → **Calls to the app** on the website counts every push and how long each phone took.
 
-- [ ] *(2026-10-18: 2.6 s average, 4.0 s slowest, over three wakes — a little over.)* Push to ringing is **under about 2 seconds** on mobile data. Write the number down — `docs/RESOURCES.md` wants it.
+- [x] *(2026-10-18: 2.6 s average, 4.0 s slowest, over three wakes — a little over; accepted by the owner 2026-10-19 and noted for a later look.)* Push to ringing is **under about 2 seconds** on mobile data. Write the number down — `docs/RESOURCES.md` wants it.
 
 ## 5. Calls that sound right
 
@@ -139,7 +139,7 @@ Needs step 1's server update, and a desk phone.
 Phase 2 ends on the 1-core, 2 GB VPS like every phase, to prove the low-resource rule held.
 
 - [x] *(2026-10-18: `2295b48`, after a backup; doctor's warnings only the expected ones for a test server: CA key backup, no API key, no alerts, a public address for desk phones, no outside line.)* Linx is running on `vps.mym.ae` at this commit, `linx doctor` green.
-- [ ] Set a phone up against it and make a call — it works, and the phone rings when the app is closed (its own Apple key, or borrow the home server's).
+- [x] *(2026-10-19: accepted by the owner as proven on home.mym.ae — the same code, and ringing doesn't depend on the server's size; two simulators were set up on the VPS and called each other.)* Set a phone up against it and make a call — it works, and the phone rings when the app is closed (its own Apple key, or borrow the home server's).
 - [x] *(2026-10-18: `docs/RESOURCES.md` "Phase 2's close on the 1-core VPS": a relayed 720p video call costs the relay under 5% of one core.)* `docker stats` with a call up: write the numbers into `docs/RESOURCES.md` if they differ from §1's.
 - [x] *(2026-10-18: nothing swapping. Simulators have no voice to listen to; the sound's own numbers were clean on the direct call.)* Nothing was swapping, and the call sounded normal.
 
@@ -157,5 +157,5 @@ Not failures; written down in `docs/PHASE2.md` and `docs/ops/STORE_SUBMISSION.md
 
 ## Result
 
-- [ ] **Phase 2 approved**, date: ____________
+- [x] **Phase 2 approved**, date: 2026-10-19 (owner)
 - Anything that failed, with what the phone showed: write it here and it becomes the next session's first job.

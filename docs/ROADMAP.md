@@ -40,7 +40,7 @@ UI work in each phase starts with low-fidelity screen specs in `docs/ui/`, appro
 - **Exit:** a web-to-web and web-to-trunk call on profile A with UDP blocked, and the SIPp suite green.
 
 ## Phase 2 — Provisioning + first native client
-*Design drafted 2026-10-03 in `docs/PHASE2.md` (ADR-073 to 078 proposed, decisions awaiting the owner).*
+**Done: approved by the owner 2026-10-19** (`docs/DEMO_PHASE2.md`). *Design drafted 2026-10-03 in `docs/PHASE2.md`.*
 - QR, email-link and manual enrollment with device certificates (Secure Enclave).
 - Push gateway (APNs), with the "hold INVITE until register" logic in the ARI app.
 - iOS/iPadOS app: CallKit/PushKit, audio + 1:1 video, the 5 tabs, iPad split view (English only, ADR-021).

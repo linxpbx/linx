@@ -39,6 +39,7 @@ Finished (each demo passed and approved by the owner):
 - Help pages (guides, search, written answers): 2026-09-30, `docs/DEMO_HELP.md`, `d347363`
 - Phase 1E (admin portal, setup wizard, passkeys, company sign-in, phone-line screens): 2026-09-30, `docs/DEMO_PHASE1E.md`, `e9a9795`
 - Phase 1F (front doors, DNS, public port, email, password reset, ring groups, office hours, voicemail, call history, undo) and **Phase 1's exit test**: Demo A 2026-10-01, Demo B 2026-10-03, `docs/DEMO_PHASE1F.md`, `68e71fa`
+- Phase 2 (the iPhone/iPad app: setup, push, CallKit, 1:1 and group video, iPad and fold layouts, `*97` and the message light): 2026-10-19, `docs/DEMO_PHASE2.md`, `2925baf`. Accepted with notes: push→ringing 2.6 s average (target ~2 s), and the VPS's real-phone ringing taken as proven on home.mym.ae. Next: the roadmap's "Right after Phase 2".
 
 Now (2026-10-13):
 - **▶ Video calls that work, and group calls (owner's go 2026-10-12, ADR-087, ADR-088, `docs/VIDEO_CALLS.md`, build 27).** One-to-one pictures go device to device over the control plane's **call link** (`GET /api/v1/call-link`, trusts only Asterisk's channels); a video call is `X-Linx-Video`; Asterisk carries sound only (migration 0052). **Add person** turns a Linx-to-Linx call into a group call on **`linx-livekit`** (no published port; media via coturn, signalling via `/livekit/`; up to 8). The browser does video and group calls; the app speaks LiveKit itself (`LiveKitWire`, `GroupCall`). `handoff.md` §6 "2026-10-13" has what's next: CI, build 27, the owner's server update and tries.
