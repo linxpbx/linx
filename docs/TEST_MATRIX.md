@@ -157,6 +157,13 @@ simulator ends an app's own CallKit call a second in) or a real push, so the
 rows below are the ones that need your hands: the **lock screen**, **two
 accounts ringing at once**, and a **sleeping** phone.
 
+**Passed on real devices, 2026-10-19 (owner).** The second account was
+`vps.mym.ae` on extension 102 beside `home.mym.ae`, on build 54. That
+settles the three things nothing else can reach — CallKit with two
+accounts, the account's name on the lock screen, and a sleeping phone
+woken on the right one — so multi-account (ADR-093) is proved end to end
+and not only on the bench.
+
 | # | Do this | You should see |
 |---|---|---|
 | 5d.1 | More → Settings → **Accounts** → **Add account**, scan the second Linx's code | The new account appears in the list with its server and extension, and **Ready** once its line is up. The first account is untouched and still rings |
