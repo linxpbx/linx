@@ -260,12 +260,32 @@ import SwiftUI
             return
         }
         let stored = PhoneStore.accounts(in: keychain)
+        // How many accounts are on each Linx. Two accounts on the **same**
+        // server — two extensions of one company, a person and a desk they
+        // also answer — share a host, so the host alone would name them both
+        // the same thing and tell nobody anything. They are told apart by
+        // their extension (found 2026-10-19, asking whether one server with
+        // two extensions works: it does, and this is what it needed).
+        var onEachServer: [String: Int] = [:]
+        for account in accounts {
+            guard let host = account.identity?.server.host() else { continue }
+            onEachServer[host, default: 0] += 1
+        }
         for account in accounts {
             guard let id = account.accountID else {
                 account.label = nil
                 continue
             }
-            account.label = stored.name(for: id) ?? account.identity?.server.host() ?? "Linx"
+            if let typed = stored.name(for: id), !typed.isEmpty {
+                account.label = typed
+                continue
+            }
+            guard let identity = account.identity else {
+                account.label = nil
+                continue
+            }
+            let host = identity.server.host() ?? "Linx"
+            account.label = onEachServer[host, default: 0] > 1 ? "\(host) · \(identity.extensionNumber)" : host
         }
     }
 

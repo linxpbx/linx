@@ -136,7 +136,9 @@ struct AccountsView: View {
     private func name(of account: Account) -> String {
         if let typed = model.typedName(for: account), !typed.isEmpty { return typed }
         guard let identity = account.identity else { return "Not set up yet" }
-        return identity.server.host() ?? identity.server.absoluteString
+        // The same name the lock screen and the row labels use, so two
+        // accounts on one Linx are told apart here too (`nameTheAccounts`).
+        return account.label ?? identity.server.host() ?? identity.server.absoluteString
     }
 
     /// The line under it: who it signs in as, the extension, and whether

@@ -276,6 +276,41 @@ struct AppAccountsTests {
         #expect(model.account(id: staging) != nil)
     }
 
+    @Test("two accounts on one Linx are told apart by their extension")
+    func sameServerTwice() async {
+        let store = FakeStore()
+        let desk = UUID(), mine = UUID(), elsewhere = UUID()
+        // Two extensions of the same company, and one on another Linx.
+        var one = identity(desk, server: "https://pbx.example.com")
+        one = PhoneIdentity(
+            server: one.server, deviceID: desk, deviceName: one.deviceName, personName: "Sam",
+            extensionNumber: "101", certificate: "", ca: "", certNotAfter: .distantFuture,
+            setUpAgain: .distantFuture, keyKind: .software)
+        let two = PhoneIdentity(
+            server: URL(string: "https://pbx.example.com")!, deviceID: mine, deviceName: "iPhone",
+            personName: "Sam", extensionNumber: "204", certificate: "", ca: "",
+            certNotAfter: .distantFuture, setUpAgain: .distantFuture, keyKind: .software)
+        PhoneStore.save(one, key: nil, to: store)
+        PhoneStore.save(two, key: nil, to: store)
+        PhoneStore.save(identity(elsewhere, server: "https://home.example.com"), key: nil, to: store)
+
+        let model = app(store)
+        await model.start()
+        for (account, stored) in zip(model.accounts, [one, two]) { account.identity = stored }
+        model.accounts[2].identity = identity(elsewhere, server: "https://home.example.com")
+        model.nameTheAccounts()
+        // The two that share a Linx carry their extension; the one that
+        // doesn't is named by its server alone, as before.
+        #expect(model.accounts[0].label == "pbx.example.com · 101")
+        #expect(model.accounts[1].label == "pbx.example.com · 204")
+        #expect(model.accounts[2].label == "home.example.com")
+
+        // A name the person typed always wins.
+        model.name(model.accounts[1], "Work")
+        #expect(model.accounts[1].label == "Work")
+        #expect(model.accounts[0].label == "pbx.example.com · 101")
+    }
+
     @Test("choosing an account is remembered for next time")
     func theChoiceIsKept() async {
         let store = FakeStore()
