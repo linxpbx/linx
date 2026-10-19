@@ -98,6 +98,10 @@ export class DirectPicture {
   private mic: MediaStreamTrack | null = null;
   private muted = false;
   private theyCanTakeSound = false;
+  /** The other side said it can take sound on the link. Remembered,
+   * because the answer to it needs this call's microphone and that can
+   * arrive later: the word is said once and never repeated. */
+  private theySaidCan = false;
   private readonly sound = new DirectSound();
   private soundTimer?: number;
   private inbox: Promise<void> = Promise.resolve();
@@ -361,6 +365,9 @@ export class DirectPicture {
     if (this.opts.microphone) {
       this.soundTimer = window.setInterval(() => {
         if (this.pc !== pc) return;
+        // A microphone that wasn't there when the other side spoke may be
+        // now; nothing else says so, because "can" is said only once.
+        this.takeTheirSound();
         void pc.getStats().then((r) => {
           if (this.pc === pc) this.heard(soundPackets(r));
         }, () => undefined);
@@ -422,14 +429,25 @@ export class DirectPicture {
     const before = this.sound.theyPlay;
     this.sound.heard(word);
     if (word === "can") {
-      const mic = this.microphone();
-      if (!mic) return;
-      this.theyCanTakeSound = true;
-      mic.enabled = !this.muted;
-      this.send({ sound: "sending" });
+      this.theySaidCan = true;
+      this.takeTheirSound();
     } else if ((word === "direct" || word === "linx") && this.sound.theyPlay !== before) {
       this.opts.onTheyHear?.(this.sound.theyPlay);
     }
+  }
+
+  /** Answers the other side's "can" with "sending", once this call's
+   * microphone is there to send. Before the retry below, a "can" that
+   * arrived while the microphone was still missing was dropped and never
+   * answered, so that side's sound stayed on the phone system for the
+   * whole call (the nginx browser suite, intermittently, 2026-10-19). */
+  private takeTheirSound() {
+    if (!this.theySaidCan || this.theyCanTakeSound) return;
+    const mic = this.microphone();
+    if (!mic) return;
+    this.theyCanTakeSound = true;
+    mic.enabled = !this.muted;
+    this.send({ sound: "sending" });
   }
 
   private heard(packets: number) {
@@ -445,6 +463,7 @@ export class DirectPicture {
     window.clearInterval(this.soundTimer);
     this.soundTimer = undefined;
     this.theyCanTakeSound = false;
+    this.theySaidCan = false;
     if (this.mic) this.mic.enabled = false;
     if (this.theirSound) this.theirSound.enabled = false;
     this.theirSound = null;

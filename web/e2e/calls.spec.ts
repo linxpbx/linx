@@ -92,6 +92,35 @@ test.afterEach(async ({}, info) => {
   for (const [i, p] of pages.entries()) console.log(`--- browser ${i} ICE:\n${await iceReport(p)}`);
 });
 
+/** Why the sound hasn't moved onto the direct link (ADR-092), printed when
+ * that assertion fails. It is the handshake that stalls, not the link: each
+ * side says "can", answers with "sending", and only then is the other's
+ * sound played from the link, so the useful facts are whether a microphone
+ * is in the connection at all and whether its packets are arriving. */
+async function soundReport(page: Page): Promise<string> {
+  const conn = page.getByTestId("connection");
+  const said = await Promise.all((["data-sound", "data-mode", "data-audio-in", "data-relay-protocol"] as const)
+    .map(async (a) => `${a}=${await conn.getAttribute(a).catch(() => "?")}`));
+  const pcs = await page.evaluate(async () => {
+    const out: string[] = [];
+    for (const pc of (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs ?? []) {
+      const audio = pc.getTransceivers().filter((t) => t.receiver.track.kind === "audio");
+      const slots = audio.map((t) => {
+        const track = t.sender.track;
+        return `mid=${t.mid ?? "-"} dir=${t.currentDirection ?? t.direction}`
+          + ` sending=${track ? `${track.readyState}/${track.enabled ? "on" : "off"}` : "none"}`;
+      });
+      let got = "";
+      (await pc.getStats()).forEach((r: { type?: string; kind?: string; packetsReceived?: number }) => {
+        if (r.type === "inbound-rtp" && r.kind === "audio") got += ` packetsReceived=${r.packetsReceived ?? 0}`;
+      });
+      out.push(`  pc conn=${pc.connectionState} audioSlots=[${slots.join("; ")}]${got}`);
+    }
+    return out.join("\n");
+  }).catch((e) => String(e));
+  return `${said.join(" ")}\n${pcs}`;
+}
+
 /** The relay candidates this browser gets with its own relay credentials. */
 async function relayCandidates(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
@@ -206,8 +235,13 @@ test("browsers call each other, one with UDP blocked", async () => {
   await hearsAudio(aisha);
   // The sound moves onto the direct link beside the pictures (ADR-092),
   // and the phone system's route goes quiet.
-  for (const p of [aisha, omar]) {
-    await expect(p.getByTestId("connection")).toHaveAttribute("data-sound", "direct", { timeout: 20_000 });
+  try {
+    for (const p of [aisha, omar]) {
+      await expect(p.getByTestId("connection")).toHaveAttribute("data-sound", "direct", { timeout: 20_000 });
+    }
+  } catch (e) {
+    const said = await Promise.all([aisha, omar].map(soundReport));
+    throw new Error(`the sound stayed on the phone system (Aisha:\n${said[0]}\nOmar:\n${said[1]}): ${String(e)}`);
   }
   await hearsAudio(omar);
   await omar.getByRole("button", { name: "Turn camera off" }).click();
