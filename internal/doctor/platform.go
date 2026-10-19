@@ -115,7 +115,9 @@ const platformQuery = `SELECT json_build_object(
 	'alert_channels', (SELECT count(*) FROM alert_channel WHERE enabled),
 	'open_alerts', (SELECT coalesce(json_agg(json_build_object(
 		'severity', severity, 'title', title, 'message', message, 'since', first_seen_at)
-		ORDER BY first_seen_at), '[]') FROM alert WHERE status = 'open'))`
+		ORDER BY first_seen_at), '[]') FROM alert WHERE status = 'open'),
+	'app_phones', (SELECT count(*) FROM device WHERE kind = 'ios' AND enabled AND revoked_at IS NULL),
+	'push_ready', (SELECT coalesce(bool_or(enabled AND key_enc IS NOT NULL), false) FROM push_settings))`
 
 // psqlArgs runs one read-only query as the linx user over the container's
 // local socket (the Postgres image trusts local connections), printing just
@@ -133,6 +135,10 @@ type platformState struct {
 		Severity, Title, Message string
 		Since                    time.Time
 	} `json:"open_alerts"`
+	// AppPhones is how many iPhones and iPads are set up here, and
+	// PushReady whether Linx holds an Apple key to wake them.
+	AppPhones int  `json:"app_phones"`
+	PushReady bool `json:"push_ready"`
 }
 
 // Database reports the schema version, whether anything can use the API,
@@ -168,6 +174,22 @@ func Database(ctx context.Context, env Env) []Result {
 			"Add one (ntfy, Gotify, Slack, Teams, Telegram or a webhook): see docs/API.md §5.")
 	} else {
 		rs.ok(fmt.Sprintf("%s will be told about problems.", count(st.AlertChannels, "alert channel")))
+	}
+
+	// A server with app phones and no Apple key looks perfectly healthy and
+	// quietly misses calls: the phones ring while someone is looking at the
+	// app and stay silent the rest of the time, because nothing can wake
+	// them. Said only when there are phones to miss calls -- a server whose
+	// people don't use the app needs no key at all. Found the hard way on
+	// pbx.mym.ae, which went live without one (owner, 2026-10-19).
+	switch {
+	case st.AppPhones == 0:
+	case !st.PushReady:
+		rs.fail(fmt.Sprintf("%s set up here, but Linx has no Apple key, so they can't be woken: a call reaches them only while the app is open.",
+			count(st.AppPhones, "iPhone or iPad")),
+			"Add it in System → Settings → Calls to the app (the .p8 from your Apple developer account, and the Team ID).")
+	default:
+		rs.ok(fmt.Sprintf("%s can be woken for a call.", count(st.AppPhones, "iPhone or iPad")))
 	}
 
 	if len(st.OpenAlerts) == 0 {

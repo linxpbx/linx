@@ -29,7 +29,7 @@ func platformFixture(t *testing.T, state string) *fixture {
 	return f
 }
 
-const healthyState = `{"schema": 4, "api_keys": 1, "alert_channels": 2, "open_alerts": []}`
+const healthyState = `{"schema": 4, "api_keys": 1, "alert_channels": 2, "open_alerts": [], "app_phones": 2, "push_ready": true}`
 
 type fakeFile struct {
 	size int64
@@ -75,6 +75,27 @@ func all(sections []Section) []Result {
 	return rs
 }
 
+// A server with app phones and no Apple key looks healthy and quietly
+// misses every call to a phone that isn't being looked at. pbx.mym.ae went
+// live that way (owner, 2026-10-19).
+func TestPhonesThatCannotBeWokenAreAProblem(t *testing.T) {
+	f := platformFixture(t, `{"schema": 4, "api_keys": 1, "alert_channels": 1, "open_alerts": [], "app_phones": 3, "push_ready": false}`)
+	rs := all(Run(context.Background(), f.env, f.cfg))
+	want(t, rs, installer.Fail, "can't be woken")
+	want(t, rs, installer.Fail, "3 iPhone or iPads")
+}
+
+// Most servers have no app phones at all, and an Apple key would be of no
+// use to them: nothing should be said.
+func TestNoAppPhonesMeansNothingToSay(t *testing.T) {
+	f := platformFixture(t, `{"schema": 4, "api_keys": 1, "alert_channels": 1, "open_alerts": [], "app_phones": 0, "push_ready": false}`)
+	for _, r := range all(Run(context.Background(), f.env, f.cfg)) {
+		if strings.Contains(r.Message, "woken") {
+			t.Errorf("a server with no app phones was told about waking them: %q", r.Message)
+		}
+	}
+}
+
 func TestRunAllGreen(t *testing.T) {
 	f := platformFixture(t, healthyState)
 	secs := Run(context.Background(), f.env, f.cfg)
@@ -95,6 +116,7 @@ func TestRunAllGreen(t *testing.T) {
 	want(t, rs, installer.OK, "1 API key can use the API")
 	want(t, rs, installer.OK, "2 alert channels will be told")
 	want(t, rs, installer.OK, "No open alerts")
+	want(t, rs, installer.OK, "2 iPhone or iPads can be woken")
 	want(t, rs, installer.OK, "secret files are present")
 }
 
