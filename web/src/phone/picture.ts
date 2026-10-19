@@ -27,7 +27,7 @@ export interface PictureState {
   hd?: boolean;
 }
 
-import { DirectSound, SOUND_EVERY_MS, SOUND_WORDS, soundPackets, type SoundRoute, type SoundWord } from "./directSound";
+import { DirectSound, SOUND_ANNOUNCES, SOUND_EVERY_MS, SOUND_WORDS, soundPackets, type SoundRoute, type SoundWord } from "./directSound";
 import { DIRECT_OPUS_MAX_BITRATE, preferOpusFecDtx } from "./sdp";
 
 export const CALL_LINK_PATH = "/api/v1/call-link";
@@ -102,6 +102,8 @@ export class DirectPicture {
    * because the answer to it needs this call's microphone and that can
    * arrive later: the word is said once and never repeated. */
   private theySaidCan = false;
+  /** How many times "can" has been said again on this link. */
+  private announces = 0;
   private readonly sound = new DirectSound();
   private soundTimer?: number;
   private inbox: Promise<void> = Promise.resolve();
@@ -366,8 +368,9 @@ export class DirectPicture {
       this.soundTimer = window.setInterval(() => {
         if (this.pc !== pc) return;
         // A microphone that wasn't there when the other side spoke may be
-        // now; nothing else says so, because "can" is said only once.
+        // now, and either side's word may never have arrived.
         this.takeTheirSound();
+        this.announceSound();
         void pc.getStats().then((r) => {
           if (this.pc === pc) this.heard(soundPackets(r));
         }, () => undefined);
@@ -430,7 +433,10 @@ export class DirectPicture {
     this.sound.heard(word);
     if (word === "can") {
       this.theySaidCan = true;
-      this.takeTheirSound();
+      // Answered every time, not only the first: if this side's answer was
+      // the message that went missing, their saying "can" again is the only
+      // chance to put it right.
+      this.takeTheirSound(true);
     } else if ((word === "direct" || word === "linx") && this.sound.theyPlay !== before) {
       this.opts.onTheyHear?.(this.sound.theyPlay);
     }
@@ -441,13 +447,23 @@ export class DirectPicture {
    * arrived while the microphone was still missing was dropped and never
    * answered, so that side's sound stayed on the phone system for the
    * whole call (the nginx browser suite, intermittently, 2026-10-19). */
-  private takeTheirSound() {
-    if (!this.theySaidCan || this.theyCanTakeSound) return;
+  private takeTheirSound(answerAgain = false) {
+    if (!this.theySaidCan) return;
     const mic = this.microphone();
     if (!mic) return;
+    const first = !this.theyCanTakeSound;
     this.theyCanTakeSound = true;
     mic.enabled = !this.muted;
-    this.send({ sound: "sending" });
+    if (first || answerAgain) this.send({ sound: "sending" });
+  }
+
+  /** Says "can" again while the other side still hasn't answered
+   * "sending", so a word lost at pairing or thrown away by a reconnect
+   * doesn't leave the sound on the phone system for the whole call. */
+  private announceSound() {
+    if (!this.opts.microphone || this.sound.theySend || this.announces >= SOUND_ANNOUNCES) return;
+    this.announces += 1;
+    this.send({ sound: "can" });
   }
 
   private heard(packets: number) {
@@ -464,6 +480,7 @@ export class DirectPicture {
     this.soundTimer = undefined;
     this.theyCanTakeSound = false;
     this.theySaidCan = false;
+    this.announces = 0;
     if (this.mic) this.mic.enabled = false;
     if (this.theirSound) this.theirSound.enabled = false;
     this.theirSound = null;

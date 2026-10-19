@@ -26,6 +26,15 @@ export const TO_FALL_BACK = 3;
 /** Readings with new sound before going direct again after falling back:
  * five seconds, so a route that comes and goes isn't followed. */
 export const TO_RETURN = 10;
+/** How many times "can" is said again while the other side still hasn't
+ * answered "sending" -- ten seconds at SOUND_EVERY_MS. The words are the
+ * only way each side learns the other can take sound on the link, and one
+ * of them can be lost for good: `calllink.Hub.Relay` drops a message sent
+ * before the two ends are paired, and a link that reconnects resets both
+ * sides' state while the words are only said once. Saying it again heals
+ * that. It stops after this many because a peer that knows nothing of the
+ * direct sound never answers at all, and must not be asked for ever. */
+export const SOUND_ANNOUNCES = 20;
 
 export class DirectSound {
   /** The other side said its microphone is on the direct link. */

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SOUND_EVERY_MS } from "./directSound";
+import { SOUND_ANNOUNCES, SOUND_EVERY_MS } from "./directSound";
 import { DirectPicture } from "./picture";
 
 /** The call link, as the picture uses it: what was sent, and a way to
@@ -132,13 +132,42 @@ describe("the sound on the direct link", () => {
     expect(link.words()).toContain("sending");
   });
 
-  it("does not say \"sending\" twice", async () => {
+  it("answers every \"can\", in case its own answer was the message that was lost", async () => {
     const { link } = open(() => fakeMic());
     await settle();
-    link.onmessage!({ data: JSON.stringify({ type: "signal", data: { sound: "can" } }) });
+    for (let i = 0; i < 3; i++) {
+      link.onmessage!({ data: JSON.stringify({ type: "signal", data: { sound: "can" } }) });
+      await settle();
+    }
+    expect(link.words().filter((w) => w === "sending")).toHaveLength(3);
+  });
+
+  // `calllink.Hub.Relay` drops a message sent before the two ends are
+  // paired, and a reconnect resets both sides while the words are said
+  // once — so a lost word left the sound on the phone system for the whole
+  // call (the nginx browser suite, 2026-10-19).
+  it("says \"can\" again until the other side answers", async () => {
+    const { link } = open(() => fakeMic());
     await settle();
-    await vi.advanceTimersByTimeAsync(SOUND_EVERY_MS * 4);
+    const first = link.words().filter((w) => w === "can").length;
+    await vi.advanceTimersByTimeAsync(SOUND_EVERY_MS * 3);
     await settle();
-    expect(link.words().filter((w) => w === "sending")).toHaveLength(1);
+    expect(link.words().filter((w) => w === "can").length).toBeGreaterThan(first);
+
+    // Their "sending" arrives: there is nothing left to ask for.
+    link.onmessage!({ data: JSON.stringify({ type: "signal", data: { sound: "sending" } }) });
+    await settle();
+    const settled = link.words().filter((w) => w === "can").length;
+    await vi.advanceTimersByTimeAsync(SOUND_EVERY_MS * 6);
+    await settle();
+    expect(link.words().filter((w) => w === "can").length).toBe(settled);
+  });
+
+  it("gives up asking, so a peer that knows nothing of it isn't asked for ever", async () => {
+    const { link } = open(() => fakeMic());
+    await settle();
+    await vi.advanceTimersByTimeAsync(SOUND_EVERY_MS * (SOUND_ANNOUNCES + 20));
+    await settle();
+    expect(link.words().filter((w) => w === "can").length).toBeLessThanOrEqual(SOUND_ANNOUNCES + 1);
   });
 });
