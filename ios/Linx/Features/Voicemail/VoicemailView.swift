@@ -264,6 +264,11 @@ struct VoicemailView: View {
 
 private struct VoicemailRow: View {
     @Environment(PhoneModel.self) private var phone
+    /// The app's accounts, so a ring back can move onto the one the call
+    /// came in on. Optional on purpose: a row drawn on its own, by a
+    /// screenshot renderer or a preview, has no app around it and must not
+    /// bring the process down for the want of one.
+    @Environment(AppModel.self) private var model: AppModel?
     let row: AccountVoicemail
     let voicemail: VoicemailModel
 
@@ -311,6 +316,10 @@ private struct VoicemailRow: View {
             Spacer(minLength: LinxSpace.s2)
             if phone.status == .ready, phone.call == nil, !message.callerNumber.isEmpty {
                 Button {
+                    // On the account the message was left on, and the app
+                    // moves onto it as the call goes out (owner,
+                    // 2026-10-20).
+                    model?.use(accountID: row.account)
                     phone.callNumber(message.callerNumber, name: message.callerName.isEmpty ? nil : message.callerName)
                 } label: {
                     Image(systemName: "phone")

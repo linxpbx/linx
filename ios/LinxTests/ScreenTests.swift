@@ -71,7 +71,7 @@ struct ScreenTests {
         #expect(home.uiImage != nil)
 
         let call = ImageRenderer(
-            content: CallDetailView(call: Screen.sampleCalls[0]).environment(model.phone)
+            content: CallDetailView(call: Screen.sampleCalls[0]).environment(model).environment(model.phone)
                 .frame(width: 600, height: 800))
         #expect(call.uiImage != nil)
 

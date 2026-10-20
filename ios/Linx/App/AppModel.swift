@@ -97,6 +97,19 @@ import SwiftUI
         accounts.first { $0.accountID == id }
     }
 
+    /// The app moves to the account a row belongs to as its call goes out
+    /// (owner, 2026-10-20). Calls and Voicemail are one merged list with
+    /// each row labelled, so ringing somebody back from one of them has to
+    /// take the app with it: the call goes out on the Linx it came in on,
+    /// and afterwards the keypad, the Team tab and the next call all agree
+    /// with what just happened instead of quietly sitting on another
+    /// account. A row with no account (one account on the phone, or a
+    /// screenshot run) changes nothing.
+    func use(accountID: UUID?) {
+        guard let accountID, let account = account(id: accountID) else { return }
+        prefer(account)
+    }
+
     /// addAnAccount puts an empty account at the end for the setup screen
     /// to fill in. It does nothing at the limit, and gives back the empty
     /// one already waiting rather than making a second.

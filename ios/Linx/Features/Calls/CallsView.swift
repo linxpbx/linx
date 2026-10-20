@@ -208,7 +208,7 @@ struct CallsView: View {
             // One call, in full: who, which way it went, when, how long, and
             // the button to ring them back.
             if let call = shown.first(where: { $0.id == chosen }) {
-                CallDetailView(call: call.record, label: call.label)
+                CallDetailView(call: call.record, label: call.label, account: call.account)
                     .environment(phone(for: call))
             } else {
                 NothingPicked(
@@ -244,8 +244,11 @@ struct CallsView: View {
             if let calls, !calls.calls.isEmpty {
                 List(selection: $chosen) {
                     ForEach(shown) { call in
-                        CallRow(call: call.record, label: call.label, selected: chosen == call.id)
-                            .environment(phone(for: call))
+                        CallRow(
+                            call: call.record, label: call.label, account: call.account,
+                            selected: chosen == call.id
+                        )
+                        .environment(phone(for: call))
                     }
                     if calls.hasMore, !onlyMissed {
                         Button("Show older calls") {
@@ -266,10 +269,18 @@ struct CallsView: View {
 /// One call: who, which way it went, when, and how long they talked.
 struct CallRow: View {
     @Environment(PhoneModel.self) private var phone
+    /// The app's accounts, so a ring back can move onto the one the call
+    /// came in on. Optional on purpose: a row drawn on its own, by a
+    /// screenshot renderer or a preview, has no app around it and must not
+    /// bring the process down for the want of one.
+    @Environment(AppModel.self) private var model: AppModel?
     let call: CallRecord
     /// Which account this call came through, shown only on a phone with
     /// more than one (docs/MULTI_ACCOUNT.md §7).
     var label: String?
+    /// And which account that is: ringing back moves the app onto it
+    /// (`AppModel.use(accountID:)`).
+    var account: UUID?
     /// This row is the one open on the detail side, so iOS has filled it
     /// with the app's own brand colour and the ink has to change with it
     /// (step 8). On a phone nothing stays selected and this is always false.
@@ -284,6 +295,14 @@ struct CallRow: View {
         return call.missed ? LinxColor.end : LinxColor.text
     }
     private var quietInk: Color { selected ? LinxColor.onBrand.opacity(0.8) : LinxColor.textMuted }
+
+    /// Rings them back on the account the call came in on, and moves the
+    /// app onto it as it goes (owner, 2026-10-20).
+    private func ringBack(withVideo video: Bool = false) {
+        model?.use(accountID: account)
+        phone.callNumber(
+            call.other.number, name: call.other.name.isEmpty ? nil : call.other.name, withVideo: video)
+    }
 
     var body: some View {
         HStack(spacing: LinxSpace.s3) {
@@ -309,7 +328,7 @@ struct CallRow: View {
             Spacer(minLength: LinxSpace.s2)
             if callable {
                 Button {
-                    phone.callNumber(call.other.number, name: call.other.name.isEmpty ? nil : call.other.name)
+                    ringBack()
                 } label: {
                     Image(systemName: "phone")
                         .font(.title3)
@@ -321,9 +340,7 @@ struct CallRow: View {
                 // 2026-10-17); an outside number can't show one.
                 if call.direction == .internal {
                     Button {
-                        phone.callNumber(
-                            call.other.number, name: call.other.name.isEmpty ? nil : call.other.name,
-                            withVideo: true)
+                        ringBack(withVideo: true)
                     } label: {
                         Image(systemName: "video")
                             .font(.title3)
@@ -384,14 +401,30 @@ enum CallWords {
 /// is pushed when a call is tapped.
 struct CallDetailView: View {
     @Environment(PhoneModel.self) private var phone
+    /// The app's accounts, so a ring back can move onto the one the call
+    /// came in on. Optional on purpose: a row drawn on its own, by a
+    /// screenshot renderer or a preview, has no app around it and must not
+    /// bring the process down for the want of one.
+    @Environment(AppModel.self) private var model: AppModel?
     let call: CallRecord
     /// Which account the call came through, on a phone with more than one.
     var label: String?
+    /// And which account that is: ringing back moves the app onto it
+    /// (`AppModel.use(accountID:)`).
+    var account: UUID?
 
     private var who: String { CallWords.who(call) }
 
     private var callable: Bool {
         phone.status == .ready && phone.call == nil && !call.other.number.isEmpty
+    }
+
+    /// Rings them back on the account the call came in on, and moves the
+    /// app onto it as it goes (owner, 2026-10-20).
+    private func ringBack(withVideo video: Bool = false) {
+        model?.use(accountID: account)
+        phone.callNumber(
+            call.other.number, name: call.other.name.isEmpty ? nil : call.other.name, withVideo: video)
     }
 
     var body: some View {
@@ -437,15 +470,12 @@ struct CallDetailView: View {
 
                 if callable {
                     Button("Call \(who) back") {
-                        phone.callNumber(
-                            call.other.number, name: call.other.name.isEmpty ? nil : call.other.name)
+                        ringBack()
                     }
                     .buttonStyle(.linxCall)
                     if call.direction == .internal {
                         Button {
-                            phone.callNumber(
-                                call.other.number, name: call.other.name.isEmpty ? nil : call.other.name,
-                                withVideo: true)
+                            ringBack(withVideo: true)
                         } label: {
                             Label("Video call", systemImage: "video.fill")
                         }

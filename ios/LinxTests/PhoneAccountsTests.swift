@@ -327,6 +327,31 @@ struct AppAccountsTests {
         #expect(model.current.accountID == staging)
     }
 
+    @Test("ringing back from a merged list moves the app onto that row's account")
+    func aRowTakesTheAppWithIt() async {
+        let store = FakeStore()
+        let work = UUID(), staging = UUID()
+        PhoneStore.save(identity(work, server: "https://pbx.example.com"), key: nil, to: store)
+        PhoneStore.save(identity(staging, server: "https://home.example.com"), key: nil, to: store)
+
+        let model = app(store)
+        await model.start()
+        model.prefer(model.accounts[0])
+        #expect(model.current.accountID == work)
+        // Calls and Voicemail are one list for every account, so ringing
+        // somebody back has to take the app with it: afterwards the keypad
+        // and the Team tab are on the Linx the call went out on (owner,
+        // 2026-10-20).
+        model.use(accountID: staging)
+        #expect(model.current.accountID == staging)
+        // A row with no account of its own — one account on the phone —
+        // changes nothing, and nor does one from another phone.
+        model.use(accountID: nil)
+        #expect(model.current.accountID == staging)
+        model.use(accountID: UUID())
+        #expect(model.current.accountID == staging)
+    }
+
     @Test("signing out of one account leaves the others alone")
     func signOutOfOne() async {
         let store = FakeStore()

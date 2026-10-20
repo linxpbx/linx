@@ -155,14 +155,14 @@ One iPhone or iPad can be set up on *several Linx systems at once* — your work
 Once there is more than one account:
 
 - a call that rings says which account it came through, on the lock screen as well — "Ahmed Khan — Work";
-- **Calls** and **Voicemail** are still one list each, newest first, with a small label on each row saying which account it belongs to. Ringing somebody back always goes out on the account their call came in on;
-- **Team** has a section for each account, because the same extension number on two systems is two different people;
+- **Calls** and **Voicemail** are still one list each, newest first, with a small label on each row saying which account it belongs to. Ringing somebody back goes out on the account their call came in on, and the app moves onto that account as it dials, so everything else agrees with the call you just made;
+- **Team** shows **the account you are on** and nobody else, because the same extension number on two systems is two different people. The chooser at the top says which account that is, and changing it there — or above the keypad — changes both;
 - the keypad asks **Call with** which account, and remembers the last one you used;
 - the call screen names the account under the caller.
 
 Removing an account stops this phone ringing for it and forgets its key. Your other accounts are untouched. If you've **lost the phone**, stop it in Linx on a computer instead (below) — and do it on each system the phone was set up on, since each one only knows its own.
 
-With one account none of this appears at all: no labels, no sections, no chooser.
+With one account none of this appears at all: no labels and no chooser.
 
 ## Settings on the phone
 

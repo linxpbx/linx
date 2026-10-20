@@ -24,10 +24,13 @@ struct TeamView: View {
 
     private var mine: String { model.identity?.extensionNumber ?? "" }
 
-    /// One account's team: the people on it, who this phone is there, and
-    /// the name of the section they go under. Two companies' people are
-    /// never one directory, so each account keeps its own section
-    /// (docs/MULTI_ACCOUNT.md §7).
+    /// One account's team: the people on it, and who this phone is there.
+    /// Two companies' people are never one directory, so the tab shows
+    /// **the account the app is on** and nobody else (owner, 2026-10-20,
+    /// replacing a merged list with a section per account): the chooser
+    /// above the keypad is the app's account, and switching it there
+    /// switches this tab with it. The same chooser is on this screen, so it
+    /// always says whose directory this is.
     @MainActor private struct Team: Identifiable {
         let account: Account
         nonisolated var id: UUID { account.id }
@@ -35,11 +38,7 @@ struct TeamView: View {
         var mine: String { account.identity?.extensionNumber ?? "" }
     }
 
-    private var teams: [Team] {
-        let signedIn = model.accounts.filter { $0.identity != nil }
-        guard !signedIn.isEmpty else { return [Team(account: model.current)] }
-        return signedIn.map(Team.init)
-    }
+    private var team: Team { Team(account: model.current) }
 
     private func shown(_ team: Team) -> [TeamMember] {
         let text = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -49,10 +48,10 @@ struct TeamView: View {
         }
     }
 
-    /// Everybody on screen, across every account, in the order they are
-    /// shown: what "pick the first one" and "who is chosen" are read from.
+    /// Everybody on screen, in the order they are shown: what "pick the
+    /// first one" and "who is chosen" are read from.
     private var everyone: [(team: Team, member: TeamMember)] {
-        teams.flatMap { team in shown(team).map { (team, $0) } }
+        shown(team).map { (team, $0) }
     }
 
     /// One person, with the star that keeps them at the top of this phone's
@@ -73,46 +72,48 @@ struct TeamView: View {
             }
     }
 
-    /// A section's heading. With one account it is what it always was —
-    /// "Favourites", or nothing at all. With several, the account's name
-    /// goes on it, because the same extension number means two different
-    /// people on two different systems.
-    private func sectionTitle(_ what: String?, _ team: Team) -> String {
-        guard model.hasSeveralAccounts, let label = team.account.label else { return what ?? "" }
-        guard let what else { return label }
-        return "\(what) · \(label)"
+    /// A section's heading: "Favourites", or nothing at all. Which account
+    /// these people are on is said once, by the chooser at the top, rather
+    /// than on every heading.
+    private func sectionTitle(_ what: String?) -> String { what ?? "" }
+
+    /// The people themselves: the starred ones first, then the rest.
+    @ViewBuilder private var content: some View {
+        if everyone.isEmpty {
+            TeamEmpty(loaded: home.loaded, problem: home.problem)
+        } else {
+            let parts = favourites.split(shown(team), on: team.account.accountID)
+            List(selection: $chosen) {
+                if !parts.favourites.isEmpty {
+                    Section(sectionTitle("Favourites")) {
+                        ForEach(parts.favourites) { member in
+                            row(member, on: team)
+                        }
+                    }
+                }
+                if !parts.rest.isEmpty {
+                    Section(sectionTitle(nil)) {
+                        ForEach(parts.rest) { member in
+                            row(member, on: team)
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+        }
     }
 
     var body: some View {
         NavigationSplitView {
-            Group {
-                if everyone.isEmpty {
-                    TeamEmpty(loaded: home.loaded, problem: home.problem)
-                } else {
-                    List(selection: $chosen) {
-                        ForEach(teams) { team in
-                            let parts = favourites.split(shown(team), on: team.account.accountID)
-                            // With one account these are the two sections
-                            // the tab has always had; with several, each
-                            // account's people are its own, under its name.
-                            if !parts.favourites.isEmpty {
-                                Section(sectionTitle("Favourites", team)) {
-                                    ForEach(parts.favourites) { member in
-                                        row(member, on: team)
-                                    }
-                                }
-                            }
-                            if !parts.rest.isEmpty {
-                                Section(sectionTitle(nil, team)) {
-                                    ForEach(parts.rest) { member in
-                                        row(member, on: team)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .listStyle(.plain)
-                }
+            VStack(spacing: 0) {
+                // Whose directory this is, and the place to change it: the
+                // same chooser the keypad has (owner, 2026-10-20). With one
+                // account it draws nothing.
+                AccountChooser(prefix: "Showing")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, LinxSpace.s4)
+                    .padding(.bottom, model.hasSeveralAccounts ? LinxSpace.s2 : 0)
+                content
             }
             .navigationTitle("Team")
             // On the stack rather than the list: iOS puts the field under
@@ -146,9 +147,8 @@ struct TeamView: View {
             },
             when: horizontal == .regular
         )
-        .task {
-            // Each account watches for its own entry in its own team.
-            for team in teams { team.account.home.noticeMyOwnStatus(extensionNumber: team.mine) }
+        .task(id: team.id) {
+            team.account.home.noticeMyOwnStatus(extensionNumber: team.mine)
         }
     }
 }
