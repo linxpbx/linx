@@ -208,7 +208,23 @@ The useful half of the record: **do not try these again.**
 
 ## 6. Next step
 
-**▶ 2026-10-20 (latest) — BUILD 54 IS SUBMITTED AND APPROVED FOR TESTFLIGHT. BOTH 53 AND 54 ARE NOW APPROVED.**
+**▶ 2026-10-20 (latest) — THE FOUR TESTERS CANNOT SIGN IN YET, SO THEIR INVITATIONS WERE **NOT** RESENT. FOUR QUICK ADDS ON LIVE ARE ALL THAT IS MISSING.**
+
+The owner asked to "send the invitation email to the testers" and, told they had nowhere to sign in, chose **"Set them up on live instead"**. Two things had to be said before any email went out, and both still stand.
+
+**They were already invited.** All four in the external group **"Friends and family"** read `state=INVITED` — Apple has emailed them and they have not accepted: `raisa@mym.ae`, `almudharrebk@icloud.com`, `sara.mohd@gmail.com`, `alreemm2005@gmail.com`. Build 54 is **attached to that group** (a previous session's `asc_pub54.sh` did that, which is why it needed beta review at all) and is now approved, so there is finally something for them to install. A resend is a nudge, not a first contact.
+
+**They had nowhere to land.** `pbx.mym.ae` has exactly **one** extension — 100, the owner's. `vps.mym.ae` has only the three App Review extensions, and `home.mym.ae` has `user1`–`user5`, nobody's. So the app would have stopped all four on its setup-code screen.
+
+**What was done.** Build 54's **"What to Test" was empty in both locales** and now carries 1742 characters in `en-GB` and `en-US`: the invite link and the "Forgot your password?" fallback, My account → My phones → Add phone → Show a QR code, then what to try — Test my sound, a call to 100, a video call from Team, **the locked-phone ring**, a day's idle, mobile data — and how to report a bad call (the `Encrypted …` line → Copy these details). It holds **no secret**, which is why it can say "Forgot your password?" rather than carry a link. Source kept at `scratchpad/whattotest.txt`, published by `scratchpad/asc_whattotest.sh`. Nobody can read it yet: every tester is still `INVITED`, so none has accepted.
+
+**What is blocked, and it is a deliberate security choice, not a missing feature.** `linx user create --extension` only ever **looks an extension up** (`services/control-plane/user_cmd.go:165`, `ExtensionByNumber`) and fails with *There is no extension "101"*; **there is no CLI command that creates an extension.** That leaves the admin portal or the API, and **live deliberately holds no API key** (one of its two standing `doctor` warnings). So this needs the owner's browser, or their word to mint a short-lived scoped key with `sudo linx api-key create` and revoke it after.
+
+**The portal path is four Quick adds and nothing more** (`docs/help/people-and-invites.md`): People → **+ Add** → **Quick add** takes only a name and an email, **Linx gives them the next free number in the people range** (101 onwards; the plan is 3 digits, people 100–599), and because live has **email working** (Gmail SMTP, `malmudharreb@gmail.com`, "MYM - Linx"), **"Email this link to" is ticked by default and Linx sends each invite itself** — so no set-password link needs carrying by hand. The default calling level **"Everyone"** gives them landline, mobile, national, service and toll-free, no international. **Nothing was created on live**, because pre-making the people by CLI would only get in the way of Quick add and would leave the extensions still to do.
+
+**The order to finish in:** four Quick adds → resend the four TestFlight invitations → and, if their phones are to ring while locked, the Apple push key on whichever server they end up on. Live already has its key, so on live they will ring.
+
+**▶ 2026-10-20 — BUILD 54 IS SUBMITTED AND APPROVED FOR TESTFLIGHT. BOTH 53 AND 54 ARE NOW APPROVED.**
 
 On the owner's word ("Submit build 54 for now"). `POST /v1/betaAppReviewSubmissions` with build 54's id (`a5f5392b-f844-4d6e-9bce-15c766c99c3c`) came back `WAITING_FOR_REVIEW` and read **APPROVED** on the next poll — Apple reviews the first build of a version and waves the later ones through. **Build 53's own review came back approved earlier the same day** after about 26 hours. So **both 53 and 54 can go to the external group "Friends and family"** whenever the owner wants; builds 50–52 were never submitted.
 
