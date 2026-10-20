@@ -381,7 +381,22 @@ jobs:
   # every scan and every suite. Images come from the builds' caches.
   publish:
     needs: [test, security, images, asterisk-build, calls, browser, install, ios]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # Everything above must pass, with one exception: GitHub sometimes has no
+    # macOS machine free and kills the Mac job at 15 minutes with no steps run.
+    # That is a cancellation, not a failure, and the iPhone app is not inside
+    # these images, so it must not hold the server's images back. A real iOS
+    # failure still stops publishing.
+    if: >-
+      !cancelled()
+      && github.event_name == 'push' && github.ref == 'refs/heads/master'
+      && needs.test.result == 'success'
+      && needs.security.result == 'success'
+      && needs.images.result == 'success'
+      && needs['asterisk-build'].result == 'success'
+      && needs.calls.result == 'success'
+      && needs.browser.result == 'success'
+      && needs.install.result == 'success'
+      && (needs.ios.result == 'success' || needs.ios.result == 'cancelled')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -453,7 +468,22 @@ jobs:
   asterisk-push:
     name: push (asterisk, ${{ matrix.arch }})
     needs: [test, security, images, asterisk-build, calls, browser, install, ios]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # Everything above must pass, with one exception: GitHub sometimes has no
+    # macOS machine free and kills the Mac job at 15 minutes with no steps run.
+    # That is a cancellation, not a failure, and the iPhone app is not inside
+    # these images, so it must not hold the server's images back. A real iOS
+    # failure still stops publishing.
+    if: >-
+      !cancelled()
+      && github.event_name == 'push' && github.ref == 'refs/heads/master'
+      && needs.test.result == 'success'
+      && needs.security.result == 'success'
+      && needs.images.result == 'success'
+      && needs['asterisk-build'].result == 'success'
+      && needs.calls.result == 'success'
+      && needs.browser.result == 'success'
+      && needs.install.result == 'success'
+      && (needs.ios.result == 'success' || needs.ios.result == 'cancelled')
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     permissions:
