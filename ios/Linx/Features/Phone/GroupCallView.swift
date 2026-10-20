@@ -38,6 +38,16 @@ struct GroupCallView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LinxColor.surfaceDark.ignoresSafeArea())
+        // Another app in front carries the group on in a small window, with
+        // the first other person's picture in it (`CallPictureInPicture`).
+        .background {
+            PictureInPictureSource(
+                window: phone.smallWindow,
+                theirs: group.people.first { !$0.me && $0.video && group.pictures[$0.id] != nil }
+                    .flatMap { group.pictures[$0.id] },
+                mine: group.camera ? group.people.first(where: \.me).flatMap { group.pictures[$0.id] } : nil,
+                mirrored: phone.mirrorsMyVideo)
+        }
     }
 
     private var heading: String {

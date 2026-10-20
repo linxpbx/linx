@@ -29,6 +29,8 @@ import SwiftUI
     private let content = AVPictureInPictureVideoCallViewController()
     private let window = PictureInPictureContent()
     private weak var source: UIView?
+    /// The view the window's content source was last made from.
+    private weak var sourceInUse: UIView?
     private var theirs: RTCVideoTrack?
     private var mine: RTCVideoTrack?
     private var mirrored = true
@@ -86,6 +88,30 @@ import SwiftUI
         }
         guard source !== view else { return }
         source = view
+        readyTheWindow()
+    }
+
+    /// Makes the controller, or gives the one there a new source view.
+    ///
+    /// **Only once there is a picture to put in the window.** The source
+    /// view now belongs to the call rather than to the video screen, so it
+    /// appears the moment the call does — and a controller made then, with
+    /// no picture in the call yet, answered `isPictureInPicturePossible`
+    /// **false** when the person left the app, so nothing opened (the bench,
+    /// 2026-10-20: "Left the app with no small window (possible false,
+    /// source on screen true)"). Made when the picture arrives, it is ready
+    /// in time, and keeping it afterwards is what lets the window survive a
+    /// gap in the picture.
+    private func readyTheWindow() {
+        guard Self.possible, let view = source, theirs != nil || mine != nil else { return }
+        // Only when there is no window yet, or the screen it grows out of
+        // has really changed. Handing the controller a **new** content
+        // source for the same view on every picture change is what made
+        // iOS answer "a window isn't possible" when the app left: the
+        // source is what it validates, and swapping it starts that again
+        // (the bench, 2026-10-20).
+        guard controller == nil || sourceInUse !== view else { return }
+        sourceInUse = view
         let from = AVPictureInPictureController.ContentSource(
             activeVideoCallSourceView: view, contentViewController: content)
         if let controller {
@@ -93,7 +119,7 @@ import SwiftUI
             return
         }
         let controller = AVPictureInPictureController(contentSource: from)
-        controller.canStartPictureInPictureAutomaticallyFromInline = theirs != nil || mine != nil
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
         controller.delegate = self
         self.controller = controller
         onMark?("Small window ready")
@@ -132,6 +158,26 @@ import SwiftUI
         self.mine = mine
         self.mirrored = mirrored
         if wasFeeding { startFeeding() }
+        readyTheWindow()
+        openAgainIfAway()
+    }
+
+    /// The picture came back while the person is in another app.
+    ///
+    /// The window closed when the call's screen went — which is what a gap
+    /// in the picture does, and a gap is what switching Wi-Fi off mid-call
+    /// causes, because the picture's link is made again. iOS only opens a
+    /// window **by itself** as an app goes to the background, and that
+    /// moment has long passed, so the window is asked for directly instead;
+    /// without this it stayed shut for the rest of the call (owner,
+    /// 2026-10-20).
+    private func openAgainIfAway() {
+        guard let controller, !isActive, theirs != nil || mine != nil,
+            UIApplication.shared.applicationState != .active, controller.isPictureInPicturePossible
+        else { return }
+        startFeeding()
+        controller.startPictureInPicture()
+        onMark?("Small window asked for again mid-call")
     }
 
     /// The call is over, or has no picture left in it: no window, and none
@@ -190,10 +236,15 @@ import SwiftUI
         }
         let possible = controller.isPictureInPicturePossible
         let shown = source?.window != nil
+        let size = source?.bounds.size ?? .zero
+        let hidden = source?.isHidden ?? true
+        let alpha = source?.alpha ?? 0
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self, !self.isActive, self.controller === controller else { return }
-            self.onMark?("Left the app with no small window (possible \(possible), source on screen \(shown))")
+            self.onMark?(
+                "Left the app with no small window (possible \(possible), source on screen \(shown), "
+                    + "\(Int(size.width))x\(Int(size.height)), hidden \(hidden), alpha \(alpha))")
         }
     }
 

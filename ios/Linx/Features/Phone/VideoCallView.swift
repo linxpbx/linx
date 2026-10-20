@@ -42,6 +42,19 @@ struct VideoCallView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(LinxColor.surfaceDark.ignoresSafeArea())
+        // Switching to another app carries the call on in a small window
+        // (`CallPictureInPicture`). It hangs off this screen, where it was
+        // proved to work: hung off the call instead, so that it would
+        // outlive a gap in the picture, iOS answered "a window isn't
+        // possible" when the app left and the call stayed behind (the
+        // bench, 2026-10-20, three runs in four).
+        .background {
+            PictureInPictureSource(
+                window: phone.smallWindow,
+                theirs: call.video.theirs ? phone.tracks.remote : nil,
+                mine: call.video.mine ? phone.tracks.local : nil,
+                mirrored: phone.mirrorsMyVideo)
+        }
         .task(id: touches) {
             try? await Task.sleep(for: Self.controlsStay)
             guard !Task.isCancelled, mayHideControls else { return }
