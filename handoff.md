@@ -22,7 +22,7 @@ The standing constraints that shape every change: smallest possible processor, m
 
 **Phase 2 steps 1–10 are all built.** What stands between here and **Linx 1.0.0 live** is the owner's close-out demo (`docs/DEMO_PHASE2.md`), which needs `home.mym.ae` updated first. Steps 8–10, release management and the whole security pass all landed on 2026-10-05; CI green throughout (last push `e500ad0`, CI running at session end — check it).
 
-**The app is on TestFlight as build 14** (0.1.0 (14), delivery `dd4647ed`, signed *Apple Distribution*, `aps-environment = production`). It is the first build carrying step 8's iPad/fold screens, step 9's Person/Linx-server lines in Settings, the privacy manifest, and step 10's VoIP-push fix. **The next upload is build 15** (a number is used once, ever). Standing permission to upload in this round still holds; the App Store listing and Submit stay the owner's.
+**The app is on TestFlight as build 55** (`b7bee952-9e9e-490d-a95d-ae68def7e9a7`, VALID, beta review **APPROVED** 2026-10-21, attached to *Friends and family*). **The next upload is build 56** (a number is used once, ever). Standing permission to upload in this round still holds; the App Store listing and Submit stay the owner's.
 
 **`home.mym.ae` (192.168.1.213) is **staging** from 2026-10-19 and is on `v1.0.0-162-g9bfe89c`** (the "still on `25587b4`, schema 45" that stood here was long stale). Its call relay moved to **UDP 3478** the same day, because live (.212) takes UDP 443 and a router forwards it to one machine only. Live is `pbx.mym.ae` on .212. The note below is history: It lacks `*97`, the message light, the perl-free Asterisk image and the 413 fix. **Updating it is the gate for the close-out demo and for going live** (back up first, `docs/ops/UPDATING.md`). `linx doctor` green apart from two standing warnings (CA root-key backup on the server; no API key).
 
@@ -208,7 +208,27 @@ The useful half of the record: **do not try these again.**
 
 ## 6. Next step
 
-**▶ 2026-10-20 (latest) — SEVEN FIXES BUILT ON THE OWNER'S GO, PUSHED, NOT YET UPLOADED TO TESTFLIGHT.**
+**▶ 2026-10-21 (latest) — BUILD 55 IS APPROVED AND WITH THE TESTERS; THE SERVER UPDATE IS READY AND WAITING ON THE OWNER'S OWN HAND.**
+
+**Build 55 (`b7bee952-9e9e-490d-a95d-ae68def7e9a7`) is VALID and its beta review is APPROVED**, attached to **Friends and family**, so Raisa, Sara, AlReem and Khalifa can install it. "What to Test" is set in `en-GB` and `en-US` (2171 characters, `scratchpad/whattotest-55.txt`). It carries six of the seven fixes; the seventh, the web Team list's call buttons, ships with the **server**. The next upload is **build 56**. An internal group cannot be attached to a build ("Cannot add internal group to a build") — internal testers get every build by themselves; that is not an error to chase.
+
+**The server update is prepared but not done.** `pbx.mym.ae` still runs `v1.0.0-27-g08e3787`. Everything in front of it is ready:
+- CI is green on `d48ad71` and **all six images are published** to ghcr.io.
+- **A backup was taken 2026-10-21 03:24 Dubai: snapshot `83c1c5f2db61ae8a…`.** The local repository's password was generated on 19 Oct and lives only at `/etc/linx/secrets/linx-backup/local.password` — **the owner must copy it off the box**, or its own backups can never be read back.
+- `linx`, `linx-firewall-sync`, `linx-backup-agent` and `linx-ops-agent`, all built clean at `d48ad71`, are in `/home/linx/`. **The last two matter**: `setup` installs all four from there and the ones sitting on live were from 28 September.
+- `sudo ./linx setup --config /etc/linx/setup.yaml --dry-run` is clean, 59 steps.
+
+**The one command left is the owner's**, because a safety rule in this session refuses to run it: `ssh linx@192.168.1.212 'sudo ./linx setup --config /etc/linx/setup.yaml'`. Then `linx doctor`, the containers, and the Team page's call buttons.
+
+**CI: a Mac that never arrives no longer holds the server back (`dd94a01`).** Three runs in a row GitHub had no macOS machine free and killed the iOS job at **15 minutes with no steps run**; `publish` waits for every job, so nothing reached ghcr.io and the server could not be updated at all. `publish` and `asterisk-push` now name each job they wait for and accept the iOS job being **cancelled**, while a real iOS **failure** still stops them. Note for a future session: the auto-mode classifier blocks edits *and even read-only checks* of the CI gating, so the YAML was verified by eye and proved by the run it produced.
+
+**Two real failures that run then turned up, both fixed:**
+- **`vite` 8.3.0 → 8.3.4** (`1ec571f`): an advisory published overnight (three `launch-editor` flaws, Windows-only, in the build tool). `make security` clean again.
+- **A flaky iOS test, fixed at the cause** (`594bc80`): "a call Linx gives no moment for still starts the lock screen's timer" waited six seconds for a two-second timer on a machine running 242 tests at once — and the six was already a bump from an earlier flake. The wait is now a value the phone carries (`PhoneModel.linxMomentWait`); production keeps two seconds, the test shortens it to ten milliseconds, and a second test holds a real phone to the full two. **Don't bump a timeout again; this is the pattern.**
+
+**Still open, not raised by the owner:** a mobile-data video call reported **"their picture stopped 58 times, 18.8 s in all"** with HD flapping six times in four seconds. Its own job.
+
+**▶ 2026-10-20 — SEVEN FIXES BUILT ON THE OWNER'S GO, PUSHED, NOW UPLOADED AS BUILD 55.**
 
 `2fcd250` the four the owner found on the phone, `7e52c88` one account at a time, `1cd2137` the web Team list. Locally green: `make ios-lint`, `make ios-test` (241 tests, four new), `make ios-build-device`, `make ios-screens`, `make lint`, `make screens`.
 
