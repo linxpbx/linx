@@ -106,7 +106,7 @@ Every call is encrypted both ways, and the app has no password of any kind on it
 
 ## Group calls
 
-In a call with someone else using Linx, tap **Add person** at the top of the call and pick someone from the Team list. Their phones ring with an invitation to a group call (a sleeping iPhone is woken for it, like any call), and when they answer, everyone sees and hears everyone, in a grid that highlights whoever is speaking. Tap **Add person** again for more, up to 8 people. **Mute**, **Start video** and **Stop video** work as in any call; **End** leaves the group call, and the others carry on. Desk phones and outside numbers can't join a group call yet.
+In a call with someone else using Linx, tap **Add person** at the top of the call and pick someone from the Team list. Their phones ring with an invitation to a group call (a sleeping iPhone is woken for it, like any call), and when they answer, everyone sees and hears everyone, in a grid that highlights whoever is speaking. Tap **Add person** again for more, up to 8 people. Everyone fits the screen, so there is nothing to scroll, and the button on your own picture switches between the front and back camera, as it does in a call between two. If a group call comes back down to two people, it looks like an ordinary video call again: the other person fills the screen, your own picture sits in the corner, and a tap swaps them over. **Mute**, **Start video** and **Stop video** work as in any call; **End** leaves the group call, and the others carry on. Desk phones and outside numbers can't join a group call yet.
 
 ## Calls when the app isn't open (admins)
 

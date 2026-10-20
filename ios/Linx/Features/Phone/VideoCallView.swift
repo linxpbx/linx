@@ -42,15 +42,6 @@ struct VideoCallView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(LinxColor.surfaceDark.ignoresSafeArea())
-        // Switching to another app carries the call on in a small window
-        // (`CallPictureInPicture`).
-        .background {
-            PictureInPictureSource(
-                window: phone.smallWindow,
-                theirs: call.video.theirs ? phone.tracks.remote : nil,
-                mine: call.video.mine ? phone.tracks.local : nil,
-                mirrored: phone.mirrorsMyVideo)
-        }
         .task(id: touches) {
             try? await Task.sleep(for: Self.controlsStay)
             guard !Task.isCancelled, mayHideControls else { return }
@@ -359,8 +350,9 @@ private struct SmallPicture: View {
 }
 
 /// The front or the back camera (owner, 2026-10-14): on this phone's own
-/// picture, as in every video call app.
-private struct SwitchCameraButton: View {
+/// picture, as in every video call app. A group call puts it on this phone's
+/// own tile, which is the same place (owner, 2026-10-20).
+struct SwitchCameraButton: View {
     let press: () -> Void
     var small = false
 

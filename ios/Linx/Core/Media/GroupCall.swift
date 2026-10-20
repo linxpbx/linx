@@ -56,6 +56,10 @@ struct GroupPerson: Identifiable, Equatable, Sendable {
     let state = GroupPeople()
     /// The call is over for this phone: LiveKit sent it away, or lost it.
     var onEnded: ((String) -> Void)?
+    /// Who is in the call, or what they are sending, has changed. The screen
+    /// follows `state` by itself; this is for the rules that aren't drawn —
+    /// holding the screen awake while there is a picture to look at.
+    var onPeople: (() -> Void)?
     var onMark: ((String) -> Void)?
 
     private let socket: any GroupSocket
@@ -424,6 +428,7 @@ struct GroupPerson: Identifiable, Equatable, Sendable {
                     sound: (mic.map { !$0.muted } ?? false), speaking: speaking.contains(p.sid)))
         }
         state.people = people
+        onPeople?()
     }
 }
 

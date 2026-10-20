@@ -441,6 +441,7 @@ import UIKit
                 media.onAnsweredAt = { [weak self] at in self?.answeredAtLinx(at) }
                 media.onGroupMove = { [weak self] join in self?.joinGroup(join) }
                 media.onGroupEnded = { [weak self] why in self?.groupEnded(why) }
+                media.onGroupChanged = { [weak self] in self?.theScreenDuringTheCall() }
                 self?.liveMedia = media
                 self?.tracks = media.tracks
                 return media
@@ -812,12 +813,17 @@ import UIKit
     /// screen and sends the other to the small tile. With only one picture in
     /// the call there is nothing to swap, so nothing happens.
     func swapPictures() {
-        guard let call, call.video.mine, call.video.theirs else { return }
+        guard canSwapPictures else { return }
         myPictureIsBig.toggle()
     }
 
     /// Whether tapping a picture does anything right now — both cameras on.
     var canSwapPictures: Bool {
+        // A group call down to two people is a call between two, and swaps
+        // the same way (owner, 2026-10-20).
+        if let group, groupMedia != nil {
+            return group.camera && group.people.contains { !$0.me && $0.video }
+        }
         guard let call else { return false }
         return call.video.mine && call.video.theirs
     }
@@ -1071,6 +1077,7 @@ import UIKit
     /// The two rules about the screen while a call is up: dark at an ear, and
     /// awake while there is a picture in the call.
     private func theScreenDuringTheCall() {
+        smallWindow.callIsUp = call != nil
         watchForAnEar()
         keepTheScreenAwake()
     }
@@ -1098,6 +1105,14 @@ import UIKit
     /// alight. It is let go of the moment the picture or the call ends, so a
     /// phone left on a table after a video call sleeps as it should.
     private func keepTheScreenAwake() {
+        // A group call's pictures come from the video server, not from the
+        // call's own link, so `call.video` knows nothing about them: read
+        // the room instead, or a group video call dims and locks itself
+        // halfway through (owner, 2026-10-20).
+        if let group, groupMedia != nil {
+            holdTheScreen(group.people.contains { $0.video })
+            return
+        }
         holdTheScreen(call?.phase == .active && call?.video.on == true)
     }
 
@@ -1456,6 +1471,7 @@ import UIKit
         ringer.stop()
         UIDevice.current.isProximityMonitoringEnabled = false
         holdTheScreen(false)
+        smallWindow.callIsUp = false
         smallWindow.end()
         guard let finished = call else { return }
         call = nil
@@ -1573,6 +1589,8 @@ import UIKit
         func pretend(_ diagnostics: CallDiagnostics) { self.diagnostics = diagnostics }
 
         func pretend(_ status: Status) { self.status = status }
+
+        func pretend(_ group: GroupPeople) { self.group = group }
 
         func pretendLastDialled(_ number: String) { lastDialled = number }
     #endif

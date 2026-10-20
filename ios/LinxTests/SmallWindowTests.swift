@@ -1,6 +1,7 @@
 import CoreVideo
 import Foundation
 import Testing
+import UIKit
 @preconcurrency import WebRTC
 
 @testable import Linx
@@ -53,6 +54,39 @@ struct SmallWindowTests {
         // The next picture the same size comes from the same pool.
         let again = try #require(SampleBufferFeed.copy(planes, into: &pool, size: &size))
         #expect(CVPixelBufferGetWidth(again) == width)
+    }
+
+    @Test("the window is kept while the call goes on, and let go when it ends")
+    @MainActor func theWindowBelongsToTheCall() async {
+        let window = CallPictureInPicture()
+        var marks: [String] = []
+        window.onMark = { marks.append($0) }
+        let screen = UIView()
+        window.use(source: screen)
+
+        // A moment with no picture takes the video screen away — which is
+        // what switching Wi-Fi off mid-call does, because the picture's link
+        // is made again. The window is not given up for it: iOS only ever
+        // opens the window as the app goes to the background, so one
+        // released mid-call could never come back (owner, 2026-10-20).
+        window.callIsUp = true
+        window.lost(source: screen)
+        #expect(await eventually { marks.contains("Small window waiting for the call's screen") })
+        #expect(window.hasASource)
+
+        // The call itself ending is a different thing, and does let it go:
+        // the next screen to ask has to set the window up afresh.
+        window.callIsUp = false
+        window.lost(source: screen)
+        #expect(await eventually { !window.hasASource })
+    }
+
+    @MainActor private func eventually(_ check: () -> Bool) async -> Bool {
+        for _ in 0..<200 {
+            if check() { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return check()
     }
 
     @Test @MainActor func theCameraMayKeepGoingWhileAnotherAppIsInFront() {

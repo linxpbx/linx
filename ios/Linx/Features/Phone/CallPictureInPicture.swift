@@ -34,6 +34,11 @@ import SwiftUI
     private var mirrored = true
     /// The window is up.
     private(set) var isActive = false
+    /// A call is going on. The window belongs to the call, not to whichever
+    /// screen the call is showing, so a moment with no picture in it is not a
+    /// reason to give the window up (owner, 2026-10-20: the window went as
+    /// Wi-Fi was switched off mid-call and could not come back).
+    var callIsUp = false
     /// The pictures are being fed to the window's layers.
     private var feeding = false
     private var watchers: [NSObjectProtocol] = []
@@ -67,6 +72,10 @@ import SwiftUI
     /// Whether this device can show a call in a small window at all.
     static var possible: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
 
+    /// Whether a call screen has this window's source view: while it has
+    /// one, the window belongs to that call and can open again.
+    var hasASource: Bool { source != nil }
+
     /// The call screen's view, which the window grows out of and goes back
     /// into. Each new one replaces the last.
     func use(source view: UIView) {
@@ -97,6 +106,15 @@ import SwiftUI
         guard source === view else { return }
         Task { @MainActor [weak self] in
             guard let self, self.source == nil || self.source === view, self.source?.window == nil else { return }
+            // While the call is still on, the controller is kept: iOS only
+            // ever opens the window by itself as the app goes to the
+            // background, so one released mid-call could never come back
+            // during that call. The next view to appear takes over as this
+            // one's source.
+            guard !self.callIsUp else {
+                self.onMark?("Small window waiting for the call's screen")
+                return
+            }
             self.end()
         }
     }
@@ -120,6 +138,7 @@ import SwiftUI
     /// started by accident as it goes (Apple's warning about releasing the
     /// controller during a call).
     func end() {
+        if callIsUp, controller != nil { onMark?("Small window given up while the call was still on") }
         controller?.canStartPictureInPictureAutomaticallyFromInline = false
         if controller?.isPictureInPictureActive == true { controller?.stopPictureInPicture() }
         stopFeeding()

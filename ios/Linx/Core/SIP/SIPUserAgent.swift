@@ -112,6 +112,8 @@ extension SIPCallMedia {
     var onGroupMove: ((GroupJoin) -> Void)? { get set }
     /// The group call ended for this phone, and why in words.
     var onGroupEnded: ((String) -> Void)? { get set }
+    /// Who is in the group call, or what they are sending, has changed.
+    var onGroupChanged: (() -> Void)? { get set }
     /// Moves the call onto the video server: its sound and pictures go
     /// there, and the phone call's own sound goes quiet. Nil if it can't.
     func joinGroup(_ join: GroupJoin, server: URL, camera: Bool) -> GroupPeople?

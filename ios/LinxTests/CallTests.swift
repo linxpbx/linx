@@ -132,15 +132,28 @@ import Testing
     func switchCamera() { cameraSwitched += 1 }
     var onGroupMove: ((GroupJoin) -> Void)?
     var onGroupEnded: ((String) -> Void)?
+    var onGroupChanged: (() -> Void)?
     /// The group calls this call was moved into.
     private(set) var groupsJoined: [GroupJoin] = []
+    /// The room as the screen sees it, kept so a test can change who is in
+    /// it and what they are sending.
+    private(set) var groupPeople: GroupPeople?
     var inGroup: Bool { !groupsJoined.isEmpty && !stopped }
     /// Whether each group call was joined with the camera on.
     private(set) var groupCameras: [Bool] = []
     func joinGroup(_ join: GroupJoin, server: URL, camera: Bool) -> GroupPeople? {
         groupsJoined.append(join)
         groupCameras.append(camera)
-        return GroupPeople()
+        let people = GroupPeople()
+        groupPeople = people
+        return people
+    }
+
+    /// Who is in the group call now, as LiveKit would have said it.
+    func pretendGroup(_ people: [GroupPerson]) {
+        groupPeople?.people = people
+        groupPeople?.camera = people.first { $0.me }?.video ?? false
+        onGroupChanged?()
     }
     var hd: [Bool] = []
     func useHD(_ on: Bool) { hd.append(on) }

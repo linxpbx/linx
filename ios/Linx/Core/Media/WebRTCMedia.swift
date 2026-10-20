@@ -167,6 +167,7 @@ struct CallDiagnostics: Equatable, Sendable {
     private var picture: DirectPicture?
     var onGroupMove: ((GroupJoin) -> Void)?
     var onGroupEnded: ((String) -> Void)?
+    var onGroupChanged: (() -> Void)?
     /// The group call this call became (ADR-088), if it did.
     private var group: GroupCall?
     var inGroup: Bool { group != nil }
@@ -473,6 +474,7 @@ struct CallDiagnostics: Equatable, Sendable {
             verifier: RelayCertificates(relay: turn))
         group.onMark = { [weak self] what in self?.mark(what) }
         group.onEnded = { [weak self] why in self?.onGroupEnded?(why) }
+        group.onPeople = { [weak self] in self?.onGroupChanged?() }
         self.group = group
         mark("Moved into a group call")
         group.start()

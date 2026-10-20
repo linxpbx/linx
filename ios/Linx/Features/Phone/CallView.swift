@@ -1,4 +1,5 @@
 import SwiftUI
+@preconcurrency import WebRTC
 
 /// A call, in front of everything else (`docs/ui/iOS · Active call@1x.png`,
 /// in Cobalt rather than the mockup's teal). Hold, transfer, park and record
@@ -34,6 +35,20 @@ struct CallView: View {
             }
         }
         .onReceive(Self.tick) { now = $0 }
+        // Switching to another app carries the call on in a small window
+        // (`CallPictureInPicture`). It hangs here, off the call itself,
+        // rather than off either screen inside it: a moment with no picture
+        // — which is exactly what switching Wi-Fi off mid-call causes, since
+        // the picture's link is made again — took the video screen away and
+        // the window with it, and iOS only ever opens that window as an app
+        // goes to the background, so a person already in another app had no
+        // moment left for it to come back in (owner, 2026-10-20).
+        .background {
+            PictureInPictureSource(
+                window: phone.smallWindow,
+                theirs: smallWindowPictures.theirs, mine: smallWindowPictures.mine,
+                mirrored: phone.mirrorsMyVideo)
+        }
         // They turned their camera on and this phone's is off: ask once
         // (ADR-079, owner 2026-10-04). "Not now" leaves a one-way video
         // call, which carries on exactly as it is.
@@ -65,6 +80,23 @@ struct CallView: View {
         .sheet(isPresented: $phone.addingPerson) {
             AddPersonSheet { phone.addingPerson = false }
         }
+    }
+
+    /// What the small window shows: in a group call the first other person
+    /// who has a picture, with this phone's own small in the corner; in a
+    /// call between two, their picture and this phone's own.
+    private var smallWindowPictures: (theirs: RTCVideoTrack?, mine: RTCVideoTrack?) {
+        if let group = phone.group {
+            return (
+                group.people.first { !$0.me && $0.video && group.pictures[$0.id] != nil }
+                    .flatMap { group.pictures[$0.id] },
+                group.camera ? group.people.first(where: \.me).flatMap { group.pictures[$0.id] } : nil
+            )
+        }
+        return (
+            call.video.theirs ? phone.tracks.remote : nil,
+            call.video.mine ? phone.tracks.local : nil
+        )
     }
 
     private var theirVideoQuestion: String {

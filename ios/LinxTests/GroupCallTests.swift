@@ -176,6 +176,75 @@ struct GroupCallPhoneTests {
         #expect(phone.group == nil)
     }
 
+    @Test("a group call keeps the screen awake while there is a picture in it")
+    func theScreenStaysAwakeInAGroupCall() async throws {
+        let (phone, _, media, _) = try await inACall()
+        media.onGroupMove?(GroupJoin(room: "call-x", token: "t", url: "/livekit/"))
+        #expect(phone.group != nil)
+        // Nobody's camera is on: a group call by voice is left to iOS, as a
+        // phone call is.
+        media.pretendGroup([Self.who("me", me: true, video: false), Self.who("raisa", video: false)])
+        #expect(!phone.screenIsHeldAwake)
+        // Someone else turns their camera on. This phone is watching them,
+        // so the screen stays on even with its own camera off — the rule
+        // reads the room, not this phone's own link, which knows nothing
+        // about a group call's pictures (owner, 2026-10-20).
+        media.pretendGroup([Self.who("me", me: true, video: false), Self.who("raisa", video: true)])
+        #expect(phone.screenIsHeldAwake)
+        media.pretendGroup([Self.who("me", me: true, video: true), Self.who("raisa", video: false)])
+        #expect(phone.screenIsHeldAwake)
+        // Every camera off again, and the screen is iOS's once more.
+        media.pretendGroup([Self.who("me", me: true, video: false), Self.who("raisa", video: false)])
+        #expect(!phone.screenIsHeldAwake)
+        phone.hangUp()
+        #expect(await eventually { phone.call == nil })
+        #expect(!phone.screenIsHeldAwake)
+    }
+
+    @Test("two people left in a group call swap pictures as a call between two does")
+    func swappingInAGroupCallOfTwo() async throws {
+        let (phone, _, media, _) = try await inACall()
+        media.onGroupMove?(GroupJoin(room: "call-x", token: "t", url: "/livekit/"))
+        // Only one picture in the room: there is nothing to swap.
+        media.pretendGroup([Self.who("me", me: true, video: true), Self.who("raisa", video: false)])
+        #expect(!phone.canSwapPictures)
+        phone.swapPictures()
+        #expect(!phone.myPictureIsBig)
+        // Both cameras on: a tap puts this phone's own picture on the big
+        // screen, and another puts it back.
+        media.pretendGroup([Self.who("me", me: true, video: true), Self.who("raisa", video: true)])
+        #expect(phone.canSwapPictures)
+        phone.swapPictures()
+        #expect(phone.myPictureIsBig)
+        phone.swapPictures()
+        #expect(!phone.myPictureIsBig)
+    }
+
+    @Test("every tile fits the screen, so a group call never scrolls")
+    func theGridAlwaysFits() {
+        let space = CGSize(width: 390, height: 500)
+        let spacing: CGFloat = 8
+        for people in 1...8 {
+            let rows = GroupGrid.rows(people: people)
+            let columns = GroupGrid.columns(people: people)
+            #expect(rows * columns >= people)
+            #expect(rows * columns < people + columns, "no empty row")
+            let tile = GroupGrid.tile(people: people, in: space, spacing: spacing)
+            let high = tile.height * CGFloat(rows) + spacing * CGFloat(rows - 1)
+            let wide = tile.width * CGFloat(columns) + spacing * CGFloat(columns - 1)
+            #expect(abs(high - space.height) < 0.5)
+            #expect(abs(wide - space.width) < 0.5)
+        }
+        // Two people are laid out as a call between two instead, so the grid
+        // is never asked for one column of two tall tiles — which is what
+        // had to be scrolled (owner, 2026-10-20).
+        #expect(GroupGrid.columns(people: 2) == 2)
+    }
+
+    private static func who(_ name: String, me: Bool = false, video: Bool) -> GroupPerson {
+        GroupPerson(id: name, name: name, me: me, video: video, sound: true, speaking: false)
+    }
+
     @Test("Add person is there only on a call between two Linx devices")
     func addPersonOnlyBetweenLinxDevices() async throws {
         let (phone, _, media, _) = try await inACall()

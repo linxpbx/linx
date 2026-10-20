@@ -144,6 +144,11 @@ enum Screen: String {
     /// upright and on its side, on an iPad, and on an iPhone Duo folded and
     /// unfolded.
     case videoCall = "video-call"
+    /// A group call: the grid of everyone in it, and the same call once it
+    /// is back down to two people, which is laid out as a call between two
+    /// (owner, 2026-10-20).
+    case groupCall = "group-call"
+    case groupCallTwo = "group-call-two"
 
     /// Which screen behind **More** this screenshot wants open.
     var morePage: MoreView.Page? {
@@ -198,7 +203,7 @@ enum Screen: String {
         case .setUpPhone:
             break
         case .signedIn, .thisPhone, .keypad, .keypadAccounts, .inCall, .callDetails, .incomingCall, .calls, .team,
-            .more, .voicemail, .settings, .videoCall, .accounts:
+            .more, .voicemail, .settings, .videoCall, .groupCall, .groupCallTwo, .accounts:
             model.identity = Screen.sampleIdentity
             model.line = nil
             model.state = .signedIn
@@ -221,6 +226,18 @@ enum Screen: String {
                 }
             #endif
             #if DEBUG
+                if self == .groupCall || self == .groupCallTwo {
+                    model.phone.pretend(
+                        PhoneModel.Call(
+                            peer: SIPPeer(name: "Sara Haddad", number: "1024"), incoming: false,
+                            phase: .active, answeredAt: Date(timeIntervalSinceNow: -252),
+                            connection: MediaConnection(
+                                route: .direct, roundTripMs: 38, relayProtocol: nil, audioBytesIn: 48_000)))
+                    model.phone.pretend(
+                        Screen.sampleGroup(
+                            self == .groupCall
+                                ? ["Sara Haddad", "Omar Khalil", "Aisha Noor"] : ["Sara Haddad"]))
+                }
                 if self == .inCall {
                     model.phone.pretend(
                         PhoneModel.Call(
@@ -295,6 +312,23 @@ enum Screen: String {
 
     /// A team, a few calls and a message, for the screenshots. None of it
     /// is anybody's: the names are the ones the mockups use.
+    /// A made-up group call. A screenshot run has no camera and no video
+    /// server, so the tiles show initials — these shots are for the layout:
+    /// that everyone fits without scrolling, and that two people are laid
+    /// out as a call between two.
+    @MainActor static func sampleGroup(_ others: [String]) -> GroupPeople {
+        let group = GroupPeople()
+        group.phase = .joined
+        group.camera = true
+        group.people =
+            [GroupPerson(id: "me", name: "You", me: true, video: true, sound: true, speaking: false)]
+            + others.enumerated().map { index, name in
+                GroupPerson(
+                    id: name, name: name, me: false, video: true, sound: index != 1, speaking: index == 0)
+            }
+        return group
+    }
+
     static let sampleTeam: [TeamMember] = [
         TeamMember(extensionNumber: "101", name: "Sara Haddad", status: .available, since: nil),
         TeamMember(
