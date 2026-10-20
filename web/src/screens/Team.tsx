@@ -1,5 +1,12 @@
 // The Team list (WEB_SCREENS_PHASE1C.md §6): one flat list by name, with
 // live status.
+//
+// The call buttons' column is wide enough to hold both of them (owner,
+// 2026-10-20: the video button was cut off and no page scrolls sideways to
+// reach it). The table is `table-fixed`, so that width is the column's
+// width: two 36px buttons, the gap between them, their focus rings and the
+// padding at the end have to fit inside it or the card's `overflow-hidden`
+// simply cuts the second button off. `web/e2e/screens.spec.ts` checks it.
 import { Phone, Video } from "lucide-react";
 import type { TeamMember } from "@/api/client";
 import { Avatar, statusLabel, useElapsed } from "@/components/presence";
@@ -38,7 +45,7 @@ export function TeamScreen({ members, query }: { members: TeamMember[] | null; q
               <th scope="col" className="px-4 py-3 text-start md:px-5">Name</th>
               <th scope="col" className="w-20 px-2 py-3 text-start md:w-28">Ext</th>
               <th scope="col" className="hidden w-56 px-2 py-3 text-start sm:table-cell">Status</th>
-              <th scope="col" className="w-14 py-3"><span className="sr-only">Call</span></th>
+              <th scope="col" className="w-28 py-3"><span className="sr-only">Call</span></th>
             </tr>
           </thead>
           <tbody className="divide-y">

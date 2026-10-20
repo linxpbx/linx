@@ -23,9 +23,28 @@ async function noSidewaysScroll(page: Page, name: string) {
         out.push(`${label} (${el.scrollWidth}px in ${el.clientWidth}px): ${(el.textContent ?? "").trim().slice(0, 60)}`);
       }
     }
+    // And nothing you can press is cut off by a box that clips instead of
+    // scrolling (owner, 2026-10-20: the video call button on Team was half
+    // off the card and the page, rightly, would not scroll sideways to
+    // reach it). Text that ends in an ellipsis is a different thing and is
+    // left alone — only buttons and links are checked.
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>('button, a[href], [role="button"]'))) {
+      const box = el.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1) continue;
+      for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+        const clips = getComputedStyle(parent).overflowX;
+        if (clips !== "hidden" && clips !== "clip") continue;
+        const edge = parent.getBoundingClientRect();
+        if (edge.width < 1) continue;
+        if (box.right > edge.right + 1 || box.left < edge.left - 1) {
+          const label = el.getAttribute("aria-label") ?? (el.textContent ?? "").trim().slice(0, 40) ?? "a button";
+          out.push(`"${label}" is cut off by ${parent.tagName.toLowerCase()}.${parent.className}`);
+        }
+      }
+    }
     return out;
   });
-  expect(offenders, `${name} scrolls sideways`).toEqual([]);
+  expect(offenders, `${name} hides something`).toEqual([]);
 }
 
 // The shots the help guides show (`![…](screen:<name>)` in docs/help) are
