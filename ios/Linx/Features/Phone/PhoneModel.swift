@@ -1262,6 +1262,11 @@ import UIKit
     /// number) never gets one.
     static let waitForLinxMoment: Duration = .seconds(2)
 
+    /// This phone's own wait, so a test can prove the behaviour without
+    /// racing a two-second sleep against a loaded machine. Production never
+    /// changes it.
+    var linxMomentWait: Duration = PhoneModel.waitForLinxMoment
+
     /// Linx's moment, kept until this phone's own answer.
     private var answerMomentFromLinx: Date?
 
@@ -1437,8 +1442,9 @@ import UIKit
             calls.reportAnswered(id: current.id, at: current.answeredAt ?? now)
         } else {
             let id = current.id
+            let wait = linxMomentWait
             connectedForTheSystem = Task { [weak self] in
-                try? await Task.sleep(for: Self.waitForLinxMoment)
+                try? await Task.sleep(for: wait)
                 guard !Task.isCancelled, let self, self.call?.id == id else { return }
                 self.connectedForTheSystem = nil
                 self.calls.reportAnswered(id: id, at: self.call?.answeredAt ?? now)

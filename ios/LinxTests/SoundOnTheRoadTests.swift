@@ -412,22 +412,33 @@ struct SoundOnTheRoadTests {
 
     @Test("a call Linx gives no moment for still starts the lock screen's timer")
     func noMomentFromLinx() async throws {
-        let (phone, _, _, system) = try await inACall()
-        // A slow machine (CI) may run the two-second wait late: up to six.
-        let giveUp = Date().addingTimeInterval(6)
-        while system.answered.isEmpty, Date() < giveUp { try await Task.sleep(for: .milliseconds(100)) }
+        // The wait itself is proved by `waitForLinxMoment` being what the
+        // phone uses; here it is cut short, so a loaded machine can't lose
+        // the race and call a working phone broken.
+        let (phone, _, _, system) = try await inACall(linxMomentWait: .milliseconds(10))
+        #expect(await eventually { !system.answered.isEmpty }, "the lock screen's timer started")
         #expect(system.answered.count == 1)
         #expect(system.answeredAt.first == phone.call?.answeredAt)
     }
 
+    @Test("a real phone waits two seconds for Linx's moment")
+    func theRealWait() async throws {
+        let (phone, _, _, _) = try await inACall()
+        #expect(phone.linxMomentWait == PhoneModel.waitForLinxMoment, "only a test shortens it")
+        #expect(PhoneModel.waitForLinxMoment == .seconds(2))
+    }
+
     // MARK: - A phone with a call up
 
-    private func inACall() async throws -> (PhoneModel, FakeTransport, FakeMedia, FakeSystemCalls) {
+    private func inACall(
+        linxMomentWait: Duration = PhoneModel.waitForLinxMoment
+    ) async throws -> (PhoneModel, FakeTransport, FakeMedia, FakeSystemCalls) {
         let transport = FakeTransport()
         let media = FakeMedia()
         let system = FakeSystemCalls()
         let phone = PhoneModel(
             line: { Self.line() }, transport: { _ in transport }, media: { _ in media }, calls: system)
+        phone.linxMomentWait = linxMomentWait
         await phone.start()
         let first = try #require(transport.last("REGISTER"))
         var challenge = SIPMessage.response(401, "Unauthorized", to: first)
