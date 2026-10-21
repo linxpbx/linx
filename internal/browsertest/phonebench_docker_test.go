@@ -912,6 +912,15 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			!strings.HasPrefix(r[lost:], "Sound route restarted") {
 			fail("the sound's route was lost and never restarted")
 		}
+		// A link that comes straight back goes on with the picture it
+		// already has (ADR-096). Building another cost the owner's calls
+		// from China five to seven seconds of frozen picture each time.
+		if strings.Contains(r, "link came back") && !strings.Contains(r, "the picture goes on") {
+			fail("the link came back and the picture was built again instead of going on")
+		}
+		if strings.Contains(r, "Their link didn't come back") {
+			fail("the other end's link was given up on during the call")
+		}
 	}
 	if sc.hd {
 		on, ok := markAt(r, "HD on")

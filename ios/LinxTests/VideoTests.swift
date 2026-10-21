@@ -512,3 +512,86 @@ struct CallLayoutTests {
         #expect(DirectPicture.slotWithTheirPicture(now: [:], before: [:]) == nil)
     }
 }
+
+// A picture that keeps stopping, and a link that blinks (owner in China,
+// 2026-10-21). Both are about the same thing: what Linx does when the
+// network between the two phones is poor rather than absent.
+@MainActor
+struct BadNetworkPictureTests {
+    @Test("two readings of a stopping picture ask the other side for a smaller one")
+    func stoppingAsksForLess() {
+        var stops = PictureStops()
+        let start = Date()
+        // Nothing to compare the first reading with.
+        let first = stops.saw(stoppedFor: 0, at: start)
+        // One bad reading on its own is a jolt, not a broken picture.
+        let second = stops.saw(stoppedFor: 0.4, at: start.addingTimeInterval(2))
+        let third = stops.saw(stoppedFor: 0.8, at: start.addingTimeInterval(4))
+        #expect(first == false)
+        #expect(second == false)
+        #expect(third == true)
+    }
+
+    @Test("a picture that is merely late is left alone")
+    func aLittleLatenessIsNothing() {
+        var stops = PictureStops()
+        let start = Date()
+        var asked = 0
+        for reading in 0...10 {
+            // A tenth of a second a reading: under what a person sees.
+            let said = stops.saw(
+                stoppedFor: Double(reading) * 0.1, at: start.addingTimeInterval(Double(reading) * 2))
+            if said { asked += 1 }
+        }
+        #expect(asked == 0)
+    }
+
+    @Test("a picture isn't walked all the way down for one bad stretch")
+    func oneStretchAsksOnce() {
+        var stops = PictureStops()
+        let start = Date()
+        var asked = 0
+        for reading in 0...10 {
+            let said = stops.saw(
+                stoppedFor: Double(reading) * 0.4, at: start.addingTimeInterval(Double(reading) * 2))
+            if said { asked += 1 }
+        }
+        // Twenty seconds of a picture stopping: asked at the start and
+        // every eight seconds after it, not at every reading.
+        #expect(asked == 3)
+    }
+
+    @Test("a connection built again starts counting from nothing")
+    func aNewConnectionStartsAgain() {
+        var stops = PictureStops()
+        let start = Date()
+        _ = stops.saw(stoppedFor: 10, at: start)
+        _ = stops.saw(stoppedFor: 10.5, at: start.addingTimeInterval(2))
+        stops.forget()
+        // WebRTC's count starts at nothing on a new connection: that must
+        // not read as the picture coming back to life, nor as stopping.
+        let afterwards = stops.saw(stoppedFor: 0, at: start.addingTimeInterval(4))
+        let next = stops.saw(stoppedFor: 0.4, at: start.addingTimeInterval(6))
+        #expect(afterwards == false)
+        #expect(next == false)
+    }
+
+    @Test("the link's words say whether a pairing goes on or starts afresh")
+    func theLinkSaysWhetherItGoesOn() throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let resumed = try decoder.decode(
+            CallLinkMessage.self,
+            from: Data(#"{"type":"peer","video":true,"session":7,"resumed":true}"#.utf8))
+        #expect(resumed.resumed == true)
+        #expect(resumed.session == 7)
+        // An older server says nothing about it, and that means a new one.
+        let afresh = try decoder.decode(
+            CallLinkMessage.self, from: Data(#"{"type":"peer","video":true,"session":8}"#.utf8))
+        #expect(afresh.resumed == nil)
+
+        // And the word that asks for a smaller picture survives the trip.
+        let signal = try JSONEncoder().encode(PictureSignal(stopping: true))
+        #expect(try JSONDecoder().decode(PictureSignal.self, from: signal).stopping == true)
+    }
+}

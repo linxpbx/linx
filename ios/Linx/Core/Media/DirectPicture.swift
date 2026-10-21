@@ -47,18 +47,26 @@ struct PictureSignal: Codable, Equatable, Sendable {
     /// The sender's picture goes through the relay over TCP or TLS
     /// (`DirectPicture.overTCP`), so the other side keeps its own small too.
     var slowRoute: Bool?
+    /// The picture the sender is *watching* keeps stopping, so the other
+    /// side makes a smaller one. Only the end that sees the stopping knows
+    /// about it: the sender's own link can read as roomy while the picture
+    /// is breaking up on the way (the owner's calls from China, where the
+    /// sending phone read 2.6 Mbit/s of room while one frame in twenty was
+    /// being lost crossing the border, 2026-10-21).
+    var stopping: Bool?
     /// About the call's sound on this link (ADR-092, `DirectSound`).
     var sound: SoundWord?
 
     init(
         description: Description? = nil, candidate: Candidate? = nil, session: UInt64? = nil,
-        slowRoute: Bool? = nil, sound: SoundWord? = nil
+        slowRoute: Bool? = nil, sound: SoundWord? = nil, stopping: Bool? = nil
     ) {
         self.description = description
         self.candidate = candidate
         self.session = session
         self.slowRoute = slowRoute
         self.sound = sound
+        self.stopping = stopping
     }
 
     /// A word about the sound this version doesn't know (a later one's) is
@@ -70,6 +78,7 @@ struct PictureSignal: Codable, Equatable, Sendable {
         session = try c.decodeIfPresent(UInt64.self, forKey: .session)
         slowRoute = try c.decodeIfPresent(Bool.self, forKey: .slowRoute)
         sound = try? c.decodeIfPresent(SoundWord.self, forKey: .sound)
+        stopping = try c.decodeIfPresent(Bool.self, forKey: .stopping)
     }
 }
 
@@ -83,6 +92,9 @@ struct CallLinkMessage: Decodable, Sendable {
     var session: UInt64?
     /// "peer": the pairing goes on from the exchange while the call rang.
     var early: Bool?
+    /// "peer": the same pairing as before, after a link dropped and came
+    /// straight back. Both ends keep the picture they already have.
+    var resumed: Bool?
     /// "early": this phone made the call, and offers now.
     var offer: Bool?
     var data: PictureSignal?
@@ -93,6 +105,51 @@ struct CallLinkMessage: Decodable, Sendable {
     var room: String?
     var token: String?
     var url: String?
+}
+
+/// Counting the stops in the picture arriving — WebRTC's "freezes" — and
+/// deciding when the other side should be asked for a smaller one.
+///
+/// A stop or two over a call is nothing; a quarter of a second of stopping
+/// in each of two readings running (four seconds) is a picture breaking up,
+/// and a person sees it. Kept apart from the link itself, and pure, so the
+/// rule can be checked without a camera or a network.
+struct PictureStops {
+    /// WebRTC's running total at the last reading. It starts again from
+    /// nothing on a new connection, which reads as no stopping at all until
+    /// two readings have been seen — exactly right.
+    private var before: Double?
+    private var running = 0
+    private var told: Date?
+
+    /// A stop of this much within one reading (two seconds) is one a person
+    /// sees, not a frame arriving a little late.
+    static let stoppedEnough = 0.25
+    /// The least between two askings, so a picture isn't walked all the way
+    /// down for one bad stretch.
+    static let between: TimeInterval = 8
+
+    /// `seconds` is how long their picture has been stopped in all, so far.
+    /// True when they should be asked for a smaller one.
+    mutating func saw(stoppedFor seconds: Double, at now: Date = Date()) -> Bool {
+        defer { before = seconds }
+        guard let was = before, seconds - was >= Self.stoppedEnough else {
+            running = 0
+            return false
+        }
+        running += 1
+        guard running >= 2 else { return false }
+        running = 0
+        if let told, now.timeIntervalSince(told) < Self.between { return false }
+        told = now
+        return true
+    }
+
+    /// The connection is being built again: its counts start from nothing.
+    mutating func forget() {
+        before = nil
+        running = 0
+    }
 }
 
 @MainActor final class DirectPicture: NSObject {
@@ -383,6 +440,22 @@ struct CallLinkMessage: Decodable, Sendable {
             }
             polite = message.polite ?? false
             linkTries = 0
+            // The same pairing as before: one of the two links blinked and
+            // came back, and the picture never stopped. Nothing is built
+            // again — a rebuild costs both phones several seconds of frozen
+            // picture, and on a network that drops a link now and then (a
+            // Chinese hotel's Wi-Fi, the owner, 2026-10-21) it happened
+            // every minute or so.
+            if message.resumed == true, let session, message.session == session, connection != nil {
+                earlySession = nil
+                theyCameBack()
+                said(available: true)
+                return
+            }
+            // A pairing of its own: whatever is here now is this one's or
+            // is let go with it, so nothing is left waiting on the old one.
+            waitingForThem?.cancel()
+            waitingForThem = nil
             let goesOn = message.early == true && earlySession != nil && message.session == earlySession
             session = message.session
             // A connection nothing has been said on yet is kept (made at
@@ -409,9 +482,11 @@ struct CallLinkMessage: Decodable, Sendable {
             if wantCamera, !heldOffer { Task { [weak self] in try? await self?.setCamera(true) } }
         case "peer-gone":
             // The other side's link went: it reconnects, or the call is
-            // ending. A new "peer" starts afresh.
-            closeConnection()
-            said(mine: false, theirs: false, theirPicture: false)
+            // ending. The picture's own link doesn't go with it — it is a
+            // separate connection and keeps carrying frames — so it is held
+            // for a few seconds first. If they come back within them the
+            // call goes on untouched; if they don't, it is let go as before.
+            theirLinkWent()
         case "signal":
             // From an earlier pairing of the two ends: its connection is gone.
             if let theirs = message.data?.session, let session, theirs != session { return }
@@ -459,6 +534,36 @@ struct CallLinkMessage: Decodable, Sendable {
             guard let self, !self.stopped else { return }
             self.link.start()
         }
+    }
+
+    /// How long the picture is kept after the other end's link goes, in
+    /// case it is only a stumble (the server remembers the pairing for
+    /// twenty, `calllink.ResumeWithin`).
+    nonisolated static let waitForTheirLink: Duration = .seconds(10)
+    private var waitingForThem: Task<Void, Never>?
+
+    /// Their link has gone. The picture stays until it is clear they are
+    /// not coming back.
+    private func theirLinkWent() {
+        guard !stopped, waitingForThem == nil else { return }
+        onMark?("Their link went; the picture waits for it")
+        waitingForThem = Task { [weak self] in
+            try? await Task.sleep(for: Self.waitForTheirLink)
+            guard !Task.isCancelled, let self, !self.stopped else { return }
+            self.waitingForThem = nil
+            self.onMark?("Their link didn't come back")
+            self.closeConnection()
+            self.said(mine: false, theirs: false, theirPicture: false)
+        }
+    }
+
+    /// Their link came back in time, and it is the pairing this phone is
+    /// already in: nothing to do but stop waiting.
+    private func theyCameBack() {
+        let waited = waitingForThem != nil
+        waitingForThem?.cancel()
+        waitingForThem = nil
+        onMark?(waited ? "Their link came back; the picture goes on" : "The link came back; the picture goes on")
     }
 
     /// The call rings and Linx has opened its exchange: the caller offers
@@ -570,6 +675,9 @@ struct CallLinkMessage: Decodable, Sendable {
     }
 
     private func closeConnection() {
+        waitingForThem?.cancel()
+        waitingForThem = nil
+        theirStops.forget()
         watch?.cancel()
         watch = nil
         soundGone("the picture's link was made again")
@@ -650,6 +758,7 @@ struct CallLinkMessage: Decodable, Sendable {
             )
             useQuality()
         }
+        if signal.stopping == true { theirPictureKeepsStopping() }
         if let description = signal.description {
             usingTheirs = true
             defer { usingTheirs = false }
@@ -1074,6 +1183,26 @@ struct CallLinkMessage: Decodable, Sendable {
     nonisolated static let delayAlways = 0.6
     nonisolated static let delayTimes = 3.0
 
+    /// Their picture's stops, reading by reading (`PictureStops`).
+    private var theirStops = PictureStops()
+
+    /// The other side says the picture it is getting from this phone keeps
+    /// stopping: down a step, and twice as long before trying up again —
+    /// the same as a step the link turned out not to carry.
+    private func theirPictureKeepsStopping() {
+        guard video.mine else { return }
+        if tryingFor > 0 { tryingFor = 0 }
+        steadyWanted = min(steadyWanted * 2, Self.steadyMost)
+        roomyReadings = 0
+        steadyReadings = 0
+        tightReadings = 0
+        guard let smaller = VideoQuality(rawValue: quality.rawValue - 1) else { return }
+        startedSmall = false
+        squeezed = smaller
+        onMark?("Picture down to \(smaller.height)p: they say it keeps stopping")
+        useQuality()
+    }
+
     /// Onto a TCP route, either side's: the picture goes back to the step it
     /// starts at there, if it was bigger.
     private func startOverTCPSmall() {
@@ -1181,6 +1310,14 @@ struct CallLinkMessage: Decodable, Sendable {
         framesMost = max(framesMost, frames)
         if video.mine, let rtt = (pair?.values["currentRoundTripTime"] as? NSNumber)?.doubleValue, rtt > 0 {
             watchTheDelay(rtt)
+        }
+        // The picture arriving keeps stopping. The end that can do
+        // something about it is the *other* one, and its own link can read
+        // as having all the room in the world while frames are being lost
+        // on the way between the two — so it is told, and comes down a step.
+        if video.theirs, let freezes = how.freezes, theirStops.saw(stoppedFor: freezes.seconds) {
+            onMark?("Their picture keeps stopping: asking for a smaller one")
+            send(PictureSignal(stopping: true))
         }
         if video.mine, let room { follow(room: room) }
         how.room = room
