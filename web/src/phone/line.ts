@@ -3,13 +3,13 @@
 // audio relayed through Linx's TURN server when there's no direct route.
 // One call at a time in this slice (no hold or call waiting).
 import * as JsSIP from "jssip";
-import type { RTCSession } from "jssip/lib/RTCSession";
+import type { IncomingEvent, OutgoingEvent, RTCSession } from "jssip/lib/RTCSession";
 import type { RTCSessionEvent, UA } from "jssip/lib/UA";
 import type { IncomingRequest, OutgoingRequest } from "jssip/lib/SIPMessage";
 import type { DTMF_TRANSPORT } from "jssip/lib/Constants";
 import { api, type TurnCredentials, type WebPhone } from "@/api/client";
 import { capAudioSend, preferOpusFecDtx } from "./sdp";
-import { Ringtone } from "./ringtone";
+import { Ringback, Ringtone } from "./ringtone";
 import { loadAudioSettings, type AudioSettings } from "./settings";
 import { DirectPicture, type PictureState } from "./picture";
 import { GroupCall, type GroupJoin, type GroupState } from "./group";
@@ -87,6 +87,7 @@ export class PhoneLine {
   private reconnectTimer: number | undefined;
   private audio: HTMLAudioElement;
   private ringtone: Ringtone;
+  private ringback = new Ringback();
   private settings: AudioSettings = loadAudioSettings();
   private stopped = false;
   private directory: (number: string) => string | undefined = () => undefined;
@@ -544,16 +545,27 @@ export class PhoneLine {
     session.on("peerconnection", (e) => attach(e.peerconnection));
     if (session.connection) attach(session.connection);
 
+    // The other end is ringing. Nothing is sending sound yet unless the
+    // response carries some — a phone line's own ringing, or "the number
+    // you have dialled…" — in which case that is what should be heard.
+    session.on("progress", (e: IncomingEvent | OutgoingEvent) => {
+      if (direction !== "outgoing" || !("response" in e)) return;
+      if (e.response.body) this.ringback.stop();
+      else this.ringback.start();
+    });
+
     session.on("accepted", () => {
       answered = true;
       if (session.connection) void capAudioSend(session.connection);
       this.ringtone.stop();
+      this.ringback.stop();
       this.setCall({ phase: "active", answeredAt: Date.now() });
       this.startStats();
       this.startPicture(session, this.state.call?.videoCall ?? false, peer);
     });
     const finish = (missed: boolean) => {
       this.ringtone.stop();
+      this.ringback.stop();
       window.clearInterval(this.statsTimer);
       window.clearTimeout(this.reconnectTimer);
       if (this.session === session) {

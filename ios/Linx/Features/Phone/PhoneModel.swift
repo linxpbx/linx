@@ -210,6 +210,9 @@ import UIKit
     /// behind would make Linx think this phone is awake.
     private let inFront: @MainActor () -> Bool
     private let ringer = Ringer()
+    /// The ringing tone this phone plays itself while a call it made rings
+    /// at the other end (`Ringback`).
+    private let ringback: any CallTone
 
     private var agent: SIPUserAgent?
     private var reconnect: Task<Void, Never>?
@@ -261,8 +264,10 @@ import UIKit
         media: @escaping @MainActor (PhoneLine.Turn?) -> any SIPCallMedia = { WebRTCMedia(turn: $0) },
         calls: (any SystemCalls)? = nil,
         inFront: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState == .active },
-        report: @escaping @MainActor (Line, CallReport) -> Void = PhoneModel.sendToLinx
+        report: @escaping @MainActor (Line, CallReport) -> Void = PhoneModel.sendToLinx,
+        ringback: (any CallTone)? = nil
     ) {
+        self.ringback = ringback ?? Ringback()
         self.sendReport = report
         self.lineForThisPhone = line
         self.makeTransport = transport
@@ -374,7 +379,7 @@ import UIKit
         reconnect = nil
         relayRefresh?.cancel()
         relayRefresh = nil
-        ringer.stop()
+        stopRinging()
         UIDevice.current.isProximityMonitoringEnabled = false
         holdTheScreen(false)
         groupMedia?.stop()
@@ -449,6 +454,9 @@ import UIKit
         agent.onStatus = { [weak self] status in self?.lineChanged(status) }
         agent.onIncoming = { [weak self] peer, video in self?.incoming(peer, video: video) }
         agent.onProgress = { [weak self] in self?.ringingThere() }
+        // Asterisk or the phone line sent sound before the answer: that is
+        // the ringing from now on, not this phone's own tone.
+        agent.onEarlySound = { [weak self] in self?.ringback.stop() }
         agent.onEstablished = { [weak self] in self?.answered() }
         agent.onEnded = { [weak self] why in self?.ended(why) }
         agent.onVideoRefused = { [weak self] why in self?.problem = why }
@@ -1151,7 +1159,7 @@ import UIKit
                 return
             }
             guard call?.id == id, call?.phase == .ringing else { return }
-            ringer.stop()
+            stopRinging()
             Task { [weak self] in await self?.agent?.answer() }
         case .end(let id):
             end(id)
@@ -1199,7 +1207,7 @@ import UIKit
             return
         }
         guard let call, call.id == id else { return }
-        ringer.stop()
+        stopRinging()
         if let groupMedia {
             // Leaving the group call: it goes, and the phone call with it
             // if it's still there.
@@ -1224,7 +1232,7 @@ import UIKit
     /// The system restarted and has forgotten everything it knew. Whatever
     /// this phone had is over with it.
     private func systemForgotEverything() {
-        ringer.stop()
+        stopRinging()
         waking.forEach { $0.giveUp?.cancel() }
         waking.removeAll()
         if call != nil { agent?.hangUp() }
@@ -1362,7 +1370,7 @@ import UIKit
                 // The system wouldn't have it: a blocked number, or a Focus
                 // this caller isn't allowed through. Linx is told the phone
                 // is busy and rings whatever else the person has.
-                self.ringer.stop()
+                self.stopRinging()
                 self.agent?.decline()
                 self.call = nil
                 return
@@ -1409,14 +1417,24 @@ import UIKit
         ringer.start()
     }
 
+    /// Whatever this phone was playing for itself — the ring of a call
+    /// coming in, the ringing tone of one going out — is over.
+    private func stopRinging() {
+        ringer.stop()
+        ringback.stop()
+    }
+
     private func ringingThere() {
         guard let call else { return }
         self.call?.ringingThere = true
         calls.reportRingingThere(id: call.id)
+        // The other end is ringing and there is nothing to hear until it
+        // answers: the phone that dialled makes the ringing tone (ADR-095).
+        ringback.start()
     }
 
     private func answered() {
-        ringer.stop()
+        stopRinging()
         hangUpForTheBench()
         defer { theScreenDuringTheCall() }
         guard var current = call else { return }
@@ -1474,7 +1492,7 @@ import UIKit
         groupMedia = nil
         group = nil
         groupRoom = nil
-        ringer.stop()
+        stopRinging()
         UIDevice.current.isProximityMonitoringEnabled = false
         holdTheScreen(false)
         smallWindow.callIsUp = false

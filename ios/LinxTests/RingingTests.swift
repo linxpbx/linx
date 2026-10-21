@@ -14,6 +14,21 @@ import Testing
 // system is a stand-in that records what it was told and acts as the real one
 // does when the person presses a button.
 
+/// A tone of the app's own, without a speaker: it only remembers whether
+/// it is playing, and every time it started.
+@MainActor final class FakeTone: CallTone {
+    private(set) var playing = false
+    private(set) var starts = 0
+
+    func start() {
+        guard !playing else { return }
+        playing = true
+        starts += 1
+    }
+
+    func stop() { playing = false }
+}
+
 /// The system, without one. It keeps what it was told, and passes on what the
 /// person asked for exactly as CallKit's provider delegate would.
 @MainActor final class FakeSystemCalls: SystemCalls {
@@ -91,13 +106,13 @@ struct RingingTests {
 
     /// A phone with its line signed in, and a stand-in system beside it.
     private func phone(
-        calls: FakeSystemCalls, inFront: Bool = true
+        calls: FakeSystemCalls, inFront: Bool = true, ringback: FakeTone? = nil
     ) async -> (PhoneModel, FakeTransport, FakeMedia) {
         let transport = FakeTransport()
         let media = FakeMedia()
         let phone = PhoneModel(
             line: { Self.line() }, transport: { _ in transport }, media: { _ in media },
-            calls: calls, inFront: { inFront })
+            calls: calls, inFront: { inFront }, ringback: ringback)
         await phone.start()
         let first = transport.last("REGISTER")!
         var challenge = SIPMessage.response(401, "Unauthorized", to: first)
@@ -630,5 +645,72 @@ struct RingingTests {
         } else {
             #expect(CallStyle.inAppRingingNote != nil)
         }
+    }
+
+    // MARK: - The ringing tone of a call going out
+
+    @Test("a call to an extension rings in the caller's ear until it is answered")
+    func theCallerHearsItRinging() async throws {
+        let calls = FakeSystemCalls()
+        let tone = FakeTone()
+        let (phone, transport, media) = await phone(calls: calls, ringback: tone)
+
+        phone.typed = "101"
+        phone.dial()
+        #expect(await eventually { transport.last("INVITE") != nil })
+        let invite = try #require(transport.last("INVITE"))
+        // Nothing to hear yet: the call hasn't reached the other end.
+        #expect(!tone.playing)
+
+        // Asterisk answers an extension's INVITE with a bare 180 and no
+        // sound in it — the ringing tone is the dialling phone's to make.
+        transport.asterisk(SIPMessage.response(180, "Ringing", to: invite).withTag("theirs"))
+        #expect(tone.playing)
+
+        var ok = SIPMessage.response(200, "OK", to: invite).withTag("theirs")
+        ok.add("Contact", "<sip:101@1.2.3.4:8089;transport=ws>")
+        ok.body = "v=0\r\ntheir-answer\r\n"
+        transport.asterisk(ok)
+        #expect(await eventually { phone.call?.phase == .active })
+        // The moment they pick up, the tone is out of the way of their voice.
+        #expect(!tone.playing)
+        #expect(tone.starts == 1)
+        _ = media
+    }
+
+    @Test("a phone line's own ringing is played instead of this phone's")
+    func theLinesRingingWins() async throws {
+        let calls = FakeSystemCalls()
+        let tone = FakeTone()
+        let (phone, transport, _) = await phone(calls: calls, ringback: tone)
+
+        phone.typed = "0501234567"
+        phone.dial()
+        #expect(await eventually { transport.last("INVITE") != nil })
+        let invite = try #require(transport.last("INVITE"))
+
+        // 183 with sound in it: the provider is sending its own ringing, or
+        // "the number you have dialled…", and that is what should be heard.
+        var progress = SIPMessage.response(183, "Session Progress", to: invite).withTag("theirs")
+        progress.body = "v=0\r\ntheir-early-answer\r\n"
+        transport.asterisk(progress)
+        #expect(await eventually { !tone.playing })
+    }
+
+    @Test("a call given up on before it is answered stops ringing")
+    func givingUpStopsTheTone() async throws {
+        let calls = FakeSystemCalls()
+        let tone = FakeTone()
+        let (phone, transport, _) = await phone(calls: calls, ringback: tone)
+
+        phone.typed = "101"
+        phone.dial()
+        #expect(await eventually { transport.last("INVITE") != nil })
+        let invite = try #require(transport.last("INVITE"))
+        transport.asterisk(SIPMessage.response(180, "Ringing", to: invite).withTag("theirs"))
+        #expect(tone.playing)
+
+        phone.hangUp()
+        #expect(await eventually { !tone.playing })
     }
 }

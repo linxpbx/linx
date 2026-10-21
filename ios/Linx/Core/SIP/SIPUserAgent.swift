@@ -173,6 +173,10 @@ extension SIPCallMedia {
     var onIncoming: ((SIPPeer, Bool) -> Void)?
     /// Their phone is ringing (180 or 183).
     var onProgress: (() -> Void)?
+    /// Sound arrived before the answer (a 183 with a body): the ringing
+    /// tone the provider sends, or "the number you have dialled…". The
+    /// phone stops making a ringing tone of its own.
+    var onEarlySound: (() -> Void)?
     var onEstablished: (() -> Void)?
     var onEnded: ((SIPEnded) -> Void)?
     /// A picture couldn't be added, and why in plain words.
@@ -765,6 +769,7 @@ extension SIPCallMedia {
                 guard let self else { return }
                 do {
                     try await current.media.accept(answer: message.body)
+                    self.onEarlySound?()
                 } catch {
                     // No early sound; the call itself is unaffected.
                     self.call?.earlyMedia = false

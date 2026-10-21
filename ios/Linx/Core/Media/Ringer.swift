@@ -11,7 +11,15 @@ import Foundation
 // app only rings for itself where CallKit may not be used — mainland China
 // (ADR-078) — and while it is already open there.
 
-@MainActor final class Ringer {
+/// A tone the app plays to itself during a call: the ring for one coming
+/// in, the ringing tone for one going out. Behind a protocol so a test can
+/// hear it without a speaker.
+@MainActor protocol CallTone: AnyObject {
+    func start()
+    func stop()
+}
+
+@MainActor final class Ringer: CallTone {
     private var player: AVAudioPlayer?
 
     func start() {
@@ -38,11 +46,11 @@ import Foundation
 
     /// One three-second turn of the ring, as a WAV in memory: 480 Hz, a
     /// breath, 440 Hz, then silence.
-    private static let sound: Data = wav(seconds: 3) { time in
+    private static let sound: Data = Tones.wav(seconds: 3) { time in
         let level: Double
         switch time {
-        case 0..<0.4: level = sine(480, time)
-        case 0.45..<0.85: level = sine(440, time)
+        case 0..<0.4: level = Tones.sine(480, time)
+        case 0.45..<0.85: level = Tones.sine(440, time)
         default: return 0
         }
         // A short fade in and out, so the tone doesn't click.
@@ -50,12 +58,61 @@ import Foundation
         return level * 0.25 * min(1, into)
     }
 
-    private static func sine(_ hertz: Double, _ time: Double) -> Double {
+}
+
+/// The tone a phone plays to itself while a call it is making rings at the
+/// other end.
+///
+/// Nobody else makes it. Asterisk answers an extension's INVITE with a bare
+/// 180 Ringing and no sound in it, because the standard leaves the ringing
+/// tone to the phone that dialled — which is what a desk phone does. The app
+/// made none, so a call to an extension was silent from the moment it was
+/// dialled until the other person picked up (owner, 2026-10-21). A call out
+/// through a phone line is different: the provider sends its own ringing (or
+/// "the number you have dialled…") in a 183, and that is played instead of
+/// this one.
+///
+/// By then the call's audio session belongs to CallKit, and **nothing here
+/// may touch it**: setting the category on a session CallKit has handed over
+/// stops a call's sound dead, both ways (2026-10-04). So this plays into
+/// whatever is already set up and follows the call's own route — the
+/// earpiece, the loudspeaker or a headset, like the voice that follows it.
+@MainActor final class Ringback: CallTone {
+    private var player: AVAudioPlayer?
+
+    func start() {
+        guard player == nil, let player = try? AVAudioPlayer(data: Self.sound) else { return }
+        player.numberOfLoops = -1
+        player.prepareToPlay()
+        player.play()
+        self.player = player
+    }
+
+    func stop() {
+        player?.stop()
+        player = nil
+    }
+
+    /// One turn of it: 425 Hz for a second, then three seconds of quiet —
+    /// the ringing tone of the UAE and most of the world outside North
+    /// America (ITU-T E.180). Quieter than the ring, because this one is
+    /// usually held to an ear.
+    private static let sound: Data = Tones.wav(seconds: 4) { time in
+        guard time < 1 else { return 0 }
+        let edge = min(time, 1 - time, 0.02) / 0.02
+        return Tones.sine(425, time) * 0.18 * max(0, edge)
+    }
+}
+
+/// Making a tone in memory, so the app ships no sound files for its own
+/// ringing.
+enum Tones {
+    static func sine(_ hertz: Double, _ time: Double) -> Double {
         sin(2 * .pi * hertz * time)
     }
 
     /// A mono 16-bit WAV at 16 kHz, built from a function of time.
-    private static func wav(seconds: Double, rate: Int = 16000, sample: (Double) -> Double) -> Data {
+    static func wav(seconds: Double, rate: Int = 16000, sample: (Double) -> Double) -> Data {
         let count = Int(seconds * Double(rate))
         var samples = Data(capacity: count * 2)
         for i in 0..<count {
