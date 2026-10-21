@@ -380,31 +380,27 @@ jobs:
   # Publishing (master only) waits for everything above: tests, security,
   # every scan and every suite. Images come from the builds' caches.
   publish:
-    needs: [test, security, images, asterisk-build, calls, browser, install, ios]
-    # Everything above must pass, with one exception: GitHub sometimes has no
-    # macOS machine free and kills the Mac job at 15 minutes with no steps run.
-    # That is a cancellation, not a failure, and the iPhone app is not inside
-    # these images, so it must not hold the server's images back. A real iOS
-    # failure still stops publishing.
+    # Everything that goes into these images must pass. The Mac job (`ios`)
+    # is deliberately **not** among them: the iPhone app is not inside any
+    # of these images, it is never shipped from them, and GitHub regularly
+    # has no macOS machine free and kills that job at 15 minutes with no
+    # steps run — five times in two days, each time holding the server's
+    # images back for nothing.
     #
-    # It has to be always(), not !cancelled(): a cancelled job makes its
-    # dependents cancelled too, so cancelled() is true *here* and
-    # !cancelled() could never let this run (seen on run 39629428241, where
-    # every real job passed and the images were still skipped). always()
-    # takes nothing away, because each job below is named and must have
-    # succeeded — a run cancelled by hand leaves them unfinished, so it
-    # still publishes nothing.
+    # Naming it in `needs` cannot be rescued by a condition. A cancelled job
+    # makes its dependents cancelled, so `!cancelled()` is false here
+    # (run 39629428241) and even `always()` doesn't run them (39636355055,
+    # where every real job passed and these were still skipped). The only
+    # way to stop an absent machine deciding this is not to depend on it.
+    #
+    # The app is still built, tested and built for a device on every push by
+    # the `ios` job, and a real failure there still turns the run red — it
+    # just no longer withholds images it has nothing to do with. The app
+    # reaches a phone from this Mac (docs/ops/APPLE_SIGNING.md), after the
+    # phone bench, never from here.
+    needs: [test, security, images, asterisk-build, calls, browser, install]
     if: >-
-      always()
-      && github.event_name == 'push' && github.ref == 'refs/heads/master'
-      && needs.test.result == 'success'
-      && needs.security.result == 'success'
-      && needs.images.result == 'success'
-      && needs['asterisk-build'].result == 'success'
-      && needs.calls.result == 'success'
-      && needs.browser.result == 'success'
-      && needs.install.result == 'success'
-      && (needs.ios.result == 'success' || needs.ios.result == 'cancelled')
+      github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -475,24 +471,11 @@ jobs:
   # cache; also waits for everything.
   asterisk-push:
     name: push (asterisk, ${{ matrix.arch }})
-    needs: [test, security, images, asterisk-build, calls, browser, install, ios]
-    # Everything above must pass, with one exception: GitHub sometimes has no
-    # macOS machine free and kills the Mac job at 15 minutes with no steps run.
-    # That is a cancellation, not a failure, and the iPhone app is not inside
-    # these images, so it must not hold the server's images back. A real iOS
-    # failure still stops publishing. always(), not !cancelled(), for the
-    # reason spelled out on `publish` above.
+    # Everything that goes into the image must pass; the Mac job is not one
+    # of them, for the reason spelled out on `publish` above.
+    needs: [test, security, images, asterisk-build, calls, browser, install]
     if: >-
-      always()
-      && github.event_name == 'push' && github.ref == 'refs/heads/master'
-      && needs.test.result == 'success'
-      && needs.security.result == 'success'
-      && needs.images.result == 'success'
-      && needs['asterisk-build'].result == 'success'
-      && needs.calls.result == 'success'
-      && needs.browser.result == 'success'
-      && needs.install.result == 'success'
-      && (needs.ios.result == 'success' || needs.ios.result == 'cancelled')
+      github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     permissions:
