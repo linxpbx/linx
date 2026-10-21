@@ -386,8 +386,16 @@ jobs:
     # That is a cancellation, not a failure, and the iPhone app is not inside
     # these images, so it must not hold the server's images back. A real iOS
     # failure still stops publishing.
+    #
+    # It has to be always(), not !cancelled(): a cancelled job makes its
+    # dependents cancelled too, so cancelled() is true *here* and
+    # !cancelled() could never let this run (seen on run 39629428241, where
+    # every real job passed and the images were still skipped). always()
+    # takes nothing away, because each job below is named and must have
+    # succeeded — a run cancelled by hand leaves them unfinished, so it
+    # still publishes nothing.
     if: >-
-      !cancelled()
+      always()
       && github.event_name == 'push' && github.ref == 'refs/heads/master'
       && needs.test.result == 'success'
       && needs.security.result == 'success'
@@ -472,9 +480,10 @@ jobs:
     # macOS machine free and kills the Mac job at 15 minutes with no steps run.
     # That is a cancellation, not a failure, and the iPhone app is not inside
     # these images, so it must not hold the server's images back. A real iOS
-    # failure still stops publishing.
+    # failure still stops publishing. always(), not !cancelled(), for the
+    # reason spelled out on `publish` above.
     if: >-
-      !cancelled()
+      always()
       && github.event_name == 'push' && github.ref == 'refs/heads/master'
       && needs.test.result == 'success'
       && needs.security.result == 'success'
