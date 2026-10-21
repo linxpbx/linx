@@ -576,6 +576,55 @@ struct BadNetworkPictureTests {
         #expect(next == false)
     }
 
+    @Test("a ceiling the other side asked for is given back a step at a time")
+    func theCeilingComesBackSlowly() {
+        var ceiling = AskedCeiling()
+        #expect(ceiling.most == nil)
+        // Nothing to give back while nobody has asked.
+        var moved = false
+        for _ in 0..<(AskedCeiling.firstWait + 1) where ceiling.quietReading() { moved = true }
+        #expect(moved == false)
+
+        // HD was on and the picture kept stopping: 540p from now.
+        ceiling.asked(below: .hd)
+        #expect(ceiling.most == .high)
+        // And it stays there. Six seconds was what the ladder's own climb
+        // would have taken — the whole point is that it doesn't.
+        var quiet = 0
+        while quiet < AskedCeiling.firstWait - 1 {
+            #expect(ceiling.quietReading() == false)
+            quiet += 1
+        }
+        #expect(ceiling.quietReading() == true)
+        #expect(ceiling.most == .hd)
+        // One more quiet minute and the link's own room decides again.
+        for _ in 0..<(AskedCeiling.firstWait - 1) { _ = ceiling.quietReading() }
+        #expect(ceiling.quietReading() == true)
+        #expect(ceiling.most == nil)
+    }
+
+    @Test("asking again waits twice as long before giving anything back")
+    func askingAgainWaitsLonger() {
+        var ceiling = AskedCeiling()
+        ceiling.asked(below: .hd)
+        ceiling.asked(below: .high)
+        #expect(ceiling.most == .standard)
+        // Twice the wait now: the first wait's worth of readings gives
+        // nothing back.
+        for _ in 0..<AskedCeiling.firstWait { #expect(ceiling.quietReading() == false) }
+        for _ in 0..<(AskedCeiling.firstWait - 1) { #expect(ceiling.quietReading() == false) }
+        #expect(ceiling.quietReading() == true)
+        #expect(ceiling.most == .high)
+    }
+
+    @Test("the smallest picture there is can't be asked to be smaller")
+    func thereIsAFloor() {
+        var ceiling = AskedCeiling()
+        ceiling.asked(below: .thin)
+        // .thin is the smallest step, so the ceiling is left where it was.
+        #expect(ceiling.most == nil)
+    }
+
     @Test("the link's words say whether a pairing goes on or starts afresh")
     func theLinkSaysWhetherItGoesOn() throws {
         let decoder = JSONDecoder()

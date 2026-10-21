@@ -152,6 +152,43 @@ struct PictureStops {
     }
 }
 
+/// The most the other side has asked this phone's picture to be, because
+/// what it was getting kept stopping (ADR-096), and how that is given back:
+/// a step at a time after a minute of nobody complaining, with the wait
+/// doubling each time they ask again — the same shape as the ladder's own
+/// `steadyWanted`, and for the same reason. A ceiling that lifts in six
+/// seconds only sets the picture breaking again.
+struct AskedCeiling {
+    /// The most this phone may send, if they have asked for one.
+    private(set) var most: VideoQuality?
+    private var readings = 0
+    private var wanted = Self.firstWait
+
+    /// Readings (two seconds apart) before a step is given back, and the
+    /// most it ever waits.
+    static let firstWait = 30
+    static let longestWait = 120
+
+    /// They say the picture they are getting keeps stopping, and `quality`
+    /// is what this phone is sending now: the ceiling goes one below it.
+    mutating func asked(below quality: VideoQuality) {
+        if most != nil { wanted = min(wanted * 2, Self.longestWait) }
+        readings = 0
+        most = VideoQuality(rawValue: quality.rawValue - 1) ?? most
+    }
+
+    /// One reading with no word from them. True when the ceiling has just
+    /// moved — a step back up, or away altogether.
+    mutating func quietReading() -> Bool {
+        guard let asked = most else { return false }
+        readings += 1
+        guard readings >= wanted else { return false }
+        readings = 0
+        most = VideoQuality(rawValue: asked.rawValue + 1)
+        return true
+    }
+}
+
 @MainActor final class DirectPicture: NSObject {
     private(set) var video = CallVideo()
     let tracks: VideoTracks
@@ -1196,10 +1233,22 @@ struct PictureStops {
         roomyReadings = 0
         steadyReadings = 0
         tightReadings = 0
+        theirCeiling.asked(below: quality)
         guard let smaller = VideoQuality(rawValue: quality.rawValue - 1) else { return }
         startedSmall = false
         squeezed = smaller
         onMark?("Picture down to \(smaller.height)p: they say it keeps stopping")
+        useQuality()
+    }
+
+    /// A reading with no word from them. After enough of them a step of the
+    /// ceiling they asked for is given back, and the ladder may climb into
+    /// it again as the link allows.
+    private func keepingTheirCeiling() {
+        guard theirCeiling.quietReading() else { return }
+        onMark?(
+            theirCeiling.most.map { "Picture may go to \($0.height)p again: it has stopped stopping" }
+                ?? "Picture may go as big as the link allows again")
         useQuality()
     }
 
@@ -1319,6 +1368,7 @@ struct PictureStops {
             onMark?("Their picture keeps stopping: asking for a smaller one")
             send(PictureSignal(stopping: true))
         }
+        if video.mine { keepingTheirCeiling() }
         if video.mine, let room { follow(room: room) }
         how.room = room
         tell(how)
@@ -1577,9 +1627,16 @@ struct PictureStops {
 
     /// The step before any squeezing.
     private var unsqueezed: VideoQuality {
-        if overTCP || theirsOverTCP { return hd ? Self.withHD : Self.overTCPMost }
-        return hd ? Self.withHD : Self.standard
+        let most = overTCP || theirsOverTCP ? (hd ? Self.withHD : Self.overTCPMost) : (hd ? Self.withHD : Self.standard)
+        // A ceiling the other side asked for binds even over HD: the end
+        // watching is the only one that can see the picture breaking up,
+        // and a sender's own link reads roomy while it happens.
+        if let asked = theirCeiling.most, asked < most { return asked }
+        return most
     }
+
+    /// The most the other side has asked this phone to send (`AskedCeiling`).
+    private var theirCeiling = AskedCeiling()
 
     /// The step a thin link has taken the picture down to, if any.
     private var squeezed: VideoQuality?
