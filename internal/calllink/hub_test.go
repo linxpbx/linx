@@ -101,13 +101,13 @@ func TestBothEndsAreToldWhenTheCallWasAnswered(t *testing.T) {
 
 func TestAReconnectReplacesTheOldLinkAndPairsAgain(t *testing.T) {
 	var h Hub
-	a := h.Join(Leg{Channel: "A", Peer: "B", PeerLinx: true})
-	b := h.Join(Leg{Channel: "B", Peer: "A", PeerLinx: true})
+	a := h.Join(Leg{Channel: "A", Peer: "B", PeerLinx: true, CanResume: true})
+	b := h.Join(Leg{Channel: "B", Peer: "A", PeerLinx: true, CanResume: true})
 	first := next(t, a)
 	if fb := next(t, b); first["session"] == nil || fb["session"] != first["session"] {
 		t.Fatalf("the two ends of one pairing have different sessions: %v %v", first, fb)
 	}
-	a2 := h.Join(Leg{Channel: "A", Peer: "B", PeerLinx: true})
+	a2 := h.Join(Leg{Channel: "A", Peer: "B", PeerLinx: true, CanResume: true})
 	if _, ok := <-a.Out; ok {
 		// drain the one queued before close, if any
 		for range a.Out {
@@ -159,8 +159,8 @@ func TestASlowDeviceIsLetGo(t *testing.T) {
 // time (China, 2026-10-21).
 func TestALinkThatComesStraightBackGoesOn(t *testing.T) {
 	var h Hub
-	a := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_b-2", PeerLinx: true})
-	b := h.Join(Leg{Channel: "PJSIP/d_b-2", Peer: "PJSIP/d_a-1", PeerLinx: true})
+	a := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_b-2", PeerLinx: true, CanResume: true})
+	b := h.Join(Leg{Channel: "PJSIP/d_b-2", Peer: "PJSIP/d_a-1", PeerLinx: true, CanResume: true})
 	first := next(t, a)
 	next(t, b)
 	if first["resumed"] != nil {
@@ -178,7 +178,7 @@ func TestALinkThatComesStraightBackGoesOn(t *testing.T) {
 	}
 
 	// And comes back: the same two ends, so the same pairing.
-	again := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_b-2", PeerLinx: true})
+	again := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_b-2", PeerLinx: true, CanResume: true})
 	back, told := next(t, again), next(t, b)
 	for _, p := range []map[string]any{back, told} {
 		if p["resumed"] != true {
@@ -198,8 +198,8 @@ func TestALinkThatComesStraightBackGoesOn(t *testing.T) {
 // the same two people later, which has channels of its own anyway.
 func TestAPairingIsForgottenAfterAWhile(t *testing.T) {
 	var h Hub
-	a := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_b-2", PeerLinx: true})
-	b := h.Join(Leg{Channel: "PJSIP/d_b-2", Peer: "PJSIP/d_a-1", PeerLinx: true})
+	a := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_b-2", PeerLinx: true, CanResume: true})
+	b := h.Join(Leg{Channel: "PJSIP/d_b-2", Peer: "PJSIP/d_a-1", PeerLinx: true, CanResume: true})
 	session := next(t, a)["session"]
 	next(t, b)
 
@@ -212,7 +212,7 @@ func TestAPairingIsForgottenAfterAWhile(t *testing.T) {
 	}
 	h.mu.Unlock()
 
-	again := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_b-2", PeerLinx: true})
+	again := h.Join(Leg{Channel: "PJSIP/d_a-1", Peer: "PJSIP/d_b-2", PeerLinx: true, CanResume: true})
 	back := next(t, again)
 	next(t, b)
 	if back["resumed"] == true {
@@ -227,5 +227,43 @@ func TestAPairingIsForgottenAfterAWhile(t *testing.T) {
 	h.mu.Unlock()
 	if kept != 0 {
 		t.Fatalf("%d pairings still held", kept)
+	}
+}
+
+// Resuming is only for two ends that both know how to. The session number
+// is what keeps an end from taking what was said on the pairing before as
+// this one's, so an end that would build a new connection anyway has to be
+// given a new number: two browsers, which don't resume, went into an
+// endless round of offers and answers when they weren't (CI run
+// 39632296425).
+func TestAnEndThatCannotResumeGetsANewPairing(t *testing.T) {
+	for _, both := range []struct {
+		name string
+		a, b bool
+	}{
+		{"neither end can", false, false},
+		{"only the one that came back can", true, false},
+		{"only the one that stayed can", false, true},
+	} {
+		t.Run(both.name, func(t *testing.T) {
+			var h Hub
+			a := h.Join(Leg{Channel: "A", Peer: "B", PeerLinx: true, CanResume: both.a})
+			b := h.Join(Leg{Channel: "B", Peer: "A", PeerLinx: true, CanResume: both.b})
+			session := next(t, a)["session"]
+			next(t, b)
+
+			h.Leave(a)
+			next(t, b)
+			again := h.Join(Leg{Channel: "A", Peer: "B", PeerLinx: true, CanResume: both.a})
+			back, told := next(t, again), next(t, b)
+			for _, p := range []map[string]any{back, told} {
+				if p["resumed"] == true {
+					t.Fatalf("a pairing was resumed for an end that can't: %v", p)
+				}
+				if p["session"] == session {
+					t.Fatalf("a new pairing kept the old session %v", session)
+				}
+			}
+		})
 	}
 }

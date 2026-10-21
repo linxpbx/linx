@@ -22,6 +22,15 @@ type Leg struct {
 	// PeerLinx is whether that channel is an app's or a browser's, which
 	// can open a link of its own; a desk phone or a trunk can't.
 	PeerLinx bool
+	// CanResume is whether this device knows how to go on with the picture
+	// it already has when its link drops and comes straight back
+	// (PeerMessage.Resumed, ADR-096). A pairing is only resumed when both
+	// ends say so: the session number is what keeps an older device from
+	// taking what was said on the pairing before as this one's, so an end
+	// that would build a new connection anyway must be given a new number
+	// (two browsers, which don't, went into an endless round of offers and
+	// answers when they weren't — CI run 39632296425).
+	CanResume bool
 	// AnsweredAt is when Asterisk joined this channel to the other side
 	// (its bridge was made): the one moment every device on the call
 	// counts its timer from (owner, 2026-10-17). Zero when not known.
@@ -165,7 +174,7 @@ func (h *Hub) JoinEarly(leg Leg, early uint64) *Member {
 		resumed := false
 		switch kept, ok := h.holds[pairKey(m.Channel, other.Channel)]; {
 		case early:
-		case ok:
+		case ok && m.CanResume && other.CanResume:
 			// The same two ends as a moment ago: the pairing goes on.
 			session, resumed = kept.session, true
 		default:

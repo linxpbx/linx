@@ -62,6 +62,9 @@ type lineLink struct {
 	cancel context.CancelFunc
 	// early is a phone that sets its picture up while the call rings.
 	early bool
+	// resume is a phone that knows how to go on with the picture it has
+	// when this link drops and comes straight back (Leg.CanResume).
+	resume bool
 
 	mu     sync.Mutex
 	member *calllink.Member
@@ -85,18 +88,19 @@ func newLineLinks(ctx context.Context, resolver lineResolver, hub *calllink.Hub,
 // dropped: the relay has already limited its size and rate.
 func (l *lineLinks) received(b []byte) {
 	var in struct {
-		Call  string          `json:"call"`
-		Open  bool            `json:"open"`
-		Early bool            `json:"early"`
-		Close bool            `json:"close"`
-		Msg   json.RawMessage `json:"msg"`
+		Call   string          `json:"call"`
+		Open   bool            `json:"open"`
+		Early  bool            `json:"early"`
+		Resume bool            `json:"resume"`
+		Close  bool            `json:"close"`
+		Msg    json.RawMessage `json:"msg"`
 	}
 	if json.Unmarshal(b, &in) != nil || !callIDOK(in.Call) {
 		return
 	}
 	switch {
 	case in.Open:
-		l.open(in.Call, in.Early)
+		l.open(in.Call, in.Early, in.Resume)
 	case in.Close:
 		l.close(in.Call)
 	case len(in.Msg) > 0:
@@ -104,7 +108,7 @@ func (l *lineLinks) received(b []byte) {
 	}
 }
 
-func (l *lineLinks) open(call string, early bool) {
+func (l *lineLinks) open(call string, early, resume bool) {
 	l.mu.Lock()
 	if old := l.links[call]; old != nil {
 		old.cancel()
@@ -116,7 +120,7 @@ func (l *lineLinks) open(call string, early bool) {
 		return
 	}
 	ctx, cancel := context.WithCancel(l.ctx)
-	link := &lineLink{cancel: cancel, early: early}
+	link := &lineLink{cancel: cancel, early: early, resume: resume}
 	l.links[call] = link
 	l.mu.Unlock()
 	go l.run(ctx, call, link)
@@ -238,6 +242,7 @@ func (l *lineLinks) run(ctx context.Context, call string, link *lineLink) {
 		return
 	}
 	link.mu.Lock()
+	leg.CanResume = link.resume
 	m := l.hub.JoinEarly(leg, link.session)
 	link.member = m
 	link.mu.Unlock()

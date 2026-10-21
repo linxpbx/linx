@@ -478,12 +478,21 @@ struct AskedCeiling {
             polite = message.polite ?? false
             linkTries = 0
             // The same pairing as before: one of the two links blinked and
-            // came back, and the picture never stopped. Nothing is built
-            // again — a rebuild costs both phones several seconds of frozen
-            // picture, and on a network that drops a link now and then (a
-            // Chinese hotel's Wi-Fi, the owner, 2026-10-21) it happened
-            // every minute or so.
-            if message.resumed == true, let session, message.session == session, connection != nil {
+            // came back, and the picture carried on through it. Nothing is
+            // built again — a rebuild costs both phones several seconds of
+            // frozen picture, and on a network that drops a link now and
+            // then (a Chinese hotel's Wi-Fi, the owner, 2026-10-21) it
+            // happened every minute or so.
+            //
+            // Only while the picture's own route is still carrying it. A
+            // link goes because the network did, and the route can go with
+            // it — a relay allocation does not outlive the connection it
+            // was made on, which is every call where the relay over TLS is
+            // the only way through. Then the connection has nothing worth
+            // keeping and is built again, exactly as before this rule: the
+            // bench's cut-mid-call call proved it, where holding on to a
+            // dead route left their picture gone for the rest of the call.
+            if message.resumed == true, let session, message.session == session, routeIsCarrying {
                 earlySession = nil
                 theyCameBack()
                 said(available: true)
@@ -594,8 +603,21 @@ struct AskedCeiling {
         }
     }
 
+    /// Whether the picture's route is still carrying it. Anything else —
+    /// no connection, a route checking, disconnected or failed — means
+    /// there is nothing worth keeping across a link that came back.
+    private var routeIsCarrying: Bool {
+        guard let connection else { return false }
+        switch connection.iceConnectionState {
+        case .connected, .completed: return true
+        default: return false
+        }
+    }
+
     /// Their link came back in time, and it is the pairing this phone is
-    /// already in: nothing to do but stop waiting.
+    /// already in, still carrying the picture: the connection, the camera,
+    /// the tracks and the sound all stay exactly as they are, and there is
+    /// nothing to do but stop waiting.
     private func theyCameBack() {
         let waited = waitingForThem != nil
         waitingForThem?.cancel()
@@ -1880,11 +1902,14 @@ final class FirstFrame: NSObject, RTCVideoRenderer, @unchecked Sendable {
         return "{\"call\":\(id),\"\(key)\":\(value)}"
     }
 
-    /// {"call":ID,"open":true,"early":true}: opens the link, and says this
-    /// phone sets its picture up while the call rings.
+    /// {"call":ID,"open":true,"early":true,"resume":true}: opens the link,
+    /// and says this phone sets its picture up while the call rings and
+    /// knows how to go on with the picture it has if the link drops and
+    /// comes straight back (ADR-096). Linx only resumes a pairing when
+    /// both ends say the second of those.
     static func opening(_ callID: String) -> String {
         let id = String(decoding: (try? JSONEncoder().encode(callID)) ?? Data("\"\"".utf8), as: UTF8.self)
-        return "{\"call\":\(id),\"open\":true,\"early\":true}"
+        return "{\"call\":\(id),\"open\":true,\"early\":true,\"resume\":true}"
     }
 
     /// {"call":ID,"msg":<data>}: data is already JSON, sent as it is.
