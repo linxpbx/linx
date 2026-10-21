@@ -63,7 +63,22 @@ import SwiftUI
     private func newAccount(_ id: UUID?) -> Account {
         let account = Account(session: makeSession(id), storedAs: id, calls: calls.line())
         account.onSignedIn = { [weak self] in await self?.askAboutNotifications() }
+        // An account added while the screens are up wants its team live as
+        // much as the ones that were here first.
+        account.watchTheTeam(teamsAreWanted)
         return account
+    }
+
+    /// Whether the screens are watching, kept so an account that arrives or
+    /// signs in later is watched too (`Account.watchTheTeam`).
+    private var teamsAreWanted = false
+
+    /// Every account's team is live at once while the tabs are on screen: a
+    /// list that only filled in when you looked at it would be a switcher by
+    /// another name (docs/MULTI_ACCOUNT.md §2).
+    func watchTheTeams(_ wanted: Bool = true) {
+        teamsAreWanted = wanted
+        for account in accounts { account.watchTheTeam(wanted) }
     }
 
     // MARK: - The list (docs/MULTI_ACCOUNT.md §4)

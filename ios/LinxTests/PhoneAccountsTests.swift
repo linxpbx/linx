@@ -311,6 +311,38 @@ struct AppAccountsTests {
         #expect(model.accounts[0].label == "pbx.example.com · 101")
     }
 
+    @Test("an account that signs in after the tabs are up still fills its Team list")
+    func everyAccountsTeamIsStarted() async {
+        let store = FakeStore()
+        let work = UUID(), staging = UUID()
+        PhoneStore.save(identity(work, server: "https://pbx.example.com"), key: nil, to: store)
+        PhoneStore.save(identity(staging, server: "https://home.example.com"), key: nil, to: store)
+
+        let model = app(store)
+        await model.start()
+        // The tabs appear and ask for every account's team.
+        model.watchTheTeams()
+        #expect(model.accounts.allSatisfy { $0.home.running }, "every account's team is live at once")
+
+        // Signing in finishes afterwards and hands this account a team model
+        // of its own. It must be started too — this is what left two of the
+        // owner's three accounts loading for ever (2026-10-21).
+        model.accounts[1].identity = identity(staging, server: "https://home.example.com")
+        model.accounts[1].teamModelFollowsTheDevice()
+        #expect(model.accounts[1].home.running, "a team model made later is started as well")
+
+        // An account added while the tabs are up is watched from the start.
+        let added = try? #require(model.addAnAccount())
+        #expect(added?.home.running == true)
+
+        // Leaving the tabs stops them all, and stops them staying wanted.
+        model.watchTheTeams(false)
+        #expect(model.accounts.allSatisfy { !$0.home.running })
+        model.accounts[1].identity = identity(UUID(), server: "https://home.example.com")
+        model.accounts[1].teamModelFollowsTheDevice()
+        #expect(!model.accounts[1].home.running, "nothing starts behind a screen nobody is looking at")
+    }
+
     @Test("choosing an account is remembered for next time")
     func theChoiceIsKept() async {
         let store = FakeStore()

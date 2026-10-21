@@ -34,7 +34,10 @@ import UserNotifications
 
     private let access: LinxAccess?
     private var socket: TeamLive?
-    private var running = false
+    /// Whether this model is fetching and listening. Readable so a model
+    /// made after the screens were already up can be checked to have been
+    /// started (`Account.teamModelFollowsTheDevice`).
+    private(set) var running = false
 
     /// The app icon's number is the two badges added up: Linx sends the
     /// same sum with every missed-call and voicemail notification, so the

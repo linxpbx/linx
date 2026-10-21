@@ -61,11 +61,12 @@ struct HomeView: View {
             guard Screen.launched == nil else { return }
             // Every account's team is live at once: a section that only
             // filled in when you looked at it would be a switcher by
-            // another name (docs/MULTI_ACCOUNT.md §2).
-            for account in model.accounts { account.home.start() }
+            // another name (docs/MULTI_ACCOUNT.md §2). An account still
+            // signing in is remembered, so its team starts when it lands.
+            model.watchTheTeams()
         }
         .onDisappear {
-            for account in model.accounts { account.home.stop() }
+            model.watchTheTeams(false)
         }
     }
 }

@@ -78,6 +78,33 @@ import SwiftUI
     /// happens whenever a push wakes a phone that wasn't signed in — doesn't
     /// quietly replace a live one that a screen is already watching.
     private var homeFor: UUID?
+    /// Whether the screens want this account's team live. Signing in happens
+    /// as the app launches, so it can finish either side of the moment the
+    /// screens start watching; this is what lets a model made on the late
+    /// side be started all the same.
+    private var teamIsWanted = false
+
+    /// The screens are watching this account's team from now on.
+    func watchTheTeam(_ wanted: Bool = true) {
+        teamIsWanted = wanted
+        if wanted { home.start() } else { home.stop() }
+    }
+
+    /// The team model belongs to one phone: setting this phone up again, or
+    /// this account signing in for the first time, gives it a new one.
+    ///
+    /// It is started at once when the screens are already watching. They
+    /// start every account's team as they appear, once — so an account whose
+    /// sign-in finished *after* that had its started model thrown away here
+    /// and replaced by one nobody ever started, and its Team tab loaded for
+    /// ever (owner, 2026-10-21: two of three accounts never filled in).
+    func teamModelFollowsTheDevice() {
+        guard homeFor != identity?.deviceID else { return }
+        home.stop()
+        home = HomeModel(access: linx, account: accountID)
+        homeFor = identity?.deviceID
+        if teamIsWanted { home.start() }
+    }
 
     private let session: PhoneSession
     /// Called once this account has signed in. Asking iOS about
@@ -247,11 +274,7 @@ import SwiftUI
             problem = nil
             state = .signedIn
             sendCrashReportsFromNowOn()
-            if homeFor != identity?.deviceID {
-                home.stop()
-                home = HomeModel(access: linx, account: accountID)
-                homeFor = identity?.deviceID
-            }
+            teamModelFollowsTheDevice()
             await phone.start()
             // Now that there is a phone here: ask about notifications once,
             // and tell Linx where Apple can reach it. Signing in happens as
@@ -314,6 +337,7 @@ import SwiftUI
         home.stop()
         home = HomeModel(access: nil)
         homeFor = nil
+        teamIsWanted = false
         await session.forget()
         identity = nil
         line = nil
