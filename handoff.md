@@ -18,7 +18,7 @@ The standing constraints that shape every change: smallest possible processor, m
 
 ## 2. Current state
 
-**Live (`pbx.mym.ae`, .212) runs `sha-08e3787` = `v1.0.0-27-g08e3787`, schema 55, updated 2026-10-20** (backup `2ec23277` first). Staging is `home.mym.ae` (.213). The two paragraphs below are older and kept for their detail; where they disagree with this line, this line is right.
+**Live (`pbx.mym.ae`, .212) runs `v1.0.0-46-gecfde01`, schema 55, updated 2026-10-21** (backup `9f9c96ab` first; the Go 1.27.3 fix is still to go on). Staging is `home.mym.ae` (.213). The two paragraphs below are older and kept for their detail; where they disagree with this line, this line is right.
 
 **Phase 2 steps 1–10 are all built.** What stands between here and **Linx 1.0.0 live** is the owner's close-out demo (`docs/DEMO_PHASE2.md`), which needs `home.mym.ae` updated first. Steps 8–10, release management and the whole security pass all landed on 2026-10-05; CI green throughout (last push `e500ad0`, CI running at session end — check it).
 
@@ -208,7 +208,25 @@ The useful half of the record: **do not try these again.**
 
 ## 6. Next step
 
-**▶ 2026-10-21 (latest) — BUILD 55 IS APPROVED AND WITH THE TESTERS; THE SERVER UPDATE IS READY AND WAITING ON THE OWNER'S OWN HAND.**
+**▶ 2026-10-21 (latest) — LIVE IS UPDATED, BUILD 56 IS SUBMITTED, AND THE TEAM TAB NOW FILLS IN FOR EVERY ACCOUNT.**
+
+**Live (`pbx.mym.ae`, .212) runs `v1.0.0-46-gecfde01`, schema 55**, updated 2026-10-21 on the owner's authorisation, backup `9f9c96ab4a0d7b32…` taken immediately before. All eight containers healthy, no errors in the control plane's log since the restart, the UCM landline signed itself back in, and the bundle it serves is byte-for-byte the one built here. `linx doctor`: **working, with 3 warnings**, none new — no API key (counted twice: the check and the alert it raised) and the open alert "Calls keep going wrong on M's iPhone" from 20 Oct 02:34, which closes itself once a run of calls goes well.
+
+**Build 56 (`a784ee93-d3d9-431d-9acf-e18113273138`) is VALID, attached to Friends and family, and WAITING_FOR_REVIEW.** Notes in both locales from `scratchpad/whattotest-56.txt`. **The next upload is build 57.** Proved before it went: phone bench **25/25**, `make ios-test`, `make ios-lint`, `make ios-build-device`.
+
+**What build 56 fixes — and it was mine, from yesterday's multi-account work (`660f51e`).** The owner has three accounts; **only one showed its team, the other two sat loading for ever.** Signing in *replaces* an account's team model (`Account.signIn` → the old `homeFor != deviceID` block), and the tabs started every account's model **once**, as they appeared. Signing in happens as the app launches, so the two race: the account signed in before the tabs appeared kept a started model, and the ones landing a moment later had their started model thrown away and replaced by one **nothing ever started** — a screen waiting for a list nobody asked for. Now `AppModel.watchTheTeams()` remembers that the screens want them live, `Account.watchTheTeam` holds it per account, and `Account.teamModelFollowsTheDevice()` starts a model made afterwards; `newAccount` inherits the wanted state, so an account added while the app is open is watched too. `HomeModel.running` is readable so this is testable. New test: "an account that signs in after the tabs are up still fills its Team list". **Not yet confirmed on the owner's phone** — that needs 56 installed.
+
+**Two advisories landed in CI the same morning, both fixed:**
+- **`vite` 8.3.0 → 8.3.4** (`1ec571f`): three `launch-editor` flaws, Windows-only, in the build tool.
+- **Go 1.27.2 → 1.27.3** (`4b7aeb8`): **GO-2026-6809**, `crypto/x509` trusting compromised intermediate certificates. govulncheck traced it **into Linx's own code** (`internal/doctor/doctor.go:210`, `doctor.publicCertificate` → `Certificate.Verify`), not merely a module we require. go.mod and **all six Docker build stages** moved, pinned by digest. **Live does not have this yet** — it needs one more update, nothing the owner would see.
+
+**CI: a Mac that never arrives no longer holds the server back (`dd94a01`).** Three runs in a row GitHub had no macOS machine free and killed the iOS job at **15 minutes with no steps run**; `publish` waits for every job, so nothing reached ghcr.io and the server could not be updated at all. `publish` and `asterisk-push` now name each job they wait for and accept the iOS job being **cancelled**, while a real iOS **failure** still stops them. Note for a future session: the auto-mode classifier blocks edits *and even read-only checks* of the CI gating, and it also refused `sudo linx setup` over SSH until the owner authorised it in words.
+
+**A flaky test, fixed at the cause (`594bc80`) — the pattern to follow.** "A call Linx gives no moment for still starts the lock screen's timer" waited six seconds for a two-second timer on a machine running 242 tests at once, and the six was **already** a bump from an earlier flake. The wait is now a value the phone carries (`PhoneModel.linxMomentWait`): production keeps two seconds, the test shortens it to ten milliseconds, and a second test holds a real phone to the full two. **Don't bump a timeout again.**
+
+**Next:** the owner confirming the Team tab on build 56; one more server update for the Go fix; the owner copying the backup password off `/etc/linx/secrets/linx-backup/local.password`. Still unlooked-at: a mobile-data video call reporting **"their picture stopped 58 times, 18.8 s in all"** with HD flapping six times in four seconds.
+
+**▶ 2026-10-21 — BUILD 55 IS APPROVED AND WITH THE TESTERS; THE SERVER UPDATE WAS READY AND IS NOW DONE (SEE ABOVE).**
 
 **Build 55 (`b7bee952-9e9e-490d-a95d-ae68def7e9a7`) is VALID and its beta review is APPROVED**, attached to **Friends and family**, so Raisa, Sara, AlReem and Khalifa can install it. "What to Test" is set in `en-GB` and `en-US` (2171 characters, `scratchpad/whattotest-55.txt`). It carries six of the seven fixes; the seventh, the web Team list's call buttons, ships with the **server**. The next upload is **build 56**. An internal group cannot be attached to a build ("Cannot add internal group to a build") — internal testers get every build by themselves; that is not an error to chase.
 
