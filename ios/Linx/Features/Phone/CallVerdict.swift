@@ -14,7 +14,12 @@ enum CallVerdict {
             guard let start, let step = steps.first(where: { $0.what == what }) else { return nil }
             return step.at.timeIntervalSince(start)
         }
-        guard let answered = at(CallDiagnostics.answered) ?? at("Answer ready") else { return nil }
+        // The moment the call was really answered — the 200 OK, either way
+        // round (`CallDiagnostics.answered`). Not "Answer ready", which is
+        // when the answer was *prepared*, seconds earlier on an incoming
+        // call: measuring from that made every answered call read as though
+        // its sound was 4 s late (the owner's calls, 2026-10-22).
+        guard let answered = at(CallDiagnostics.answered) else { return nil }
         var bad: [String] = []
         var problems: [String] = []
         if soundOut == 0 { bad.append("no sound went out from this phone") }
@@ -27,8 +32,14 @@ enum CallVerdict {
                 problems.append(String(format: "their sound took %.0f s to arrive", late))
             }
         }
-        let videoCall = steps.contains { $0.what.hasPrefix("Picture link") || $0.what.hasPrefix("Camera on") }
-        if videoCall, !steps.contains(where: { $0.what == "Their picture arrived" }) {
+        // A picture is missing only when the other side said it was sending
+        // one. Every Linx-to-Linx call opens a picture link while it rings
+        // (ADR-087), and a one-way video call is perfectly normal (ADR-079),
+        // so neither of those is a fault: judging by the link made every
+        // voice call read "Bad" (the owner's calls, 2026-10-22).
+        if steps.contains(where: { Self.theySaidSending($0.what) }),
+            !steps.contains(where: { $0.what == "Their picture arrived" })
+        {
             bad.append("their picture never arrived")
         }
         if let stopped = steps.lazy.compactMap({ Self.stopped($0.what) }).last {
@@ -48,6 +59,12 @@ enum CallVerdict {
         if !bad.isEmpty { return "Bad: " + (bad + problems).joined(separator: "; ") }
         if !problems.isEmpty { return "Had problems: " + problems.joined(separator: "; ") }
         return "Good"
+    }
+
+    /// Whether a step is the screen saying the other side announced a
+    /// picture of its own (`PhoneModel`'s "Screen: video, theirs …").
+    static func theySaidSending(_ what: String) -> Bool {
+        what == "Screen: video, theirs waiting" || what == "Screen: video, theirs shown"
     }
 
     /// "Their picture stopped 8 times, 21.1 s in all" read back.

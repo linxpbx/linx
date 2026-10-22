@@ -40,10 +40,51 @@ struct CallVerdictTests {
         #expect(words.contains("held back what this phone sent 1 times"))
     }
 
-    @Test("a video call whose picture never came is Bad")
+    @Test("a picture they said they were sending and never sent is Bad")
     func noPicture() {
-        let d = diagnostics([("Answered", 3), ("Camera on", 3.2), ("First sound arrived", 3.5)])
+        let d = diagnostics([
+            ("Answered", 3), ("First sound arrived", 3.5), ("Screen: video, theirs waiting", 9),
+        ])
         #expect(CallVerdict.words(d, soundIn: 5000, soundOut: 5000) == "Bad: their picture never arrived")
+    }
+
+    @Test("a one-way video call is no fault: this camera on and theirs off is Good")
+    func oneWayVideoIsFine() {
+        // ADR-079: one side turning video on is perfectly normal, and the
+        // other side's camera staying off is its person's choice. Judging
+        // by "Camera on" made every such call read Bad (the owner's call of
+        // 2026-10-22, where the far phone did receive this picture).
+        let d = diagnostics([
+            ("Answered", 3), ("First sound arrived", 3.5), ("Camera on", 20),
+            ("Screen: video, theirs off", 20.1),
+        ])
+        #expect(CallVerdict.words(d, soundIn: 5000, soundOut: 5000) == "Good")
+    }
+
+    @Test("a voice call is Good: every call opens a picture link while it rings")
+    func voiceCallIsGood() {
+        // ADR-087 opens the link on every Linx-to-Linx call, so the link is
+        // no evidence of a video call. This read "Bad: their picture never
+        // arrived" on both of the owner's voice calls of 2026-10-22.
+        let d = diagnostics([
+            ("Picture link open, waiting for the answer", 1), ("Picture link open while ringing", 1.2),
+            ("Answered", 3), ("First sound arrived", 3.5), ("Picture link ready (set up while ringing)", 3.6),
+        ])
+        #expect(CallVerdict.words(d, soundIn: 5000, soundOut: 5000) == "Good")
+    }
+
+    @Test("the sound is timed from the answer itself, not from the answer being made ready")
+    func soundFromTheAnswer() {
+        // An incoming call prepares its answer while it rings (seconds
+        // before the person answers); measuring from that made every
+        // answered call read "their sound took 4 s to arrive".
+        let d = diagnostics([
+            ("Answer ready", 0.8), ("Answered", 3.6), ("First sound arrived", 4.9),
+        ])
+        #expect(CallVerdict.words(d, soundIn: 5000, soundOut: 5000) == "Good")
+        // A call with no answer at all still has no verdict.
+        let unanswered = diagnostics([("Answer ready", 0.8), ("Ringing", 1)])
+        #expect(CallVerdict.words(unanswered, soundIn: 0, soundOut: 0) == nil)
     }
 
     @Test("a phone that sent no sound is Bad; a few short stops are only problems")
