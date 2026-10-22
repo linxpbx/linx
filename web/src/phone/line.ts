@@ -11,7 +11,7 @@ import { api, type TurnCredentials, type WebPhone } from "@/api/client";
 import { capAudioSend, preferOpusFecDtx } from "./sdp";
 import { Ringback, Ringtone } from "./ringtone";
 import { loadAudioSettings, type AudioSettings } from "./settings";
-import { DirectPicture, type PictureState } from "./picture";
+import { carrying, DirectPicture, type PictureState } from "./picture";
 import { GroupCall, type GroupJoin, type GroupState } from "./group";
 
 /** "elsewhere": another tab of this browser holds the phone line (phone/tabs.ts). */
@@ -366,25 +366,33 @@ export class PhoneLine {
     this.group?.attach(id, el);
   }
 
-  /** Which route the other side plays this browser's sound from (ADR-092). */
-  private theyHear: "linx" | "direct" = "linx";
   /** Which route this browser plays theirs from. */
   private hearing: "linx" | "direct" = "linx";
 
-  /** What goes through the phone system is silence while the other side
-   * plays this browser's sound from the direct link, and the voice again
-   * the moment it doesn't (or this browser is muted, which JsSIP owns). */
+  /** Both routes keep carrying the voice whichever one the other side
+   * plays (ADR-092 as amended 2026-10-22): quieting the phone system's leg
+   * saved a little data and cost the call two seconds of silence every time
+   * the other side fell back, because it had to be told to start again -- a
+   * whole round trip away. The leg that isn't being played is quieted where
+   * it **arrives**, which is instant. This now follows mute alone (which
+   * JsSIP owns), and a group call, which takes the sound over. */
   private quietTheLine() {
     const s = this.session;
-    if (!s || this.group) return;
+    if (!s) return;
     const muted = s.isMuted().audio ?? false;
     for (const sender of s.connection?.getSenders() ?? []) {
-      if (sender.track?.kind === "audio") sender.track.enabled = !muted && this.theyHear === "linx";
+      if (sender.track?.kind === "audio") sender.track.enabled = !muted && !this.group;
     }
   }
 
+  /** Whether the phone system's own route for this call is carrying sound
+   * right now (`DirectPicture.lineIsCarrying`). */
+  private lineIsCarrying(): boolean {
+    const pc = this.session?.connection;
+    return !!pc && carrying(pc.iceConnectionState);
+  }
+
   private startPicture(session: RTCSession, videoCall: boolean, peer: Peer) {
-    this.theyHear = "linx";
     this.picture?.stop();
     this.picture = null;
     const known = this.sessions.get(session);
@@ -412,11 +420,7 @@ export class PhoneLine {
         this.hearing = route;
         this.audio.muted = route === "direct" || !!this.group;
       },
-      onTheyHear: (route) => {
-        if (this.picture !== picture) return;
-        this.theyHear = route;
-        this.quietTheLine();
-      },
+      lineIsCarrying: () => this.lineIsCarrying(),
       onAnswered: (at) => {
         // Linx's moment, so every device on the call shows the same time
         // (owner, 2026-10-17); one far from this browser's own is ignored.
@@ -578,7 +582,6 @@ export class PhoneLine {
       // hanging up their side ends it, and the group call carries on.
       if (this.group) return;
       this.audio.muted = false;
-      this.theyHear = "linx";
       this.hearing = "linx";
       const kind: RecentCall["kind"] = direction === "outgoing" ? "outgoing" : missed ? "missed" : "incoming";
       if (peer.number !== ECHO_TEST) {

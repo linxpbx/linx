@@ -187,10 +187,6 @@ struct CallDiagnostics: Equatable, Sendable {
     /// while it rings, before its call through Asterisk has a connection.
     private lazy var microphoneSource = Self.factory.audioSource(with: Self.microphone)
     private var muted = false
-    /// Which route each side plays the other's sound from: Asterisk's is
-    /// quieted, each way, while the direct link carries it (ADR-092).
-    private var hearing = SoundRoute.linx
-    private var theyHear = SoundRoute.linx
     /// How the sound has arrived through Asterisk, as last read.
     private var soundQuality: SoundQuality?
     private var gathered: CheckedContinuation<Void, Never>?
@@ -417,7 +413,7 @@ struct CallDiagnostics: Equatable, Sendable {
                 ? nil : Self.factory.audioTrack(with: microphoneSource, trackId: "linx-direct-audio"))
         picture.setMuted(muted)
         picture.onHearing = { [weak self] route in self?.hear(route) }
-        picture.onTheyHear = { [weak self] route in self?.theyHear(route) }
+        picture.asteriskIsCarrying = { [weak self] in self?.routeIsCarrying ?? false }
         picture.onMark = { [weak self] what in self?.mark(what) }
         picture.onTooExpensive = { [weak self] in self?.onVideoTooExpensive?() }
         picture.onAnswered = { [weak self] at in self?.onAnsweredAt?(at) }
@@ -521,28 +517,28 @@ struct CallDiagnostics: Equatable, Sendable {
             group.setMuted(muted)
             return
         }
-        audio?.isEnabled = !muted && theyHear == .linx
+        audio?.isEnabled = !muted
         picture?.setMuted(muted)
     }
 
+    /// Whether Asterisk's own route for this call is carrying sound right
+    /// now: connected, and not in the middle of looking for a new route.
+    /// The direct link is left only for a route in that state
+    /// (`DirectSound.reading`).
+    var routeIsCarrying: Bool {
+        guard !restartingRoute, let state = connection?.iceConnectionState else { return false }
+        return state == .connected || state == .completed
+    }
+
     /// This phone plays the other side's sound from `route` (ADR-092):
-    /// Asterisk's copy of it is quieted while the direct link carries it.
+    /// Asterisk's copy of it is quieted where it arrives while the direct
+    /// link carries it.
     private func hear(_ route: SoundRoute) {
-        hearing = route
         note { $0.soundRoute = route }
         guard group == nil else { return }
         for receiver in connection?.receivers ?? [] where receiver.track?.kind == kRTCMediaStreamTrackKindAudio {
             receiver.track?.isEnabled = route == .linx
         }
-    }
-
-    /// The other side plays this phone's sound from `route`: what goes
-    /// through Asterisk is silence while it is the direct link (a few small
-    /// packets a second), and the voice again the moment it isn't.
-    private func theyHear(_ route: SoundRoute) {
-        theyHear = route
-        guard group == nil else { return }
-        audio?.isEnabled = !muted && route == .linx
     }
 
     func sendTone(_ digit: Character) {

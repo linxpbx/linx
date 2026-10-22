@@ -1,4 +1,4 @@
-import { DirectSound, TO_RETURN, soundPackets } from "./directSound";
+import { DirectSound, GONE_FOR, TO_RETURN, soundPackets } from "./directSound";
 
 function feed(s: DirectSound, from: number, readings: number, step = 25) {
   return Array.from({ length: readings }, (_, i) => s.reading(from + (i + 1) * step));
@@ -19,20 +19,53 @@ test("an older side that says nothing is never played from the direct link", () 
   expect(s.playing).toBe("linx");
 });
 
-test("falls back after a second and a half with nothing, not after a quiet moment", () => {
+test("a quiet talker is not a broken route: DTX silence keeps the direct link", () => {
   const s = new DirectSound();
   s.heard("sending");
   feed(s, 0, 3);
   expect(s.playing).toBe("direct");
-  expect(s.reading(75)).toBeNull();
-  expect(s.reading(75)).toBeNull();
+  // Opus sends about one packet every 400 ms in silence, and a browser
+  // pauses the microphone for a moment when its audio device changes.
+  for (let i = 0; i < GONE_FOR - 1; i += 1) expect(s.reading(75)).toBeNull();
+  expect(s.playing).toBe("direct");
   expect(s.reading(76)).toBeNull();
-  expect(s.reading(76)).toBeNull();
-  expect(s.reading(76)).toBeNull();
-  expect(s.reading(76)).toBe("linx");
-  const back = feed(s, 76, TO_RETURN);
+  for (let i = 0; i < GONE_FOR - 1; i += 1) expect(s.reading(76)).toBeNull();
+  expect(s.playing).toBe("direct");
+});
+
+test("sound that really stops for four seconds goes back, and comes back after a second", () => {
+  const s = new DirectSound();
+  s.heard("sending");
+  feed(s, 0, 3);
+  let last: string | null = null;
+  for (let i = 0; i < GONE_FOR; i += 1) last = s.reading(75);
+  expect(last).toBe("linx");
+  const back = feed(s, 75, TO_RETURN);
   expect(back.slice(0, -1).every((r) => r === null)).toBe(true);
   expect(back.at(-1)).toBe("direct");
+});
+
+test("a direct route the link itself says is in trouble is left at once", () => {
+  const s = new DirectSound();
+  s.heard("sending");
+  feed(s, 0, 3);
+  expect(s.reading(200, false)).toBe("linx");
+});
+
+test("the sound stays on the direct link when the phone system's route isn't carrying either", () => {
+  const s = new DirectSound();
+  s.heard("sending");
+  feed(s, 0, 3);
+  for (let i = 0; i <= GONE_FOR; i += 1) expect(s.reading(75, false, false)).toBeNull();
+  expect(s.playing).toBe("direct");
+  expect(s.reading(75, false, true)).toBe("linx");
+});
+
+test("the direct link is not played while its own route isn't carrying", () => {
+  const s = new DirectSound();
+  s.heard("sending");
+  expect(Array.from({ length: 6 }, (_, i) => s.reading((i + 1) * 25, false)).every((r) => r === null)).toBe(true);
+  expect(s.playing).toBe("linx");
 });
 
 test("a link that goes puts both routes back on the phone system", () => {

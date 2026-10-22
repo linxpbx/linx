@@ -202,12 +202,13 @@ struct AskedCeiling {
     /// someone, and this is how to join.
     var onMove: ((GroupJoin) -> Void)?
     /// This phone now plays the other side's sound from this route
-    /// (ADR-092): the call's own sound, through Asterisk, is quieted while
-    /// it is `.direct`.
+    /// (ADR-092): the other route's incoming sound is quieted while it is
+    /// played here, so no word is ever heard twice.
     var onHearing: ((SoundRoute) -> Void)?
-    /// The other side now plays this phone's sound from this route: what
-    /// goes through Asterisk can be quiet while it is `.direct`.
-    var onTheyHear: ((SoundRoute) -> Void)?
+    /// Whether Asterisk's own route for this call is carrying sound right
+    /// now (`WebRTCMedia.routeIsCarrying`). The sound leaves the direct link
+    /// only for a route that is actually there (`DirectSound.reading`).
+    var asteriskIsCarrying: (() -> Bool)?
 
     private let link: any PictureLink
     /// This phone's microphone on the direct link (ADR-092): a track of its
@@ -1009,8 +1010,9 @@ struct AskedCeiling {
             onMark?("Sound: theirs is on the direct link too")
         case .direct, .linx:
             guard soundRoute.theyPlay != before else { return }
+            // Kept in the record, and nothing more: both legs carry this
+            // phone's voice whichever one they play (ADR-097).
             onMark?(word == .direct ? "Sound: they hear mine directly" : "Sound: they hear mine through Linx again")
-            onTheyHear?(soundRoute.theyPlay)
         }
     }
 
@@ -1030,7 +1032,9 @@ struct AskedCeiling {
                 self.soundQuality =
                     SoundQuality(report: report)
                     ?? self.soundQuality
-                self.heard(Self.soundPackets(in: report))
+                self.heard(
+                    Self.soundPackets(in: report), linkUp: self.routeIsCarrying,
+                    otherUp: self.asteriskIsCarrying?() ?? true)
             }
         }
     }
@@ -1042,8 +1046,8 @@ struct AskedCeiling {
             .reduce(0) { $0 + (($1.values["packetsReceived"] as? NSNumber)?.intValue ?? 0) }
     }
 
-    private func heard(_ packets: Int) {
-        guard let route = soundRoute.reading(packets: packets) else { return }
+    private func heard(_ packets: Int, linkUp: Bool, otherUp: Bool) {
+        guard let route = soundRoute.reading(packets: packets, linkUp: linkUp, otherUp: otherUp) else { return }
         theirSound?.isEnabled = route == .direct
         onMark?(
             route == .direct
@@ -1064,7 +1068,6 @@ struct AskedCeiling {
         guard soundRoute.linkGone() else { return }
         onMark?("Sound: through Linx again (\(why))")
         onHearing?(.linx)
-        onTheyHear?(.linx)
     }
 
     // MARK: - The pictures

@@ -36,43 +36,88 @@ struct DirectSoundTests {
         #expect(sound.playing == .linx)
     }
 
-    @Test("direct sound that stops for a second and a half goes back to Asterisk at once")
-    func fallsBack() {
+    @Test("a quiet talker is not a broken route: DTX silence keeps the direct link")
+    func dtxSilenceIsNotAStoppedRoute() {
         var sound = DirectSound()
         sound.heard(.sending)
         _ = feed(&sound, from: 0, readings: 3)
         #expect(sound.playing == .direct)
-        // Opus sends in silence too (DTX): a reading or two with nothing new
-        // is a quiet moment, not a broken route.
-        let r3 = sound.reading(packets: 75)
-        #expect(r3 == nil)
-        let r4 = sound.reading(packets: 75)
-        #expect(r4 == nil)
-        let r5 = sound.reading(packets: 76)
-        #expect(r5 == nil)
+        // Opus sends about one packet every 400 ms in silence, and iOS
+        // pauses the microphone for a moment at every audio-device change:
+        // seven readings with nothing new is still not a stopped route.
+        for _ in 0..<(DirectSound.goneFor - 1) {
+            #expect(sound.reading(packets: 75) == nil)
+        }
         #expect(sound.playing == .direct)
-        // Three readings with nothing: the route has stopped.
-        let r6 = sound.reading(packets: 76)
-        #expect(r6 == nil)
-        let r7 = sound.reading(packets: 76)
-        #expect(r7 == nil)
-        let r8 = sound.reading(packets: 76)
-        #expect(r8 == .linx)
+        // One packet, and the count starts again.
+        #expect(sound.reading(packets: 76) == nil)
+        for _ in 0..<(DirectSound.goneFor - 1) {
+            #expect(sound.reading(packets: 76) == nil)
+        }
+        #expect(sound.playing == .direct)
     }
 
-    @Test("after falling back, the direct link must be steady for five seconds before it is used again")
+    @Test("sound that really stops for four seconds goes back to Asterisk")
+    func fallsBackWhenItStops() {
+        var sound = DirectSound()
+        sound.heard(.sending)
+        _ = feed(&sound, from: 0, readings: 3)
+        var last: SoundRoute?
+        for _ in 0..<DirectSound.goneFor { last = sound.reading(packets: 75) }
+        #expect(last == .linx)
+        #expect(sound.playing == .linx)
+    }
+
+    @Test("a direct route the link itself says is in trouble is left at once")
+    func fallsBackWhenTheRouteGoes() {
+        var sound = DirectSound()
+        sound.heard(.sending)
+        _ = feed(&sound, from: 0, readings: 3)
+        #expect(sound.playing == .direct)
+        // Sound is still arriving, but the route is no longer carrying:
+        // nothing is gained by waiting for the packets to run out.
+        #expect(sound.reading(packets: 200, linkUp: false) == .linx)
+    }
+
+    @Test("the sound stays on the direct link when Asterisk's route isn't carrying either")
+    func staysWhenThereIsNowhereBetterToGo() {
+        var sound = DirectSound()
+        sound.heard(.sending)
+        _ = feed(&sound, from: 0, readings: 3)
+        #expect(sound.playing == .direct)
+        // The direct link has stopped, but Asterisk's route is dropped or
+        // looking for a new one: falling back would buy silence. (The
+        // owner's 13:13 call fell back onto a route losing 40%.)
+        for _ in 0...DirectSound.goneFor {
+            #expect(sound.reading(packets: 75, linkUp: false, otherUp: false) == nil)
+        }
+        #expect(sound.playing == .direct)
+        // The moment Asterisk's route is carrying again, it is worth going.
+        #expect(sound.reading(packets: 75, linkUp: false, otherUp: true) == .linx)
+    }
+
+    @Test("the direct link is not played while its own route isn't carrying")
+    func doesNotGoDirectWhileTheRouteIsDown() {
+        var sound = DirectSound()
+        sound.heard(.sending)
+        let fed = (1...6).map { sound.reading(packets: $0 * 25, linkUp: false) }
+        #expect(fed.allSatisfy { $0 == nil })
+        #expect(sound.playing == .linx)
+    }
+
+    @Test("after falling back, a second of steady sound brings the direct link back")
     func returnsOnlyWhenSteady() {
         var sound = DirectSound()
         sound.heard(.sending)
         _ = feed(&sound, from: 0, readings: 3)
-        for _ in 0..<3 { _ = sound.reading(packets: 75) }
+        for _ in 0..<DirectSound.goneFor { _ = sound.reading(packets: 75) }
         #expect(sound.playing == .linx)
         let back = feed(&sound, from: 75, readings: DirectSound.toReturn)
         #expect(back.dropLast().allSatisfy { $0 == nil })
         #expect(back.last == .direct)
     }
 
-    @Test("what the other side plays from decides whether Asterisk's copy of this phone's voice is quiet")
+    @Test("what the other side plays from is remembered, and quiets nothing")
     func theirRoute() {
         var sound = DirectSound()
         #expect(sound.theyPlay == .linx)

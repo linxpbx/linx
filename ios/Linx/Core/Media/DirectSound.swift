@@ -31,19 +31,34 @@ enum SoundWord: String, Codable, Sendable {
 }
 
 /// The switch-over, one reading at a time (every `DirectSound.every`).
+///
+/// The direct link is the **better** route, not merely another one: it is one
+/// stream end to end, so Opus's own repair and the jitter buffer cover the
+/// whole journey, where Asterisk's route is two legs stitched together in the
+/// middle and each leg's loss adds up. Measured on the owner's own calls from
+/// China (2026-10-22): 0.1% lost on the direct link against 3.3% and 40.7%
+/// through Linx, in the same calls, on the same phone. So the rule is to
+/// **stay on the direct link and let it heal**, and to leave it only for a
+/// route that is actually carrying.
 struct DirectSound: Equatable, Sendable {
     /// How often the direct link's sound is read.
     static let every: Duration = .milliseconds(500)
     /// Readings with new sound before this phone plays the direct link: a
     /// second of it arriving steadily.
     static let toSwitch = 2
-    /// Readings with nothing new before it goes back to Asterisk. Opus sends
-    /// a packet at least every 400 ms even in silence (DTX), so a second and
-    /// a half with none means the route has stopped, not that nobody spoke.
-    static let toFallBack = 3
-    /// Readings with new sound before going direct again after falling
-    /// back: five seconds, so a route that comes and goes isn't followed.
-    static let toReturn = 10
+    /// Readings with no sound at all before the direct link counts as gone:
+    /// four seconds. Opus sends a packet about every 400 ms in silence (DTX)
+    /// and iOS pauses the microphone for a moment whenever the audio device
+    /// changes, so anything shorter mistakes a quiet talker — or a headset
+    /// being unplugged — for a broken route. That is what made the sound
+    /// flip to Asterisk and back every few seconds (the owner's calls,
+    /// 2026-10-22); the route itself now says when it is in trouble
+    /// (`linkUp`), which is the honest signal.
+    static let goneFor = 8
+    /// Readings with new sound before going direct again: a second. Going
+    /// back is cheap now that neither side quiets what it sends through
+    /// Asterisk, so there is nothing to be gained by hanging back.
+    static let toReturn = 2
 
     /// The other side said its microphone is on the direct link.
     private(set) var theySend = false
@@ -71,9 +86,18 @@ struct DirectSound: Equatable, Sendable {
         }
     }
 
-    /// The direct link's sound packets from the other side so far. The
-    /// answer is the route to play from now on, when it changes.
-    mutating func reading(packets: Int) -> SoundRoute? {
+    /// The direct link's sound packets from the other side so far, whether
+    /// its own route is still carrying (`linkUp`), and whether Asterisk's
+    /// route is (`otherUp`). The answer is the route to play from now on,
+    /// when it changes.
+    ///
+    /// Leaving the direct link needs two things to be true: it really has
+    /// stopped — its route says so, or nothing at all has arrived for
+    /// `goneFor` — **and** Asterisk's route is carrying. Falling back to a
+    /// route that is itself dropped or restarting buys nothing and costs the
+    /// call its sound, which is what happened on the owner's 13:13 call,
+    /// where the fallback route was losing 40% of what it carried.
+    mutating func reading(packets: Int, linkUp: Bool = true, otherUp: Bool = true) -> SoundRoute? {
         let new = lastPackets.map { packets > $0 } ?? false
         lastPackets = packets
         if new {
@@ -85,11 +109,11 @@ struct DirectSound: Equatable, Sendable {
         }
         switch playing {
         case .linx:
-            guard theySend, arriving >= (fellBack ? Self.toReturn : Self.toSwitch) else { return nil }
+            guard theySend, linkUp, arriving >= (fellBack ? Self.toReturn : Self.toSwitch) else { return nil }
             playing = .direct
             return .direct
         case .direct:
-            guard quiet >= Self.toFallBack else { return nil }
+            guard !linkUp || quiet >= Self.goneFor, otherUp else { return nil }
             playing = .linx
             fellBack = true
             return .linx

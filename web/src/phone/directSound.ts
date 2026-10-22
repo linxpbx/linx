@@ -19,13 +19,18 @@ export const SOUND_WORDS: readonly SoundWord[] = ["can", "sending", "direct", "l
 export const SOUND_EVERY_MS = 500;
 /** Readings with new sound before playing the direct link: a second of it. */
 export const TO_SWITCH = 2;
-/** Readings with nothing new before going back. Opus sends a packet at
- * least every 400 ms even in silence (DTX), so a second and a half with
- * none means the route has stopped, not that nobody spoke. */
-export const TO_FALL_BACK = 3;
-/** Readings with new sound before going direct again after falling back:
- * five seconds, so a route that comes and goes isn't followed. */
-export const TO_RETURN = 10;
+/** Readings with no sound at all before the direct link counts as gone:
+ * four seconds. Opus sends a packet about every 400 ms in silence (DTX) and
+ * a browser pauses the microphone for a moment when its audio device
+ * changes, so anything shorter mistakes a quiet talker for a broken route
+ * -- which made the sound flip to the phone system and back every few
+ * seconds (the owner's calls, 2026-10-22). The route itself saying it is in
+ * trouble (`linkUp`) is the honest signal. */
+export const GONE_FOR = 8;
+/** Readings with new sound before going direct again: a second. Going back
+ * is cheap now that neither side quiets what it sends through the phone
+ * system. */
+export const TO_RETURN = 2;
 /** How many times "can" is said again while the other side still hasn't
  * answered "sending" -- ten seconds at SOUND_EVERY_MS. The words are the
  * only way each side learns the other can take sound on the link, and one
@@ -62,9 +67,17 @@ export class DirectSound {
     }
   }
 
-  /** The direct link's sound packets from the other side so far; the route
-   * to play from now on, when it changes. */
-  reading(packets: number): SoundRoute | null {
+  /** The direct link's sound packets from the other side so far, whether
+   * its own route is still carrying (`linkUp`) and whether the phone
+   * system's route is (`otherUp`); the route to play from now on, when it
+   * changes.
+   *
+   * The direct link is the better route -- one stream end to end, where the
+   * phone system's is two legs stitched in the middle, so each leg's loss
+   * adds up. Leaving it needs it to have really stopped **and** the other
+   * route to be carrying: falling back to a route that is itself dropped or
+   * restarting buys nothing and costs the call its sound. */
+  reading(packets: number, linkUp = true, otherUp = true): SoundRoute | null {
     const fresh = this.lastPackets !== null && packets > this.lastPackets;
     this.lastPackets = packets;
     if (fresh) {
@@ -75,11 +88,11 @@ export class DirectSound {
       this.arriving = 0;
     }
     if (this.playing === "linx") {
-      if (!this.theySend || this.arriving < (this.fellBack ? TO_RETURN : TO_SWITCH)) return null;
+      if (!this.theySend || !linkUp || this.arriving < (this.fellBack ? TO_RETURN : TO_SWITCH)) return null;
       this.playing = "direct";
       return "direct";
     }
-    if (this.quiet < TO_FALL_BACK) return null;
+    if (!otherUp || (linkUp && this.quiet < GONE_FOR)) return null;
     this.playing = "linx";
     this.fellBack = true;
     return "linx";

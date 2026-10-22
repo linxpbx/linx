@@ -57,9 +57,10 @@ export interface PictureOptions {
   /** This browser now plays the other side's sound from this route: the
    * phone system's copy is quieted while it is "direct". */
   onHearing?: (route: SoundRoute) => void;
-  /** The other side now plays this browser's sound from this route: what
-   * goes through the phone system can be quiet while it is "direct". */
-  onTheyHear?: (route: SoundRoute) => void;
+  /** Whether the phone system's own route for this call is carrying sound
+   * right now. The sound leaves the direct link only for a route that is
+   * actually there (`DirectSound.reading`). */
+  lineIsCarrying?: () => boolean;
 }
 
 /** Most a picture may use with **HD** on, bits a second: ADR-081's 720p step. */
@@ -72,6 +73,11 @@ const STANDARD_BITRATE = 900_000;
 const STANDARD_SCALE = 720 / 540;
 /** Most it may use when the other side's picture goes over TCP: ADR-081's 360p step. */
 const OVER_TCP_BITRATE = 350_000;
+
+/** Whether a connection's route is carrying anything right now. */
+export function carrying(state: RTCIceConnectionState): boolean {
+  return state === "connected" || state === "completed";
+}
 
 export class DirectPicture {
   state: PictureState = { available: null, mine: false, theirs: false, starting: false };
@@ -372,7 +378,7 @@ export class DirectPicture {
         this.takeTheirSound();
         this.announceSound();
         void pc.getStats().then((r) => {
-          if (this.pc === pc) this.heard(soundPackets(r));
+          if (this.pc === pc) this.heard(soundPackets(r), carrying(pc.iceConnectionState));
         }, () => undefined);
       }, SOUND_EVERY_MS);
     }
@@ -429,7 +435,6 @@ export class DirectPicture {
   }
 
   private soundSaid(word: SoundWord) {
-    const before = this.sound.theyPlay;
     this.sound.heard(word);
     if (word === "can") {
       this.theySaidCan = true;
@@ -437,9 +442,9 @@ export class DirectPicture {
       // the message that went missing, their saying "can" again is the only
       // chance to put it right.
       this.takeTheirSound(true);
-    } else if ((word === "direct" || word === "linx") && this.sound.theyPlay !== before) {
-      this.opts.onTheyHear?.(this.sound.theyPlay);
     }
+    // Which route they play is remembered in `sound` and nothing more: both
+    // legs carry this browser's voice whichever one they play (ADR-097).
   }
 
   /** Answers the other side's "can" with "sending", once this call's
@@ -466,8 +471,8 @@ export class DirectPicture {
     this.send({ sound: "can" });
   }
 
-  private heard(packets: number) {
-    const route = this.sound.reading(packets);
+  private heard(packets: number, linkUp: boolean) {
+    const route = this.sound.reading(packets, linkUp, this.opts.lineIsCarrying?.() ?? true);
     if (!route) return;
     if (this.theirSound) this.theirSound.enabled = route === "direct";
     this.opts.onHearing?.(route);
@@ -486,7 +491,6 @@ export class DirectPicture {
     this.theirSound = null;
     if (!this.sound.linkGone()) return;
     this.opts.onHearing?.("linx");
-    this.opts.onTheyHear?.("linx");
   }
 
   private async onSignal({ description, candidate, slowRoute, sound }: Signal & { slowRoute?: boolean }) {
