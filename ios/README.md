@@ -177,9 +177,12 @@ Voicemail and Settings beside its list. The shared pieces are in `Features/Home/
 
 **The fold code compiles only on an SDK that has it.** `LINX_FOLD_SDK` is a build setting keyed
 to the SDK (`SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphone*26*]` and `[sdk=iphone*27.0*]` drop
-it; anything newer keeps it), and the code is behind `#available(iOS 27.1, *)` as well. CI's
-Xcode 26 and this Mac's 27.0 build the app without it; the 27.1 beta builds it in. To check which
-you got: `nm ios/build/*/Build/Intermediates.noindex/Linx.build/*/Linx.build/Objects-normal/arm64/Crease.o | grep -c CreaseProbe`.
+it; anything newer keeps it), and the code is behind `#available(iOS 27.1, *)` as well. **Since
+2026-10-22 this Mac's own toolchain is Xcode 27.1 (27A9275, the release), so every build made
+here — including the TestFlight archive — has the fold code in it**; CI's Xcode 26 still builds
+without it, which is what the setting is for. To check which you got:
+`nm ios/build/*/Build/Intermediates.noindex/Linx.build/*/Linx.build/Objects-normal/arm64/Crease.o | grep -ic "reservedRegion|Arrangement"`
+(11 symbols with the fold in, none without).
 
 ## Google's WebRTC
 
@@ -206,8 +209,8 @@ slice a phone needs.
 | `make ios-build` | builds for the simulator, no signing and no Apple account |
 | `make ios-deps` | fetches Google's WebRTC (pinned version, checked against its SHA-256) |
 | `make ios-test` | the unit tests on a simulator (`IOS_SIM_DEVICE="iPad Pro 11-inch (M5)"` to choose one) |
-| `make ios-screens` | every screen, light and dark, into `ios/screenshots/` — compare them with the mockups in `docs/ui/`. The call screens are shot on their side as well (the app is asked to turn, `-LinxOrientation landscape`). `LINX_IOS_DEVICE="iPad Pro 13-inch (M5)"` for the iPad, and `LINX_IOS_DEVICE="iPhone Duo" DEVELOPER_DIR=/Applications/Xcode-27.1-beta.app` for the foldable |
-| `make ios-screens-all` | the same, on all three devices Phase 2 is held to: iPhone 18 Pro Max, iPad Pro 13-inch (M5), and the iPhone Duo folded shut. Its **inner** screen can't be shot from the command line — the 27.1 beta has no fold verb in `simctl`, and Xcode 27 has no Simulator.app left to drive with AppleScript — so that one is taken by hand from the device's window (`xcrun simctl io booted screenshot --display 3 …`) |
+| `make ios-screens` | every screen, light and dark, into `ios/screenshots/` — compare them with the mockups in `docs/ui/`. The call screens are shot on their side as well (the app is asked to turn, `-LinxOrientation landscape`). `LINX_IOS_DEVICE="iPad Pro 13-inch (M5)"` for the iPad, and `LINX_IOS_DEVICE="iPhone Duo"` for the foldable (the toolchain has it now; no `DEVELOPER_DIR`) |
+| `make ios-screens-all` | the same, on all three devices Phase 2 is held to: iPhone 18 Pro Max, iPad Pro 13-inch (M5), and the iPhone Duo folded shut. Its **inner** screen still can't be shot from the command line — **27.1 release included**: `simctl ui` has only `appearance`, `content_size` and `increase_contrast`, there is no fold or posture verb anywhere in `simctl`, CoreSimulator has no fold strings in it, and Xcode 27 has no Simulator.app left to drive with AppleScript (checked again 2026-10-22) — so that one is taken by hand from the device's window (`xcrun simctl io booted screenshot --display 3 …`) |
 
 `ios/tools/sim.sh "iPhone 17"` prints a booted simulator's id, creating one if needed; on a
 machine with an older Xcode it falls back to the newest iPhone that Xcode has.
@@ -243,8 +246,9 @@ built and run as usual.
 
 | | |
 |---|---|
-| **Xcode 27.0** (`/Applications/Xcode.app`) | The active toolchain (`xcode-select -p`). Builds releases and whatever CI builds. |
-| **Xcode 27.1 beta** (`/Applications/Xcode-27.1-beta.app`, 27A9269) | The iOS 27.1 SDK and the **iPhone Duo** simulator. Use it for the app: `DEVELOPER_DIR=/Applications/Xcode-27.1-beta.app/Contents/Developer`. |
+| **Xcode 27.1** (`/Applications/Xcode.app`, 27A9275) | The active toolchain (`xcode-select -p`), from 2026-10-22: the release, not the beta. It carries the iOS 27.1 SDK and the **iPhone Duo** simulator, so the fold code is built into everything made here and no `DEVELOPER_DIR` is needed for it any more. |
+| **Xcode 27.0** (`/Applications/Xcode-27.0.app`) | Kept only as a way back if 27.1 ever turns out to break something. Nothing uses it. |
+| **Xcode 27.1 beta** (`/Applications/Xcode-27.1-beta.app`, 27A9269) | Superseded by the release above; safe to delete. |
 | **Xcode's own MCP server** (`xcode` in `.mcp.json`) | `xcrun mcpbridge` — a bridge to the **running** Xcode's tool service: new project/target from Apple's templates, build and run, build log, per-file diagnostics, SwiftUI preview snapshots, test runs, tap/swipe/type on a simulator or device, String Catalog and build settings. It needs Xcode **open** with the project; the wrapper in `.mcp.json` attaches to Xcode 27.1 beta when that one is running, otherwise to the `xcode-select` Xcode. |
 | **XcodeBuildMCP** (in the user's own config) | Headless build, simulator boot, screenshots — no Xcode window needed. Use it for `make ios-screens` and anything scripted. |
 
