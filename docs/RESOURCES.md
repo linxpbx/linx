@@ -177,9 +177,12 @@ The owner asked for a full look for anything to make leaner or faster. Everythin
 
 ## 3i. The sound of a Linx-to-Linx call on the direct link (2026-10-18, ADR-092)
 
-- **The server does less.** Once a call has switched, Asterisk forwards only silence for it (Opus DTX: a few small packets a second each way); on a direct route nothing of the voice passes through the server, and through the relay coturn forwards it without decoding.
-- **The voice costs more data, by the owner's choice:** Opus up to **40 kbit/s, full band**, on the direct link (24 kbit/s through Asterisk, unchanged for desk phones and outside lines). While someone speaks that is about **0.3 MB a minute each way** at most instead of 0.18; DTX sends almost nothing in pauses, and WebRTC goes lower by itself on a thin link. The quiet copy through Asterisk adds well under 0.05 MB a minute.
-- **The phone:** one more sound stream on the connection the picture already has; no new connection, service or timer beyond a statistics read twice a second during a call.
+**Amended 2026-10-22 (ADR-097): both legs carry the voice for the whole call.** Quieting Asterisk's leg while the other side played the direct link was a saving of about 0.2 MB a minute that cost the call **two seconds of silence at every fallback** (the far side had to be told to start sending again, a whole round trip away) and it happened seven times on each phone in one of the owner's calls. The owner asked for the trade reversed.
+
+- **The server does what it did before the direct link existed:** Asterisk carries both legs of the call for its whole length. (Before this amendment it forwarded only DTX silence once a call had switched.) On the direct route itself nothing of the voice passes through the server, and through the relay coturn forwards it without decoding.
+- **The voice costs more data, by the owner's choice:** Opus up to **40 kbit/s, full band**, on the direct link (24 kbit/s through Asterisk, unchanged for desk phones and outside lines). While someone speaks that is about **0.3 MB a minute each way** at most on the direct link, plus **about 0.18 MB a minute** for Asterisk's leg, which is no longer quieted: roughly **0.5 MB a minute each way** on a call that has switched, against 0.18 for a call that never does. DTX sends almost nothing in pauses either way, and WebRTC goes lower by itself on a thin link.
+- **The phone:** two sound streams encoded for the whole call instead of one — Opus at these settings is a few per cent of one core — on the connection the picture already has; no new connection, service or timer beyond a statistics read twice a second during a call.
+- **Watching the line** (ADR-097) costs nothing until a line goes quiet: it is a count of the readings already being taken, and the one thing it adds to the wire is a single REGISTER (about 500 bytes) when this phone has asked Linx for something and heard nothing back for two seconds.
 
 ## 3h. Networks that hold UDP back, and call quality (2026-10-16, build 42)
 
