@@ -56,6 +56,23 @@ struct VideoTests {
         return (phone, transport, media, system)
     }
 
+    @Test("every step of the ladder is the camera's own shape, so no step crops the picture")
+    func everyStepIsTheSameShape() {
+        // `adaptOutputFormat` centre-crops to the shape it is asked for
+        // before it scales, so a step of another shape narrows what the
+        // other person sees instead of just softening it. The owner's far
+        // camera "suddenly zoomed in" on 2026-10-22 for exactly that
+        // reason: 960x540 down to 480x360 is 16:9 down to 4:3.
+        let capture = Double(Camera.capturedAt.width) / Double(Camera.capturedAt.height)
+        for step in VideoQuality.allCases {
+            let shape = Double(step.width) / Double(step.height)
+            #expect(
+                abs(shape - capture) < 0.02,
+                "\(step) is \(step.width)x\(step.height), \(shape) wide for \(capture)")
+            #expect(step.width % 2 == 0 && step.height % 2 == 0, "\(step) must have even sides to encode")
+        }
+    }
+
     @Test("the picture link is told the call is up when it is answered")
     func theLinkOpensOnAnswer() async throws {
         let (_, _, media, _) = try await inACall()

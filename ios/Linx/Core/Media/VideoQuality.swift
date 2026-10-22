@@ -21,11 +21,19 @@ enum VideoQuality: Int, CaseIterable, Comparable, Sendable {
     /// have to go through Linx's relay (or through a relay that allows it).
     case hd
 
+    /// Every step is the **same shape** as the camera's own capture
+    /// (`Camera.capturedAt`, 16:9). A step of another shape doesn't make the
+    /// picture smaller, it **crops** it: `RTCVideoSource.adaptOutputFormat`
+    /// centre-crops the frame to the shape asked for before scaling it, so
+    /// asking for 4:3 narrows what the other person can see. The owner's
+    /// call from China on 2026-10-22 went 540p (16:9) → 360p (then 4:3) when
+    /// their phone asked for a smaller picture, and the far camera appeared
+    /// to zoom in — because it really had.
     var width: Int {
         switch self {
-        case .thin: return 320
-        case .low: return 480
-        case .standard: return 640
+        case .thin: return 426
+        case .low: return 640
+        case .standard: return 854
         case .high: return 960
         case .hd: return 1280
         }
