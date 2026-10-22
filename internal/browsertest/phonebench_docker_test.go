@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,8 +185,19 @@ const (
 	// the phone holds a call for while its line comes back
 	// (`SIPUserAgent.holdTheCallFor`), since asking Linx for a new line
 	// can't get through either until the stall ends.
-	stallFor         = 10 * time.Second
+	stallFor         = 20 * time.Second
 	stallCallSeconds = 75
+	// How long after the two apps are launched the black hole goes in. The
+	// caller's line is up by then and it is counting down to the dial.
+	stallAfterLaunch = 18 * time.Second
+	// How long the caller waits, after its line is up, before it rings
+	// (`bench.sh`'s call-after). The stall is put in during that wait, so
+	// the dial itself lands in the black hole: `bench.sh call` relaunches
+	// both apps and sleeps eight seconds before the caller even starts, so
+	// a stall begun before it had lifted again long before anything was
+	// dialled -- the call connected in three tenths of a second and
+	// neither phone noticed a thing.
+	stallDialAfter = 25
 )
 
 var benchScenarios = []benchScenario{
@@ -308,40 +318,55 @@ func (h *harness) cutFor(d time.Duration) {
 	run("-D")
 }
 
-// stallFor makes the phones' line to Linx a black hole for a while: their
-// packets to port 443 are dropped without a word, so the connection is
-// neither closed nor usable and both ends keep retransmitting into nothing.
-// That is the one failure a socket cannot report (ADR-097); cutFor's reset
-// is the other, easier half, which the app has always coped with.
+// The black hole: the phones' packets to the front door's port 443 are
+// dropped without a word, so their line is neither closed nor usable and
+// both ends keep retransmitting into nothing. That is the one failure a
+// socket cannot report (ADR-097); cutFor's reset is the other, easier half,
+// which the app has always coped with.
 //
-// It is one container that puts the rule in, waits and takes it out again,
-// so the stall lasts what it is asked to. Two containers -- one each way --
-// made it last whatever the second took to start, which on this Mac is
-// about ten seconds, longer than the stall itself.
-func (h *harness) stallFor(d time.Duration) {
-	rule := "INPUT -p tcp --dport 443 -j DROP"
-	h.docker("run", "--rm", "--network", "container:linx-sni", "--cap-add", "NET_ADMIN",
-		"nicolaka/netshoot", "sh", "-c",
-		fmt.Sprintf("iptables -I %s; sleep %d; iptables -D %s", rule, int(d.Seconds()), rule))
+// The rule goes in and comes out through a container started beforehand,
+// because starting one takes about ten seconds in the front door's network
+// -- far longer than the stall itself, and long enough that every attempt
+// to time this with one container a side put the black hole somewhere
+// other than around the dial.
+const stallSidecar = "linx-bench-stall"
+
+func (h *harness) stallSidecarUp(up bool) {
+	if !up {
+		_ = exec.CommandContext(h.ctx, "docker", "rm", "-f", stallSidecar).Run()
+		return
+	}
+	_ = exec.CommandContext(h.ctx, "docker", "rm", "-f", stallSidecar).Run()
+	h.docker("run", "-d", "--name", stallSidecar, "--network", "container:linx-sni",
+		"--cap-add", "NET_ADMIN", "nicolaka/netshoot", "sleep", "600")
 }
 
-// whenStalled waits until the front door really has stopped answering, so
-// that what follows happens inside the stall and not in the seconds before
-// the rule lands. It asks over HTTPS rather than opening a socket, because
-// what publishes the port answers a connection itself.
-func (h *harness) whenStalled(t *testing.T) {
-	t.Helper()
-	probe := &http.Client{Timeout: time.Second, Transport: h.client.Transport}
-	for until := time.Now().Add(40 * time.Second); time.Now().Before(until); {
-		req, _ := http.NewRequestWithContext(h.ctx, http.MethodGet, "https://"+benchDomain+"/", nil)
-		resp, err := probe.Do(req)
-		if err != nil {
-			return
-		}
-		_ = resp.Body.Close()
-		time.Sleep(250 * time.Millisecond)
+// Both ways round: what the phones send to the front door, and what the
+// front door sends back. One way alone is a different fault -- Linx's own
+// messages still arrive while nothing of the phone's gets out -- and it is
+// not the one the owner's call hit, where the line carried nothing at all
+// in either direction until it flushed.
+func (h *harness) stall(on bool) {
+	op := "-D"
+	if on {
+		op = "-I"
 	}
-	t.Fatal("the line never stalled: the rule didn't take")
+	h.docker("exec", stallSidecar, "iptables", op, "INPUT", "-p", "tcp", "--dport", "443", "-j", "DROP")
+	h.docker("exec", stallSidecar, "iptables", op, "OUTPUT", "-p", "tcp", "--sport", "443", "-j", "DROP")
+}
+
+// stallIsIn makes sure the rule really went into the front door's network.
+// It is not asked whether the phones feel it: what proves that is each
+// phone's own record of the call, which has to say its line stopped
+// answering (`benchCheck`). Probing the door from here proved nothing
+// either way -- a TLS handshake to the published port times out from this
+// process whether the rule is in or not.
+func (h *harness) stallIsIn(t *testing.T) {
+	t.Helper()
+	out := h.docker("exec", stallSidecar, "iptables", "-S")
+	if !strings.Contains(out, "--dport 443 -j DROP") || !strings.Contains(out, "--sport 443 -j DROP") {
+		t.Fatalf("the black hole's rule isn't in the front door's network:\n%s", out)
+	}
 }
 
 // blackoutFor stops everything between the phones and Linx for a while:
@@ -594,14 +619,31 @@ func TestPhoneBenchDocker(t *testing.T) {
 			}
 			if sc.stall {
 				seconds = stallCallSeconds
-				// In the black hole **before** the dial, so the INVITE goes
-				// into it, and waited for: putting the rule in takes about
-				// ten seconds of its own, and a window counted from before
-				// that had closed again by the time the phone dialled.
-				go h.stallFor(stallFor)
-				h.whenStalled(t)
+				flags = append(flags, "call-after="+strconv.Itoa(stallDialAfter))
+				h.stallSidecarUp(true)
+				defer h.stallSidecarUp(false)
 			}
 			bench(append([]string{"call", caller, answerer, number, strconv.Itoa(seconds)}, flags...)...)
+			if sc.stall {
+				// The caller's app has just been launched and rings
+				// `stallDialAfter` seconds after its line comes up, so the
+				// black hole goes in part way through that wait and lifts
+				// about ten seconds after the dial -- long enough for the
+				// phone to judge its line (five seconds) and ask Linx for
+				// a new one, well inside the thirty it holds the call for.
+				// Asterisk's registrations are no use for timing this: it
+				// keeps the one from the run before for five minutes, so
+				// "the line is up" reads true before this app has opened
+				// one at all.
+				time.Sleep(stallAfterLaunch)
+				h.stall(true)
+				h.stallIsIn(t)
+				t.Logf("stalled from %s", time.Now().Format("15:04:05.0"))
+				go func() {
+					time.Sleep(stallFor)
+					h.stall(false)
+				}()
+			}
 			t.Logf("bench call launched %s", time.Now().Format("15:04:05.0"))
 			// LINX_BENCH_SHOTS=DIR: both screens at moments through the
 			// call, to look at what a person holding them would see.
@@ -1089,8 +1131,11 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 	// its own line to wait for, so it never notices the stall.
 	if sc.stall && who == benchCaller {
 		if !strings.Contains(r, "The line to Linx stopped answering") &&
-			!strings.Contains(r, "Dialling again on the line that came back") {
+			!strings.Contains(r, "the line isn't carrying it") {
 			fail("the phone didn't notice its line had stopped answering")
+		}
+		if !strings.Contains(r, "dialling again on it") {
+			fail("the phone never dialled again on the line that came back")
 		}
 	}
 	if !sc.cut && strings.Count(r, "Picture route now") > 2 {

@@ -215,16 +215,24 @@ extension SIPCallMedia {
     static let registerSeconds = 300
     /// A request with no final answer by then has failed (RFC 3261 Timer B).
     static let answerWithin: Duration = .seconds(32)
+    /// How long an invitation may go without Linx saying anything about it
+    /// -- not even a 100 Trying -- before the line is taken to be carrying
+    /// nothing of this phone's. Eight seconds: a 100 comes back in well
+    /// under one even from China, and the slowest line the bench models
+    /// holds what Linx sends for three.
+    static let inviteSilence: Duration = .seconds(8)
 
     init(
         account: Account, transport: any SIPTransport,
         media: @escaping @MainActor () -> any SIPCallMedia,
         link: (@MainActor (String) -> (any PictureLink)?)? = nil,
         holdFor: Duration = SIPUserAgent.holdTheCallFor,
-        watchEvery: Duration = LineWatch.every
+        watchEvery: Duration = LineWatch.every,
+        silenceAfter: Duration = SIPUserAgent.inviteSilence
     ) {
         self.holdFor = holdFor
         self.watchEvery = watchEvery
+        self.silenceAfter = silenceAfter
         self.account = account
         self.transport = transport
         self.makeMedia = media
@@ -306,6 +314,7 @@ extension SIPCallMedia {
     private var lineWatch = LineWatch()
     private var watching: Task<Void, Never>?
     private let watchEvery: Duration
+    private let silenceAfter: Duration
 
     /// Reads the line while an answer is owed, and stops when none is.
     private func watchTheLine() {
@@ -558,6 +567,22 @@ extension SIPCallMedia {
             guard !Task.isCancelled, let self, let waiting = self.call, !waiting.established else { return }
             self.end(waiting, why: .failed("There was no answer."))
         }
+        // Not one word back about this call -- no 100, no 180, nothing --
+        // means what this phone sent never arrived, whatever else the line
+        // is carrying (ADR-097). A line can stall one way round: Linx's own
+        // messages still come down it while nothing of this phone's gets
+        // out, and then there is no silence for `LineWatch` to notice.
+        outgoing.silence?.cancel()
+        let id = outgoing.id
+        let silence = silenceAfter
+        call?.silence = Task { [weak self] in
+            try? await Task.sleep(for: silence)
+            guard !Task.isCancelled, let self, let waiting = self.call, waiting.id == id,
+                !waiting.established, !waiting.answeredAtAll, !waiting.redial
+            else { return }
+            self.call?.media.mark("Nothing came back about this call; the line isn't carrying it")
+            self.lineStopped()
+        }
     }
 
     /// answer picks up the call that is ringing.
@@ -685,7 +710,8 @@ extension SIPCallMedia {
         again.offer = offer
         let againID = again.id
         again.media.onRouteLost = { [weak self] in self?.routeLost(againID) }
-        again.media.mark("Dialling again on the line that came back")
+        let away = current.lineLostSince.map { String(format: "%.1f", Date().timeIntervalSince($0)) } ?? "?"
+        again.media.mark("Line to Linx back after \(away) s; dialling again on it")
         call = again
         sendInvite()
     }
@@ -852,6 +878,12 @@ extension SIPCallMedia {
             return
         }
         guard var current = call, message.callID == current.id else { return }
+        if !current.answeredAtAll {
+            current.answeredAtAll = true
+            current.silence?.cancel()
+            current.silence = nil
+            call = current
+        }
         if current.reinviting, cseq.number == current.reinviteRequest?.cseq?.number {
             reinviteResponse(message, status: status, of: current)
             return
@@ -1391,6 +1423,7 @@ extension SIPCallMedia {
     private func end(_ current: Call, why: SIPEnded, tell: Bool = true) {
         guard call?.id == current.id else { return }
         call?.timeout?.cancel()
+        call?.silence?.cancel()
         call?.giveUp?.cancel()
         call?.reinviteTimeout?.cancel()
         call?.preparing?.cancel()
@@ -1485,6 +1518,10 @@ extension SIPCallMedia {
         /// This call was dialled and never answered when the line went, so
         /// it is dialled again on the line that comes back (ADR-097).
         var redial = false
+        /// Linx has said something about this call: a 100, a 180, anything.
+        /// Until it has, what this phone sent may not have arrived at all.
+        var answeredAtAll = false
+        var silence: Task<Void, Never>?
         var lineLostSince: Date?
         var giveUp: Task<Void, Never>?
         /// The sequence number of the UPDATE telling Asterisk where the

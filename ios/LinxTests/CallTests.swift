@@ -248,14 +248,15 @@ struct CallTests {
         return check()
     }
 
-    private func signedIn(watchEvery: Duration = .seconds(3600)) async
+    private func signedIn(watchEvery: Duration = .seconds(3600), silenceAfter: Duration = .seconds(3600)) async
         -> (SIPUserAgent, FakeTransport, FakeMedia, Box)
     {
         let transport = FakeTransport()
         let media = FakeMedia()
         let box = Box()
         let agent = SIPUserAgent(
-            account: Self.account, transport: transport, media: { media }, watchEvery: watchEvery)
+            account: Self.account, transport: transport, media: { media }, watchEvery: watchEvery,
+            silenceAfter: silenceAfter)
         agent.onStatus = { box.status = $0 }
         agent.onIncoming = { peer, _ in box.incoming = peer }
         agent.onProgress = { box.ringingThere = true }
@@ -633,7 +634,10 @@ extension CallTests {
         let again = try #require(fresh.last("INVITE"))
         #expect(again.callID != lost.callID, "a new call: the old leg went with the old connection")
         #expect(again.body == lost.body, "the sound keeps the routes it already found")
-        #expect(media.steps.contains("Dialling again on the line that came back"))
+        #expect(
+            media.steps.contains {
+                $0.hasPrefix("Line to Linx back after") && $0.hasSuffix("dialling again on it")
+            })
         #expect(!agent.holdingACall)
 
         var ok = SIPMessage.response(200, "OK", to: again).withTag("theirs")
@@ -665,6 +669,48 @@ extension CallTests {
         #expect(transport.count("REGISTER") == registers, "no asking after a 180")
         #expect(box.status == .ready)
         #expect(box.ended == nil)
+        agent.stop()
+    }
+
+    @Test("a dial nothing answers at all opens the line again, even while the line carries other things")
+    func silentDialOnAHalfStalledLine() async throws {
+        // A line can stall one way round: Linx's own messages still come
+        // down it while nothing this phone sends gets out. There is then no
+        // silence for `LineWatch` to notice, and the person waits for a
+        // call that was never heard of (the owner's 13:13:48 dial).
+        let (agent, transport, media, box) = await signedIn(silenceAfter: .milliseconds(30))
+        await agent.call("1024")
+        let lost = try #require(transport.last("INVITE"))
+        // Linx keeps asking after the phone all the while, which is traffic
+        // on the line and says nothing about the call.
+        for _ in 0..<4 {
+            transport.asterisk(SIPMessage.response(200, "OK", to: try #require(transport.last("REGISTER"))))
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(box.ended == nil)
+        let noWord = "Nothing came back about this call; the line isn't carrying it"
+        #expect(await eventually { media.steps.contains(noWord) })
+        #expect(await eventually { box.status == .reconnecting })
+        #expect(agent.holdingACall)
+
+        let fresh = FakeTransport()
+        agent.reattach(account: Self.account, transport: fresh)
+        fresh.asterisk(SIPMessage.response(200, "OK", to: try #require(fresh.last("REGISTER"))))
+        #expect(try #require(fresh.last("CANCEL")).callID == lost.callID)
+        #expect(try #require(fresh.last("INVITE")).callID != lost.callID)
+        agent.stop()
+    }
+
+    @Test("a dial Linx says it is trying is left alone")
+    func aTryingDialIsLeftAlone() async throws {
+        let (agent, transport, media, box) = await signedIn(silenceAfter: .milliseconds(30))
+        await agent.call("1024")
+        let invite = try #require(transport.last("INVITE"))
+        transport.asterisk(SIPMessage.response(100, "Trying", to: invite))
+        try? await Task.sleep(for: .milliseconds(60))
+        #expect(!media.steps.contains("Nothing came back about this call; the line isn't carrying it"))
+        #expect(box.status == .ready)
+        #expect(transport.count("INVITE") == 1)
         agent.stop()
     }
 
