@@ -90,7 +90,7 @@ test-browser: ## Browser call suite: the real stack + headless Chromiums (needs 
 
 .PHONY: test-phones
 test-phones: ios-deps ## Phone bench: the app in two simulators calling itself through the real stack, mobile and China networks (macOS + Xcode; make image for control-plane, asterisk, coturn, livekit)
-	@if out=$$(LINX_PHONE_BENCH=1 go test -count=1 -v -timeout 60m -run TestPhoneBenchDocker ./internal/browsertest/ 2>&1); then \
+	@if out=$$(LINX_PHONE_BENCH=1 go test -count=1 -v -timeout 75m -run TestPhoneBenchDocker ./internal/browsertest/ 2>&1); then \
 		if echo "$$out" | grep -q -- "--- SKIP"; then echo "$$out" | grep -A2 -- "--- SKIP"; echo "phone bench: SKIPPED"; exit 1; fi; \
 		echo "$$out" | grep -E -- "--- (PASS|FAIL)"; echo "phone bench: ok"; \
 	else echo "$$out" | grep -E -- "--- (PASS|FAIL)|phonebench_docker_test.go:[0-9]+: [^-]"; \

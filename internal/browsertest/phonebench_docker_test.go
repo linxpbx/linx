@@ -529,7 +529,12 @@ func TestPhoneBenchDocker(t *testing.T) {
 		bench("build")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	// Every scenario's docker and database work hangs off this, so it has
+	// to outlast the whole run with room to spare. At thirty minutes the
+	// run outgrew it the moment a scenario was added: the last two then
+	// failed with "context deadline exceeded" on the harness's own queries
+	// while the phones themselves had done everything right (2026-10-22).
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
 	defer cancel()
 	h := &harness{door: installer.FrontDoorLinx443, t: t, ctx: ctx, dir: t.TempDir(), bench: true}
 	for svc, img := range images {
