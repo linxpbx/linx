@@ -220,9 +220,11 @@ extension SIPCallMedia {
         account: Account, transport: any SIPTransport,
         media: @escaping @MainActor () -> any SIPCallMedia,
         link: (@MainActor (String) -> (any PictureLink)?)? = nil,
-        holdFor: Duration = SIPUserAgent.holdTheCallFor
+        holdFor: Duration = SIPUserAgent.holdTheCallFor,
+        watchEvery: Duration = LineWatch.every
     ) {
         self.holdFor = holdFor
+        self.watchEvery = watchEvery
         self.account = account
         self.transport = transport
         self.makeMedia = media
@@ -299,6 +301,62 @@ extension SIPCallMedia {
         for link in links { link.lineClosed() }
     }
 
+    // MARK: - A line that stopped answering (ADR-097)
+
+    private var lineWatch = LineWatch()
+    private var watching: Task<Void, Never>?
+    private let watchEvery: Duration
+
+    /// Reads the line while an answer is owed, and stops when none is.
+    private func watchTheLine() {
+        guard watching == nil else { return }
+        let every = watchEvery
+        watching = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: every)
+                guard !Task.isCancelled, let self else { return }
+                switch self.lineWatch.reading() {
+                case .nothing:
+                    guard !self.lineWatch.waiting else { continue }
+                    self.watching = nil
+                    return
+                case .ask:
+                    // Is the line there at all? A REGISTER is always
+                    // answered, and refreshing the line is harmless.
+                    guard !self.leaving else { continue }
+                    self.call?.media.mark("The line to Linx has gone quiet; asking if it's there")
+                    self.register()
+                case .stalled:
+                    self.watching = nil
+                    self.lineStopped()
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopWatchingTheLine() {
+        watching?.cancel()
+        watching = nil
+        lineWatch.lineWent()
+    }
+
+    /// Linx answered neither the request nor the asking: the line is not
+    /// there, whatever its socket believes. It is closed and opened again,
+    /// which is the only thing that moves a stalled connection, and a call
+    /// that was dialled and never rang is dialled again on the line that
+    /// comes back.
+    private func lineStopped() {
+        guard lineIsOpen, !leaving else { return }
+        if var current = call, !current.incoming, !current.established, current.invite != nil {
+            current.redial = true
+            call = current
+        }
+        call?.media.mark("The line to Linx stopped answering; opening it again")
+        transport.stop()
+        closed("Linx stopped answering on this phone's line.")
+    }
+
     // MARK: - A dropped connection (a phone between networks)
 
     /// How long a call is held while its line to Linx comes back. The sound
@@ -317,6 +375,7 @@ extension SIPCallMedia {
     /// where this phone is now (`refreshTheCall`).
     func reattach(account: Account, transport: any SIPTransport) {
         lineGone()
+        stopWatchingTheLine()
         self.transport.onOpen = nil
         self.transport.onText = nil
         self.transport.onClose = nil
@@ -334,6 +393,10 @@ extension SIPCallMedia {
     /// call down the new connection.
     private func refreshTheCall() {
         guard let current = call, current.lineLost else { return }
+        if current.redial {
+            redial(current)
+            return
+        }
         var message = inDialog("UPDATE", of: current)
         message.add("Contact", contact)
         call?.refreshing = message.cseq?.number
@@ -381,6 +444,7 @@ extension SIPCallMedia {
     func stop() {
         registerTimer?.cancel()
         registerTimer = nil
+        stopWatchingTheLine()
         if let call {
             if call.established {
                 send(inDialog("BYE", of: call))
@@ -389,6 +453,7 @@ extension SIPCallMedia {
             }
             end(call, why: .hungUp, tell: false)
         }
+        lineIsOpen = false
         transport.stop()
     }
 
@@ -534,6 +599,9 @@ extension SIPCallMedia {
         }
         incoming.established = true
         call = incoming
+        // Answered, for real, on this side too: the record measures how long
+        // the sound took from here (`CallVerdict`).
+        incoming.media.mark(CallDiagnostics.answered)
         startPicture(of: incoming)
         onEstablished?()
     }
@@ -565,6 +633,14 @@ extension SIPCallMedia {
         }
         // Nothing has come back yet: cancel the invitation (RFC 3261 §9.1),
         // and the 487 that follows finishes it.
+        send(cancelling(invite, of: current))
+        abandoned[current.id] = invite
+        end(current, why: .hungUp)
+    }
+
+    /// The CANCEL for an invitation that is still out: the same branch, so
+    /// it reaches that invitation's own transaction.
+    private func cancelling(_ invite: SIPMessage, of current: Call) -> SIPMessage {
         var cancel = SIPMessage.request("CANCEL", current.remoteURI)
         cancel.add("Via", via(branch: current.inviteBranch))
         cancel.add("Max-Forwards", "70")
@@ -573,9 +649,45 @@ extension SIPCallMedia {
         }
         cancel.add("CSeq", "\(current.seq) CANCEL")
         addCommonHeaders(&cancel)
-        send(cancel)
-        abandoned[current.id] = invite
-        end(current, why: .hungUp)
+        return cancel
+    }
+
+    /// The line is back and this call was dialled on the one that stalled:
+    /// it is dialled again here (ADR-097), so the person's call rings a few
+    /// seconds late instead of never.
+    ///
+    /// The invitation that was lost is cancelled on the new line first. If
+    /// Linx never saw it, it answers "Call/Transaction Does Not Exist" and
+    /// nothing is lost; if it did see it, the call it started is ended, so
+    /// nobody is rung twice. The dial itself starts again from nothing — a
+    /// new Call-ID, a new tag, no stale credentials — because the leg that
+    /// went with the old connection cannot be continued, only replaced. The
+    /// sound keeps the connection it already has, and with it the routes it
+    /// has already found, so the offer is the one already made.
+    private func redial(_ current: Call) {
+        guard let offer = current.offer else {
+            end(current, why: .failed("The call dropped: this phone lost touch with Linx."))
+            return
+        }
+        current.giveUp?.cancel()
+        current.timeout?.cancel()
+        if let invite = current.invite {
+            abandoned[current.id] = invite
+            send(cancelling(invite, of: current))
+        }
+        var again = Call(
+            id: SIPRandom.token(16) + "@" + localHost, localTag: SIPRandom.token(10),
+            peer: current.peer, incoming: false, media: current.media)
+        again.remoteURI = current.remoteURI
+        again.remoteTarget = current.remoteURI
+        again.videoCall = current.videoCall
+        again.invitation = current.invitation
+        again.offer = offer
+        let againID = again.id
+        again.media.onRouteLost = { [weak self] in self?.routeLost(againID) }
+        again.media.mark("Dialling again on the line that came back")
+        call = again
+        sendInvite()
     }
 
     // MARK: - The picture (ADR-087)
@@ -707,6 +819,8 @@ extension SIPCallMedia {
     // MARK: - What comes back
 
     private func read(_ text: String) {
+        // Anything at all arriving says the line still carries (`LineWatch`).
+        lineWatch.heard()
         if text.first == "{" {
             readLink(text)
             return
@@ -1115,12 +1229,18 @@ extension SIPCallMedia {
         lineGone()
         registerTimer?.cancel()
         registerTimer = nil
+        stopWatchingTheLine()
         if let current = call {
-            if current.established, !leaving, !(why ?? "").hasPrefix(WebSocketTransport.closedByLinx) {
+            if current.established || current.redial, !leaving,
+                !(why ?? "").hasPrefix(WebSocketTransport.closedByLinx)
+            {
                 // The sound and the picture have their own routes: keep the
                 // call while the line comes back, as any phone does when it
                 // moves between networks.
-                current.media.mark("Line to Linx lost (\(why ?? "closed")); holding the call")
+                current.media.mark(
+                    current.redial
+                        ? "Line to Linx lost (\(why ?? "closed")); dialling again when it is back"
+                        : "Line to Linx lost (\(why ?? "closed")); holding the call")
                 call?.lineLost = true
                 call?.lineLostSince = Date()
                 call?.giveUp?.cancel()
@@ -1249,6 +1369,12 @@ extension SIPCallMedia {
     private func send(_ message: SIPMessage) {
         if let words = Self.traceWords(message) { onTrace?("→ \(words)") }
         transport.send(message.text)
+        // Only what this phone **asks** for, never what it answers: a
+        // response carries the request's own CSeq method, and a 180 Ringing
+        // waits on the person, not on Linx.
+        guard LineWatch.answered(message.method) else { return }
+        lineWatch.sent()
+        watchTheLine()
     }
 
     /// A message's first line in a few words, or nil for signing in and
@@ -1356,6 +1482,9 @@ extension SIPCallMedia {
         /// The line to Linx dropped during the call, and the call is held
         /// for it to come back (`closed`, `reattach`).
         var lineLost = false
+        /// This call was dialled and never answered when the line went, so
+        /// it is dialled again on the line that comes back (ADR-097).
+        var redial = false
         var lineLostSince: Date?
         var giveUp: Task<Void, Never>?
         /// The sequence number of the UPDATE telling Asterisk where the

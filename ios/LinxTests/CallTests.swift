@@ -248,11 +248,14 @@ struct CallTests {
         return check()
     }
 
-    private func signedIn() async -> (SIPUserAgent, FakeTransport, FakeMedia, Box) {
+    private func signedIn(watchEvery: Duration = .seconds(3600)) async
+        -> (SIPUserAgent, FakeTransport, FakeMedia, Box)
+    {
         let transport = FakeTransport()
         let media = FakeMedia()
         let box = Box()
-        let agent = SIPUserAgent(account: Self.account, transport: transport, media: { media })
+        let agent = SIPUserAgent(
+            account: Self.account, transport: transport, media: { media }, watchEvery: watchEvery)
         agent.onStatus = { box.status = $0 }
         agent.onIncoming = { peer, _ in box.incoming = peer }
         agent.onProgress = { box.ringingThere = true }
@@ -602,6 +605,81 @@ extension CallTests {
         #expect(media.answersAccepted == 1)
         #expect(transport.count("BYE") == 0)
         #expect(box.ended == nil)
+        agent.stop()
+    }
+
+    @Test("a line that stops answering is opened again, and the call dialled again on it")
+    func lineStalls() async throws {
+        let (agent, transport, media, box) = await signedIn(watchEvery: .milliseconds(2))
+        await agent.call("1024")
+        let lost = try #require(transport.last("INVITE"))
+        let registers = transport.count("REGISTER")
+        // Linx says nothing at all back: not even a 100 Trying. The line is
+        // asked outright first, and then judged.
+        #expect(await eventually { transport.count("REGISTER") > registers })
+        #expect(await eventually { box.status == .reconnecting })
+        #expect(box.ended == nil, "the call is kept for the line that comes back")
+        #expect(agent.holdingACall)
+        #expect(!media.stopped)
+        #expect(media.steps.contains("The line to Linx stopped answering; opening it again"))
+
+        let fresh = FakeTransport()
+        agent.reattach(account: Self.account, transport: fresh)
+        fresh.asterisk(SIPMessage.response(200, "OK", to: try #require(fresh.last("REGISTER"))))
+        // The invitation that was lost is cancelled on the line that came
+        // back, so nobody is rung twice, and the call is dialled again.
+        let cancel = try #require(fresh.last("CANCEL"))
+        #expect(cancel.callID == lost.callID)
+        let again = try #require(fresh.last("INVITE"))
+        #expect(again.callID != lost.callID, "a new call: the old leg went with the old connection")
+        #expect(again.body == lost.body, "the sound keeps the routes it already found")
+        #expect(media.steps.contains("Dialling again on the line that came back"))
+        #expect(!agent.holdingACall)
+
+        var ok = SIPMessage.response(200, "OK", to: again).withTag("theirs")
+        ok.add("Contact", "<sip:1024@1.2.3.4:8089;transport=ws>")
+        ok.body = "v=0\r\ntheir-answer\r\n"
+        fresh.asterisk(ok)
+        #expect(await eventually { box.established })
+        agent.stop()
+    }
+
+    @Test("a call ringing on this phone doesn't make it doubt its line")
+    func ringingDoesNotArmTheWatch() async throws {
+        let (agent, transport, _, box) = await signedIn(watchEvery: .milliseconds(2))
+        var invite = SIPMessage.request("INVITE", "sip:d_Ab12Cd34@linx.test")
+        invite.add("Via", "SIP/2.0/WSS linx.test;branch=z9hG4bK-in")
+        invite.add("From", "\"Omar\" <sip:1024@linx.test>;tag=theirs")
+        invite.add("To", "<sip:d_Ab12Cd34@linx.test>")
+        invite.add("Call-ID", "ringing-call-1")
+        invite.add("CSeq", "1 INVITE")
+        invite.add("Contact", "<sip:1024@1.2.3.4:8089;transport=ws>")
+        invite.add("Content-Type", "application/sdp")
+        invite.body = "v=0\r\ntheir-offer\r\n"
+        let registers = transport.count("REGISTER")
+        transport.asterisk(invite)
+        #expect(await eventually { box.incoming != nil })
+        // It rings, unanswered, with nothing said on the line: the phone
+        // sent a 180 and waits on its person, not on Linx.
+        try? await Task.sleep(for: .milliseconds(80))
+        #expect(transport.count("REGISTER") == registers, "no asking after a 180")
+        #expect(box.status == .ready)
+        #expect(box.ended == nil)
+        agent.stop()
+    }
+
+    @Test("a line answering as it should is never opened again")
+    func lineThatAnswersIsLeftAlone() async throws {
+        let (agent, transport, _, box) = await signedIn(watchEvery: .milliseconds(2))
+        await agent.call("1024")
+        let invite = try #require(transport.last("INVITE"))
+        transport.asterisk(SIPMessage.response(100, "Trying", to: invite))
+        // It rings for a while with nothing more said: that is an ordinary
+        // call, not a stalled line.
+        try? await Task.sleep(for: .milliseconds(80))
+        #expect(box.status == .ready)
+        #expect(box.ended == nil)
+        #expect(transport.count("INVITE") == 1)
         agent.stop()
     }
 
