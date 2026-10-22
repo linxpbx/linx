@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -174,8 +175,19 @@ const badStartFor = 12 * time.Second
 // four seconds the phone takes to judge the line (`LineWatch.goneAfter`),
 // the second it waits before opening it again and the dial that follows.
 const (
-	stallFor         = 6 * time.Second
-	stallCallSeconds = 60
+	// Counted from the moment the line really stops carrying
+	// (`whenStalled`), so the phone dials about a second into it. It has to
+	// outlast the five seconds the phone needs to judge its line
+	// (`LineWatch`: two to ask it outright, two more to decide, after an
+	// INVITE that leaves half a second in) -- a shorter stall is simply
+	// carried through by TCP's own retransmission once it lifts, which is
+	// what happened at six seconds: the call connected, late, and neither
+	// phone noticed anything. And it must be well under the thirty seconds
+	// the phone holds a call for while its line comes back
+	// (`SIPUserAgent.holdTheCallFor`), since asking Linx for a new line
+	// can't get through either until the stall ends.
+	stallFor         = 10 * time.Second
+	stallCallSeconds = 75
 )
 
 var benchScenarios = []benchScenario{
@@ -296,18 +308,40 @@ func (h *harness) cutFor(d time.Duration) {
 	run("-D")
 }
 
-// stall makes the phones' line to Linx a black hole: their packets to port
-// 443 are dropped without a word, so the connection is neither closed nor
-// usable and both ends keep retransmitting into nothing. This is the one
-// failure a socket cannot report (ADR-097); cutFor's reset is the other,
-// easier half, which the app has always coped with.
-func (h *harness) stall(on bool) {
-	op := "-D"
-	if on {
-		op = "-I"
-	}
+// stallFor makes the phones' line to Linx a black hole for a while: their
+// packets to port 443 are dropped without a word, so the connection is
+// neither closed nor usable and both ends keep retransmitting into nothing.
+// That is the one failure a socket cannot report (ADR-097); cutFor's reset
+// is the other, easier half, which the app has always coped with.
+//
+// It is one container that puts the rule in, waits and takes it out again,
+// so the stall lasts what it is asked to. Two containers -- one each way --
+// made it last whatever the second took to start, which on this Mac is
+// about ten seconds, longer than the stall itself.
+func (h *harness) stallFor(d time.Duration) {
+	rule := "INPUT -p tcp --dport 443 -j DROP"
 	h.docker("run", "--rm", "--network", "container:linx-sni", "--cap-add", "NET_ADMIN",
-		"nicolaka/netshoot", "iptables", op, "INPUT", "-p", "tcp", "--dport", "443", "-j", "DROP")
+		"nicolaka/netshoot", "sh", "-c",
+		fmt.Sprintf("iptables -I %s; sleep %d; iptables -D %s", rule, int(d.Seconds()), rule))
+}
+
+// whenStalled waits until the front door really has stopped answering, so
+// that what follows happens inside the stall and not in the seconds before
+// the rule lands. It asks over HTTPS rather than opening a socket, because
+// what publishes the port answers a connection itself.
+func (h *harness) whenStalled(t *testing.T) {
+	t.Helper()
+	probe := &http.Client{Timeout: time.Second, Transport: h.client.Transport}
+	for until := time.Now().Add(40 * time.Second); time.Now().Before(until); {
+		req, _ := http.NewRequestWithContext(h.ctx, http.MethodGet, "https://"+benchDomain+"/", nil)
+		resp, err := probe.Do(req)
+		if err != nil {
+			return
+		}
+		_ = resp.Body.Close()
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatal("the line never stalled: the rule didn't take")
 }
 
 // blackoutFor stops everything between the phones and Linx for a while:
@@ -560,12 +594,12 @@ func TestPhoneBenchDocker(t *testing.T) {
 			}
 			if sc.stall {
 				seconds = stallCallSeconds
-				// Before the dial, so the INVITE goes into the black hole.
-				h.stall(true)
-				go func() {
-					time.Sleep(stallFor)
-					h.stall(false)
-				}()
+				// In the black hole **before** the dial, so the INVITE goes
+				// into it, and waited for: putting the rule in takes about
+				// ten seconds of its own, and a window counted from before
+				// that had closed again by the time the phone dialled.
+				go h.stallFor(stallFor)
+				h.whenStalled(t)
 			}
 			bench(append([]string{"call", caller, answerer, number, strconv.Itoa(seconds)}, flags...)...)
 			t.Logf("bench call launched %s", time.Now().Format("15:04:05.0"))
@@ -829,6 +863,10 @@ func markAt(r, what string) (float64, bool) {
 // pictureRouteRe is one of the picture's routes, "local → remote".
 var pictureRouteRe = regexp.MustCompile(`Picture route(?: now)?: (\S+) →`)
 
+// benchCaller is the record of the phone that dials in every scenario
+// (`benchPhones` hands out 201 to the caller).
+const benchCaller = "Bench phone 201"
+
 // benchFallbacks is how many times the sound may leave the direct link in
 // a scenario: once for an ordinary call (it should be none), and one more
 // where something is deliberately cut mid-call.
@@ -1047,7 +1085,9 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 	if falls := strings.Count(r, "theirs stopped on the direct link"); falls > benchFallbacks(sc) {
 		fail(fmt.Sprintf("the sound left the direct link %d times", falls))
 	}
-	if sc.stall {
+	// Only the phone that dialled: the one being rung has nothing out on
+	// its own line to wait for, so it never notices the stall.
+	if sc.stall && who == benchCaller {
 		if !strings.Contains(r, "The line to Linx stopped answering") &&
 			!strings.Contains(r, "Dialling again on the line that came back") {
 			fail("the phone didn't notice its line had stopped answering")
