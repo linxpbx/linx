@@ -222,6 +222,27 @@ The useful half of the record: **do not try these again.**
 
 ## 6. Next step
 
+**▶ NEXT: a call that was dialled again has no picture and no direct sound (found 2026-10-22, reproduces every time).**
+
+`make test-phones` is **red on one scenario**, `the line stalls as the call is dialled`, and it is telling the truth. The line recovery itself works — four runs out of four — but after the redial the call link never pairs, so the call runs on Asterisk's route alone:
+
+```
++0.3 s  Call sent                 (into a line carrying nothing)
++2.4 s  The line to Linx has gone quiet; asking if it's there
++4.4 s  The line to Linx stopped answering; opening it again
++12.4 s Line to Linx back after 7.9 s; dialling again on it
++12.4 s Call sent  → Answered, sound both ways (358 packets, 0 lost)
++27.7 s Picture link not ready yet; trying again
++87.9 s Their picture: 0 frames
+```
+
+The call works and both sides hear each other; what is missing is the picture and the device-to-device sound. **Reproduce it alone** (about two minutes): `LINX_PHONE_BENCH=1 go test -count=1 -v -timeout 30m -run 'TestPhoneBenchDocker/the_line_stalls' ./internal/browsertest/`, and the stack is left up afterwards only if the run is interrupted, so read `docker logs linx-control-plane | grep -i call.link` **before** it tears down — that is the one piece of evidence this session never got.
+
+**Where to look.** `redial` gives the call a **new Call-ID**, and the call link is keyed by it (`makeLink(current.id)`, `lineLinks[callID]`, and the hub pairs by the Call-ID it is told). The redial's 200 OK arrives with no 180 before it, so `startPicture(of:)` runs from the 200 path rather than the ringing path. Candidates, in the order worth checking: the hub refusing a link for a call whose Asterisk channel it hasn't seen yet and the retry never recovering; `carriesCallLinks` on the new connection; or the old Call-ID's link lingering in `lineLinks`. Nothing here is guesswork-proof — get the server's log first.
+
+**What it means meanwhile:** strictly better than before (that call used to die in silence), and it only happens when a dial had to be retried. Build 58 carries it.
+
+
 **▶ 2026-10-22 — THE OWNER'S TWO CALLS BETWEEN 100 AND 101: FOUR FAULTS, ALL FIXED (ADR-097).**
 
 The owner asked what went wrong with the last two calls between their own two phones (one on mobile data in China) and then asked the better question: **"is there any alternative other than falling back to asterisk?"** There is, and the records say the fallback was the wrong instinct all along.
