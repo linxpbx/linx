@@ -45,9 +45,13 @@ extension SIPTransport {
     private(set) var carriesCallLinks = false
     private(set) var carriesSIPInLinks = false
 
-    /// Every 30 seconds the app sends a blank frame and Asterisk sends one
-    /// back (RFC 5626 §3.5.1): enough to keep a phone's connection open
-    /// through a mobile network's idle timers, and nothing more.
+    /// Every 30 seconds the app sends a blank frame: enough to keep a
+    /// phone's connection open through a mobile network's idle timers, and
+    /// nothing more. **Nothing comes back** — Linx's relay drops a
+    /// keep-alive rather than passing it to Asterisk (`internal/siprelay`'s
+    /// `toAsterisk`), so this says nothing about whether the line still
+    /// carries. What answers that question is `LineWatch`, which asks with
+    /// a REGISTER (ADR-097).
     private static let keepAliveEvery: Duration = .seconds(30)
 
     init(url: URL, token: String) {
