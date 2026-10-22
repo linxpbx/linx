@@ -734,12 +734,28 @@ func TestPhoneBenchDocker(t *testing.T) {
 				h.slowDown("", true)
 				t.Logf("squeeze off %s", time.Now().Format("15:04:05.0"))
 			}
-			reports := h.benchReports(t, since, 2, time.Duration(seconds+60)*time.Second)
+			// Both phones' records, except where the scenario kills the
+			// line for both of them: the phone being rung then has its own
+			// line to get back and may hold its record until later, which
+			// says nothing about the call. What that scenario is about is
+			// the phone that dialled, and its record is checked in full.
+			wanted := 2
+			if sc.stall {
+				wanted = 1
+			}
+			reports := h.benchReports(t, since, wanted, time.Duration(seconds+60)*time.Second)
 			for who, r := range reports {
 				t.Logf("--- %s:\n%s", who, r)
 			}
 			for who, r := range reports {
 				h.benchCheck(t, who, r, sc)
+			}
+			if sc.stall {
+				// One record is enough, but it has to be the right one.
+				if _, ok := reports[benchCaller]; !ok {
+					t.Errorf("the phone that dialled sent no record of the call (got %v)",
+						slices.Sorted(maps.Keys(reports)))
+				}
 			}
 			if sc.twoAccounts {
 				// The call was reported by the account that was rung, and
