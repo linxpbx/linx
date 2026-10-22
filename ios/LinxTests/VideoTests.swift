@@ -115,7 +115,7 @@ struct VideoTests {
         link.onClose = { closed += 1 }
         link.start()
         let open = try #require(transport.side.last)
-        #expect(open == "{\"call\":\"\(callID)\",\"open\":true,\"early\":true}")
+        #expect(open == "{\"call\":\"\(callID)\",\"open\":true,\"early\":true,\"resume\":true}")
 
         // Linx says to wait, then pairs it; what the picture sends goes on the line.
         transport.onText?("{\"call\":\"\(callID)\",\"msg\":{\"type\":\"wait\"}}")
