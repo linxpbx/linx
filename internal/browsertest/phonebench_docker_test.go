@@ -107,6 +107,15 @@ type benchScenario struct {
 	// claim of the feature — and the call must be answered by the account
 	// that was rung, not by the other one.
 	twoAccounts bool
+	// stall is the line to Linx becoming a black hole from just before the
+	// dial: what the phone sends vanishes and nothing comes back, with
+	// nothing closed, as a stalled mobile TCP connection does. The owner's
+	// call of 2026-10-22 13:13:48 from China went that way — Linx never
+	// saw the INVITE and answered the CANCEL twenty seconds later with
+	// "Call/Transaction Does Not Exist". The phone must notice, open its
+	// line again and dial again on it (ADR-097), and the person being rung
+	// must be rung once, not twice.
+	stall bool
 	// number is the extension the caller rings; the answerer's first
 	// account (202) unless a scenario says otherwise.
 	number string
@@ -159,6 +168,15 @@ const benchSoundDirectAfterAnswer = 30
 
 // badStartFor is how long a bad start turns new connections away.
 const badStartFor = 12 * time.Second
+
+// stallFor is how long the line carries nothing at all (`stall`), and
+// stallCallSeconds the call's length, which has to hold the stall, the
+// four seconds the phone takes to judge the line (`LineWatch.goneAfter`),
+// the second it waits before opening it again and the dial that follows.
+const (
+	stallFor         = 6 * time.Second
+	stallCallSeconds = 60
+)
 
 var benchScenarios = []benchScenario{
 	{name: "mobile network: everything through the relay", flags: []string{"relay-only"}},
@@ -227,6 +245,8 @@ var benchScenarios = []benchScenario{
 	// and reports the call (ADR-093).
 	// call-after: the phone that is rung sets its second account up after
 	// its first has signed in, so the caller waits for both to be ready.
+	{name: "the line stalls as the call is dialled: nothing reaches Linx",
+		flags: []string{"relay-only"}, stall: true},
 	{name: "two accounts on one phone: the second one rings",
 		flags: []string{"relay-only", "audio", "call-after=10"}, twoAccounts: true, number: "203"},
 	// The same, with everything through the relay over TLS and the first
@@ -274,6 +294,20 @@ func (h *harness) cutFor(d time.Duration) {
 	run("-I")
 	time.Sleep(d)
 	run("-D")
+}
+
+// stall makes the phones' line to Linx a black hole: their packets to port
+// 443 are dropped without a word, so the connection is neither closed nor
+// usable and both ends keep retransmitting into nothing. This is the one
+// failure a socket cannot report (ADR-097); cutFor's reset is the other,
+// easier half, which the app has always coped with.
+func (h *harness) stall(on bool) {
+	op := "-D"
+	if on {
+		op = "-I"
+	}
+	h.docker("run", "--rm", "--network", "container:linx-sni", "--cap-add", "NET_ADMIN",
+		"nicolaka/netshoot", "iptables", op, "INPUT", "-p", "tcp", "--dport", "443", "-j", "DROP")
 }
 
 // blackoutFor stops everything between the phones and Linx for a while:
@@ -523,6 +557,15 @@ func TestPhoneBenchDocker(t *testing.T) {
 			}
 			if sc.squeeze {
 				seconds = squeezeCallSeconds
+			}
+			if sc.stall {
+				seconds = stallCallSeconds
+				// Before the dial, so the INVITE goes into the black hole.
+				h.stall(true)
+				go func() {
+					time.Sleep(stallFor)
+					h.stall(false)
+				}()
 			}
 			bench(append([]string{"call", caller, answerer, number, strconv.Itoa(seconds)}, flags...)...)
 			t.Logf("bench call launched %s", time.Now().Format("15:04:05.0"))
@@ -786,6 +829,16 @@ func markAt(r, what string) (float64, bool) {
 // pictureRouteRe is one of the picture's routes, "local → remote".
 var pictureRouteRe = regexp.MustCompile(`Picture route(?: now)?: (\S+) →`)
 
+// benchFallbacks is how many times the sound may leave the direct link in
+// a scenario: once for an ordinary call (it should be none), and one more
+// where something is deliberately cut mid-call.
+func benchFallbacks(sc benchScenario) int {
+	if sc.cut || sc.blackout || sc.directCut || sc.stall {
+		return 2
+	}
+	return 1
+}
+
 func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 	t.Helper()
 	fail := func(why string) { t.Errorf("%s: %s", who, why) }
@@ -984,6 +1037,20 @@ func (h *harness) benchCheck(t *testing.T, who, r string, sc benchScenario) {
 			if !strings.HasPrefix(m[1], "relay/") {
 				fail("the picture took a route that isn't the relay: " + m[1])
 			}
+		}
+	}
+	// The sound stays where it is (ADR-097): the direct link is the better
+	// route — one stream end to end against two legs stitched in the
+	// middle — so leaving it is rare and going back and forth is a fault.
+	// Before 2026-10-22 a quiet talker or an audio-device change read as a
+	// broken route and the owner's calls flipped seven times each way.
+	if falls := strings.Count(r, "theirs stopped on the direct link"); falls > benchFallbacks(sc) {
+		fail(fmt.Sprintf("the sound left the direct link %d times", falls))
+	}
+	if sc.stall {
+		if !strings.Contains(r, "The line to Linx stopped answering") &&
+			!strings.Contains(r, "Dialling again on the line that came back") {
+			fail("the phone didn't notice its line had stopped answering")
 		}
 	}
 	if !sc.cut && strings.Count(r, "Picture route now") > 2 {
