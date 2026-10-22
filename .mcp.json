@@ -9,7 +9,7 @@
       "command": "sh",
       "args": [
         "-c",
-        "B=/Applications/Xcode-27.1-beta.app; p=$(pgrep -f \"$B/Contents/MacOS/Xcode\" | head -1); if [ -n \"$p\" ]; then export MCP_XCODE_PID=$p DEVELOPER_DIR=\"$B/Contents/Developer\"; fi; exec xcrun mcpbridge"
+        "exec xcrun mcpbridge"
       ]
     }
   }
