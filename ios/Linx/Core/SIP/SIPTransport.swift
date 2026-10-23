@@ -23,11 +23,16 @@ import Foundation
     func start()
     func send(_ text: String)
     func stop()
+    /// The bench's black hole on this line: for this long it carries
+    /// nothing either way and closes nothing (`Bench.stallLineAtDial`).
+    /// Nothing outside a bench run ever asks for it.
+    func stallForBench(_ seconds: Int)
 }
 
 extension SIPTransport {
     var carriesCallLinks: Bool { false }
     var carriesSIPInLinks: Bool { false }
+    func stallForBench(_ seconds: Int) {}
 }
 
 /// The websocket to Linx's /sip relay.
@@ -77,6 +82,9 @@ extension SIPTransport {
     }
 
     func send(_ text: String) {
+        #if DEBUG
+            if stalled { return }
+        #endif
         task?.send(.string(text)) { [weak self] error in
             guard let error else { return }
             Task { @MainActor in self?.finish((error as NSError).localizedDescription) }
@@ -99,6 +107,12 @@ extension SIPTransport {
                 guard let self, !self.closed else { return }
                 switch result {
                 case .success(let message):
+                    #if DEBUG
+                        if self.stalled {
+                            self.receive()
+                            return
+                        }
+                    #endif
                     switch message {
                     case .string(let text): self.onText?(text)
                     case .data(let data): self.onText?(String(decoding: data, as: UTF8.self))
@@ -133,6 +147,24 @@ extension SIPTransport {
             }
         }
     }
+
+    #if DEBUG
+        /// The bench's black hole (`Bench.stallLineAtDial`): what this phone
+        /// sends is dropped and what arrives is thrown away, the socket left
+        /// open and nothing told, exactly as a stalled mobile connection
+        /// behaves. It is this one connection's; the line the phone opens
+        /// after it carries normally.
+        private var stalled = false
+
+        func stallForBench(_ seconds: Int) {
+            guard seconds > 0, !stalled else { return }
+            stalled = true
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(seconds))
+                self?.stalled = false
+            }
+        }
+    #endif
 
     /// How a close Linx's relay meant begins (`internal/siprelay`'s
     /// policy-violation closes: signed out, not your line, ...).

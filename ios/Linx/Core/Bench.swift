@@ -64,6 +64,13 @@ enum Bench {
         /// Answer "Turn mine on too" when the other side's camera comes on.
         static var mineOnToo: Bool { defaults.bool(forKey: "LinxBenchMineOnToo") }
 
+        /// A black hole on this phone's line from the moment it dials:
+        /// what it sends vanishes, nothing comes back and nothing is
+        /// closed, as a stalled mobile connection behaves (ADR-097). The
+        /// line the phone opens afterwards carries normally, so what is
+        /// being tested is the phone noticing and starting again. 0: never.
+        static var stallLineAtDial: Int { defaults.integer(forKey: "LinxBenchStallLineAtDial") }
+
         static var on: Bool { setupLink != nil || call != nil || answer }
     #else
         static let setupLink: String? = nil
@@ -86,6 +93,7 @@ enum Bench {
         static let noUDP = false
         static let callKit = false
         static let hd = false
+        static let stallLineAtDial = 0
         static let on = false
     #endif
 

@@ -535,6 +535,9 @@ extension SIPCallMedia {
         guard call?.id == outgoing.id else { return }
         outgoing.offer = offer
         call = outgoing
+        // The bench's stalled line goes in before the INVITE, so the dial
+        // itself vanishes, as the owner's did from China.
+        transport.stallForBench(Bench.stallLineAtDial)
         sendInvite()
     }
 

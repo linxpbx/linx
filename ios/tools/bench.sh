@@ -15,8 +15,10 @@
 # after its line is up before ringing; two by default), relay-only, mobile-data (the picture through the relay alone), no-udp (China: the relay over TLS on 443 only), audio,
 # callkit (ring and answer through CallKit, as an iPhone outside China),
 # hd (both phones press HD five seconds in), ring=N (the answerer rings N
-# seconds before answering; one by default), camera-on=N / camera-off=N (the
-# caller turns its camera on or off N seconds after the answer), mine-on-too
+# seconds before answering; one by default), stall-at-dial=N (the caller's
+# line is a black hole for N seconds from the moment it dials: ADR-097),
+# camera-on=N / camera-off=N (the caller turns its camera on or off N
+# seconds after the answer), mine-on-too
 # (the answerer answers "Turn mine on too"), answerer-camera (those two the
 # other way round: the phone that was rung turns its camera on and off),
 # swap=N (that phone taps a picture N seconds after the answer, swapping them).
@@ -93,6 +95,7 @@ call)
     hd) flags+=(-LinxBenchHD YES) ;;
     ring=*) flags+=(-LinxBenchRingFor "${f#ring=}") ;;
     call-after=*) caller_flags+=(-LinxBenchCallAfter "${f#call-after=}") ;;
+    stall-at-dial=*) caller_flags+=(-LinxBenchStallLineAtDial "${f#stall-at-dial=}") ;;
     late-answerer) late=1 ;;
     no-early) flags+=(-LinxBenchNoEarly YES) ;;
     no-direct-sound) flags+=(-LinxBenchNoDirectSound YES) ;;
