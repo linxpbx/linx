@@ -256,6 +256,10 @@ Covered by `ios/LinxTests/RingingTests.swift` ("the ringing tone moves with the 
 
 A fourth commit went with them, `5d42534`, and it is a test and not a fix: see §5's new entry. **Nothing here touches the server** — build 59 is the whole of it.
 
+**Build 59 is with the testers (2026-10-23, on the owner's "Go ahead").** Delivery and build id **`39ae38b8-b464-404c-95ff-4f204698c3b1`**, 8.2 MB, `CFBundleVersion` 59, push entitlement checked on the exported ipa, **VALID**, notes set in en-GB and en-US from `scratchpad/whattotest-59.txt` (2,771 chars), attached to *Friends and family* (HTTP 204), **WAITING_FOR_REVIEW**. `fd1cdea` carries the build number. **The next upload is build 60.** The `asc_*59.sh` scripts are beside the 58 ones in the session scratchpad; the sed that makes the next set must have its `BUILD=` line replaced by hand, as it did last time.
+
+**What to ask the owner about on 59:** an extension dialled on the keypad shows the person's name (under the number, on the call screen, on the lock screen); **Speaker pressed while a call is still ringing** moves the ringing tone at once rather than at the answer; and a video call on a poor link gets softer without narrowing. The record's new line is `Ringing tone moved to the loudspeaker`.
+
 **▶ 2026-10-22 — THE OWNER'S TWO CALLS BETWEEN 100 AND 101: FOUR FAULTS, ALL FIXED (ADR-097).**
 
 The owner asked what went wrong with the last two calls between their own two phones (one on mobile data in China) and then asked the better question: **"is there any alternative other than falling back to asterisk?"** There is, and the records say the fallback was the wrong instinct all along.
