@@ -294,9 +294,9 @@ extension SIPCallMedia {
         guard let (callID, message) = LineLink.parse(text), let link = lineLinks[callID] else { return }
         switch message {
         case .message(let data): link.received(data)
-        case .closed:
+        case .closed(let why):
             lineLinks[callID] = nil
-            link.lineClosed()
+            link.lineClosed(why)
         }
     }
 

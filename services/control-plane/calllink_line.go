@@ -234,7 +234,10 @@ func (l *lineLinks) run(ctx context.Context, call string, link *lineLink) {
 	if err != nil {
 		if ctx.Err() == nil {
 			why := "Linx can't reach the phone system right now"
-			if errors.Is(err, calllink.ErrNoCall) || errors.Is(err, context.DeadlineExceeded) {
+			switch {
+			case errors.Is(err, calllink.ErrNoBridge):
+				why = "the call is joined to nothing"
+			case errors.Is(err, calllink.ErrNoCall), errors.Is(err, context.DeadlineExceeded):
 				why = "the call has ended"
 			}
 			l.say(call, "closed", why)

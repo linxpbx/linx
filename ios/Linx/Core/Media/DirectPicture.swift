@@ -22,7 +22,9 @@ import Foundation
 /// `CallLinkSocket`; the tests use one that answers from a script.
 @MainActor protocol PictureLink: AnyObject {
     var onMessage: ((Data) -> Void)? { get set }
-    var onClose: (() -> Void)? { get set }
+    /// Closed, with Linx's own reason for it when it sent one ("the call
+    /// has ended"), which goes in the call's record.
+    var onClose: ((String?) -> Void)? { get set }
     func start()
     func send(_ data: Data)
     func stop()
@@ -334,7 +336,7 @@ struct AskedCeiling {
                 await self?.received(data)
             }
         }
-        link.onClose = { [weak self] in self?.linkClosed() }
+        link.onClose = { [weak self] why in self?.linkClosed(why) }
     }
 
     func start(ringing: Bool = false) {
@@ -559,7 +561,7 @@ struct AskedCeiling {
     /// the answer, which on a phone just woken on mobile data can take
     /// seconds to arrive (2026-10-13: 7 s), so it is tried again while the
     /// call lasts, every two seconds for half a minute.
-    private func linkClosed() {
+    private func linkClosed(_ why: String? = nil) {
         guard !stopped else { return }
         guard callUp else {
             Task { [weak self] in
@@ -570,12 +572,15 @@ struct AskedCeiling {
             return
         }
         linkTries += 1
+        // Linx's reason is the one thing that says whether the call it
+        // was asked about is a call Asterisk knows at all.
+        let because = why.map { ": \($0)" } ?? ""
         guard linkTries <= Self.linkTriesAllowed else {
-            onMark?("Picture link couldn't be opened")
+            onMark?("Picture link couldn't be opened" + because)
             if video.available == nil { said(available: false) }
             return
         }
-        if linkTries == 1 { onMark?("Picture link not ready yet; trying again") }
+        if linkTries == 1 { onMark?("Picture link not ready yet; trying again" + because) }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self, !self.stopped else { return }
@@ -1855,7 +1860,7 @@ final class FirstFrame: NSObject, RTCVideoRenderer, @unchecked Sendable {
 /// a message, and the picture came 45 s after the answer.
 @MainActor final class LineLink: PictureLink {
     var onMessage: ((Data) -> Void)?
-    var onClose: (() -> Void)?
+    var onClose: ((String?) -> Void)?
 
     let callID: String
     private weak var line: SIPUserAgent?
@@ -1887,16 +1892,16 @@ final class FirstFrame: NSObject, RTCVideoRenderer, @unchecked Sendable {
         onMessage?(data)
     }
 
-    /// Linx closed the link, or the line went.
-    func lineClosed() {
+    /// Linx closed the link (with its reason), or the line went (none).
+    func lineClosed(_ why: String? = nil) {
         guard open else { return }
         open = false
-        onClose?()
+        onClose?(why)
     }
 
     enum Message: Equatable {
         case message(Data)
-        case closed
+        case closed(String?)
     }
 
     /// {"call":ID,<key>:value} for the line.
@@ -1934,7 +1939,7 @@ final class FirstFrame: NSObject, RTCVideoRenderer, @unchecked Sendable {
         guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
             let callID = object["call"] as? String
         else { return nil }
-        if object["closed"] != nil { return (callID, .closed) }
+        if let closed = object["closed"] { return (callID, .closed(closed as? String)) }
         guard let msg = object["msg"], JSONSerialization.isValidJSONObject(msg),
             let data = try? JSONSerialization.data(withJSONObject: msg)
         else { return nil }
@@ -1946,7 +1951,7 @@ final class FirstFrame: NSObject, RTCVideoRenderer, @unchecked Sendable {
 /// token, exactly as the /sip relay and the Team list take it.
 @MainActor final class CallLinkSocket: NSObject, PictureLink {
     var onMessage: ((Data) -> Void)?
-    var onClose: (() -> Void)?
+    var onClose: ((String?) -> Void)?
 
     private let url: URL
     private let token: String
@@ -2014,12 +2019,21 @@ final class FirstFrame: NSObject, RTCVideoRenderer, @unchecked Sendable {
                     self.receive()
                 case .success:
                     self.receive()
-                case .failure:
+                case .failure(let error):
                     self.closed = true
-                    self.onClose?()
+                    self.onClose?(self.why(error))
                 }
             }
         }
+    }
+
+    /// Why the link closed, for the call's record: the reason Linx sent
+    /// with the close if it sent one, otherwise what went wrong here.
+    private func why(_ error: any Error) -> String? {
+        if let reason = task?.closeReason, let text = String(data: reason, encoding: .utf8), !text.isEmpty {
+            return text
+        }
+        return (error as NSError).localizedDescription
     }
 }
 

@@ -21,6 +21,12 @@ var ErrNoCall = errors.New("no such call")
 // only the call link waits for it to be answered (WaitAnswered).
 var ErrNotAnswered = fmt.Errorf("%w: not answered yet", ErrNoCall)
 
+// ErrNoBridge is a device's own call, answered and up, that Asterisk
+// shows joined to nothing even after waiting for its bridge (Settle). It is
+// a kind of ErrNoCall, so whatever needs the other leg refuses it as one;
+// it is told apart from it only so a refused link says which happened.
+var ErrNoBridge = fmt.Errorf("%w: not bridged", ErrNoCall)
+
 // ErrNoAsterisk is Asterisk not connected to the control plane right now.
 var ErrNoAsterisk = errors.New("the phone system isn't connected")
 
@@ -266,7 +272,7 @@ func (r *Resolver) Resolve(ctx context.Context, sipUsername, callID string) (Leg
 		}
 	}
 	if peer == "" {
-		return Leg{}, ErrNoCall
+		return Leg{}, ErrNoBridge
 	}
 	leg := Leg{Channel: mine.Name, ChannelID: mine.ID, Peer: peer, AnsweredAt: bridgedAt(ctx, c, mine.ID)}
 	if other := (ari.Channel{Name: peer}).Endpoint(); other != "" && r.Linx != nil {

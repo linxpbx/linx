@@ -129,7 +129,7 @@ struct VideoTests {
         var heard: [String] = []
         var closed = 0
         link.onMessage = { heard.append(String(decoding: $0, as: UTF8.self)) }
-        link.onClose = { closed += 1 }
+        link.onClose = { _ in closed += 1 }
         link.start()
         let open = try #require(transport.side.last)
         #expect(open == "{\"call\":\"\(callID)\",\"open\":true,\"early\":true,\"resume\":true}")
