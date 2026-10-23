@@ -17,10 +17,25 @@ import Foundation
 @MainActor protocol CallTone: AnyObject {
     func start()
     func stop()
+    /// Whether it is playing right now.
+    var playing: Bool { get }
+    /// The call's sound has moved somewhere else — the loudspeaker, a
+    /// headset — while this tone is playing, so the tone is played again
+    /// from where the sound now is.
+    ///
+    /// An `AVAudioPlayer` stays on the output it was started on. The person
+    /// pressed **Speaker** while a call they had made was ringing, the
+    /// route moved to the loudspeaker, and the ringing tone went on in the
+    /// earpiece until the other side picked up (owner, 2026-10-23). A tone
+    /// is a short loop, so starting it again costs nothing but the turn it
+    /// was in.
+    func soundMoved()
 }
 
 @MainActor final class Ringer: CallTone {
     private var player: AVAudioPlayer?
+
+    var playing: Bool { player != nil }
 
     func start() {
         guard player == nil else { return }
@@ -43,6 +58,12 @@ import Foundation
         player?.stop()
         player = nil
     }
+
+    /// Nothing: this ring sets up the sound itself (`.playback`, which
+    /// comes out of the loudspeaker), so it is already where a ring should
+    /// be, and setting the session up again in the middle of one would only
+    /// move the sound a second time.
+    func soundMoved() {}
 
     /// One three-second turn of the ring, as a WAV in memory: 480 Hz, a
     /// breath, 440 Hz, then silence.
@@ -75,10 +96,13 @@ import Foundation
 /// By then the call's audio session belongs to CallKit, and **nothing here
 /// may touch it**: setting the category on a session CallKit has handed over
 /// stops a call's sound dead, both ways (2026-10-04). So this plays into
-/// whatever is already set up and follows the call's own route — the
-/// earpiece, the loudspeaker or a headset, like the voice that follows it.
+/// whatever is already set up — the earpiece, the loudspeaker or a headset,
+/// like the voice that follows it — and when the sound moves while it is
+/// playing it is started again there (`soundMoved`).
 @MainActor final class Ringback: CallTone {
     private var player: AVAudioPlayer?
+
+    var playing: Bool { player != nil }
 
     func start() {
         guard player == nil, let player = try? AVAudioPlayer(data: Self.sound) else { return }
@@ -86,6 +110,12 @@ import Foundation
         player.prepareToPlay()
         player.play()
         self.player = player
+    }
+
+    func soundMoved() {
+        guard player != nil else { return }
+        stop()
+        start()
     }
 
     func stop() {

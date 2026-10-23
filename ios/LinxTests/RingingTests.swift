@@ -27,6 +27,12 @@ import Testing
     }
 
     func stop() { playing = false }
+
+    func soundMoved() {
+        guard playing else { return }
+        stop()
+        start()
+    }
 }
 
 /// The system, without one. It keeps what it was told, and passes on what the
@@ -695,6 +701,34 @@ struct RingingTests {
         progress.body = "v=0\r\ntheir-early-answer\r\n"
         transport.asterisk(progress)
         #expect(await eventually { !tone.playing })
+    }
+
+    @Test("the ringing tone moves with the sound when the speaker goes on")
+    func theToneFollowsTheSound() async throws {
+        let calls = FakeSystemCalls()
+        let tone = FakeTone()
+        let (phone, transport, media) = await phone(calls: calls, ringback: tone)
+
+        phone.typed = "101"
+        phone.dial()
+        #expect(await eventually { transport.last("INVITE") != nil })
+        let invite = try #require(transport.last("INVITE"))
+        transport.asterisk(SIPMessage.response(180, "Ringing", to: invite).withTag("theirs"))
+        #expect(tone.playing)
+        #expect(tone.starts == 1)
+
+        // Speaker, pressed while it rings. A player already playing stays in
+        // the earpiece it started in, so the tone is played again where the
+        // sound has gone (owner, 2026-10-23).
+        phone.toggleSpeaker()
+        #expect(media.speaker)
+        #expect(tone.playing)
+        #expect(tone.starts == 2)
+
+        // The same route said again is not the sound moving: the tone is
+        // left alone rather than stuttering.
+        media.onRoute?(AudioRoute(name: "Speaker", speaker: true, builtIn: true, others: true))
+        #expect(tone.starts == 2)
     }
 
     @Test("a call given up on before it is answered stops ringing")

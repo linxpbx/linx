@@ -958,7 +958,19 @@ import UIKit
     }
 
     private func soundIsComingOut(_ route: AudioRoute) {
+        // Where the sound comes out, not what else it could come out of:
+        // a pair of AirPods switching on nearby is not the sound moving.
+        let moved = audioRoute?.name != route.name || audioRoute?.speaker != route.speaker
         audioRoute = route
+        // A tone this phone is playing itself doesn't follow the sound on
+        // its own: the ringing tone of a call going out stayed in the
+        // earpiece when the person pressed Speaker while it rang (owner,
+        // 2026-10-23). Played again, it comes out of where the sound is.
+        if moved, ringback.playing {
+            ringback.soundMoved()
+            let nowAt = route.speaker ? "loudspeaker" : (route.builtIn ? "earpiece" : route.name)
+            liveMedia?.mark("Ringing tone moved to the \(nowAt)")
+        }
         theScreenDuringTheCall()
         guard call?.speaker != route.speaker else { return }
         call?.speaker = route.speaker
