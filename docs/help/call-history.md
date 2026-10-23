@@ -19,6 +19,8 @@ screens: [/calls, /admin/calls, /admin/calls/quality]
 - **Call** rings the number back from your browser.
 - Press a call to see its way through Linx, step by step: *"Rang Sales (all at once): Sara (101), Omar (102) · nobody answered in 25 s"*, then *"Went to the voicemail for Sales · left a message (0:42)"*. If a message was left and you may hear it, **Listen** plays it here.
 - **Missed** shows only the calls you missed. **Search number** finds calls with a number (any part of it, with or without the leading 0).
+- **Remove from my list** takes a call out of *your* list — in the browser, the bin beside **Call**; in the iPhone and iPad app, swipe the row and press **Delete**. **Undo** puts it back for ten seconds afterwards. It goes from every phone and browser you sign in on, because it is your list, not that phone's.
+  - Linx still keeps the call itself: an admin's **Calls** screen and the CSV download still show it, and it is deleted only when the **Keep call history** setting says so. Removing a call from your list is tidying, not a way to delete a record.
 
 Your calls come from all your phones and browsers, not just this one. The Dialer's **Recent** list shows your last 5.
 
@@ -32,6 +34,7 @@ Calls are kept for 1 year, then deleted (an admin can change that).
 
 - Choose a person (**Anyone**), a number, **Missed only**, and when (**Today**, **Last 7 days**, **Last 30 days**, **Everything kept**).
 - Each call shows who called, the number or person called (and the ring group it rang), what happened, and how long people talked.
+- Calls people have removed from their own lists are still here. Nobody can delete a call from the company's record from a phone or a browser.
 - Press a call for its details: every step, the phone line it came in or went out on, who answered, and the voicemail left. Admins can play the voicemail; listening to someone else's is written in the activity log.
 - **Download (CSV)** saves the calls you've chosen as a spreadsheet file (one line per call, up to 100,000), with times in the server's time zone.
 - **System → Settings**: **Keep call history** sets how long calls are kept (30 days to 2 years; 1 year unless you change it) and shows the space call history uses. Older calls are deleted within the hour.

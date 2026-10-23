@@ -9,6 +9,12 @@ screens: []
 
 The newest changes come first. Each Linx update brings its own help pages, so these guides always match the version your server runs.
 
+## Tidy your own call list
+
+- **Call history** lets you take a call out of **your** list: the bin beside **Call** in the browser, or a swipe and **Delete** in the iPhone and iPad app. **Undo** stands for ten seconds.
+- It is your list, so the call goes from every phone and browser you sign in on. Linx keeps its own record either way — an admin's **Calls** screen and the CSV still show the call, and only **Keep call history** decides when it really goes.
+- A call now also shows *how long you talked* even when the phone had to be woken for it; before, those read as no time at all.
+
 ## Any country, and calls abroad to the countries you choose
 
 - The setup wizard's **Country** offers every country. Linx recognises local, mobile, free and emergency numbers the way they're dialled there, and suggests extension numbers that suit it.

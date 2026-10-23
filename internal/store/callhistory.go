@@ -256,6 +256,10 @@ func (s CallHistory) ListCalls(ctx context.Context, f callhistory.Filter) ([]cal
 	if f.Before != nil {
 		where = append(where, fmt.Sprintf("(c.started_at, c.id) < (%s, %s)", arg(f.Before.StartedAt), arg(f.Before.ID)))
 	}
+	if f.NotHiddenFor != nil {
+		where = append(where,
+			"NOT EXISTS (SELECT 1 FROM call_hidden h WHERE h.call_id = c.id AND h.user_id = "+arg(*f.NotHiddenFor)+")")
+	}
 	limit := arg(f.Limit)
 	rows, err := s.pool.Query(ctx, `SELECT c.id, c.tenant_id, c.linkedid, c.direction, c.started_at, c.answered_at, c.ended_at,
 			c.talk_seconds, c.result, c.rang_unanswered, c.from_number, c.from_name, c.from_extension_id, c.to_number, c.to_name,
@@ -292,6 +296,29 @@ func (s CallHistory) UserExtension(ctx context.Context, user uuid.UUID) (*uuid.U
 		return nil, nil
 	}
 	return ext, err
+}
+
+// HideCall takes a call out of one person's own list (migration 0056). The
+// call itself is untouched: the company's record keeps it, and Admin →
+// Calls still shows it. Only a call that person was actually part of can be
+// hidden, so an id guessed from nowhere does nothing, and hiding a call
+// twice is the same as hiding it once.
+func (s CallHistory) HideCall(ctx context.Context, tenant, user, call uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `INSERT INTO call_hidden (tenant_id, user_id, call_id)
+		SELECT c.tenant_id, u.id, c.id
+		FROM call_record c
+		JOIN app_user u ON u.id = $2 AND u.tenant_id = c.tenant_id
+		JOIN call_record_party p ON p.call_id = c.id AND p.extension_id = u.extension_id
+		WHERE c.id = $3 AND c.tenant_id = $1
+		ON CONFLICT (user_id, call_id) DO NOTHING`, tenant, user, call)
+	return err
+}
+
+// ShowCall puts a hidden call back in that person's list (Undo).
+func (s CallHistory) ShowCall(ctx context.Context, tenant, user, call uuid.UUID) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM call_hidden WHERE tenant_id = $1 AND user_id = $2 AND call_id = $3`, tenant, user, call)
+	return err
 }
 
 // MissedCount is how many calls the person missed since they last opened

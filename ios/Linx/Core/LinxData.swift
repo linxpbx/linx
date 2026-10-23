@@ -200,6 +200,20 @@ extension LinxClient {
         return count.missed
     }
 
+    /// Takes a call out of **this person's own** list, on every device
+    /// they sign in on (owner, 2026-10-23). Linx keeps the call itself: the
+    /// company's record and the admin screens still have it.
+    func hideCall(_ id: UUID, token: String) async throws {
+        _ = try await change(
+            "/api/v1/me/calls/\(id.uuidString.lowercased())", method: "DELETE", body: nil, token: token)
+    }
+
+    /// Undo: back in the list.
+    func putCallBack(_ id: UUID, token: String) async throws {
+        _ = try await change(
+            "/api/v1/me/calls/\(id.uuidString.lowercased())/put-back", method: "POST", body: nil, token: token)
+    }
+
     /// Clears that badge, the moment the person opens Calls.
     func clearMissedCalls(token: String) async throws {
         _ = try await change("/api/v1/me/missed-calls", method: "DELETE", body: nil, token: token)

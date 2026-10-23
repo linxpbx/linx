@@ -3,7 +3,7 @@
 // opens its detail: the steps, the line, the voicemail left. Lists again
 // when the Team websocket says call history changed (no polling).
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ChevronDown, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Search } from "lucide-react";
+import { ChevronDown, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Search, Trash2 } from "lucide-react";
 import { api, problemMessage, type TeamMember } from "@/api/client";
 import { CallDetails } from "@/components/CallDetails";
 import { Button } from "@/components/ui/button";
@@ -12,8 +12,12 @@ import { byDay, callBackNumber, isMissed, otherParty, resultWords, timeOf, type 
 import { cn } from "@/lib/utils";
 import { usePhoneLine, usePhoneState } from "@/phone/context";
 
-function CallRow({ c, open, onToggle, canCall, onCall }: {
-  c: CallRecord; open: boolean; onToggle: () => void; canCall: boolean; onCall: () => void;
+/// How long "Undo" stands after a call is taken out of this person's list:
+/// the same ten seconds the web offers after a routing change (ADR-071).
+const UNDO_LASTS = 10_000;
+
+function CallRow({ c, open, onToggle, canCall, onCall, onRemove }: {
+  c: CallRecord; open: boolean; onToggle: () => void; canCall: boolean; onCall: () => void; onRemove: () => void;
 }) {
   const missed = isMissed(c);
   const Icon = missed ? PhoneMissed : c.placed_by_me ? PhoneOutgoing : PhoneIncoming;
@@ -41,6 +45,13 @@ function CallRow({ c, open, onToggle, canCall, onCall }: {
         <Button size="sm" variant="outline" disabled={!canCall || !back} onClick={onCall} aria-label={`Call ${who}`}
           title={!back ? "There's no number to call back" : undefined}>
           <Phone aria-hidden="true" /> <span className="max-sm:sr-only">Call</span>
+        </Button>
+        {/* Out of **this person's** list only: Linx keeps the call, and
+            Admin → Calls still shows it (owner, 2026-10-23). Undo stands
+            for ten seconds, as it does after a routing change. */}
+        <Button size="icon" variant="ghost" onClick={onRemove} aria-label={`Remove this call with ${who} from my list`}
+          title="Remove from my list">
+          <Trash2 aria-hidden="true" className="text-destructive" />
         </Button>
       </div>
       {open && <div className="border-t px-4 py-3"><CallDetails c={c} /></div>}
@@ -80,6 +91,29 @@ export function CallHistoryScreen({ members, stamp }: { members: TeamMember[] | 
   };
   const submit = (e: FormEvent) => { e.preventDefault(); setNumber(search.trim()); };
 
+  // Taking a call out of my own list. The row goes at once, Linx is told,
+  // and Undo puts it back for ten seconds afterwards; if Linx wouldn't
+  // have it, the row comes back with a word (owner, 2026-10-23).
+  const [undo, setUndo] = useState<CallRecord | null>(null);
+  const remove = async (c: CallRecord) => {
+    setItems((list) => (list ?? []).filter((x) => x.id !== c.id));
+    const { error: err } = await api.DELETE("/api/v1/me/calls/{id}", { params: { path: { id: c.id } } });
+    if (err) {
+      setItems((list) => [...(list ?? []), c].sort((a, b) => b.started_at.localeCompare(a.started_at)));
+      setError(problemMessage(err, "Linx couldn't remove that call, so it is still in your list."));
+      return;
+    }
+    setError("");
+    setUndo(c);
+    window.setTimeout(() => setUndo((u) => (u?.id === c.id ? null : u)), UNDO_LASTS);
+  };
+  const putBack = async (c: CallRecord) => {
+    setUndo(null);
+    const { error: err } = await api.POST("/api/v1/me/calls/{id}/put-back", { params: { path: { id: c.id } } });
+    if (err) { setError(problemMessage(err, "Linx couldn't put that call back.")); return; }
+    await load();
+  };
+
   return (
     <div className="w-full max-w-4xl px-4 py-6 md:px-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -116,11 +150,17 @@ export function CallHistoryScreen({ members, stamp }: { members: TeamMember[] | 
               <ul className="flex flex-col gap-2">
                 {d.calls.map((c) => (
                   <CallRow key={c.id} c={c} open={open === c.id} onToggle={() => setOpen(open === c.id ? null : c.id)}
-                    canCall={canCall} onCall={() => callBack(c)} />
+                    canCall={canCall} onCall={() => callBack(c)} onRemove={() => void remove(c)} />
                 ))}
               </ul>
             </section>
           ))}
+        </div>
+      )}
+      {undo && (
+        <div role="status" className="mt-4 flex items-center gap-3 rounded-lg border bg-card p-3 text-sm">
+          <span className="text-muted-foreground">Call removed from your list. Linx still keeps its own record.</span>
+          <Button size="sm" variant="outline" className="ms-auto" onClick={() => void putBack(undo)}>Undo</Button>
         </div>
       )}
       {next && <div className="mt-4 flex justify-center"><Button variant="outline" onClick={() => void load(next)}>Show more</Button></div>}

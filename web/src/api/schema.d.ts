@@ -3177,6 +3177,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/calls/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Take a call out of my own call list
+         * @description Swipe to delete in the app, and Remove in the browser phone's call log (owner, 2026-10-23). The call itself is **not** deleted: the company's record keeps it, Admin → Calls and the CSV download still show it, and the retention setting still decides when it really goes. This only hides the row from this person's own list, on every device they sign in on. A call already hidden, or one this person was never part of, still answers 204, so a repeated swipe is safe.
+         */
+        delete: operations["hideMyCall"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/calls/{id}/put-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put a call back in my own call list (Undo)
+         * @description Undo for the swipe above, the same shape as routing's put-back (ADR-071). A call that was never hidden answers 204 as well.
+         */
+        post: operations["putMyCallBack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/missed-calls": {
         parameters: {
             query?: never;
@@ -11364,6 +11404,48 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CallHistoryPage"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    hideMyCall: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Out of this person's list. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    putMyCallBack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Back in this person's list. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

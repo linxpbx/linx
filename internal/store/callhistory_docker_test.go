@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -166,6 +167,44 @@ func TestCallHistoryDocker(t *testing.T) {
 	}
 	if w := vm[0].Words(); !strings.HasSuffix(w[len(w)-1], "left a message (0:12)") {
 		t.Errorf("words %q", w)
+	}
+
+	// Omar takes a call out of **his own** list (owner, 2026-10-23). The
+	// company's record keeps it: Sara still sees it, everyone's history
+	// still has it, and Undo brings it straight back.
+	hidden := vm[0].ID
+	if err := svc.Hide(ctx, tenant, omarUser, hidden); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range mine(omarUser, callhistory.Filter{}) {
+		if c.ID == hidden {
+			t.Errorf("the call Omar removed is still in his list: %+v", c)
+		}
+	}
+	if everyones, _, err := svc.All(ctx, tenant, callhistory.Filter{}); err != nil {
+		t.Fatal(err)
+	} else if !slices.ContainsFunc(everyones, func(c callhistory.Listed) bool { return c.ID == hidden }) {
+		t.Error("the call left the company's own history, which it must never do")
+	}
+	if !slices.ContainsFunc(mine(saraUser, callhistory.Filter{}), func(c callhistory.Listed) bool { return c.ID == hidden }) {
+		t.Error("Omar's removal took the call out of Sara's list too")
+	}
+	// Hiding it again is the same as hiding it once (a repeated swipe).
+	if err := svc.Hide(ctx, tenant, omarUser, hidden); err != nil {
+		t.Errorf("hiding it twice: %v", err)
+	}
+	// A call he was never part of cannot be hidden by guessing its id, and
+	// saying so is not an error either.
+	sarasOwn := mine(saraUser, callhistory.Filter{})
+	if err := svc.Hide(ctx, tenant, omarUser, sarasOwn[0].ID); err != nil {
+		t.Errorf("hiding a stranger's call: %v", err)
+	}
+	// Undo.
+	if err := svc.Show(ctx, tenant, omarUser, hidden); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(mine(omarUser, callhistory.Filter{}), func(c callhistory.Listed) bool { return c.ID == hidden }) {
+		t.Error("Undo didn't put the call back in Omar's list")
 	}
 
 	// Everyone's: pages, number search, dates.

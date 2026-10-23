@@ -106,6 +106,49 @@ struct AccountCall: Identifiable, Sendable, Equatable {
         problem = trouble
     }
 
+    /// Takes a call out of this person's own list (the swipe, owner
+    /// 2026-10-23). The row goes at once so the swipe feels like a swipe,
+    /// and comes back with a word if Linx wouldn't have it. Linx keeps the
+    /// call itself: this hides it from this person's list on every device
+    /// they sign in on, and the company's record is untouched.
+    func hide(_ call: AccountCall) async {
+        let key = sources.first { $0.account == call.account }
+        guard let source = key else { return }
+        let before = pages[Self.key(source)] ?? []
+        pages[Self.key(source)] = before.filter { $0.record.id != call.record.id }
+        merge()
+        do {
+            try await source.access.client.hideCall(call.record.id, token: try await source.access.token())
+            hidden.append(call)
+        } catch let error as LinxError {
+            pages[Self.key(source)] = before
+            merge()
+            problem = error.words
+        } catch {
+            pages[Self.key(source)] = before
+            merge()
+            problem = "Linx couldn't be reached, so that call is still in your list."
+        }
+    }
+
+    /// The calls taken out in this sitting, newest last, so Undo knows what
+    /// to put back.
+    private(set) var hidden: [AccountCall] = []
+
+    /// Undo: the last call taken out goes back in the list.
+    func putTheLastOneBack() async {
+        guard let call = hidden.popLast(),
+            let source = sources.first(where: { $0.account == call.account })
+        else { return }
+        do {
+            try await source.access.client.putCallBack(call.record.id, token: try await source.access.token())
+            pages[Self.key(source), default: []].append(call)
+            merge()
+        } catch {
+            problem = "Linx couldn't put that call back. It is still out of your list."
+        }
+    }
+
     /// One more page from every account that has one, when the person
     /// scrolls to the end.
     func loadMore() async {
@@ -144,6 +187,9 @@ struct CallsView: View {
     @Environment(PhoneModel.self) private var phone
     @Environment(\.horizontalSizeClass) private var horizontal
     @State private var calls: CallsModel?
+    /// Whether the "Call removed from your list · Undo" bar is up.
+    @State private var removed = false
+    @State private var undo: Task<Void, Never>?
     @State private var onlyMissed = false
     @State private var search = ""
     /// Which call the right-hand side is showing. On a phone there is no
@@ -249,6 +295,21 @@ struct CallsView: View {
                             selected: chosen == call.id
                         )
                         .environment(phone(for: call))
+                        // Red, because a swipe that deletes is red (owner,
+                        // 2026-10-05). It takes the call out of **this
+                        // person's** list only; Linx keeps its own record,
+                        // which is what the owner asked for (2026-10-23).
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                Task {
+                                    await calls.hide(call)
+                                    justRemoved()
+                                }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .tint(LinxColor.end)
+                        }
                     }
                     if calls.hasMore, !onlyMissed {
                         Button("Show older calls") {
@@ -259,11 +320,48 @@ struct CallsView: View {
                     }
                 }
                 .listStyle(.plain)
+                .safeAreaInset(edge: .bottom) {
+                    if removed {
+                        HStack(spacing: LinxSpace.s3) {
+                            Text("Call removed from your list")
+                                .font(.subheadline)
+                                .foregroundStyle(LinxColor.textMuted)
+                            Spacer()
+                            Button("Undo") {
+                                Task {
+                                    undo?.cancel()
+                                    await calls.putTheLastOneBack()
+                                    removed = false
+                                }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(LinxColor.accent)
+                        }
+                        .padding(.horizontal, LinxSpace.s4)
+                        .padding(.vertical, LinxSpace.s3)
+                        .background(LinxColor.surface)
+                        .overlay(alignment: .top) { Divider() }
+                    }
+                }
             } else {
                 CallsEmpty(loaded: calls?.loaded ?? false, problem: calls?.problem)
             }
         }
     }
+
+    /// A call has just gone from the list: the offer to put it back stands
+    /// for a few seconds, as the web's does after a routing change.
+    private func justRemoved() {
+        removed = true
+        undo?.cancel()
+        undo = Task {
+            try? await Task.sleep(for: .seconds(Self.undoLasts))
+            guard !Task.isCancelled else { return }
+            removed = false
+        }
+    }
+
+    nonisolated static let undoLasts = 10
 }
 
 /// One call: who, which way it went, when, and how long they talked.

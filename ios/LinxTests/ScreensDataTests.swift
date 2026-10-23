@@ -154,6 +154,68 @@ final class FakeScreensLinx: URLProtocol, @unchecked Sendable {
         #expect(FakeScreensLinx.asked("/api/v1/me/calls").first?.query?.contains("limit=50") == true)
     }
 
+    @Test("a swipe takes a call out of my list, and Undo puts it back")
+    func swipingACallAway() async throws {
+        FakeScreensLinx.reset()
+        FakeScreensLinx.answer(
+            "/api/v1/me/calls", 200,
+            """
+            {"items":[
+              {"id":"0199c0de-0000-7000-8000-00000000c001","direction":"inbound",
+               "started_at":"2026-10-23T08:00:00Z","ended_at":"2026-10-23T08:00:20Z","talk_seconds":0,
+               "result":"missed","missed":true,"rang_unanswered":true,"placed_by_me":false,
+               "from":{"number":"103","name":"Khalifa"},"to":{"number":"100","name":"Mohammed"},"steps":[]},
+              {"id":"0199c0de-0000-7000-8000-00000000c002","direction":"internal",
+               "started_at":"2026-10-23T07:00:00Z","answered_at":"2026-10-23T07:00:08Z",
+               "ended_at":"2026-10-23T07:05:52Z","talk_seconds":344,"result":"answered","missed":false,
+               "rang_unanswered":false,"placed_by_me":true,
+               "from":{"number":"100","name":"Mohammed"},"to":{"number":"103","name":"Khalifa"},"steps":[]}
+            ],"keep_days":365}
+            """
+        )
+        let model = CallsModel(access: Self.access)
+        await model.load()
+        #expect(model.calls.count == 2)
+        let gone = try #require(model.calls.first)
+
+        // Linx takes it: the row goes from this person's list at once.
+        let path = "/api/v1/me/calls/" + gone.record.id.uuidString.lowercased()
+        FakeScreensLinx.answer(path, 204, "")
+        await model.hide(gone)
+        #expect(model.calls.count == 1)
+        #expect(model.calls.contains { $0.record.id == gone.record.id } == false)
+        #expect(FakeScreensLinx.asked(path).last?.method == "DELETE")
+
+        // Undo.
+        FakeScreensLinx.answer(path + "/put-back", 204, "")
+        await model.putTheLastOneBack()
+        #expect(model.calls.count == 2)
+        #expect(FakeScreensLinx.asked(path + "/put-back").last?.method == "POST")
+    }
+
+    @Test("a call Linx wouldn't remove stays in the list, and says why")
+    func aRemovalThatFails() async throws {
+        FakeScreensLinx.reset()
+        FakeScreensLinx.answer(
+            "/api/v1/me/calls", 200,
+            """
+            {"items":[
+              {"id":"0199c0de-0000-7000-8000-00000000c003","direction":"internal",
+               "started_at":"2026-10-23T08:00:00Z","ended_at":"2026-10-23T08:00:20Z","talk_seconds":9,
+               "result":"answered","missed":false,"rang_unanswered":false,"placed_by_me":true,
+               "from":{"number":"100","name":"Mohammed"},"to":{"number":"103","name":"Khalifa"},"steps":[]}
+            ],"keep_days":365}
+            """
+        )
+        let model = CallsModel(access: Self.access)
+        await model.load()
+        let call = try #require(model.calls.first)
+        // Nothing answers the delete (the fake's own 404).
+        await model.hide(call)
+        #expect(model.calls.count == 1)
+        #expect(model.problem?.isEmpty == false)
+    }
+
     @Test("the badges are this person's own counts, asked for by name")
     func readsBadges() async throws {
         FakeScreensLinx.reset()

@@ -31,6 +31,11 @@ type Filter struct {
 	To     *time.Time
 	Before *Cursor
 	Limit  int
+	// NotHiddenFor leaves out the calls this person has taken out of their
+	// own list (migration 0056). Their own history sets it; the company's
+	// history — Admin → Calls, the CSV — never does, because what a person
+	// hides from their list is not deleted from the company's record.
+	NotHiddenFor *uuid.UUID
 }
 
 // Cursor is where the next page starts: the last call shown.
@@ -140,6 +145,7 @@ func (s *Service) Mine(ctx context.Context, tenant, user uuid.UUID, f Filter) ([
 		return nil, nil, nil
 	}
 	f.TenantID, f.Party = tenant, ext
+	f.NotHiddenFor = &user
 	return s.list(ctx, f)
 }
 
@@ -171,6 +177,18 @@ func (s *Service) list(ctx context.Context, f Filter) ([]Listed, *Cursor, error)
 func (s *Service) MissedCount(ctx context.Context, user uuid.UUID) (int, error) {
 	s.fresh(ctx)
 	return s.Store.MissedCount(ctx, user)
+}
+
+// Hide takes a call out of this person's own list; Show puts it back
+// (Undo). The call itself is never deleted — the company's record, the CSV
+// and Admin → Calls are untouched — so neither of these is destructive and
+// neither needs an admin's say.
+func (s *Service) Hide(ctx context.Context, tenant, user, call uuid.UUID) error {
+	return s.Store.HideCall(ctx, tenant, user, call)
+}
+
+func (s *Service) Show(ctx context.Context, tenant, user, call uuid.UUID) error {
+	return s.Store.ShowCall(ctx, tenant, user, call)
 }
 
 // Seen clears the badge.

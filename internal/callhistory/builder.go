@@ -30,6 +30,11 @@ type Store interface {
 	// UserExtension is the signed-in person's extension (nil: none).
 	UserExtension(ctx context.Context, user uuid.UUID) (*uuid.UUID, error)
 	MissedCount(ctx context.Context, user uuid.UUID) (int, error)
+	// HideCall takes a call out of one person's own list, and ShowCall
+	// puts it back (migration 0056). The company's record keeps it either
+	// way; only that person's list changes.
+	HideCall(ctx context.Context, tenant, user, call uuid.UUID) error
+	ShowCall(ctx context.Context, tenant, user, call uuid.UUID) error
 	SetCallsSeen(ctx context.Context, user uuid.UUID, at time.Time) error
 	CallHistoryKeepDays(ctx context.Context) (int, error)
 	SetCallHistoryKeepDays(ctx context.Context, days int, audit auth.AuditEntry) error

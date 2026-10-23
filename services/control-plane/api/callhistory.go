@@ -103,6 +103,37 @@ func (s *Server) ListMyCalls(ctx context.Context, req ListMyCallsRequestObject) 
 	return ListMyCalls200JSONResponse(out), nil
 }
 
+// HideMyCall takes a call out of the signed-in person's own list. The call
+// is not deleted: the company's record keeps it (migration 0056).
+func (s *Server) HideMyCall(ctx context.Context, req HideMyCallRequestObject) (HideMyCallResponseObject, error) {
+	if s.history == nil {
+		return nil, errNoCallHistory
+	}
+	p, uid, perr := signedInPerson(ctx)
+	if perr != nil {
+		return HideMyCalldefaultApplicationProblemPlusJSONResponse{StatusCode: perr.Status, Body: problem(perr)}, nil
+	}
+	if err := s.history.Hide(ctx, p.TenantID, uid, req.Id); err != nil {
+		return nil, err
+	}
+	return HideMyCall204Response{}, nil
+}
+
+// PutMyCallBack is Undo for the swipe above.
+func (s *Server) PutMyCallBack(ctx context.Context, req PutMyCallBackRequestObject) (PutMyCallBackResponseObject, error) {
+	if s.history == nil {
+		return nil, errNoCallHistory
+	}
+	p, uid, perr := signedInPerson(ctx)
+	if perr != nil {
+		return PutMyCallBackdefaultApplicationProblemPlusJSONResponse{StatusCode: perr.Status, Body: problem(perr)}, nil
+	}
+	if err := s.history.Show(ctx, p.TenantID, uid, req.Id); err != nil {
+		return nil, err
+	}
+	return PutMyCallBack204Response{}, nil
+}
+
 func (s *Server) GetMyMissedCalls(ctx context.Context, _ GetMyMissedCallsRequestObject) (GetMyMissedCallsResponseObject, error) {
 	if s.history == nil {
 		return nil, errNoCallHistory
