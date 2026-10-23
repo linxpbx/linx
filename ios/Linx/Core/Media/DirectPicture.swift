@@ -156,6 +156,39 @@ struct PictureStops {
 
 /// The most the other side has asked this phone's picture to be, because
 /// what it was getting kept stopping (ADR-096), and how that is given back:
+/// How long the ladder leaves a size alone after it changes (ADR-081).
+///
+/// Every change of size costs a keyframe and a visible jump, and WebRTC's
+/// own readings — the room to send in, the round trip — mean little until
+/// the new size has had a few seconds to settle. Without a hold, each
+/// reading can move the size again: the owner's video call of 2026-10-23
+/// (both phones on mobile data, the picture through the relay) changed
+/// **nine times in its first minute** — 360p, 240p, 360p, 480p, 540p,
+/// 360p, 480p, 240p, 360p, 480p — and they said the first minute or two
+/// looked bad. Each move was defensible on its own reading; together they
+/// were the fault.
+struct Settling: Equatable, Sendable {
+    /// Readings (two seconds apart) in which nothing moves the size.
+    static let noMove = 3
+    /// Readings before the round trip is worth believing. Right after a
+    /// change, and right after the route changes, it reads high for
+    /// reasons that have nothing to do with the size — the owner's call
+    /// came down to 240p five seconds in, on a 947 ms reading taken while
+    /// the relay's TLS route was still warming up.
+    static let delayBelievable = 5
+
+    /// Readings since the size or the route last changed.
+    private(set) var readings = 0
+
+    mutating func reading() { readings += 1 }
+    mutating func changed() { readings = 0 }
+
+    /// Whether the ladder may move the size at all.
+    var mayMove: Bool { readings >= Self.noMove }
+    /// Whether a round trip reading is worth acting on.
+    var delayMeansSomething: Bool { readings >= Self.delayBelievable }
+}
+
 /// a step at a time after a minute of nobody complaining, with the wait
 /// doubling each time they ask again — the same shape as the ladder's own
 /// `steadyWanted`, and for the same reason. A ceiling that lifts in six
@@ -1207,6 +1240,9 @@ struct AskedCeiling {
     /// follows it back up (the phone bench, 2026-10-13).
     private func routeFound(_ route: String) {
         let tcp = route.hasPrefix("relay/tls") || route.hasPrefix("relay/tcp")
+        settling.changed()
+        delayFloor = nil
+        delayedReadings = 0
         guard tcp != overTCP else { return }
         overTCP = tcp
         startOverTCPSmall()
@@ -1232,6 +1268,10 @@ struct AskedCeiling {
     /// steady link has anyway (a ship's satellite: 0.8 s).
     private func watchTheDelay(_ rtt: Double) {
         delayFloor = min(delayFloor ?? rtt, rtt)
+        guard settling.delayMeansSomething else {
+            delayedReadings = 0
+            return
+        }
         guard let floor = delayFloor, rtt > max(Self.delayAlways, floor * Self.delayTimes) else {
             delayedReadings = 0
             return
@@ -1239,6 +1279,7 @@ struct AskedCeiling {
         delayedReadings += 1
         guard delayedReadings >= 2, let smaller = VideoQuality(rawValue: quality.rawValue - 1) else { return }
         delayedReadings = 0
+        settling.changed()
         startedSmall = false
         squeezed = smaller
         roomyReadings = 0
@@ -1257,7 +1298,7 @@ struct AskedCeiling {
     /// stopping: down a step, and twice as long before trying up again —
     /// the same as a step the link turned out not to carry.
     private func theirPictureKeepsStopping() {
-        guard video.mine else { return }
+        guard video.mine, settling.mayMove else { return }
         if tryingFor > 0 { tryingFor = 0 }
         steadyWanted = min(steadyWanted * 2, Self.steadyMost)
         roomyReadings = 0
@@ -1267,6 +1308,7 @@ struct AskedCeiling {
         guard let smaller = VideoQuality(rawValue: quality.rawValue - 1) else { return }
         startedSmall = false
         squeezed = smaller
+        settling.changed()
         onMark?("Picture down to \(smaller.height)p: they say it keeps stopping")
         useQuality()
     }
@@ -1387,6 +1429,7 @@ struct AskedCeiling {
         }
         framesSeen = frames
         framesMost = max(framesMost, frames)
+        settling.reading()
         if video.mine, let rtt = (pair?.values["currentRoundTripTime"] as? NSNumber)?.doubleValue, rtt > 0 {
             watchTheDelay(rtt)
         }
@@ -1458,6 +1501,17 @@ struct AskedCeiling {
     /// call after HD, 2026-10-14). The size is Linx's to hold
     /// (`capWhatThisPhoneSends`), so it must be Linx that brings it down.
     private func follow(room: Int) {
+        // A size a few seconds old: the room reading is still about the
+        // size before it. Nothing is counted and nothing moves -- except
+        // a link too thin to carry a picture at all, which is about the
+        // sound and is never held back.
+        if !settling.mayMove, room >= Self.tooThin {
+            roomyReadings = 0
+            tightReadings = 0
+            steadyReadings = 0
+            thinReadings = 0
+            return
+        }
         // At the smallest size already, a thin reading is only the room
         // following what is sent (an AV1 picture at 240p reads under
         // `tooThin` on a fine link): the camera goes off only below
@@ -1478,6 +1532,7 @@ struct AskedCeiling {
             if quality != .thin {
                 startedSmall = false
                 squeezed = .thin
+                settling.changed()
                 onMark?("Picture down to \(VideoQuality.thin.height)p: room for \(room / 1000) kbit/s")
                 useQuality()
             } else if room < Self.tooThinEvenSmall {
@@ -1501,6 +1556,7 @@ struct AskedCeiling {
             }
             startedSmall = false
             squeezed = fits
+            settling.changed()
             onMark?("Picture down to \(fits.height)p: room for \(room / 1000) kbit/s")
             useQuality()
             return
@@ -1534,6 +1590,7 @@ struct AskedCeiling {
             tryingFor = Self.trialReadings
             startedSmall = false
             self.squeezed = bigger.rawValue >= unsqueezed.rawValue ? nil : bigger
+            settling.changed()
             onMark?("Picture trying \(quality.height)p: room for \(room / 1000) kbit/s")
             useQuality()
             return
@@ -1543,6 +1600,7 @@ struct AskedCeiling {
         roomyReadings = 0
         startedSmall = false
         self.squeezed = bigger.rawValue >= unsqueezed.rawValue ? nil : bigger
+        settling.changed()
         onMark?("Picture back up to \(quality.height)p: room for \(room / 1000) kbit/s")
         useQuality()
     }
@@ -1667,6 +1725,10 @@ struct AskedCeiling {
 
     /// The most the other side has asked this phone to send (`AskedCeiling`).
     private var theirCeiling = AskedCeiling()
+
+    /// How long since the size (or the route) last changed: nothing moves
+    /// the ladder for the first few readings after either (`Settling`).
+    private var settling = Settling()
 
     /// The step a thin link has taken the picture down to, if any.
     private var squeezed: VideoQuality?

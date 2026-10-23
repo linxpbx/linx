@@ -593,6 +593,41 @@ struct BadNetworkPictureTests {
         #expect(next == false)
     }
 
+    @Test("a size is left alone for a few readings after it changes")
+    func aSizeSettles() {
+        var settling = Settling()
+        // Straight after a change nothing may move it: the room reading is
+        // still about the size before it.
+        #expect(settling.mayMove == false)
+        #expect(settling.delayMeansSomething == false)
+        for _ in 0..<(Settling.noMove - 1) { settling.reading() }
+        #expect(settling.mayMove == false)
+        settling.reading()
+        #expect(settling.mayMove == true)
+        // The round trip takes longer to be worth believing than the room:
+        // the owner's call came down a step five seconds in, on a reading
+        // taken while the relay's route was still warming up (2026-10-23).
+        #expect(settling.delayMeansSomething == false)
+        for _ in 0..<(Settling.delayBelievable - Settling.noMove) { settling.reading() }
+        #expect(settling.delayMeansSomething == true)
+
+        // And every change starts the wait again, whatever moved the size.
+        settling.changed()
+        #expect(settling.mayMove == false)
+        #expect(settling.delayMeansSomething == false)
+    }
+
+    @Test("the settling wait is long enough to stop a picture flapping every few seconds")
+    func settlingIsLongEnoughToMatter() {
+        // Readings are two seconds apart, so the hold is six seconds and
+        // the delay is believed after ten. The owner's call changed size
+        // nine times in its first minute, at +14, +18, +24, +37, +39, +45,
+        // +51, +53 and +59 s: four of those gaps are under six seconds and
+        // could not happen now.
+        #expect(Settling.noMove == 3)
+        #expect(Settling.delayBelievable > Settling.noMove)
+    }
+
     @Test("a ceiling the other side asked for is given back a step at a time")
     func theCeilingComesBackSlowly() {
         var ceiling = AskedCeiling()
