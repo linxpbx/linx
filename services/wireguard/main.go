@@ -10,8 +10,10 @@
 // seconds, it applies the tunnels the control plane rendered
 // (internal/wgconf) and writes each one's last handshake back. When
 // Asterisk restarts, its namespace is replaced and this one is left behind
-// with no network card of its own: the agent notices and exits, and Docker
-// starts it again in the new one.
+// with no network card of its own: the agent notices, **waits for Asterisk
+// to be running again** (Agent.WaitForAsteriskBack) and then exits, so
+// Docker's one restart attempt lands in the new namespace. Exiting before
+// Asterisk is back kills this container for good.
 package main
 
 import (
@@ -29,6 +31,8 @@ import (
 const (
 	defaultConfigDir = "/var/lib/linx/wireguard"
 	defaultStatusDir = "/var/lib/linx/wireguard-status"
+	// Where Asterisk's entrypoint says when it started, read only.
+	defaultBootFile = "/var/lib/linx/trunk-status/asterisk-boot"
 	// The distroless image's nonroot user.
 	runAsUID = 65532
 )
@@ -45,6 +49,7 @@ func main() {
 		ConfigDir: envOr("LINX_WIREGUARD_DIR", defaultConfigDir),
 		StatusDir: envOr("LINX_WIREGUARD_STATUS_DIR", defaultStatusDir),
 		Interval:  2 * time.Second,
+		BootFile:  envOr("LINX_ASTERISK_BOOT_FILE", defaultBootFile),
 	}
 	if d, err := time.ParseDuration(os.Getenv("LINX_WIREGUARD_INTERVAL")); err == nil && d > 0 {
 		cfg.Interval = d
@@ -62,7 +67,13 @@ func main() {
 	a := &Agent{Config: cfg, Net: k, Now: time.Now, Log: log}
 	err = a.Run(ctx)
 	if errors.Is(err, errOrphaned) {
-		log.Warn("Asterisk's network is gone (it restarted); exiting so Docker starts this again in its new one")
+		log.Warn("Asterisk's network is gone (it restarted); waiting for Asterisk to be back before exiting, " +
+			"because Docker's one restart attempt has to find it running")
+		a.WaitForAsteriskBack(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		log.Warn("Asterisk is back; exiting so Docker starts this again in its new namespace")
 		os.Exit(3)
 	}
 	if err != nil && ctx.Err() == nil {

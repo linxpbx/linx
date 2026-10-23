@@ -144,6 +144,9 @@ func TestWireGuardDocker(t *testing.T) {
 		"--user", "0:0", "--read-only", "--cap-drop", "ALL", "--cap-add", "NET_ADMIN", "--cap-add", "SETUID", "--cap-add", "SETGID",
 		"--security-opt", "no-new-privileges:true", "--env", "LINX_WIREGUARD_INTERVAL=1s",
 		"--volume", wgDir+":/var/lib/linx/wireguard:ro", "--volume", statusDir+":/var/lib/linx/wireguard-status",
+		// Asterisk's own start, which is how the agent knows it is safe to
+		// exit after a restart (services/wireguard).
+		"--volume", filepath.Join(e.dir, "trunk-status")+":/var/lib/linx/trunk-status:ro",
 		wireguardImage())
 
 	var profile trunk.WireGuardProfile
@@ -269,19 +272,36 @@ AllowedIPs = 0.0.0.0/0
 		outgoing(t, "wg-back", "0501234569")
 	})
 
+	// Asterisk **away for a while**, not a quick `docker restart`. The
+	// quick one hid the fault for months: Asterisk was back in a tenth of
+	// a second, before the agent had even noticed its namespace was dead.
+	// Away for several seconds is the real case, and the one that used to
+	// end this container for good -- the agent exited into nothing, Docker
+	// made its single restart attempt, it failed with "cannot join network
+	// namespace of a non running container", and every WireGuard trunk
+	// stayed down until somebody started the container by hand. That is
+	// what this scenario had been failing on in CI, intermittently, since
+	// 2026-10-19 (and never on this Mac, where Asterisk comes back too
+	// fast to lose the race).
 	t.Run("after Asterisk restarts, the tunnel follows it", func(t *testing.T) {
 		restarts := docker(t, ctx, "inspect", "--format", "{{.RestartCount}}", agent)
-		docker(t, ctx, "restart", astName)
+		docker(t, ctx, "stop", astName)
+		e.eventuallyOr(t, "the agent noticing Asterisk's network had gone", 20*time.Second, func() bool {
+			return strings.Contains(e.logs(agent), "Asterisk's network is gone")
+		}, agent)
+		// And it is still here: an exit now would be the end of it.
+		if st := docker(t, ctx, "inspect", "--format", "{{.State.Status}}", agent); !strings.Contains(st, "running") {
+			t.Fatalf("the agent is %q while Asterisk is down: it has to wait for Asterisk to come back, "+
+				"or Docker's one restart attempt fails and the tunnels never return\n%s", st, e.logs(agent))
+		}
+		docker(t, ctx, "start", astName)
 		e.waitAsterisk(t)
 		eventually(t, "Asterisk's ARI connection again", 30*time.Second, tracker.Connected)
-		e.eventuallyOr(t, "the agent restarted into Asterisk's new namespace", 30*time.Second, func() bool {
+		e.eventuallyOr(t, "the agent restarted into Asterisk's new namespace", 45*time.Second, func() bool {
 			return docker(t, ctx, "inspect", "--format", "{{.RestartCount}}", agent) != restarts &&
 				strings.Contains(docker(t, ctx, "inspect", "--format", "{{.State.Status}}", agent), "running")
 		}, agent)
 		e.eventuallyOr(t, "the trunk back after the restart", 30*time.Second, endpointLoaded(tr), agent)
 		outgoing(t, "wg-restart", "0501234570")
-		if !strings.Contains(e.logs(agent), "Asterisk's network is gone") {
-			t.Errorf("the agent's log:\n%s", e.logs(agent))
-		}
 	})
 }

@@ -19,7 +19,19 @@ import (
 type Config struct {
 	ConfigDir, StatusDir string
 	Interval             time.Duration
+	// BootFile is where Asterisk writes the value of its own start
+	// (services/asterisk-entrypoint). It is how this agent knows Asterisk
+	// is running again before it exits; "" or "none" to do without it.
+	BootFile string
+	// OrphanGrace is how long to wait before exiting when there is no boot
+	// file to read (zero: defaultOrphanGrace).
+	OrphanGrace time.Duration
 }
+
+// defaultOrphanGrace is the wait when Asterisk writes no boot file -- an
+// image older than this agent. Long enough for a container to come back,
+// short enough that a tunnel isn't down for long.
+const defaultOrphanGrace = 20 * time.Second
 
 // Link is a network interface in the namespace.
 type Link struct {
@@ -60,6 +72,10 @@ type Agent struct {
 	Now    func() time.Time
 	Log    *slog.Logger
 
+	// bootWas is what Asterisk's boot file said when this agent started,
+	// so a change in it means Asterisk has started again.
+	bootWas string
+
 	// applied is each interface's last applied tunnel (a hash), so an
 	// unchanged tunnel isn't touched: reconfiguring a peer can drop its
 	// session.
@@ -73,6 +89,7 @@ type Agent struct {
 // Run applies and reports every Interval until ctx ends, or returns
 // errOrphaned when Asterisk's namespace is gone.
 func (a *Agent) Run(ctx context.Context) error {
+	a.bootWas = a.asteriskBoot()
 	t := time.NewTicker(a.Config.Interval)
 	defer t.Stop()
 	for {
@@ -196,6 +213,65 @@ func (a *Agent) report(s wgconf.Status) {
 		a.Log.Error("writing the tunnels' state", "err", err)
 	}
 	a.lastErr = s.Error
+}
+
+// asteriskBoot is what Asterisk said about its own start, or "" when
+// there is nothing to read (no file, no mount, or an older image).
+func (a *Agent) asteriskBoot() string {
+	if a.Config.BootFile == "" || a.Config.BootFile == "none" {
+		return ""
+	}
+	b, err := os.ReadFile(a.Config.BootFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// WaitForAsteriskBack blocks until Asterisk has started again (its boot
+// file says something new), so the exit that follows lands while its
+// container is running.
+//
+// It exists because Docker tries **once**. When Asterisk restarts, this
+// agent is left holding a namespace with no network card and has to exit so
+// Docker can start it in the new one -- but if Asterisk isn't running at
+// that moment, the attempt fails with "cannot join network namespace of a
+// non running container" and the container stays exited for good, with
+// every WireGuard trunk down until somebody starts it by hand. Every
+// restart policy behaves that way; it was proved with plain containers on
+// 2026-10-23, and it is what the call suite's restart scenario had been
+// catching intermittently since 2026-10-19.
+//
+// With no boot file to read (an Asterisk image older than this agent) it
+// waits OrphanGrace instead and exits anyway: no worse than before, and
+// usually long enough. If Asterisk never comes back it waits for ever,
+// which is right -- exiting would be the end of this container, while
+// waiting costs nothing and recovers the moment Asterisk returns.
+func (a *Agent) WaitForAsteriskBack(ctx context.Context) {
+	a.report(wgconf.Status{Tunnels: map[string]wgconf.TunnelStatus{},
+		Error: "Asterisk restarted; waiting for its network to come back."})
+	grace := a.Config.OrphanGrace
+	if grace <= 0 {
+		grace = defaultOrphanGrace
+	}
+	until := a.Now().Add(grace)
+	every := a.Config.Interval
+	if every <= 0 || every > time.Second {
+		every = time.Second
+	}
+	for {
+		if boot := a.asteriskBoot(); boot != "" && boot != a.bootWas {
+			return
+		}
+		if a.bootWas == "" && !a.Now().Before(until) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(every):
+		}
+	}
 }
 
 // orphaned: Asterisk's container always has a network card (a veth) on

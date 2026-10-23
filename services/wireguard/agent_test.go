@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -145,6 +147,70 @@ func TestAgent(t *testing.T) {
 	net.links = []Link{{Name: "lo", Type: "device"}, {Name: tun.Interface, Type: "wireguard"}}
 	if err := a.Tick(); !errors.Is(err, errOrphaned) {
 		t.Errorf("orphaned namespace: %v", err)
+	}
+}
+
+// The agent must not exit while Asterisk is still down: Docker tries to
+// restart this container once, and an attempt made while Asterisk's
+// container isn't running fails for good (services/wireguard's
+// WaitForAsteriskBack).
+func TestWaitsForAsteriskToComeBack(t *testing.T) {
+	statusDir, bootDir := t.TempDir(), t.TempDir()
+	boot := filepath.Join(bootDir, "asterisk-boot")
+	if err := os.WriteFile(boot, []byte("1000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	a := &Agent{Config: Config{StatusDir: statusDir, BootFile: boot, Interval: time.Millisecond},
+		Now: func() time.Time { return now }, Log: slog.New(slog.DiscardHandler)}
+	a.bootWas = a.asteriskBoot()
+
+	// Asterisk is still down (the file says what it said before): the wait
+	// goes on, and the tunnels' state says why.
+	waiting := make(chan struct{})
+	go func() { defer close(waiting); a.WaitForAsteriskBack(context.Background()) }()
+	select {
+	case <-waiting:
+		t.Fatal("it exited while Asterisk was still down")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if s, _ := wgconf.ReadStatus(statusDir); !strings.Contains(s.Error, "waiting for its network") {
+		t.Errorf("the tunnels' state while waiting: %+v", s)
+	}
+
+	// Asterisk started again: the wait ends, and the caller may exit.
+	if err := os.WriteFile(boot, []byte("2000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-waiting:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Asterisk came back and it carried on waiting")
+	}
+}
+
+// With no boot file to read (an Asterisk image older than this agent) it
+// waits the grace out and exits anyway, which is what it always did.
+func TestWithoutABootFileItWaitsTheGraceOut(t *testing.T) {
+	var clock atomic.Int64 // read from the agent's own goroutine
+	clock.Store(time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC).UnixNano())
+	a := &Agent{Config: Config{StatusDir: t.TempDir(), BootFile: filepath.Join(t.TempDir(), "missing"),
+		Interval: time.Millisecond, OrphanGrace: 10 * time.Millisecond},
+		Now: func() time.Time { return time.Unix(0, clock.Load()) }, Log: slog.New(slog.DiscardHandler)}
+	a.bootWas = a.asteriskBoot()
+	done := make(chan struct{})
+	go func() { defer close(done); a.WaitForAsteriskBack(context.Background()) }()
+	// The clock only moves when the test says so, so nothing has run out yet.
+	select {
+	case <-done:
+		t.Fatal("it exited before the grace was over")
+	case <-time.After(30 * time.Millisecond):
+	}
+	clock.Add(time.Second.Nanoseconds())
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the grace ran out and it carried on waiting")
 	}
 }
 

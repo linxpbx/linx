@@ -435,6 +435,13 @@ services:
     volumes:
       - wireguard:/var/lib/linx/wireguard:ro
       - wireguard-status:/var/lib/linx/wireguard-status
+      # Asterisk says there when it last started. This agent lives in
+      # Asterisk's network namespace, so an Asterisk restart leaves it
+      # holding a dead one and it has to exit for Docker to start it in the
+      # new one -- and Docker tries once, so it waits for this file to
+      # change first. Exiting while Asterisk is still down kills this
+      # container for good (services/wireguard, 2026-10-23).
+      - trunk-status:/var/lib/linx/trunk-status:ro
     depends_on: [asterisk]
     environment:
       # Go services: collect garbage harder near this, about 3/4 of mem_limit,

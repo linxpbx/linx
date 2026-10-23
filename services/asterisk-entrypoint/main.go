@@ -231,6 +231,22 @@ func (w *statusWriter) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// asteriskBootFile is the name linx-wireguard looks for in the trunk-status
+// directory (services/wireguard).
+const asteriskBootFile = "asterisk-boot"
+
+// sayStarted writes this start's own value to the boot file. Best effort:
+// nothing here is worth failing a start for, and an agent that can't read
+// it falls back to waiting a fixed while instead.
+func sayStarted(dir string, log *slog.Logger) {
+	name := filepath.Join(dir, asteriskBootFile)
+	value := fmt.Sprintf("%d\n", time.Now().UnixNano())
+	if err := os.WriteFile(name, []byte(value), 0o644); err != nil {
+		log.Warn("couldn't say when Asterisk started; linx-wireguard will wait a fixed while after a restart instead",
+			"file", name, "err", err)
+	}
+}
+
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", service)
 	log.Info("starting", "version", version.String(service))
@@ -309,6 +325,16 @@ func main() {
 		if dir == "" {
 			dir = "/var/lib/linx/trunk-status"
 		}
+		// This start, for linx-wireguard. That agent runs inside this
+		// container's network namespace, and when Asterisk restarts it is
+		// left holding the old one and has to exit so Docker can start it
+		// in the new one -- but Docker tries **once**, and if this
+		// container isn't running yet that attempt fails and the agent
+		// stays dead for good, taking every WireGuard trunk with it
+		// (proved with plain containers, 2026-10-23: every restart policy
+		// behaves the same). So the agent waits for this file to change
+		// before it exits, which is this container running again.
+		sayStarted(dir, log)
 		status := &statusWriter{dir: dir, console: console, now: time.Now, log: log.With("report", "trunk status")}
 		go status.Run(ctx, min(interval, statusInterval))
 	}
