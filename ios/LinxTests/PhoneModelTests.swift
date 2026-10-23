@@ -98,6 +98,49 @@ struct PhoneModelTests {
         #expect(phone.problem == "They're on another call.")
     }
 
+    @Test("an extension dialled on the keypad is called by its person's name")
+    func theKeypadKnowsWhoItIsRinging() async throws {
+        let transport = FakeTransport()
+        let phone = PhoneModel(
+            line: { Self.line() }, transport: { _ in transport }, media: { _ in FakeMedia() })
+        // What the team list this phone already has would answer.
+        phone.nameForNumber = { $0 == "103" ? "Khalifa Al Nuaimi" : nil }
+        await phone.start()
+        let first = try #require(transport.last("REGISTER"))
+        var challenge = SIPMessage.response(401, "Unauthorized", to: first)
+        challenge.add("WWW-Authenticate", "Digest realm=\"asterisk\", nonce=\"n1\", qop=\"auth\"")
+        transport.asterisk(challenge)
+        transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
+
+        // The name is on the keypad as the number is typed, and on the call.
+        phone.typed = "103"
+        #expect(phone.whoIsTyped == "Khalifa Al Nuaimi")
+        phone.dial()
+        #expect(phone.call?.peer.name == "Khalifa Al Nuaimi")
+        #expect(phone.call?.peer.number == "103")
+        phone.hangUp()
+    }
+
+    @Test("an outside number is shown as it was dialled")
+    func anOutsideNumberKeepsItsNumber() async throws {
+        let transport = FakeTransport()
+        let phone = PhoneModel(
+            line: { Self.line() }, transport: { _ in transport }, media: { _ in FakeMedia() })
+        phone.nameForNumber = { $0 == "103" ? "Khalifa Al Nuaimi" : nil }
+        await phone.start()
+        let first = try #require(transport.last("REGISTER"))
+        var challenge = SIPMessage.response(401, "Unauthorized", to: first)
+        challenge.add("WWW-Authenticate", "Digest realm=\"asterisk\", nonce=\"n1\", qop=\"auth\"")
+        transport.asterisk(challenge)
+        transport.asterisk(SIPMessage.response(200, "OK", to: transport.last("REGISTER")!))
+
+        phone.typed = "0504564177"
+        #expect(phone.whoIsTyped == nil)
+        phone.dial()
+        #expect(phone.call?.peer.name == "0504564177")
+        phone.hangUp()
+    }
+
     @Test("no line, and the phone says so instead of pretending")
     func noLine() async {
         let phone = PhoneModel(line: { nil }, transport: { _ in FakeTransport() }, media: { _ in FakeMedia() })

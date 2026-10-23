@@ -48,12 +48,25 @@ struct KeypadView: View {
         VStack(spacing: LinxSpace.s6) {
             Spacer(minLength: LinxSpace.s4)
 
-            Text(phone.typed.isEmpty ? " " : phone.typed)
-                .font(.system(size: 40, weight: .regular, design: .monospaced))
-                .foregroundStyle(LinxColor.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.4)
-                .accessibilityLabel(phone.typed.isEmpty ? "No number typed" : phone.typed)
+            VStack(spacing: LinxSpace.s2) {
+                Text(phone.typed.isEmpty ? " " : phone.typed)
+                    .font(.system(size: 40, weight: .regular, design: .monospaced))
+                    .foregroundStyle(LinxColor.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.4)
+                    .accessibilityLabel(phone.typed.isEmpty ? "No number typed" : phone.typed)
+
+                // Whose extension that is, as every phone shows under a
+                // number it knows (owner, 2026-10-23). Nothing is shown for
+                // an outside number, and the line keeps its place so the
+                // keys don't move as a name appears.
+                Text(phone.whoIsTyped ?? " ")
+                    .font(.subheadline)
+                    .foregroundStyle(LinxColor.textMuted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .accessibilityHidden(phone.whoIsTyped == nil)
+            }
 
             if let problem = phone.problem {
                 Text(problem)

@@ -216,7 +216,9 @@ enum Screen: String {
                 model.phone.pretendLastDialled("+971 4 000 0123")
             #endif
             if self == .keypad || self == .keypadAccounts {
-                model.phone.typed = "+971 4 000 0123"
+                // A colleague's extension, so the shot shows the name the
+                // phone puts under a number it knows (owner, 2026-10-23).
+                model.phone.typed = "1024"
             }
             #if DEBUG
                 if self == .accounts || self == .keypadAccounts {

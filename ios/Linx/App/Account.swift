@@ -66,8 +66,15 @@ import SwiftUI
     /// The phone line itself: signing in to Asterisk, and the calls
     /// (`Features/Phone`). It asks this account for a line whenever it needs
     /// one, which is also what notices a phone that has been stopped.
-    @ObservationIgnored lazy var phone: PhoneModel = PhoneModel(
-        line: { [weak self] in await self?.lineForPhone() }, calls: calls)
+    @ObservationIgnored lazy var phone: PhoneModel = {
+        let phone = PhoneModel(line: { [weak self] in await self?.lineForPhone() }, calls: calls)
+        // Who an extension belongs to, for a number dialled on the keypad:
+        // the team list this account already keeps. It is asked each time,
+        // because the team model is replaced whenever this phone's identity
+        // changes (`teamModelFollowsTheDevice`).
+        phone.nameForNumber = { [weak self] number in self?.home.whoIsOn(number) }
+        return phone
+    }()
 
     /// What the four tabs show for this account: the team, this person's
     /// status and the two counts on the tab bar (docs/PHASE2.md §12 step 7).

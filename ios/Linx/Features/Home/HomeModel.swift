@@ -145,6 +145,17 @@ import UserNotifications
         }
     }
 
+    /// Whose extension that is, from the team list this phone already has.
+    /// Nil for anything that isn't one of them — an outside number, or a
+    /// team list that hasn't arrived yet — and the number is shown as it
+    /// was dialled.
+    func whoIsOn(_ number: String) -> String? {
+        let dialled = number.trimmingCharacters(in: .whitespaces)
+        guard !dialled.isEmpty else { return nil }
+        guard let member = members.first(where: { $0.extensionNumber == dialled }) else { return nil }
+        return member.name.isEmpty ? nil : member.name
+    }
+
     /// This person's own row in the team list, which is where their status
     /// comes from when the app starts.
     func noticeMyOwnStatus(extensionNumber: String) {

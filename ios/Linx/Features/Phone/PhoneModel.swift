@@ -214,6 +214,13 @@ import UIKit
     /// at the other end (`Ringback`).
     private let ringback: any CallTone
 
+    /// Whose extension a number belongs to, asked of the team list this
+    /// phone is already keeping (`HomeModel`). A call made from Team or
+    /// from Calls brings the name with it; one dialled on the keypad had
+    /// only the number, so the screen said "101" while it rang and the
+    /// Phone app's Recents kept it that way (owner, 2026-10-23).
+    @ObservationIgnored var nameForNumber: (@MainActor (String) -> String?)?
+
     private var agent: SIPUserAgent?
     private var reconnect: Task<Void, Never>?
     private var attempts = 0
@@ -665,12 +672,20 @@ import UIKit
         guard !target.isEmpty else { return }
         problem = nil
         if target != Self.echoTest { lastDialled = target }
-        let peer = SIPPeer(name: name ?? (target == Self.echoTest ? "Test sound" : target), number: target)
+        let known = name ?? (target == Self.echoTest ? "Test sound" : nameForNumber?(target))
+        let peer = SIPPeer(name: known ?? target, number: target)
         let id = UUID()
         if withVideo { videoCalls.insert(id) }
         intended[id] = peer
         tappedAt[id] = Date()
         calls.ask(.start(id, peer))
+    }
+
+    /// Whose extension is on the keypad right now, for the line under the
+    /// number — the way every phone shows who it is about to ring.
+    var whoIsTyped: String? {
+        guard !typed.isEmpty else { return nil }
+        return nameForNumber?(typed)
     }
 
     func answer() {
