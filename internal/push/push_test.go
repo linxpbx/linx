@@ -270,7 +270,7 @@ func TestACallWhereCallKitMayNotBeUsed(t *testing.T) {
 	d.CallAlerts = true
 	e.store.devices[len(e.store.devices)-1] = d
 	e.gateway.Wake(context.Background(), []string{d.SIPUsername}, push.Call{
-		ID: "1759500000.9", From: "+971500000002", At: e.now})
+		ID: "1759500000.9", From: "+971500000002", FromName: "Aisha Rahman", At: e.now})
 
 	sent := e.apple.sent()
 	if len(sent) != 1 {
@@ -294,7 +294,10 @@ func TestACallWhereCallKitMayNotBeUsed(t *testing.T) {
 		t.Errorf("aps = %v", aps)
 	}
 	alert, _ := aps["alert"].(map[string]any)
-	if alert["title"] != "Incoming call" || alert["body"] != "+971500000002" {
+	// Who is ringing, not just their number: this notification **is** the
+	// ringing on a phone that may not use CallKit (ADR-078), so it has to
+	// say as much as the call screen would.
+	if alert["title"] != "Incoming call" || alert["body"] != "Aisha Rahman (+971500000002)" {
 		t.Errorf("what the lock screen shows = %v", alert)
 	}
 	linx, _ := got.Body["linx"].(map[string]any)
@@ -400,8 +403,8 @@ func TestOneWakePushPerCallPerPhone(t *testing.T) {
 func TestQuietNotifications(t *testing.T) {
 	e := newEnv(t)
 	e.phone("aabbccdd", "eeff0011")
-	e.gateway.Missed(context.Background(), uuid.New(), "+971500000002")
-	e.gateway.NewVoicemail(context.Background(), uuid.New(), "")
+	e.gateway.Missed(context.Background(), uuid.New(), push.Caller{Number: "+971500000002", Name: "Aisha Rahman"})
+	e.gateway.NewVoicemail(context.Background(), uuid.New(), push.Caller{})
 
 	sent := e.apple.sent()
 	if len(sent) != 2 {
@@ -419,7 +422,9 @@ func TestQuietNotifications(t *testing.T) {
 	}
 	first, _ := sent[0].Body["aps"].(map[string]any)
 	alert, _ := first["alert"].(map[string]any)
-	if alert["title"] != "Missed call" || alert["body"] != "+971500000002" {
+	// Who called, not just the number they called from (the owner,
+	// 2026-10-23: a notification that says "1024" makes them work it out).
+	if alert["title"] != "Missed call" || alert["body"] != "Aisha Rahman (+971500000002)" {
 		t.Errorf("missed call said %v", alert)
 	}
 	second, _ := sent[1].Body["aps"].(map[string]any)
@@ -437,9 +442,9 @@ func TestQuietNotificationsCarryTheIconNumber(t *testing.T) {
 	e.phone("aabbccdd", "eeff0011")
 	asked := 0
 	e.gateway.Badge = func(context.Context, uuid.UUID, uuid.UUID) (int, error) { asked++; return 3, nil }
-	e.gateway.Missed(context.Background(), uuid.New(), "101")
+	e.gateway.Missed(context.Background(), uuid.New(), push.Caller{Number: "101"})
 	e.gateway.Badge = func(context.Context, uuid.UUID, uuid.UUID) (int, error) { return 0, errors.New("no database") }
-	e.gateway.NewVoicemail(context.Background(), uuid.New(), "101")
+	e.gateway.NewVoicemail(context.Background(), uuid.New(), push.Caller{Number: "101"})
 
 	sent := e.apple.sent()
 	if len(sent) != 2 || asked != 1 {
@@ -460,7 +465,7 @@ func TestNothingIsSentWhilePushIsOff(t *testing.T) {
 	e.store.settings.Enabled = false
 	d := e.phone("aabbccdd", "eeff0011")
 	e.gateway.Wake(context.Background(), []string{d.SIPUsername}, push.Call{ID: "c1", From: "101", At: e.now})
-	e.gateway.Missed(context.Background(), uuid.New(), "101")
+	e.gateway.Missed(context.Background(), uuid.New(), push.Caller{Number: "101"})
 	if sent := e.apple.sent(); len(sent) != 0 {
 		t.Errorf("sent %d pushes with the gateway off", len(sent))
 	}

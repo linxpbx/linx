@@ -311,20 +311,31 @@ func (g *Gateway) Wake(ctx context.Context, sipUsernames []string, c Call) {
 // Missed tells a person's phones about a call they missed, quietly: no
 // VoIP push, because there is no call to ring any more (docs/PHASE2.md §14
 // item 1).
-func (g *Gateway) Missed(ctx context.Context, extension uuid.UUID, from string) {
+func (g *Gateway) Missed(ctx context.Context, extension uuid.UUID, from Caller) {
 	g.quiet(ctx, extension, KindMissed, "Missed call", calledBy(from))
 }
 
 // NewVoicemail tells a person's phones that a message is waiting.
-func (g *Gateway) NewVoicemail(ctx context.Context, extension uuid.UUID, from string) {
+func (g *Gateway) NewVoicemail(ctx context.Context, extension uuid.UUID, from Caller) {
 	g.quiet(ctx, extension, KindVoicemail, "New voicemail", calledBy(from))
 }
 
-func calledBy(from string) string {
-	if strings.TrimSpace(from) == "" {
-		return "Number withheld"
+// calledBy names a caller in the words the rest of Linx uses for the same
+// thing (internal/voicemail.Caller, the app's own call screen): the person
+// when Linx knows them, with the number they rang from after it. A
+// notification that says only a number makes the person holding the phone
+// work out who it was (the owner, 2026-10-23).
+func calledBy(c Caller) string {
+	number, name := strings.TrimSpace(c.Number), strings.TrimSpace(c.Name)
+	switch {
+	case name != "" && number != "" && name != number:
+		return name + " (" + number + ")"
+	case number != "":
+		return number
+	case name != "":
+		return name
 	}
-	return from
+	return "Number withheld"
 }
 
 func (g *Gateway) quiet(ctx context.Context, extension uuid.UUID, kind, title, body string) {

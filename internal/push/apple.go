@@ -144,7 +144,7 @@ func wakePayload(c Call, device uuid.UUID) ([]byte, error) {
 func callPayload(c Call, device uuid.UUID) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"aps": map[string]any{
-			"alert":              map[string]any{"title": "Incoming call", "body": calledBy(c.From)},
+			"alert":              map[string]any{"title": "Incoming call", "body": calledBy(Caller{Number: c.From, Name: c.FromName})},
 			"sound":              "ringtone.caf",
 			"interruption-level": "time-sensitive",
 		},

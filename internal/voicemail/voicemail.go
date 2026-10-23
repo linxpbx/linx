@@ -121,7 +121,7 @@ type Importer struct {
 	WebAddress string
 	// Arrived, if set, is told when a message is kept, so the box owner's
 	// phones can show a quiet notification (internal/push).
-	Arrived func(ctx context.Context, extension uuid.UUID, from string)
+	Arrived func(ctx context.Context, extension uuid.UUID, number, name string)
 	// Changed is told when a tenant gets a message (the badge); may be
 	// nil.
 	Changed func(tenant uuid.UUID)
@@ -346,7 +346,7 @@ func (im *Importer) importOne(ctx context.Context, src string) error {
 			im.Changed(box.TenantID)
 		}
 		if im.Arrived != nil && box.ExtensionID != nil {
-			im.Arrived(ctx, *box.ExtensionID, m.CallerNumber)
+			im.Arrived(ctx, *box.ExtensionID, m.CallerNumber, m.CallerName)
 		}
 		im.mail(ctx, box, m)
 	}

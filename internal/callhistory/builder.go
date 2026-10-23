@@ -61,7 +61,7 @@ type Builder struct {
 	// Missed, if set, is told about each person who missed a call once the
 	// call is in the history: the phone that was asleep hears about it
 	// then (the quiet notification, internal/push, docs/PHASE2.md §5).
-	Missed func(ctx context.Context, extension uuid.UUID, from string)
+	Missed func(ctx context.Context, extension uuid.UUID, number, name string)
 	Now    func() time.Time
 	Log    *slog.Logger
 	// Settle overrides settle (tests).
@@ -141,7 +141,7 @@ func (b *Builder) missed(ctx context.Context, calls []Call) {
 		}
 		for _, party := range c.Parties {
 			if party.Missed {
-				b.Missed(ctx, party.ExtensionID, c.FromNumber)
+				b.Missed(ctx, party.ExtensionID, c.FromNumber, c.FromName)
 			}
 		}
 	}

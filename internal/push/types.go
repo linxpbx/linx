@@ -140,8 +140,22 @@ type Call struct {
 	ID   string
 	From string
 	At   time.Time
+	// FromName is who that number is, when Linx knows: the person whose
+	// extension it is, or the name the line's provider sent. It is shown
+	// on a phone that can't use CallKit (ADR-078) and so is rung by an
+	// ordinary notification; the silent VoIP push stays nameless, because
+	// a phone woken by one learns the name from the invitation a moment
+	// later (PhoneModel.woken renames the call).
+	FromName string
 	// Video is a video call, which the phone shows as one while it rings.
 	Video bool
+}
+
+// Caller is who a notification is about: the number, and the name Linx
+// knows for it when it knows one.
+type Caller struct {
+	Number string
+	Name   string
 }
 
 // Store is the database access the gateway needs (internal/store

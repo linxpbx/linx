@@ -317,7 +317,7 @@ func TestRenderARI(t *testing.T) {
 		// already here, the rest are rung by legs that wait for them, and
 		// everything already here rings at once.
 		"[linx-wake]", "Set(ARRAY(WAKEAORS,WAKEMS)=${LINX_WAKE(${ARG1})})",
-		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},To: ${EXTEN},Video: ${IF(", `Video: ${IF($["${LINXVIDEO}" = "yes"]?yes:no)})`,
+		"UserEvent(LinxWake,Call: ${UNIQUEID},Aors: ${WAKELIST},From: ${CALLERID(num)},Name: ${CALLERID(name)},To: ${EXTEN},Video: ${IF(", `Video: ${IF($["${LINXVIDEO}" = "yes"]?yes:no)})`,
 		"GotoIf($[${FIELDNUM(WAKELIST,&,${WAKEAOR})} < 1]?add)", "Set(WAKEONE=Local/${WAKEAOR}@linx-wake-leg)",
 		"[linx-wake-leg]", "exten => _[a-zA-Z].,1,Ringing()", "same => n(came),Dial(PJSIP/${EXTEN},,b(linx-headers^s^1))",
 		"UserEvent(LinxWakeMissed,Call: ${WAKECALL},Aors: ${EXTEN},Waited: ${WAKEMS})",
