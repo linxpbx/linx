@@ -678,19 +678,22 @@ extension CallTests {
         // down it while nothing this phone sends gets out. There is then no
         // silence for `LineWatch` to notice, and the person waits for a
         // call that was never heard of (the owner's 13:13:48 dial).
-        // The window has to be long enough to hold the traffic below with
-        // room to spare: at 30 ms the four waits could outlast it on a
-        // loaded Mac, the line stopped half way through them, and the rest
-        // of the traffic then arrived on a line that had already gone —
-        // which failed the three checks after it (2026-10-23).
         let (agent, transport, media, box) = await signedIn(silenceAfter: .milliseconds(400))
         await agent.call("1024")
         let lost = try #require(transport.last("INVITE"))
         // Linx keeps asking after the phone all the while, which is traffic
         // on the line and says nothing about the call.
+        //
+        // Not one wait in this loop, and that is the point. Each answer is
+        // handled there and then on the main actor, so nothing can run
+        // between them — least of all the silence this test is about. With
+        // waits in it the loop had no bounded length (a 5 ms wait is 5 ms
+        // or more, and on a loaded runner far more): the line stopped half
+        // way through, the rest of the traffic arrived on a line that had
+        // already gone, and the three checks below failed. Widening the
+        // window from 30 ms to 400 ms only made it rarer (2026-10-23).
         for _ in 0..<4 {
             transport.asterisk(SIPMessage.response(200, "OK", to: try #require(transport.last("REGISTER"))))
-            try? await Task.sleep(for: .milliseconds(5))
         }
         #expect(box.ended == nil)
         let noWord = "Nothing came back about this call; the line isn't carrying it"
