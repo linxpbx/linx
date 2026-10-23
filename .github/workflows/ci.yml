@@ -335,69 +335,19 @@ jobs:
           LINX_CONTROL_PLANE_IMAGE: linx-control-plane:ci
         run: make test-install
 
-  # The iPhone/iPad app (docs/PHASE2.md): formatting, a simulator build and the
-  # unit tests. No Apple account, no signing and no secrets are involved, so this
-  # job runs on pull requests from anywhere.
-  #
-  # The hosted runner's newest Xcode is 26.x, which is the iOS 26 SDK — the app's
-  # minimum (§11 item 4b). The fold layouts of build-order step 8 need the iOS 27.1
-  # SDK, which is on the owner's Mac but not yet on a runner; when that step lands,
-  # either the runner has a newer Xcode or the fold code sits behind a compiler check.
-  ios:
-    name: iOS app
-    runs-on: macos-26
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Pick Xcode
-        run: |
-          for app in /Applications/Xcode_26.6.app /Applications/Xcode_26*.app /Applications/Xcode.app; do
-            if [ -d "$app" ]; then sudo xcode-select -s "$app"; break; fi
-          done
-          xcodebuild -version
-      - name: Formatting
-        run: make ios-lint
-      # Google's WebRTC (ADR-006), pinned by version and SHA-256 in
-      # ios/tools/webrtc.sh; only a new version downloads it again.
-      - name: WebRTC cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ios/build/webrtc
-          key: webrtc-${{ hashFiles('ios/tools/webrtc.sh') }}
-      - name: Fetch WebRTC
-        run: make ios-deps
-      - name: Build (no signing)
-        run: make ios-build
-      - name: Unit tests
-        run: make ios-test
-      # The same build the App Store would get, minus the signing: it is the
-      # only one that compiles the release-only paths (docs/PHASE2.md §14).
-      - name: Build for a real iPhone (no signing)
-        run: make ios-build-device
+  # The iPhone/iPad app is **not** here: it has its own workflow,
+  # .github/workflows/ios.yml, because it needs a macOS machine and GitHub
+  # often has none free — nine of the fourteen red runs between 2026-10-21
+  # and 2026-10-23 were that job killed with no runner and no steps, most of
+  # them on commits that touched only documentation. CI is everything that
+  # runs on Linux, so when it is red something in Linx really is.
 
   # Publishing (master only) waits for everything above: tests, security,
   # every scan and every suite. Images come from the builds' caches.
   publish:
-    # Everything that goes into these images must pass. The Mac job (`ios`)
-    # is deliberately **not** among them: the iPhone app is not inside any
-    # of these images, it is never shipped from them, and GitHub regularly
-    # has no macOS machine free and kills that job at 15 minutes with no
-    # steps run — five times in two days, each time holding the server's
-    # images back for nothing.
-    #
-    # Naming it in `needs` cannot be rescued by a condition. A cancelled job
-    # makes its dependents cancelled, so `!cancelled()` is false here
-    # (run 39629428241) and even `always()` doesn't run them (39636355055,
-    # where every real job passed and these were still skipped). The only
-    # way to stop an absent machine deciding this is not to depend on it.
-    #
-    # The app is still built, tested and built for a device on every push by
-    # the `ios` job, and a real failure there still turns the run red — it
-    # just no longer withholds images it has nothing to do with. The app
-    # reaches a phone from this Mac (docs/ops/APPLE_SIGNING.md), after the
-    # phone bench, never from here.
+    # Everything that goes into these images must pass. The app is not among
+    # them in any sense: it is in none of these images, it is never shipped
+    # from them, and it is tested in its own workflow (above).
     needs: [test, security, images, asterisk-build, calls, browser, install]
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -462,17 +412,28 @@ jobs:
         with:
           cosign-release: v3.1.3
 
+      # Three goes: the signature comes from GitHub's own OIDC token endpoint,
+      # which answered with something that wasn't JSON on run 39957708680
+      # ("invalid character 'u'") and failed two images that had already been
+      # built, tested and pushed. Nothing here is weakened by trying again —
+      # a signature that cannot be made still fails the job.
       - name: Sign image (keyless, by digest)
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+        run: |
+          for try in 1 2 3; do
+            if cosign sign --yes "${IMAGE}@${DIGEST}"; then exit 0; fi
+            echo "signing failed (try $try); waiting"
+            sleep $((try * 10))
+          done
+          exit 1
 
   # Asterisk's push, per architecture on its own runner, from asterisk-build's
   # cache; also waits for everything.
   asterisk-push:
     name: push (asterisk, ${{ matrix.arch }})
-    # Everything that goes into the image must pass; the Mac job is not one
-    # of them, for the reason spelled out on `publish` above.
+    # Everything that goes into the image must pass; the app is not part of
+    # it, for the reason spelled out on `publish` above.
     needs: [test, security, images, asterisk-build, calls, browser, install]
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -581,7 +542,13 @@ jobs:
         with:
           cosign-release: v3.1.3
 
+      # Three goes, for the reason given on `publish`'s signing step.
       - name: Sign image (keyless, by digest)
         run: |
           digest=$(docker buildx imagetools inspect "${IMAGE}:sha-${{ github.sha }}" --format '{{json .Manifest}}' | jq -r '.digest')
-          cosign sign --yes "${IMAGE}@${digest}"
+          for try in 1 2 3; do
+            if cosign sign --yes "${IMAGE}@${digest}"; then exit 0; fi
+            echo "signing failed (try $try); waiting"
+            sleep $((try * 10))
+          done
+          exit 1
