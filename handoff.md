@@ -18,11 +18,11 @@ The standing constraints that shape every change: smallest possible processor, m
 
 ## 2. Current state
 
-**Live (`pbx.mym.ae`, .212) runs `v1.0.0-46-gecfde01`, schema 55, updated 2026-10-21** (backup `9f9c96ab` first; the Go 1.27.3 fix is still to go on). Staging is `home.mym.ae` (.213). The two paragraphs below are older and kept for their detail; where they disagree with this line, this line is right.
+**Live (`pbx.mym.ae`, .212) runs `v1.0.0-101-g1666120`, schema 56, updated 2026-10-23 22:35 Dubai** (backup `c9776b05` first). This update carried the **Go 1.27.3 security fix** (pending since 21 Oct), notifications that name the caller, the talk-time fix, migration **0056** (`call_hidden`), the WireGuard agent fix and the picture-link refusal wording. `linx doctor`: 37 ok, **3 warnings, no problems** (no API key, and two open alerts — the same API-key one and "Calls keep going wrong on M's iPhone" from 20 Oct). All 8 containers healthy, the UCM landline signed back in. **It is one commit behind master (`851dca1`) on purpose: that commit's CI is red on a flaky browser-suite door, so its images were never published. `851dca1` changes only `handoff.md` and the app's build number, so live has every server change master has.** Staging is `home.mym.ae` (.213). The two paragraphs below are older and kept for their detail; where they disagree with this line, this line is right.
 
 **Phase 2 steps 1–10 are all built.** What stands between here and **Linx 1.0.0 live** is the owner's close-out demo (`docs/DEMO_PHASE2.md`), which needs `home.mym.ae` updated first. Steps 8–10, release management and the whole security pass all landed on 2026-10-05; CI green throughout (last push `e500ad0`, CI running at session end — check it).
 
-**The app is on TestFlight as build 55** (`b7bee952-9e9e-490d-a95d-ae68def7e9a7`, VALID, beta review **APPROVED** 2026-10-21, attached to *Friends and family*). **The next upload is build 56** (a number is used once, ever). Standing permission to upload in this round still holds; the App Store listing and Submit stay the owner's.
+**The app is on TestFlight as build 60** (`70d27857-df30-454e-95d4-6bc01c376f33`, VALID, uploaded 2026-10-23 22:25 Dubai, notes set in en-GB and en-US, attached to *Friends and family*, beta review **WAITING_FOR_REVIEW**; internal state `IN_BETA_TESTING`, so it installs now from an internal group). **The next upload is build 61** (a number is used once, ever). Standing permission to upload in this round still holds; the App Store listing and Submit stay the owner's.
 
 **`home.mym.ae` (192.168.1.213) is **staging** from 2026-10-19 and is on `v1.0.0-162-g9bfe89c`** (the "still on `25587b4`, schema 45" that stood here was long stale). Its call relay moved to **UDP 3478** the same day, because live (.212) takes UDP 443 and a router forwards it to one machine only. Live is `pbx.mym.ae` on .212. The note below is history: It lacks `*97`, the message light, the perl-free Asterisk image and the 413 fix. **Updating it is the gate for the close-out demo and for going live** (back up first, `docs/ops/UPDATING.md`). `linx doctor` green apart from two standing warnings (CA root-key backup on the server; no API key).
 
@@ -230,6 +230,20 @@ The useful half of the record: **do not try these again.**
 ---
 
 ## 6. Next step
+
+**▶ 2026-10-23, 22:16–22:40 Dubai — build 60 is on TestFlight and live is updated (the owner scheduled both for two hours after 20:14).**
+
+**TestFlight.** Build 60 archived, uploaded (delivery `70d27857-df30-454e-95d4-6bc01c376f33`), **VALID** at Apple. The exported ipa was checked by hand: `CFBundleVersion` 60, `aps-environment = production`, `beta-reports-active`, signed *Apple Distribution: Mohammed AlMudharreb (AY75S2Z9UK)*, 8.3 MB. What to Test set in **en-GB and en-US** (2,920 chars, from `whattotest-60.txt`), attached to **Friends and family** (HTTP 204), and submitted for beta review: **WAITING_FOR_REVIEW**. The build-60 ASC scripts are in the session scratchpad as `asc_state60.sh`, `asc_whattotest60.sh`, `asc_pub60.sh`, `asc_submit60.sh`.
+
+**Live.** Deployed **`1666120`**, not master's `851dca1` — see below. Backup first (snapshot `c9776b05`), then `setup --config /etc/linx/setup.yaml`. After: `LINX_VERSION=sha-1666120…`, schema **56** with `call_hidden` present, all 8 containers up and every one with a healthcheck healthy, the UCM landline contact **Avail** at 5.1 ms, no ERROR or panic in any container's log since the restart, and `linx doctor` 37 ok / 3 warnings / 0 problems (the standing no-API-key one, plus two open alerts that pre-date this).
+
+**⚠ Master's CI is red and its images were never published.** `851dca1` (build 60's number bump) failed `browser suite (pangolin)` **twice** — once on its own run, once on a re-run. Both failures are identical and are the **known flake**: the call itself works (ICE connected, 1,130 packets received) and the only thing that fails is the assertion about *how* the media travelled — `connection` read **"linx"** (relayed) where the test wants **"direct"**. Because that job is red, `publish` was skipped, so **no images exist for `851dca1`** — it is undeployable, confirmed against ghcr.io. `1666120` is the newest commit that is both green and published, and its server code is **byte-identical** to `851dca1` (the diff is `handoff.md` and the Xcode build number), so live has every server change master has. Nothing is missing; the version string is simply one commit back.
+
+**Two things found while doing this, both left alone deliberately:**
+- **A person with no extension gets a 500 from the voicemail badge.** The failing run's container log showed `GET /api/v1/me/voicemail-count` → `can't scan into dest[8]: cannot scan NULL into *bool`. `internal/store/voicemail.go`'s `VoicemailBoxes` computes `Mine` as `b.extension_id IS NOT NULL AND b.extension_id = (SELECT extension_id FROM me)`; when the signed-in person has no extension that subquery is NULL, so `TRUE AND NULL` is NULL and the scan into a `*bool` fails. **Pre-existing since `745a03a`, 2026-10-02** — not from this day's work. A `coalesce(…, false)` on that one expression (and a store test for a person with no extension) fixes it. Only ever logged, never reported, because the browser suite dumps container logs on failure alone.
+- **The pangolin flake needs a real answer, not another re-run.** Playwright's `retries: 1` doesn't cover it — both attempts within a run fail together, so it isn't a timing race inside the test. Worth deciding whether "direct" is even the right expectation for that door in CI, where UDP is blocked.
+
+**Next:** the owner tries build 60 (a video call on mobile data long enough for the picture to settle; a swipe-delete in Calls checked against the browser; and a call long enough to confirm a duration now appears). Then the two items above.
 
 **▶ 2026-10-23 (evening) — the owner's call-back, read end to end, and three things that came out of it.**
 
