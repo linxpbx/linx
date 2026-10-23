@@ -678,7 +678,12 @@ extension CallTests {
         // down it while nothing this phone sends gets out. There is then no
         // silence for `LineWatch` to notice, and the person waits for a
         // call that was never heard of (the owner's 13:13:48 dial).
-        let (agent, transport, media, box) = await signedIn(silenceAfter: .milliseconds(30))
+        // The window has to be long enough to hold the traffic below with
+        // room to spare: at 30 ms the four waits could outlast it on a
+        // loaded Mac, the line stopped half way through them, and the rest
+        // of the traffic then arrived on a line that had already gone —
+        // which failed the three checks after it (2026-10-23).
+        let (agent, transport, media, box) = await signedIn(silenceAfter: .milliseconds(400))
         await agent.call("1024")
         let lost = try #require(transport.last("INVITE"))
         // Linx keeps asking after the phone all the while, which is traffic
