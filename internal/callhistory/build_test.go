@@ -205,6 +205,37 @@ func TestBuild(t *testing.T) {
 			},
 		},
 		{
+			// The shape a woken phone's call really has, from the owner's
+			// own server (2026-10-23 14:49, five minutes and 44 seconds of
+			// talking): the caller's leg to the wake Local channel and the
+			// wake leg itself both answer and carry **nothing** (billsec 0),
+			// and once Asterisk takes the Local channel out of the bridge it
+			// writes a **second row for the same uniqueid**, caller straight
+			// to the phone, which is the leg people talked on. Taking the
+			// first answered leg's billsec made every woken call read as no
+			// time at all -- half the answered calls on that server.
+			name: "a woken phone's talk time comes from the leg that carried the call",
+			rows: []Row{
+				row(40, 0, 7, 7, aliceCLID, "101", "s", "linx-route", "PJSIP/d_alice-0000000c", "Local/d_bob@linx-wake-leg-00000006;1", 0, "ANSWERED", "1.40", "102", "", "n:102"),
+				func() Row {
+					r := row(41, 0, 7, 7, aliceCLID, "101", "d_bob", "linx-wake-leg", "Local/d_bob@linx-wake-leg-00000006;2", "PJSIP/d_bob-0000000d", 0, "ANSWERED", "1.41", "", "", "")
+					r.LinkedID = "1.40"
+					return r
+				}(),
+				row(42, 7, 7, 351, aliceCLID, "101", "s", "linx-route", "PJSIP/d_alice-0000000c", "PJSIP/d_bob-0000000d", 344, "ANSWERED", "1.40", "102", "", "n:102"),
+			},
+			result: ResultAnswered, dir: DirectionInternal, words: "Rang Bob (102) · answered",
+			parties: map[string]bool{"Alice": false, "Bob": false},
+			check: func(t *testing.T, c Call) {
+				if c.TalkSeconds != 344 {
+					t.Errorf("talk time %d s, want the 344 the call really lasted: %+v", c.TalkSeconds, c)
+				}
+				if c.AnsweredByName != "Bob (102)" {
+					t.Errorf("answered by %q", c.AnsweredByName)
+				}
+			},
+		},
+		{
 			// A woken phone that never arrived: its leg rang nothing, so
 			// nobody could ring at all.
 			name: "a woken phone that never arrives",

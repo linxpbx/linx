@@ -402,6 +402,14 @@ func Build(ctx context.Context, lk Lookup, rows []Row) (Call, error) {
 	answered := false
 	rang := false
 	var answer Row
+	// The longest any one answered leg carried the call. Asterisk writes a
+	// leg per step, and a call to a phone that had to be woken has an
+	// answered wake leg of its own that carried nothing (billsec 0) before
+	// the leg people actually talked on: taking the first answered leg's
+	// billsec said **every woken call lasted no time at all** (half the
+	// answered calls on the owner's own server, found 2026-10-23, one of
+	// them thirteen minutes long).
+	talk := 0
 	stepRows := map[string]bool{}
 	for _, r := range own {
 		if shared, ok := ari.WakeLeg(r.DstChannel, "1"); ok {
@@ -437,8 +445,11 @@ func Build(ctx context.Context, lk Lookup, rows []Row) (Call, error) {
 				outcome = "busy"
 			}
 			lines = append(lines, Step{Kind: StepLine, Line: name, Outcome: outcome})
-			if r.Disposition == "ANSWERED" && !answered {
-				answered, answer = true, r
+			if r.Disposition == "ANSWERED" {
+				talk = max(talk, r.BillSec)
+				if !answered {
+					answered, answer = true, r
+				}
 			}
 			continue
 		}
@@ -471,6 +482,9 @@ func Build(ctx context.Context, lk Lookup, rows []Row) (Call, error) {
 			cur.people[p.ExtensionID] = true
 			cur.rung = append(cur.rung, rung{at: r.Started, number: p.Number, label: p.Label()})
 			addParty(p.ExtensionID, true)
+		}
+		if r.Disposition == "ANSWERED" {
+			talk = max(talk, r.BillSec)
 		}
 		if r.Disposition == "ANSWERED" && !answered {
 			answered, answer = true, r
@@ -560,7 +574,7 @@ func Build(ctx context.Context, lk Lookup, rows []Row) (Call, error) {
 			at = answer.Started
 		}
 		c.AnsweredAt = &at
-		c.TalkSeconds = answer.BillSec
+		c.TalkSeconds = talk
 		if c.Direction == DirectionOutbound && c.AnsweredByName == "" {
 			c.AnsweredByName = c.ToNumber
 		}
