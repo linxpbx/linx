@@ -154,6 +154,7 @@ web/  ios/  design/tokens.json  deploy/compose/  deploy/profiles/  docs/
 - `make test-calls` (phone call suite; needs `make image SERVICE=asterisk` and `SERVICE=wireguard`), `make test-browser` (browser call suite: needs `make image SERVICE=` control-plane, asterisk, coturn), `make screens` (web screenshots into `web/e2e/screenshots/`)
 - `make security` (govulncheck, npm audit, licence allowlist), `make image SERVICE=control-plane`
 - CI: `.github/workflows/ci.yml` (amd64+arm64 tests, gitleaks, SBOM, Trivy, cosign-signed images to ghcr.io on master). Actions pinned by SHA; Dependabot updates them. First external Go dep must add a Go licence check.
+- **The app has its own workflow, `.github/workflows/ios.yml`** (owner, 2026-10-23: CI red runs were a bottleneck). It needs a macOS machine and GitHub often has none, so it runs only when `ios/**`, `design/tokens.json` or the `Makefile` changes, plus nightly and on demand — and it can be red without saying anything false about the server. **CI red now means something in Linx really is broken.** `make ci-health` prints which jobs have been failing lately; read it before changing anything about CI.
 - `linx setup [--config FILE] [--dry-run]` (code: `cmd/linx/setup.go`, `internal/installer`, `internal/hostinfo`), `linx doctor` (code: `cmd/linx/doctor.go`, `internal/doctor`: certificates in `doctor.go`, everything else in `platform.go`), `linx api-key` (code: `cmd/linx/apikey.go` → `docker exec` → `services/control-plane/apikey_cmd.go`)
 
 ## Security rules (never break these)

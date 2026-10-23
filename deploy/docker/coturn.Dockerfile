@@ -13,7 +13,14 @@ ARG VERSION=dev
 ARG COMMIT=unknown
 WORKDIR /src
 COPY go.mod go.sum* ./
-RUN go mod download
+# Three goes: proxy.golang.org dropped a module mid-download on CI run
+# 39884722237 ("stream error ... INTERNAL_ERROR") and failed an image whose
+# code was fine. A module that genuinely cannot be fetched still fails.
+RUN for try in 1 2 3; do \
+      if go mod download; then exit 0; fi; \
+      echo "go mod download failed (try $try); waiting"; \
+      sleep $((try * 5)); \
+    done; exit 1
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
       -ldflags "-s -w -X linxpbx.com/linx/internal/version.Version=${VERSION} -X linxpbx.com/linx/internal/version.Commit=${COMMIT}" \

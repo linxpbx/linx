@@ -202,6 +202,10 @@ ios-screens-all: ios-deps ## The same screenshots on all three test devices (iPh
 
 GOVULNCHECK_VERSION := v1.8.0
 
+.PHONY: ci-health
+ci-health: ## Which CI jobs have been failing lately (needs gh; RUNS=30)
+	@tools/ci-health.sh
+
 .PHONY: security
 security: ## Known-vulnerability scan (Go + npm) and licence allowlist
 	@if out=$$(go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./... 2>&1); then echo "govulncheck: ok"; \
