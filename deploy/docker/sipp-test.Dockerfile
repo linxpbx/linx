@@ -8,7 +8,7 @@ ARG SIPP_VERSION=3.7.7
 ARG SIPP_SHA256=e55b15f567760e9febeef366a1ab51a5239d197a132ce931b78c826d22d31e69
 
 # debian:bookworm-slim (multi-arch index digest), as deploy/docker/asterisk.Dockerfile
-FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS build
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS build
 ARG SIPP_VERSION
 ARG SIPP_SHA256
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
@@ -21,7 +21,7 @@ RUN tar xzf sipp.tar.gz && cd "sipp-${SIPP_VERSION}" \
     && cmake . -DUSE_SSL=1 -DUSE_PCAP=0 -DUSE_SCTP=0 -DUSE_GSL=1 \
     && make -j"$(nproc)" && install -m 0755 sipp /usr/local/bin/sipp
 
-FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends libssl3 libncursesw6 libtinfo6 libgsl27 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local/bin/sipp /usr/local/bin/sipp
